@@ -14,6 +14,8 @@
  */
 import { platformById, type EcommercePlatform } from './platforms'
 import {
+  ECOMMERCE_BASE_RATIOS,
+  ECOMMERCE_SMART_RATIO,
   ecommerceLanguageOptionLabel,
   ecommerceRatioLabel,
   usageLabel,
@@ -88,6 +90,14 @@ export interface EcommerceShot {
    * 有它时生成节点只发这一段；没有时才由确定性脚本拼一份可执行的画面描述。
    */
   prompt?: string
+  /** 这一张实际使用的比例；智能比例模式下由策划模型逐张决定。 */
+  ratio?: string
+  /** 画面主文案；空 = 这一张按平台规则不需要文字。 */
+  headline?: string
+  /** 辅助文案，必须与主标题共用同一套字体与层级。 */
+  subheadline?: string
+  /** 本批共享的视觉系统摘要；逐张携带，确保方案落库后仍可追溯。 */
+  visualSystem?: string
 }
 
 /**
@@ -110,23 +120,13 @@ export function updateEcommerceShot(
   const current = shots[index]
   if (!current) return shots
   const changed = patch.title !== undefined || patch.brief !== undefined
-  const next: EcommerceShot = {
-    title: patch.title ?? current.title,
-    brief: patch.brief ?? current.brief,
-    /*
-     * 用户改标题 / 策划后，上一次模型写的最终提示词已经不对应这行，必须一起作废。
-     * 只显式改 prompt 时则保留当前 title / brief。
-     */
-    ...(!changed && current.prompt ? { prompt: current.prompt } : {}),
-    ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
-  }
-  if (
-    next.title === current.title &&
-    next.brief === current.brief &&
-    next.prompt === current.prompt
-  ) {
-    return shots
-  }
+  const next: EcommerceShot = { ...current, ...patch }
+  /*
+   * 用户改标题 / 策划后，上一次模型写的最终提示词已经不对应这行，必须一起作废。
+   * 比例、文案与视觉系统仍保留，方便用户只修正标题时不用重做整份方案。
+   */
+  if (changed && patch.prompt === undefined) delete next.prompt
+  if (JSON.stringify(next) === JSON.stringify(current)) return shots
   const out = shots.slice()
   out[index] = next
   return out
@@ -153,14 +153,20 @@ const DETAIL_SHOTS: readonly EcommerceShot[] = [
 ]
 
 const SET_SHOTS: readonly EcommerceShot[] = [
-  { title: '白底主图', brief: '纯白背景、正对镜头，产品边缘干净' },
-  { title: '氛围主图', brief: '场景化构图，突出调性（背景不抢主体）' },
-  { title: '45° 侧视', brief: '同时看到正面与侧面，交代体量' },
-  { title: '细节特写', brief: '材质 / 工艺的关键一处' },
-  { title: '卖点图', brief: '构图留出文案位，画面文字只用指定语言' },
-  { title: '包装展示', brief: '包装外观与产品同框' },
-  { title: '尺寸示意', brief: '用参照物或标注交代真实尺寸' },
-  { title: '组合搭配', brief: '与同系列 / 常见搭配物同框，说明怎么配着用' },
+  { title: '白底图', brief: '纯白背景、正对镜头，产品边缘干净', ratio: '1:1' },
+  { title: '商品主视觉', brief: '建立整套视觉主张，产品与主文案形成第一眼记忆', ratio: '1:1' },
+  { title: '核心卖点图 1', brief: '第一核心卖点，标题与产品细节同层级表达', ratio: '1:1' },
+  { title: '核心卖点图 2', brief: '第二核心卖点，换一种构图但沿用同一字体与色彩系统', ratio: '1:1' },
+  { title: '商品细节图', brief: '材质与工艺近景，文字标注克制且可读', ratio: '4:3' },
+  { title: '使用场景图 1', brief: '真实使用场景，人物与产品建立尺度关系', ratio: '1:1' },
+  { title: '使用场景图 2', brief: '第二个生活场景，与上一张不重复但保持同一色调', ratio: '4:3' },
+  { title: '场景氛围图', brief: '宽幅氛围镜头，给整套 Listing 建立情绪与空间感', ratio: '21:9' },
+  { title: '核心对比卖点', brief: '用并置或前后对比说明价值，不贬损竞品、不编造数据', ratio: '16:9' },
+  { title: '商品细节图 2', brief: '另一个关键细节，继续使用统一标注系统', ratio: '4:3' },
+  { title: '核心卖点图 3', brief: '第三个核心价值点，方形构图便于平台裁切', ratio: '1:1' },
+  { title: '使用建议图', brief: '用简洁步骤或注意事项说明怎么使用', ratio: '4:3' },
+  { title: '场景氛围图 2', brief: '横幅场景收尾，强化整套图的生活方式联想', ratio: '16:9' },
+  { title: '包装与清单', brief: '包装、配件与随附物品平铺，说明用户实际收到什么', ratio: '1:1' },
 ]
 
 const RECREATE_SHOTS: readonly EcommerceShot[] = [
@@ -232,6 +238,20 @@ export function ecommerceShots(
   })
 }
 
+/**
+ * 这一张真正发给图片模型的比例。
+ *
+ * 固定比例是用户明确选择，模型无权改；只有 `smart` 才读取逐张策划值。
+ */
+export function effectiveEcommerceShotRatio(
+  request: Pick<EcommerceRequest, 'ratio' | 'usage'>,
+  shot?: Pick<EcommerceShot, 'ratio'>,
+): string {
+  if (request.ratio !== ECOMMERCE_SMART_RATIO) return request.ratio
+  if (request.usage !== 'set') return '1:1'
+  return shot?.ratio && ECOMMERCE_BASE_RATIOS.includes(shot.ratio) ? shot.ratio : '1:1'
+}
+
 export function buildEcommercePrompt(
   request: EcommerceRequest,
   options: BuildPromptOptions = {},
@@ -242,7 +262,7 @@ export function buildEcommercePrompt(
     : platformById(request.platformId)
 
   const lines: string[] = []
-  const note = [request.modePrompt, request.note]
+  const note = [shot?.prompt ? '' : request.modePrompt, shot?.prompt ? '' : request.note]
     .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     .map((item) => item.trim().slice(0, ECOMMERCE_NOTE_MAX))
     .join('\n')
@@ -266,11 +286,14 @@ export function buildEcommercePrompt(
 
   const shotTitle = shot?.title || usageLabel(request.usage)
   const shotBrief = shot?.brief || USAGE_HINTS[request.usage]
+  const effectiveRatio = effectiveEcommerceShotRatio(request, shot)
+  const modelPrompt = shot?.prompt?.trim()
   lines.push(
-    `专业电商商品摄影，镜头「${shotTitle}」：${shotBrief}。整套画面保持统一的产品气质、色温与光线语言` +
-      (request.count > 1
-        ? '，但这一张的镜头、景别和构图必须与同批其他图片不同。'
-        : '。'),
+    modelPrompt ||
+      (`专业电商商品摄影，镜头「${shotTitle}」：${shotBrief}。整套画面保持统一的产品气质、色温与光线语言` +
+        (request.count > 1
+          ? '，但这一张的镜头、景别和构图必须与同批其他图片不同。'
+          : '。')),
   )
   if (request.usage === 'recreate') {
     lines.push(
@@ -289,8 +312,28 @@ export function buildEcommercePrompt(
   } else {
     lines.push('按通用电商商品图要求处理，产品为画面主体，背景与道具不抢主体。')
   }
+  if (shot?.visualSystem) {
+    lines.push(`本批共享视觉系统：${shot.visualSystem}`)
+    lines.push(
+      '逐张沿用同一套字体家族与字重层级、同一文字定位与留白节奏、同一品牌色与辅助色、同一光线方向与材质表现；' +
+        '不要把每张图做成互不相关的风格，也不要随意混用字体。',
+    )
+  }
+  if (shot?.headline?.trim()) {
+    lines.push(
+      `画面必须直接排版主文案「${shot.headline.trim()}」，文字清晰可读且拼写逐字准确；` +
+        '文字作为商业画面的一部分，不覆盖商品关键结构。',
+    )
+  }
+  if (shot?.subheadline?.trim()) {
+    lines.push(
+      `画面辅助文案「${shot.subheadline.trim()}」使用与主文案相同的字体家族和层级系统，字号与字重低于主文案。`,
+    )
+  } else if (request.usage === 'set' && !/白底|纯白/.test(shotTitle)) {
+    lines.push('这一张只保留必要且可核实的画面文字，不添加画外说明或虚构卖点。')
+  }
   lines.push(
-    `按 ${ecommerceRatioLabel(request.ratio)} 画幅组织画面。画面文字只使用${ecommerceLanguageOptionLabel(request.language, request.usage)}，保持拼写正确、排版清晰，不出现乱码。`,
+    `按 ${ecommerceRatioLabel(effectiveRatio)} 画幅组织画面。画面文字只使用${ecommerceLanguageOptionLabel(request.language, request.usage)}，保持拼写正确、排版清晰，不出现乱码。`,
   )
   lines.push(
     '商品外观、颜色、材质与结构必须严格参照输入商品图；不要编造参数、认证、功效、价格、品牌或图中不存在的结构。',
@@ -311,5 +354,10 @@ export function buildEcommercePrompts(
       `分镜条数（${shots.length}）与张数（${request.count}）对不上 —— 不接受悄悄补齐或截断`,
     )
   }
-  return shots.map((shot) => shot.prompt?.trim() || buildEcommercePrompt(request, options, shot))
+  return shots.map((shot) =>
+    buildEcommercePrompt(request, options, {
+      ...shot,
+      ratio: effectiveEcommerceShotRatio(request, shot),
+    }),
+  )
 }

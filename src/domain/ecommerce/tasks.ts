@@ -4,6 +4,16 @@ import { usageLabel, type EcommerceRequest } from './types'
 /** 一次电商出图的整体状态 */
 export type EcommerceTaskStatus = 'running' | 'done' | 'partial' | 'failed' | 'canceled'
 
+/** 生成这一张时真实使用的配置，随结果落库，不能只靠提示词反推。 */
+export interface EcommerceResultMetadata {
+  shotTitle?: string
+  brief?: string
+  ratio?: string
+  headline?: string
+  subheadline?: string
+  visualSystem?: string
+}
+
 /** 逐格结果状态（与界面上的 EcommerceResultItem.status 一一对应，canceled 归到 failed 展示） */
 export type EcommerceResultStatus = 'pending' | 'running' | 'done' | 'failed' | 'canceled'
 
@@ -63,7 +73,7 @@ export interface EcommerceTaskRecord {
 }
 
 /** 逐格结果（一行 = 这一批里的一张图） */
-export interface EcommerceResultRecord {
+export interface EcommerceResultRecord extends EcommerceResultMetadata {
   id: string
   taskId: string
   projectId: string
@@ -90,6 +100,30 @@ export interface EcommerceResultRecord {
   prompt?: string
   model?: string
   errorText?: string
+}
+
+export function resultMetadataOf(
+  value: Partial<EcommerceResultMetadata>,
+): EcommerceResultMetadata {
+  const text = (input: unknown, max: number): string | undefined => {
+    if (typeof input !== 'string') return undefined
+    const trimmed = input.trim().slice(0, max)
+    return trimmed || undefined
+  }
+  const shotTitle = text(value.shotTitle, 80)
+  const brief = text(value.brief, 300)
+  const ratio = text(value.ratio, 20)
+  const headline = text(value.headline, 160)
+  const subheadline = text(value.subheadline, 280)
+  const visualSystem = text(value.visualSystem, 1200)
+  return {
+    ...(shotTitle ? { shotTitle } : {}),
+    ...(brief ? { brief } : {}),
+    ...(ratio ? { ratio } : {}),
+    ...(headline ? { headline } : {}),
+    ...(subheadline ? { subheadline } : {}),
+    ...(visualSystem ? { visualSystem } : {}),
+  }
 }
 
 /**

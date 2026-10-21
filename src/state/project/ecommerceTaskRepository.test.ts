@@ -36,6 +36,43 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(latest?.results.map((r) => r.nodeId)).toEqual(['n1', 'n2'])
   })
 
+  it('逐张配置随结果落库：类型、比例、文案与共享视觉系统刷新后仍可追溯', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const created = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-meta',
+      request: { ...request, ratio: 'smart' },
+      nodeIds: ['n1', 'n2'],
+      metadata: [
+        {
+          shotTitle: '核心卖点图',
+          brief: '第一核心卖点',
+          ratio: '4:3',
+          headline: 'Keep paws dry',
+          subheadline: 'Water-resistant surface',
+          visualSystem: '清爽户外；字体：同一无衬线体系',
+        },
+        {
+          shotTitle: '场景氛围图',
+          brief: '宽幅环境',
+          ratio: '21:9',
+          headline: 'Outdoor days',
+          visualSystem: '清爽户外；字体：同一无衬线体系',
+        },
+      ],
+      at: 100,
+    })
+    expect(created.results.map((row) => row.shotTitle)).toEqual([
+      '核心卖点图',
+      '场景氛围图',
+    ])
+    const latest = await repo.latestWithResults('p1')
+    expect(latest?.results.map((row) => row.ratio)).toEqual(['4:3', '21:9'])
+    expect(latest?.results[0]?.headline).toBe('Keep paws dry')
+    expect(latest?.results[1]?.visualSystem).toContain('同一无衬线体系')
+  })
+
   it('更新逐格与整批状态后，latest 返回的是更新后的那一份', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)

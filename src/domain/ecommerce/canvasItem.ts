@@ -111,7 +111,7 @@ export function layoutEcommerceResults(
     const aspect =
       result.width && result.height
         ? resultAspectOf(result)
-        : ratioAspectOf(task?.request.ratio)
+        : ratioAspectOf(result.ratio ?? task?.request.ratio)
     const height = Math.max(120, Math.round(width / aspect))
     const kind =
       result.mime?.startsWith('video/') || task?.request.mediaKind === 'video'

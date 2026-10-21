@@ -278,14 +278,14 @@ describe('逐张镜头脚本', () => {
       expect(p).not.toContain('这一张只做：')
     }
     expect(plan.prompts.map(shotTitleOf)).toEqual([
-      '白底主图',
-      '氛围主图',
-      '45° 侧视',
-      '细节特写',
-      '卖点图',
-      '包装展示',
-      '尺寸示意',
-      '组合搭配',
+      '白底图',
+      '商品主视觉',
+      '核心卖点图 1',
+      '核心卖点图 2',
+      '商品细节图',
+      '使用场景图 1',
+      '使用场景图 2',
+      '场景氛围图',
     ])
   })
 
@@ -332,11 +332,75 @@ describe('逐张镜头脚本', () => {
     for (const p of plan.prompts) expect(p).toContain('必须与同批其他图片不同')
   })
 
-  it('★ 张数超过脚本长度也不重复：第 9 张起给"换构图"的通用项', () => {
-    const plan = buildEcommercePlan({ ...base, usage: 'set', count: 10 })
-    expect(plan.prompts).toHaveLength(10)
-    expect(new Set(plan.prompts).size).toBe(10)
-    expect(plan.prompts[9]).toContain('不重复')
+  it('★ 完整 14 张套图不重复，并保留每张独立比例', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'set',
+      count: 14,
+      ratio: 'smart',
+    })
+    expect(plan.prompts).toHaveLength(14)
+    expect(new Set(plan.prompts).size).toBe(14)
+    expect(plan.shots.map((shot) => shot.ratio)).toEqual([
+      '1:1',
+      '1:1',
+      '1:1',
+      '1:1',
+      '4:3',
+      '1:1',
+      '4:3',
+      '21:9',
+      '16:9',
+      '4:3',
+      '1:1',
+      '4:3',
+      '16:9',
+      '1:1',
+    ])
+    expect(plan.shots.at(-1)?.title).toBe('包装与清单')
+  })
+
+  it('★★ 固定比例由用户锁定；只有智能比例才采用逐张策划值', () => {
+    const shots = [
+      {
+        title: '核心卖点图',
+        brief: '方形构图',
+        ratio: '4:3',
+        headline: 'Dry comfort',
+        visualSystem: '同一字体与暖沙色体系',
+        prompt: '专业商品摄影，方形卖点构图，产品完整可见。',
+      },
+      {
+        title: '场景氛围图',
+        brief: '宽幅场景',
+        ratio: '21:9',
+        headline: 'Outdoor days',
+        visualSystem: '同一字体与暖沙色体系',
+        prompt: '专业商品摄影，宽幅户外场景，产品置于画面右侧。',
+      },
+    ] as const
+    const fixed = buildEcommercePlan(
+      { ...base, usage: 'set', count: 2, ratio: '16:9' },
+      { shots },
+    )
+    expect(fixed.shots.map((shot) => shot.ratio)).toEqual(['16:9', '16:9'])
+    expect(fixed.prompts.every((prompt) => prompt.includes('按 16:9 画幅'))).toBe(true)
+
+    const smart = buildEcommercePlan(
+      { ...base, usage: 'set', count: 2, ratio: 'smart' },
+      { shots },
+    )
+    expect(smart.shots.map((shot) => shot.ratio)).toEqual(['4:3', '21:9'])
+    expect(smart.prompts[0]).toContain('按 4:3 画幅')
+    expect(smart.prompts[1]).toContain('按 21:9 画幅')
+    expect(smart.prompts[0]).toContain('主文案「Dry comfort」')
+    expect(smart.prompts[1]).toContain('同一字体与暖沙色体系')
+  })
+
+  it('智能比例只属于商品套图，不允许偷偷落到主图或详情页', () => {
+    expect(() =>
+      buildEcommercePlan({ ...base, usage: 'detail', count: 1, ratio: 'smart' }),
+    ).toThrow(/只用于商品套图/)
   })
 
   it('★ 单张主图仍是「正面全身」，且 plan.prompt 与 prompts[0] 同值', () => {
@@ -401,6 +465,30 @@ describe('逐行改方案', () => {
     expect(next).not.toBe(shots)
     expect(next[0]).toBe(shots[0])
     expect(next[1]).toEqual({ title: '细节特写', brief: '改成俯拍接口处' })
+  })
+
+  it('★ 改标题或策划时保留比例与文案元数据，只作废旧 prompt', () => {
+    const planned = [
+      {
+        title: '核心卖点图',
+        brief: '第一卖点',
+        ratio: '4:3',
+        headline: 'Keep paws dry',
+        subheadline: 'Water-resistant surface',
+        visualSystem: '清爽户外；同一无衬线体系',
+        prompt: '旧的最终提示词',
+      },
+    ] as const
+    const next = updateEcommerceShot(planned, 0, { brief: '改成第二卖点' })
+    expect(next[0]).toMatchObject({
+      title: '核心卖点图',
+      brief: '改成第二卖点',
+      ratio: '4:3',
+      headline: 'Keep paws dry',
+      subheadline: 'Water-resistant surface',
+      visualSystem: '清爽户外；同一无衬线体系',
+    })
+    expect(next[0]).not.toHaveProperty('prompt')
   })
 
   it('★★ 改策划后旧最终提示词作废，避免标题与画面错位', () => {

@@ -4,7 +4,9 @@ import {
   statusOfResult,
   statusOfTask,
   taskStatusOf,
+  resultMetadataOf,
   type EcommerceResultRecord,
+  type EcommerceResultMetadata,
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
@@ -21,6 +23,7 @@ export interface EcommerceTaskRepository {
     batchId: string
     request: EcommerceRequest
     nodeIds: readonly string[]
+    metadata?: readonly EcommerceResultMetadata[]
     sourceTaskId?: string
     sourceResultId?: string
     sourceAssetHash?: string
@@ -29,6 +32,7 @@ export interface EcommerceTaskRepository {
   appendResults(
     taskId: string,
     nodeIds: readonly string[],
+    metadata?: readonly EcommerceResultMetadata[],
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
   setResultHidden(resultId: string, hidden: boolean, at?: number): Promise<void>
@@ -113,6 +117,14 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     ...(stringOrUndefined(row.prompt) ? { prompt: String(row.prompt) } : {}),
     ...(stringOrUndefined(row.model) ? { model: String(row.model) } : {}),
     ...(stringOrUndefined(row.errorText) ? { errorText: String(row.errorText) } : {}),
+    ...resultMetadataOf({
+      shotTitle: stringOrUndefined(row.shotTitle),
+      brief: stringOrUndefined(row.brief),
+      ratio: stringOrUndefined(row.ratio),
+      headline: stringOrUndefined(row.headline),
+      subheadline: stringOrUndefined(row.subheadline),
+      visualSystem: stringOrUndefined(row.visualSystem),
+    }),
   }
 }
 
@@ -130,6 +142,7 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       batchId,
       request,
       nodeIds,
+      metadata,
       sourceTaskId,
       sourceResultId,
       sourceAssetHash,
@@ -158,6 +171,7 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         createdAt: at,
         updatedAt: at,
         status: 'pending',
+        ...resultMetadataOf(metadata?.[position] ?? {}),
       }))
       await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
         await tx.put('ecommerceTasks', task as never)
@@ -183,7 +197,7 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       )
     },
 
-    async appendResults(taskId, nodeIds) {
+    async appendResults(taskId, nodeIds, metadata) {
       const taskRows = (await storage.query('ecommerceTasks', { id: taskId })) as unknown as Record<
         string,
         unknown
@@ -195,16 +209,20 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       const appendedIds = [...new Set(nodeIds)].filter((id) => id && !currentIds.has(id))
       const at = Date.now()
       const start = existing.reduce((max, row) => Math.max(max, row.position), -1) + 1
-      const appended: EcommerceResultRecord[] = appendedIds.map((nodeId, offset) => ({
-        id: createId('ecr'),
-        taskId,
-        projectId: task.projectId,
-        nodeId,
-        position: start + offset,
-        createdAt: at,
-        updatedAt: at,
-        status: 'pending',
-      }))
+      const appended: EcommerceResultRecord[] = appendedIds.map((nodeId, offset) => {
+        const sourceIndex = nodeIds.indexOf(nodeId)
+        return {
+          id: createId('ecr'),
+          taskId,
+          projectId: task.projectId,
+          nodeId,
+          position: start + offset,
+          createdAt: at,
+          updatedAt: at,
+          status: 'pending',
+          ...resultMetadataOf(metadata?.[sourceIndex >= 0 ? sourceIndex : offset] ?? {}),
+        }
+      })
       const nextTask: EcommerceTaskRecord = {
         ...task,
         updatedAt: at,

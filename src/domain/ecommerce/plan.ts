@@ -8,12 +8,19 @@
  * 静默兜底（把 0 张改成 1 张、把非法比例换成 1:1）会让用户遇到"我明明填了 A、出来的是 B"，
  * 而这种缺陷在界面上看起来"功能正常"。
  */
-import { buildEcommercePrompts, type BuildPromptOptions } from './prompt'
+import {
+  buildEcommercePrompts,
+  effectiveEcommerceShotRatio,
+  ecommerceShots,
+  type BuildPromptOptions,
+  type EcommerceShot,
+} from './prompt'
 import { platformById, type EcommercePlatform } from './platforms'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
+  ECOMMERCE_SMART_RATIO,
   ECOMMERCE_USAGES,
   type EcommerceRequest,
 } from './types'
@@ -44,6 +51,11 @@ export interface EcommercePlan {
    * 主图 / 详情页 / 套图按镜头脚本逐张不同（见 `prompt.ecommerceShots`）。
    */
   prompts: readonly string[]
+  /**
+   * 逐张执行元数据。智能比例在这里已经收口为真实比例，后续建节点、
+   * 落任务和工作台展示都读这一份，不从提示词文本反推。
+   */
+  shots: readonly EcommerceShot[]
   /** 参考图：去掉重复、去掉与产品图相同的那个 */
   referenceNodeIds: string[]
   /** 所有产品图；第 1 项 = `request.productNodeId` */
@@ -106,6 +118,9 @@ export function buildEcommercePlan(
       `比例只支持 ${ECOMMERCE_RATIOS.join(' / ')}（现在是 ${String(request.ratio)}）`,
     )
   }
+  if (request.ratio === ECOMMERCE_SMART_RATIO && request.usage !== 'set') {
+    throw new EcommerceRequestError('智能比例只用于商品套图；其它功能请选择明确比例')
+  }
 
   const platforms = options.platforms
   const platform = platforms
@@ -118,7 +133,18 @@ export function buildEcommercePlan(
   const referenceNodeIds = [...new Set(request.referenceNodeIds)].filter(
     (id) => id && !productSet.has(id),
   )
-  const prompts = buildEcommercePrompts(request, options)
+  const sourceShots =
+    options.shots ?? ecommerceShots(request.usage, request.count, request.modeOptions)
+  if (sourceShots.length !== request.count) {
+    throw new EcommerceRequestError(
+      `分镜条数（${sourceShots.length}）与张数（${request.count}）对不上`,
+    )
+  }
+  const shots = sourceShots.map((shot) => ({
+    ...shot,
+    ratio: effectiveEcommerceShotRatio(request, shot),
+  }))
+  const prompts = buildEcommercePrompts(request, { ...options, shots })
 
   return {
     count: request.count,
@@ -126,6 +152,7 @@ export function buildEcommercePlan(
     platform,
     prompt: prompts[0] ?? '',
     prompts,
+    shots,
     referenceNodeIds,
     productNodeIds,
   }

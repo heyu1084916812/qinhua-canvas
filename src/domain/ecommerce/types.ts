@@ -54,7 +54,7 @@ export interface EcommerceRequest {
   language: EcommerceLanguage
   /** 生成张数：主图 1 张 / 详情页 N 张 / 套图 8 张（默认值见 plan.ts） */
   count: number
-  /** 比例：'1:1' | '3:4' | '4:3' | '16:9' | '9:16' */
+  /** 比例；套图可用 `smart`，由方案模型为每一张单独决定。 */
   ratio: string
   /**
    * 图片清晰度档位：自动 / 512 / 1K / 2K / 3K / 4K，或模型支持的像素尺寸。
@@ -154,16 +154,29 @@ export const ECOMMERCE_A_PLUS_RATIOS: readonly string[] = [
 ]
 
 /** 真正可以发给图片模型的宽高比 */
-export const ECOMMERCE_BASE_RATIOS: readonly string[] = ['1:1', '3:4', '4:3', '16:9', '9:16']
+export const ECOMMERCE_SMART_RATIO = 'smart'
+
+export const ECOMMERCE_BASE_RATIOS: readonly string[] = [
+  '1:1',
+  '3:4',
+  '4:3',
+  '16:9',
+  '21:9',
+  '9:16',
+]
 
 /** 通用比例档（平台的 ratios 是它的子集；表单在没选平台时用这一份） */
 export const ECOMMERCE_RATIOS: readonly string[] = [
+  ECOMMERCE_SMART_RATIO,
   ...ECOMMERCE_BASE_RATIOS,
   ...ECOMMERCE_A_PLUS_RATIOS.filter((ratio) => !ECOMMERCE_BASE_RATIOS.includes(ratio)),
 ]
 
-/** 张数上限：一次请求最多 12 张（再多就不该走这个表单，该走批量节点） */
-export const ECOMMERCE_COUNT_MAX = 12
+/**
+ * 套图最多 14 张：智能套图方案包含白底、主视觉、卖点、场景、对比、
+ * 使用建议与包装清单等不同角色，12 张会把完整方案截断。
+ */
+export const ECOMMERCE_COUNT_MAX = 14
 
 export function usageLabel(usage: EcommerceUsage): string {
   return usage === 'main'
@@ -246,11 +259,14 @@ export function ecommerceRatioOptions(
       ? ['9:16', '16:9', '1:1']
       : usage === 'detail'
       ? ECOMMERCE_A_PLUS_RATIOS
-      : ECOMMERCE_BASE_RATIOS
+      : usage === 'set'
+        ? [ECOMMERCE_SMART_RATIO, ...ECOMMERCE_BASE_RATIOS]
+        : ECOMMERCE_BASE_RATIOS
   return values.map((value) => ({ value, label: ecommerceRatioLabel(value) }))
 }
 
 export function ecommerceRatioLabel(ratio: string): string {
+  if (ratio === ECOMMERCE_SMART_RATIO) return '智能比例（逐张策划）'
   if (ratio === 'aplus-premium-web') return '高级A+（Web端）'
   if (ratio === 'aplus-premium-mobile') return '高级A+（移动端）'
   if (ratio === 'aplus-standard') return '普通A+'
@@ -259,6 +275,7 @@ export function ecommerceRatioLabel(ratio: string): string {
 
 /** A+ 版面需要落到模型能理解的宽高比；普通比例原样返回 */
 export function ecommerceAspectRatio(ratio: string): string {
+  if (ratio === ECOMMERCE_SMART_RATIO) return '1:1'
   if (ratio === 'aplus-premium-web') return '16:9'
   if (ratio === 'aplus-premium-mobile') return '9:16'
   if (ratio === 'aplus-standard') return '4:3'

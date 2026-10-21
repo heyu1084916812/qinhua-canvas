@@ -183,6 +183,27 @@ describe('ecommerce canvas item layout', () => {
     expect(item!.height).toBe(Math.round(item!.width / (9 / 16)))
   })
 
+  it('智能套图的待生成占位使用这一张的策划比例，而不是统一回落到 1:1', () => {
+    const smartTask = task('smart-task', 1)
+    smartTask.request = { ...smartTask.request, usage: 'set', ratio: 'smart' }
+    const [item] = layoutEcommerceResults(
+      'p1',
+      [smartTask],
+      [
+        result('planned-wide', 'smart-task', 0, {
+          status: 'running',
+          assetHash: undefined,
+          mime: undefined,
+          width: undefined,
+          height: undefined,
+          ratio: '21:9',
+        }),
+      ],
+      1280,
+    )
+    expect(item!.height).toBe(Math.round(item!.width / (21 / 9)))
+  })
+
   it('用户从工作台删除的结果带 hiddenAt 后不再被自动回填', () => {
     const items = layoutEcommerceResults(
       'p1',

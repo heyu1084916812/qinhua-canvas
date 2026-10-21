@@ -78,6 +78,7 @@ import {
 } from '../../domain/ecommerce/draft'
 import {
   resultDisplayStatus,
+  resultMetadataOf,
   taskStatusOf,
   type EcommerceResultRecord,
   type EcommerceTaskRecord,
@@ -564,7 +565,17 @@ function StudioHost({ projectId }: { projectId: string }) {
       const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
       const data = node?.data as
-        | { prompt?: unknown; model?: unknown; assetMime?: unknown }
+        | {
+            prompt?: unknown
+            model?: unknown
+            assetMime?: unknown
+            ratio?: unknown
+            shotTitle?: unknown
+            brief?: unknown
+            headline?: unknown
+            subheadline?: unknown
+            visualSystem?: unknown
+          }
         | undefined
       const width =
         typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined
@@ -606,6 +617,24 @@ function StudioHost({ projectId }: { projectId: string }) {
         ...(height !== undefined ? { height } : {}),
         ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
         ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
+        ...(typeof data?.ratio === 'string' && data.ratio && !current.ratio
+          ? { ratio: data.ratio }
+          : {}),
+        ...(typeof data?.shotTitle === 'string' && data.shotTitle && !current.shotTitle
+          ? { shotTitle: data.shotTitle }
+          : {}),
+        ...(typeof data?.brief === 'string' && data.brief && !current.brief
+          ? { brief: data.brief }
+          : {}),
+        ...(typeof data?.headline === 'string' && data.headline && !current.headline
+          ? { headline: data.headline }
+          : {}),
+        ...(typeof data?.subheadline === 'string' && data.subheadline && !current.subheadline
+          ? { subheadline: data.subheadline }
+          : {}),
+        ...(typeof data?.visualSystem === 'string' && data.visualSystem && !current.visualSystem
+          ? { visualSystem: data.visualSystem }
+          : {}),
         ...(run?.errorText
           ? { errorText: run.errorText }
           : state?.kind === 'failed'
@@ -1235,7 +1264,10 @@ function StudioHost({ projectId }: { projectId: string }) {
         ],
         signal: ac.signal,
       })
-      const parsed = parseShotsReply(result.text, request.count)
+      const parsed = parseShotsReply(result.text, request.count, {
+        usage: request.usage,
+        ratio: request.ratio,
+      })
       if (parsed.ok) {
         setGenerationStage({
           phase: 'prompts',
@@ -1244,7 +1276,12 @@ function StudioHost({ projectId }: { projectId: string }) {
         })
       }
       return parsed.ok
-        ? { ok: true, shots: parsed.shots, analysis: parsed.analysis }
+        ? {
+            ok: true,
+            shots: parsed.shots,
+            analysis: parsed.analysis,
+            designSystem: parsed.designSystem,
+          }
         : { ok: false, error: parsed.error }
     } catch (e) {
       const err = asAppError(e)
@@ -1365,8 +1402,21 @@ function StudioHost({ projectId }: { projectId: string }) {
        * `beginPlan` / `endPlan` 内同步落节点，保证一次撤销整批退回。
        */
       const batchId = createId('ecb')
-      const prescribed: { at: { x: number; y: number }; data: Record<string, unknown> }[] = []
+      const prescribed: {
+        at: { x: number; y: number }
+        data: Record<string, unknown>
+        metadata: ReturnType<typeof resultMetadataOf>
+      }[] = []
       for (let i = 0; i < plan.count; i += 1) {
+        const shot = plan.shots[i]
+        const metadata = resultMetadataOf({
+          shotTitle: shot?.title,
+          brief: shot?.brief,
+          ratio: shot?.ratio,
+          headline: shot?.headline,
+          subheadline: shot?.subheadline,
+          visualSystem: shot?.visualSystem,
+        })
         const data = await resolveDefaults({
           channels,
           type: 'generation',
@@ -1377,7 +1427,12 @@ function StudioHost({ projectId }: { projectId: string }) {
             ecommerceBatch: batchId,
             /** 第 i 张只发第 i 条最终提示词；白底图仍允许 N 条相同（抽卡）。 */
             prompt: plan.prompts[i] ?? plan.prompt,
-            ratio: ecommerceAspectRatio(plan.ratio),
+            ratio: ecommerceAspectRatio(shot?.ratio ?? plan.ratio),
+            ...(shot?.title ? { shotTitle: shot.title } : {}),
+            ...(shot?.brief ? { brief: shot.brief } : {}),
+            ...(shot?.headline ? { headline: shot.headline } : {}),
+            ...(shot?.subheadline ? { subheadline: shot.subheadline } : {}),
+            ...(shot?.visualSystem ? { visualSystem: shot.visualSystem } : {}),
             ...(request.resolution ? { resolution: request.resolution } : {}),
             ...(request.quality ? { quality: request.quality } : {}),
             count: 1,
@@ -1388,10 +1443,12 @@ function StudioHost({ projectId }: { projectId: string }) {
         prescribed.push({
           at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 },
           data,
+          metadata,
         })
       }
       setGenerationStage({ phase: 'workflow', label: '正在创建工作流' })
       const created: string[] = []
+      const createdMetadata: ReturnType<typeof resultMetadataOf>[] = []
       store.beginPlan('ecommerce:generate', `电商出图 ×${prescribed.length}`)
       try {
         for (const item of prescribed) {
@@ -1405,6 +1462,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           })
           if (!id) continue
           created.push(id)
+          createdMetadata.push(item.metadata)
           store.setSelection([id])
           /* 产品图与参考图都连成上游：引擎按上游素材收集输入。 */
           for (const productNodeId of plan.productNodeIds) {
@@ -1435,6 +1493,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           batchId,
           request: effectiveRequest,
           nodeIds: created,
+          metadata: createdMetadata,
           ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
           ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
           ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
@@ -1714,6 +1773,7 @@ function StudioHost({ projectId }: { projectId: string }) {
               const appended = await taskRepo.appendResults(
                 activeTask.id,
                 carriers.map((item) => item.id),
+                carriers.map(() => resultMetadataOf(row)),
               )
               taskForRefresh = appended.task
               setActiveTask(appended.task)
@@ -1750,7 +1810,12 @@ function StudioHost({ projectId }: { projectId: string }) {
           ...(row.model ?? activeTask.request.model
             ? { model: row.model ?? activeTask.request.model }
             : {}),
-          ratio: activeTask.request.ratio,
+          ratio: row.ratio ?? activeTask.request.ratio,
+          ...(row.shotTitle ? { shotTitle: row.shotTitle } : {}),
+          ...(row.brief ? { brief: row.brief } : {}),
+          ...(row.headline ? { headline: row.headline } : {}),
+          ...(row.subheadline ? { subheadline: row.subheadline } : {}),
+          ...(row.visualSystem ? { visualSystem: row.visualSystem } : {}),
           ...(activeTask.request.note ? { note: activeTask.request.note } : {}),
           createdAt: row.createdAt,
           onDownload: downloadOf(hash),
@@ -1759,7 +1824,9 @@ function StudioHost({ projectId }: { projectId: string }) {
             ...(height !== undefined ? { height } : {}),
             ...(row.prompt ? { prompt: row.prompt } : {}),
             ...(row.model ? { model: row.model } : {}),
-            ...(activeTask.request.ratio ? { ratio: activeTask.request.ratio } : {}),
+            ...((row.ratio ?? activeTask.request.ratio)
+              ? { ratio: row.ratio ?? activeTask.request.ratio }
+              : {}),
           }),
           /**
            * 失败 / 取消后的“重新生成”必须先把结果行切回 running。

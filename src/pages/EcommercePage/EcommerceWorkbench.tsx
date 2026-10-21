@@ -185,16 +185,24 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' |
   return <svg {...common}><path d="M5 4h14v16l-7-3-7 3z" /></svg>
 }
 
+type WorkbenchMediaSource = 'preview' | 'original'
+
+interface DisplayedWorkbenchImage {
+  hash: string
+  url: string
+  source: WorkbenchMediaSource
+}
+
 function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; original: boolean }) {
   const previewMeta = useAssetPreview(item.assetHash)
   const [previewFailedUrl, setPreviewFailedUrl] = useState<string | null>(null)
   const [originalFailedUrl, setOriginalFailedUrl] = useState<string | null>(null)
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+  const [displayedImage, setDisplayedImage] = useState<DisplayedWorkbenchImage | null>(null)
+  const [videoLoadedUrl, setVideoLoadedUrl] = useState<string | null>(null)
 
   /*
-   * 与画布节点一致：640/1600 预览先顶住，原图只在选中或预览不可用时补读。
-   * 这里不能在选中瞬间把预览 URL 丢掉 —— 原图还在读的那几百毫秒正是截图里
-   * “点开以后反而载入中”的来源。
+   * 与画布节点一致：预览先顶住，原图只在选中或预览不可用时补读。
+   * 选中时绝不先撤掉预览，否则 src 切换与原图解码之间会出现一帧空白。
    */
   const previewUrl =
     previewMeta.url && previewMeta.url !== previewFailedUrl ? previewMeta.url : null
@@ -202,13 +210,63 @@ function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; origina
   const originalMeta = useAssetMeta(needOriginal ? item.assetHash : undefined)
   const originalUrl =
     originalMeta.url && originalMeta.url !== originalFailedUrl ? originalMeta.url : null
-  const url = originalUrl ?? previewUrl
-  const source = url && url === originalUrl ? 'original' : url ? 'preview' : null
-  const loaded = !!url && loadedUrl === url
+  const candidateUrl = originalUrl ?? previewUrl
+  const candidateSource: WorkbenchMediaSource | null =
+    candidateUrl && candidateUrl === originalUrl ? 'original' : candidateUrl ? 'preview' : null
+  const isVideo =
+    item.kind === 'video' ||
+    originalMeta.mime?.startsWith('video/') ||
+    previewMeta.mime?.startsWith('video/')
+
+  /*
+   * 图片先在脱离 DOM 的 Image 里完成解码，成功后一次替换 displayedImage。
+   * 这样原图到达时，页面仍显示已解码的预览；新图已经可绘制时才切过去，
+   * 不会出现“原图 src 已换、但还没解码”的白帧。
+   */
+  useEffect(() => {
+    if (isVideo || !item.assetHash || !candidateUrl || !candidateSource) return
+    if (
+      displayedImage?.hash === item.assetHash &&
+      displayedImage.url === candidateUrl
+    ) {
+      return
+    }
+    let alive = true
+    const probe = new Image()
+    probe.decoding = 'async'
+    probe.onload = () => {
+      if (!alive) return
+      setDisplayedImage({
+        hash: item.assetHash!,
+        url: candidateUrl,
+        source: candidateSource,
+      })
+    }
+    probe.onerror = () => {
+      if (!alive) return
+      if (candidateSource === 'preview') setPreviewFailedUrl(candidateUrl)
+      else setOriginalFailedUrl(candidateUrl)
+    }
+    probe.src = candidateUrl
+    return () => {
+      alive = false
+      probe.onload = null
+      probe.onerror = null
+    }
+  }, [candidateSource, candidateUrl, displayedImage, isVideo, item.assetHash])
+
+  const displayed =
+    displayedImage?.hash === item.assetHash ? displayedImage : null
+  const source = isVideo ? candidateSource : displayed?.source ?? null
+  const loaded = isVideo ? !!candidateUrl && videoLoadedUrl === candidateUrl : !!displayed
+  const previewUnavailable = !!previewFailedUrl || previewMeta.missing === true
+  const originalUnavailable = !!originalFailedUrl || originalMeta.missing === true
   const missing =
-    !url &&
-    ((needOriginal && originalMeta.missing === true) ||
-      (!needOriginal && previewMeta.missing === true))
+    !displayed &&
+    !candidateUrl &&
+    needOriginal &&
+    previewUnavailable &&
+    originalUnavailable
 
   if (!item.assetHash) return <span className={styles.missing}>素材不存在</span>
   if (missing) {
@@ -225,61 +283,56 @@ function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; origina
     )
   }
 
-  if (item.kind === 'video' || originalMeta.mime?.startsWith('video/') || previewMeta.mime?.startsWith('video/')) {
+  if (isVideo) {
     return (
       <span
         className={styles.mediaStage}
         aria-busy={!loaded}
-        data-ecommerce-media-state={loaded ? 'ready' : url ? 'loading' : 'pending'}
+        data-ecommerce-media-state={loaded ? 'ready' : candidateUrl ? 'loading' : 'pending'}
       >
-        {url ? (
+        {candidateUrl ? (
           <video
             className={loaded ? `${styles.media} ${styles.mediaReady}` : styles.media}
-            src={url}
+            src={candidateUrl}
             controls
             playsInline
             preload="metadata"
             data-ecommerce-media-source={source}
-            onLoadedData={() => setLoadedUrl(url)}
+            onLoadedData={() => setVideoLoadedUrl(candidateUrl)}
             onError={() => {
-              if (source === 'preview') setPreviewFailedUrl(url)
-              else if (url) setOriginalFailedUrl(url)
-              setLoadedUrl(null)
+              if (source === 'preview') setPreviewFailedUrl(candidateUrl)
+              else if (source === 'original') setOriginalFailedUrl(candidateUrl)
+              setVideoLoadedUrl(null)
             }}
             onPointerDown={(event) => event.stopPropagation()}
           />
         ) : null}
         {!loaded ? <span className={styles.mediaPending} data-ecommerce-media-loading /> : null}
         <span className={styles.srOnly} aria-live="polite">
-          {loaded ? '图片已载入' : '正在载入图片'}
+          {loaded ? '媒体已载入' : '正在载入媒体'}
         </span>
       </span>
     )
   }
+
   return (
     <span
       className={styles.mediaStage}
-      aria-busy={!loaded}
-      data-ecommerce-media-state={loaded ? 'ready' : url ? 'loading' : 'pending'}
+      aria-busy={!displayed}
+      data-ecommerce-media-state={displayed ? 'ready' : candidateUrl ? 'loading' : 'pending'}
     >
-      {url ? (
+      {displayed ? (
         <img
-          className={loaded ? `${styles.media} ${styles.mediaReady}` : styles.media}
-          src={url}
+          className={`${styles.media} ${styles.mediaReady}`}
+          src={displayed.url}
           alt=""
           draggable={false}
-          data-ecommerce-media-source={source}
-          onLoad={() => setLoadedUrl(url)}
-          onError={() => {
-            if (source === 'preview') setPreviewFailedUrl(url)
-            else if (url) setOriginalFailedUrl(url)
-            setLoadedUrl(null)
-          }}
+          data-ecommerce-media-source={displayed.source}
         />
       ) : null}
-      {!loaded ? <span className={styles.mediaPending} data-ecommerce-media-loading /> : null}
+      {!displayed ? <span className={styles.mediaPending} data-ecommerce-media-loading /> : null}
       <span className={styles.srOnly} aria-live="polite">
-        {loaded ? '图片已载入' : '正在载入图片'}
+        {displayed ? '图片已载入' : '正在载入图片'}
       </span>
     </span>
   )
@@ -1264,6 +1317,22 @@ export function EcommerceWorkbench({
                   original={selectedItem || !item.resultId}
                 />
               )}
+              {activeResult?.shotTitle && status === 'done' ? (
+                <span
+                  className={styles.resultConfigBadge}
+                  data-ecommerce-result-config
+                  title={[
+                    activeResult.shotTitle,
+                    activeResult.ratio ? `比例 ${activeResult.ratio}` : '',
+                    activeResult.visualSystem ?? '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
+                  {activeResult.shotTitle}
+                  {activeResult.ratio ? ` · ${activeResult.ratio}` : ''}
+                </span>
+              ) : null}
               {selectedItem && selectedIds.size === 1 && (
                 <>
                   <span className={styles.sizeLabel} data-ecommerce-item-size>
@@ -1351,6 +1420,8 @@ export function EcommerceWorkbench({
           {selectedResult ? (
             <dl className={styles.panelMeta}>
               <div><dt>模型</dt><dd>{selectedResult.model || '—'}</dd></div>
+              <div><dt>类型</dt><dd>{selectedResult.shotTitle || '—'}</dd></div>
+              <div><dt>比例</dt><dd>{selectedResult.ratio || '—'}</dd></div>
               <div><dt>像素</dt><dd>{selectedResult.width ?? '?'} × {selectedResult.height ?? '?'}</dd></div>
             </dl>
           ) : null}

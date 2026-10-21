@@ -25892,7 +25892,7 @@ async function g116(browser) {
       JSON.stringify(usages) ===
         JSON.stringify(['set', 'detail', 'recreate', 'white-bg', 'main']) &&
       (await page.locator('[data-ecommerce-platform] option').count()) === 7 &&
-      (await page.locator('[data-ecommerce-ratio] option').count()) === 5,
+      (await page.locator('[data-ecommerce-ratio] option').count()) === 7,
     `用途=${usages.join(',')}`,
   )
   /*
@@ -28221,6 +28221,12 @@ async function g166(browser) {
         height: 900,
         prompt: '第一张',
         model: 'Nano Banana 2',
+        shotTitle: '核心卖点图',
+        brief: '第一核心卖点',
+        ratio: '4:3',
+        headline: 'Keep paws dry',
+        subheadline: 'Water-resistant surface',
+        visualSystem: '清爽户外；同一无衬线字体与暖沙色体系',
       },
       {
         id: 'wb-r2',
@@ -28237,6 +28243,12 @@ async function g166(browser) {
         height: 1000,
         prompt: '第二张',
         model: 'Nano Banana 2',
+        shotTitle: '场景氛围图',
+        brief: '户外使用氛围',
+        ratio: '21:9',
+        headline: 'Outdoor days',
+        subheadline: 'Made for everyday adventures',
+        visualSystem: '清爽户外；同一无衬线字体与暖沙色体系',
       },
       {
         id: 'wb-r3',
@@ -28386,6 +28398,16 @@ async function g166(browser) {
 
   const items = page.locator('[data-ecommerce-workbench-item]')
   rec(g, '三条历史结果自动回填到独立无限工作台', (await items.count()) === 3, `items=${await items.count()}`)
+  const resultConfigText = await a1Item
+    .locator('[data-ecommerce-result-config]')
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★★ 图片本身标明策划类型与真实比例，用户不必靠猜',
+    /核心卖点图/.test(resultConfigText) && /4:3/.test(resultConfigText),
+    resultConfigText,
+  )
   rec(
     g,
     '底部工具栏包含选择 / 抓手 / 上传 / 文字 / 上一步 / 下一步，不再摆无意义网格开关',
@@ -28519,6 +28541,8 @@ async function g166(browser) {
     '结果功能面板只保留电商自己的下载 / 收藏，不再出现“在画布中打开”',
     resultActionText.includes('下载') &&
       resultActionText.includes('收藏到素材库') &&
+      resultActionText.includes('核心卖点图') &&
+      resultActionText.includes('4:3') &&
       !resultActionText.includes('画布'),
     resultActionText.replace(/\n/g, ' | '),
   )
@@ -37181,16 +37205,30 @@ async function g164(browser) {
                   summary: '已查看随附商品图：e2e-product',
                   visibleFacts: ['商品外观以输入图为准'],
                 },
+                designSystem: {
+                  name: '白底商业视觉',
+                  palette: ['纯白', '商品原色'],
+                  typography: '同一无衬线字体与固定字重层级',
+                  lighting: '统一柔和棚拍光',
+                  composition: '产品居中，四边留白一致',
+                  imageTreatment: '真实材质、干净后期',
+                },
                 shots: [
                   {
                     title: '白底主图 A',
                     brief: '白底正面构图',
+                    ratio: '1:1',
+                    headline: '',
+                    subheadline: '',
                     prompt:
                       '专业电商商业摄影，白色无缝背景，商品正面居中，柔和棚拍光线，材质清晰，画面文字使用英文。',
                   },
                   {
                     title: '白底主图 B',
                     brief: '白底轻微侧视角',
+                    ratio: '1:1',
+                    headline: '',
+                    subheadline: '',
                     prompt:
                       '专业电商商业摄影，白色无缝背景，商品以轻微侧视角展示体积感，柔光与自然接触阴影，画面文字使用英文。',
                   },
@@ -37609,6 +37647,28 @@ async function g164(browser) {
       (await page.locator('[data-ecommerce-set-count="scene"]').innerText()).trim() === '0' &&
       (await page.locator('[data-ecommerce-set-count="detail"]').innerText()).trim() === '0',
   )
+  const setRatioTrigger = page.locator('[data-ecommerce-ratio]')
+  rec(
+    g,
+    '★★ 商品套图默认使用智能比例，由方案模型逐张决定画幅',
+    (await setRatioTrigger.innerText()).includes('智能比例'),
+    await setRatioTrigger.innerText(),
+  )
+  await setRatioTrigger.click()
+  const setRatioMenu = page.locator('[data-ecommerce-menu="ratio"]')
+  await setRatioMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const setRatioLabels = await setRatioMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★ 智能比例与 21:9 等真实比例都可选',
+    setRatioLabels.some((label) => label.includes('智能比例')) &&
+      setRatioLabels.includes('21:9'),
+    setRatioLabels.join(' / '),
+  )
+  await page.keyboard.press('Escape')
+  await setRatioMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
 
   await page.locator('[data-ecommerce-mode="product-detail"]').click()
   rec(
@@ -37857,6 +37917,33 @@ async function g164(browser) {
           !/套图结构：|输出：\d+ 张|同批：|目标平台：|硬约束：/.test(prompt),
       ),
     JSON.stringify(finalPrompts),
+  )
+  const generatedResults = (await sharedRows(page, 'ecommerceResults'))
+    .filter((row) => row.projectId === projectId && row.taskId === task?.id)
+    .sort((a, b) => Number(a.position) - Number(b.position))
+  const generatedNodeRatios = (task?.nodeIds ?? []).map(
+    (id) => nodeRows.find((row) => row.id === id)?.data?.ratio ?? '',
+  )
+  rec(
+    g,
+    '★★★ 智能比例逐张落到节点与结果：类型、真实比例、视觉系统都可追溯',
+    generatedResults.length === 2 &&
+      generatedNodeRatios.every((ratio) => ratio === '1:1') &&
+      generatedResults.every(
+        (row) =>
+          typeof row.shotTitle === 'string' &&
+          row.ratio === '1:1' &&
+          typeof row.visualSystem === 'string' &&
+          row.visualSystem.includes('白底商业视觉'),
+      ),
+    JSON.stringify({
+      nodeRatios: generatedNodeRatios,
+      results: generatedResults.map((row) => ({
+        title: row.shotTitle,
+        ratio: row.ratio,
+        visual: row.visualSystem,
+      })),
+    }),
   )
   rec(
     g,

@@ -6,6 +6,7 @@ import {
   ECOMMERCE_FORM_USAGES,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
+  ECOMMERCE_SMART_RATIO,
   type EcommerceLanguage,
   type EcommerceModeOptions,
   type EcommerceUsage,
@@ -63,7 +64,7 @@ export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
   platformId: 'amazon',
   language: 'en',
   count: ECOMMERCE_DEFAULT_COUNT.set,
-  ratio: '1:1',
+  ratio: 'smart',
   resolution: 'auto',
   quality: 'auto',
   note: '',
@@ -104,7 +105,9 @@ function normalizeModeStates(value: unknown): Record<string, EcommerceModeFormSt
     const ratio =
       typeof rawState.ratio === 'string' && ECOMMERCE_RATIOS.includes(rawState.ratio)
         ? rawState.ratio
-        : DEFAULT_ECOMMERCE_FORM_DRAFT.ratio
+        : key === 'product-set'
+          ? ECOMMERCE_SMART_RATIO
+          : '1:1'
     out[key] = {
       platformId:
         stringOf(rawState.platformId, 100) || DEFAULT_ECOMMERCE_FORM_DRAFT.platformId,
@@ -122,7 +125,7 @@ function normalizeModeStates(value: unknown): Record<string, EcommerceModeFormSt
  * 把库里读到的任意值收敛成可用草稿。
  *
  * 脏字段逐项回落，**不让坏数据把表单打不开**：用途 / 语言 / 比例只认白名单，
- * 张数夹在 1..12，文字截到各自上限；节点 id 只留非空字符串。
+ * 张数夹在 1..ECOMMERCE_COUNT_MAX，文字截到各自上限；节点 id 只留非空字符串。
  */
 export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft {
   const raw = isRecord(value) ? value : {}
@@ -134,7 +137,9 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
   const ratio =
     typeof raw.ratio === 'string' && ECOMMERCE_RATIOS.includes(raw.ratio)
       ? raw.ratio
-      : DEFAULT_ECOMMERCE_FORM_DRAFT.ratio
+      : usage === 'set'
+        ? ECOMMERCE_SMART_RATIO
+        : '1:1'
   const referenceNodeIds = Array.isArray(raw.referenceNodeIds)
     ? [...new Set(raw.referenceNodeIds.filter((id): id is string => typeof id === 'string' && !!id))]
         .slice(0, 4)

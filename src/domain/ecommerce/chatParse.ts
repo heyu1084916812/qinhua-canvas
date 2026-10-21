@@ -71,7 +71,7 @@ ${ECOMMERCE_INTENT_MARKER}输出契约（必须严格遵守）
 2. 只允许下面这几个键，**没听出来的键就不要写**（不许猜、不许替用户填默认值）：
    {"usage":"主图|白底图|详情页|套图|爆款复刻","platformId":"平台 id","language":"语言代码","count":张数,"ratio":"比例","note":"补充要求"}
 3. usage 只能写那五个中文词之一；platformId 只能写"可用平台"里给出的 id；
-   language 只能写"可用语言"里给出的代码；ratio 只能写 1:1 / 3:4 / 4:3 / 16:9 / 9:16。
+   language 只能写"可用语言"里给出的代码；ratio 只能写 1:1 / 3:4 / 4:3 / 16:9 / 21:9 / 9:16 / smart（智能比例只用于套图）。
 4. count 是 1–${ECOMMERCE_COUNT_MAX} 的整数。
 5. note 写用户对画面的补充要求（用原话里的词，不要自己发挥）；没有就写空字符串。
 6. 用户没说的，键就**不要出现** —— 表单里已有别的值，你猜错一个，用户就要多改一处。`
@@ -134,7 +134,7 @@ function pickLanguage(value: unknown): EcommerceLanguage | undefined {
 }
 
 /**
- * 比例：只认表单给的那五档。
+ * 比例：只认表单白名单；智能比例只接受明确的 smart / 智能比例。
  *
  * 这里**顺手接受全角冒号**（`３:４` 这类输入在中文输入法下很常见），
  * 归一到半角后仍要与档位**完全相等**才算认出来 —— 不做"最接近的一档"，
@@ -143,6 +143,7 @@ function pickLanguage(value: unknown): EcommerceLanguage | undefined {
 function pickRatio(value: unknown): string | undefined {
   const s = trimmed(value).replace(/：/g, ':')
   if (!s) return undefined
+  if (s === '智能比例' || s === '智能') return 'smart'
   return ECOMMERCE_RATIOS.find((r) => r === s)
 }
 

@@ -29,7 +29,19 @@ const requestOf = (over: Partial<EcommerceRequest> = {}): EcommerceRequest => ({
 const replyOf = (
   shots: readonly Record<string, unknown>[],
   analysis = '图中是一只蓝色户外宠物垫，边缘有提手。',
-): string => JSON.stringify({ productAnalysis: { summary: analysis }, shots })
+): string =>
+  JSON.stringify({
+    productAnalysis: { summary: analysis },
+    designSystem: {
+      name: '清爽户外',
+      palette: ['海军蓝', '暖沙色'],
+      typography: '同一无衬线字体，标题粗体，正文常规，左对齐',
+      lighting: '统一左前方柔和自然光',
+      composition: '产品占主体，留白充足',
+      imageTreatment: '真实材质、低饱和、干净后期',
+    },
+    shots,
+  })
 
 const shotOf = (index: number, over: Record<string, unknown> = {}) => ({
   title: `镜 ${index}`,
@@ -90,28 +102,13 @@ describe('parseShotsReply：条数必须严格对得上', () => {
     expect(short.ok).toBe(false)
     if (!short.ok) expect(short.error).toContain('要 4 条，模型回了 2 条')
 
-    const long = parseShotsReply(
-      JSON.stringify({
-        productAnalysis: { summary: '已看图' },
-        shots: [
-          shotOf(1),
-          shotOf(2),
-        ],
-      }),
-      1,
-    )
+    const long = parseShotsReply(replyOf([shotOf(1), shotOf(2)]), 1)
     expect(long.ok).toBe(false)
   })
 
   it('★★ 某一条没写 brief ⇒ 整批回落（不许拿 title 顶上，也不许留个空壳）', () => {
     const out = parseShotsReply(
-      JSON.stringify({
-        productAnalysis: { summary: '已看图' },
-        shots: [
-          shotOf(1),
-          shotOf(2, { brief: '   ' }),
-        ],
-      }),
+      replyOf([shotOf(1), shotOf(2, { brief: '   ' })]),
       2,
     )
     expect(out.ok).toBe(false)
@@ -164,6 +161,70 @@ describe('parseShotsReply：条数必须严格对得上', () => {
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.error).toContain('提示词有重复')
   })
+
+  it('★★ 智能比例逐张保留 ratio，并把统一视觉系统与真实文案带回执行层', () => {
+    const out = parseShotsReply(
+      replyOf([
+        shotOf(1, {
+          title: '核心卖点图',
+          ratio: '4:3',
+          headline: 'Keep paws dry',
+          subheadline: 'Water-resistant surface for rainy walks',
+        }),
+        shotOf(2, {
+          title: '场景氛围图',
+          ratio: '21:9',
+          headline: 'Made for outdoor days',
+          subheadline: 'Lightweight, foldable and easy to carry',
+        }),
+      ]),
+      2,
+      { usage: 'set', ratio: 'smart' },
+    )
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.shots.map((shot) => shot.ratio)).toEqual(['4:3', '21:9'])
+    expect(out.shots.map((shot) => shot.headline)).toEqual([
+      'Keep paws dry',
+      'Made for outdoor days',
+    ])
+    expect(out.shots[0]?.visualSystem).toContain('字体')
+    expect(out.designSystem.name).toBe('清爽户外')
+  })
+
+  it('★★ 智能比例缺逐张 ratio、套图正文缺 headline 或缺视觉系统都停止', () => {
+    const noRatio = parseShotsReply(
+      replyOf([
+        shotOf(1, { title: '核心卖点图', headline: 'Dry comfort' }),
+        shotOf(2, { title: '场景图', headline: 'Outdoor ready' }),
+      ]),
+      2,
+      { usage: 'set', ratio: 'smart' },
+    )
+    expect(noRatio.ok).toBe(false)
+    if (!noRatio.ok) expect(noRatio.error).toContain('可执行比例')
+
+    const noHeadline = parseShotsReply(
+      replyOf([
+        shotOf(1, { title: '核心卖点图', ratio: '1:1' }),
+        shotOf(2, { title: '场景图', ratio: '4:3', headline: 'Outdoor ready' }),
+      ]),
+      2,
+      { usage: 'set', ratio: 'smart' },
+    )
+    expect(noHeadline.ok).toBe(false)
+    if (!noHeadline.ok) expect(noHeadline.error).toContain('headline 为空')
+
+    const noSystem = parseShotsReply(
+      JSON.stringify({
+        productAnalysis: { summary: '已看图' },
+        shots: [shotOf(1)],
+      }),
+      1,
+    )
+    expect(noSystem.ok).toBe(false)
+    if (!noSystem.ok) expect(noSystem.error).toContain('视觉系统')
+  })
 })
 
 describe('shotKeyOf：一份方案还算不算数', () => {
@@ -205,11 +266,21 @@ describe('提示词与逐张拼装', () => {
     expect(text).toContain('附带的视觉素材：2 张商品原图 / 参考图')
     expect(text).toContain('用户的要求：突出防水材质，模特手持场景')
     expect(text).toContain('要求张数：4')
-    expect(text).toContain('比例：3:4')
+    expect(text).toContain('比例参数：固定 3:4')
     expect(text).toContain('亚马逊')
     expect(text).toContain('默认镜头脚本')
     /* 默认脚本的条目也要在（第 1 条对应第 1 张） */
     expect(text).toContain('- 首图：全貌 + 卖点主张')
+  })
+
+  it('平台与语言会提供不同的视觉 / 排版预设，而不是只换一句语言名', () => {
+    const amazon = buildShotsText(requestOf())
+    expect(amazon).toContain('平台视觉预设：干净商业编辑风')
+    expect(amazon).toContain('语言排版预设：拉丁文字')
+
+    const arabic = buildShotsText(requestOf({ language: 'ar', platformId: 'tiktok-shop' }))
+    expect(arabic).toContain('高节奏内容电商')
+    expect(arabic).toContain('从右向左排版')
   })
 
   it('系统指令带识别标记，要求先分析附图并输出最终 prompt，且不许编造', () => {
@@ -219,6 +290,9 @@ describe('提示词与逐张拼装', () => {
     expect(system).toContain('最终视觉提示词')
     expect(system).toContain('条数必须等于要求的张数')
     expect(system).toContain('不许编造材质、参数、认证、功效、价格、品牌')
+    expect(system).toContain('designSystem')
+    expect(system).toContain('同一字体家族与字重层级')
+    expect(system).toContain('白底主图必须把两项写成空字符串')
   })
 
   it('★★ 传了分镜就逐张用它 —— 第 i 张的提示词里是第 i 条 brief', () => {
@@ -243,6 +317,34 @@ describe('提示词与逐张拼装', () => {
     expect(prompts[0]).not.toContain('这一张只做')
     /* 逐张不同是真的不同，不是同一个意思换个词 */
     expect(prompts[0]).not.toBe(prompts[1])
+  })
+
+  it('★★ 模型已给最终 prompt 时，不再把套图结构与表单备注拼回生图正文', () => {
+    const [prompt] = buildEcommercePrompts(
+      requestOf({
+        usage: 'set',
+        count: 1,
+        ratio: 'smart',
+        modePrompt: '套图结构：自定义配置\n自定义各类型数量：白底图1张',
+        note: '突出防水材质',
+      }),
+      {
+        platforms: ECOMMERCE_PLATFORMS,
+        shots: [
+          {
+            title: '白底图',
+            brief: '纯白正面',
+            ratio: '1:1',
+            visualSystem: '清爽户外；同一字体体系',
+            prompt: '专业商业摄影，纯白背景，产品正面居中，柔和棚拍光。',
+          },
+        ],
+      },
+    )
+    expect(prompt).toContain('专业商业摄影')
+    expect(prompt).not.toContain('套图结构')
+    expect(prompt).not.toContain('自定义各类型数量')
+    expect(prompt).not.toContain('突出防水材质')
   })
 
   it('★★ 分镜条数与张数对不上 ⇒ 直接抛错（不许悄悄补齐或截断）', () => {

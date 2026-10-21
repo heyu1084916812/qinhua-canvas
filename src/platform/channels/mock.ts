@@ -618,6 +618,9 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         }
         const shots = Number((userMsg.match(/要求张数：(\d+)/) ?? [])[1]) || 1
         const note = ((userMsg.match(/用户的要求：(.+)/) ?? [])[1] ?? '').trim()
+        const fixedRatio = (userMsg.match(/比例参数：固定 ([0-9]+:[0-9]+)/) ?? [])[1]
+        const smartRatios = ['1:1', '4:3', '21:9', '16:9', '1:1']
+        const isSet = userMsg.includes('用途：套图')
         const images = imageInputsOf(request.inputs)
         const angles = [
           '正面全身',
@@ -638,9 +641,20 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
                   : '未收到商品图',
               visibleFacts: ['商品主体与外观以输入图为准'],
             },
+            designSystem: {
+              name: '轻画商业视觉',
+              palette: ['主色跟随商品', '暖白辅助色'],
+              typography: '统一无衬线字体，主标题粗体，辅助文案常规，左对齐',
+              lighting: '统一柔和侧前方商业棚拍光',
+              composition: '产品为主体，标题区与商品保留稳定安全边距',
+              imageTreatment: '真实材质、低饱和、干净后期',
+            },
             shots: Array.from({ length: shots }, (_, i) => ({
               title: `模型第 ${i + 1} 镜`,
               brief: `${note}｜${angles[i] ?? '换一个不重复的构图'}`,
+              ratio: fixedRatio || smartRatios[i % smartRatios.length],
+              headline: isSet ? `Product benefit ${i + 1}` : '',
+              subheadline: isSet ? 'Designed for everyday use' : '',
               prompt:
                 `专业电商商业摄影，${angles[i] ?? '换一个不重复的构图'}，` +
                 `${note || '突出商品本身'}。商品外观、颜色、材质与结构严格参照输入商品图，` +

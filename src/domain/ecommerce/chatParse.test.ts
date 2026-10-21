@@ -76,13 +76,20 @@ describe('parseEcommerceIntent：只认白名单，一个都不许猜', () => {
     expect(out.draft.platformId).toBe('amazon')
   })
 
-  it('比例接受全角冒号，但只认表单那五档', () => {
+  it('比例接受全角冒号，但只认表单白名单', () => {
     expect(okOf(JSON.stringify({ ratio: '3：4' }), { fallbackNote: '' }).draft.ratio).toBe('3:4')
     expect(okOf(JSON.stringify({ ratio: ' 1:1 ' }), { fallbackNote: '' }).draft.ratio).toBe('1:1')
     expect(parseEcommerceIntent(JSON.stringify({ ratio: '2:3' })).ok).toBe(false)
   })
 
-  it('张数：整数 1..12；小数四舍五入、0 与 99 都不收', () => {
+  it('套图的智能比例可被一句话识别', () => {
+    const out = parseEcommerceIntent(JSON.stringify({ usage: '套图', ratio: '智能比例' }))
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.draft).toMatchObject({ usage: 'set', ratio: 'smart' })
+  })
+
+  it('张数：整数 1..14；小数四舍五入、0 与 99 都不收', () => {
     expect(okOf(JSON.stringify({ count: 8 }), { fallbackNote: '' }).draft.count).toBe(8)
     /* 模型偶尔把数字包成字符串 */
     expect(okOf(JSON.stringify({ count: '6' }), { fallbackNote: '' }).draft.count).toBe(6)

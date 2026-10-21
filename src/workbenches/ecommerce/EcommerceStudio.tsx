@@ -20,6 +20,7 @@ import {
 } from '../../domain/ecommerce/chatShots'
 import type { EcommerceGenerationStage } from '../../domain/ecommerce/progress'
 import {
+  ECOMMERCE_COUNT_MAX,
   ecommerceLanguageOptionLabel,
   ecommerceLanguageOptions,
   ecommerceRatioLabel,
@@ -115,6 +116,11 @@ export interface EcommerceResultItem {
   prompt?: string
   model?: string
   ratio?: string
+  shotTitle?: string
+  brief?: string
+  headline?: string
+  subheadline?: string
+  visualSystem?: string
   note?: string
   createdAt?: number
   /**
@@ -441,7 +447,9 @@ function defaultModeFormState(mode: StudioMode): EcommerceModeFormState {
     platformId: 'amazon',
     language: 'en',
     ratio:
-      mode.usage === 'detail'
+      mode.id === 'product-set'
+        ? 'smart'
+        : mode.usage === 'detail'
         ? 'aplus-premium-web'
         : (mode.ratio ?? '1:1'),
     resolution: 'auto',
@@ -463,7 +471,10 @@ function ModeSpecificParameters({
 }) {
   const setCounts = modeOptionCounts(options)
   const updateSetCount = (id: string, delta: number) => {
-    const next = Math.min(Math.max((setCounts[id] ?? 0) + delta, 0), 12)
+    const next = Math.min(
+      Math.max((setCounts[id] ?? 0) + delta, 0),
+      ECOMMERCE_COUNT_MAX,
+    )
     setOption('setCounts', { ...setCounts, [id]: next })
   }
   const toggleSetCount = (id: string) => {
@@ -666,7 +677,7 @@ function ModeSpecificParameters({
     const setCount = (id: string, next: number) => {
       setOption('whiteBgCounts', {
         ...counts,
-        [id]: Math.min(Math.max(next, 0), 12),
+        [id]: Math.min(Math.max(next, 0), ECOMMERCE_COUNT_MAX),
       })
     }
     return (
@@ -2557,10 +2568,28 @@ export function EcommerceStudio({
                   <dd>{detailTarget.model}</dd>
                 </>
               ) : null}
+              {detailTarget.shotTitle ? (
+                <>
+                  <dt>图片类型</dt>
+                  <dd>{detailTarget.shotTitle}</dd>
+                </>
+              ) : null}
               {detailTarget.ratio ? (
                 <>
                   <dt>比例</dt>
                   <dd>{ecommerceRatioLabel(detailTarget.ratio)}</dd>
+                </>
+              ) : null}
+              {detailTarget.headline ? (
+                <>
+                  <dt>画面主文案</dt>
+                  <dd>{detailTarget.headline}</dd>
+                </>
+              ) : null}
+              {detailTarget.visualSystem ? (
+                <>
+                  <dt>视觉系统</dt>
+                  <dd>{detailTarget.visualSystem}</dd>
                 </>
               ) : null}
               {detailTarget.createdAt ? (

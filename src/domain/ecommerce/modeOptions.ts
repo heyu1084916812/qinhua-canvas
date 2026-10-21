@@ -1,4 +1,4 @@
-import type { EcommerceModeOptions } from './types'
+import { ECOMMERCE_COUNT_MAX, type EcommerceModeOptions } from './types'
 
 export interface EcommerceOption {
   id: string
@@ -270,16 +270,18 @@ export function ecommerceModeCount(
       (sum, option) => sum + Math.max(0, whiteBgCountsOf(options)[option.id] ?? 0),
       0,
     )
-    return Math.min(Math.max(total || 1, 1), 12)
+    return Math.min(Math.max(total || 1, 1), ECOMMERCE_COUNT_MAX)
   }
-  if (modeId !== 'product-set') return Math.min(Math.max(fallback, 1), 12)
+  if (modeId !== 'product-set') {
+    return Math.min(Math.max(fallback, 1), ECOMMERCE_COUNT_MAX)
+  }
   if (modeOptionString(options, 'setStrategy', 'smart') !== 'custom') return fallback
   const counts = modeOptionCounts(options)
   const total = PRODUCT_SET_COUNT_OPTIONS.reduce(
     (sum, option) => sum + Math.max(0, counts[option.id] ?? 0),
     0,
   )
-  return Math.min(Math.max(total || 1, 1), 12)
+  return Math.min(Math.max(total || 1, 1), ECOMMERCE_COUNT_MAX)
 }
 
 export function buildEcommerceModeOptionsPrompt(
