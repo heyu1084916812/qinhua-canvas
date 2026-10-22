@@ -3118,7 +3118,8 @@ export function EcommerceStudio({
             </p>
             {confirmUsesAiPlan ? (
               <p className={styles.confirmFlow} data-ecommerce-confirm-ai-flow>
-                确认后会先分析商品原图并写逐张提示词，再交给生图模型。
+                确认后会先生成整批方案，再由 AI 自审并修正逐张提示词，然后交给生图模型。
+                本次会多花一次对话额度。
               </p>
             ) : null}
             <div className={styles.confirmActions}>

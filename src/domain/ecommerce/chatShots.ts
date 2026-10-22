@@ -128,6 +128,30 @@ ${ECOMMERCE_SHOTS_MARKER}输出契约（必须严格遵守）
 }
 
 /**
+ * 第二遍：同一批图片、用户要求和第一版方案一起交给 AI 自审。
+ *
+ * 第一遍负责“想出来”，第二遍负责“按同一套标准检查并修正”。仍然只返回
+ * 完整方案 JSON，不额外产出审稿意见让用户确认 —— 产品要求一次点击直接出图。
+ */
+export function buildShotsReviewSystem(): string {
+  return `${buildShotsSystem()}
+
+【二次自审修正】
+你现在不是重新创作，而是审查并修正上面这份方案。
+必须逐项检查：
+1. 已选模块是否全部覆盖，顺序是否合理，不能遗漏、合并或偷偷新增。
+2. 商品外观、结构、颜色、材质与附图是否一致，禁止编造图中不存在的细节、参数、认证、功效或价格。
+3. 用户补充要求、目标平台、语言、尺寸与文案要求是否真正进入对应 shot。
+4. designSystem 是否被每一条 prompt 真正执行：字体家族与字重层级、字号关系、网格、边距、栏间距、对齐、文字安全区、配色、光线、材质和后期质感必须属于同一套系统。
+5. 每张的镜头、景别、构图、比例和表达任务是否不同，且服务于该张的模块角色。
+6. 文案是否可直接排版、语言正确、没有占位符、乱码或策划字段。
+7. shots 数量必须完全等于要求张数。
+
+发现问题就直接修正，并输出**修正后的完整 JSON**；不要输出审查说明、问题清单或 Markdown 解释。
+如果原方案已经合格，也输出同一结构的完整 JSON。`
+}
+
+/**
  * 用户消息：那句话 + 这次的硬参数 + **默认脚本当结构参考**。
  *
  * 为什么把默认脚本也给模型：它是"第 3 张是细节、第 5 张是卖点"这种结构知识的载体。
@@ -178,6 +202,25 @@ export function buildShotsText(
     lines.push(`- ${shot.title}：${shot.brief}`)
   }
   return lines.join('\n')
+}
+
+/** 第二遍自审的用户消息：原始要求 + 第一版完整方案。 */
+export function buildShotsReviewText(
+  request: EcommerceRequest,
+  draft: {
+    productAnalysis: { summary: string }
+    designSystem: EcommerceDesignSystem
+    shots: readonly EcommerceShot[]
+  },
+  platforms: readonly EcommercePlatform[] = ECOMMERCE_PLATFORMS,
+  visualCount = 0,
+): string {
+  return [
+    buildShotsText(request, platforms, visualCount),
+    '',
+    '请审查并修正下面这份第一版方案。按照二次自审契约输出修正后的完整 JSON：',
+    JSON.stringify(draft),
+  ].join('\n')
 }
 
 export type ShotsReplyParse =

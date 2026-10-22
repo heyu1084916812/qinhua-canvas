@@ -41,6 +41,8 @@ import {
   type EcommerceIntentDraft,
 } from '../../domain/ecommerce/chatParse'
 import {
+  buildShotsReviewSystem,
+  buildShotsReviewText,
   buildShotsSystem,
   buildShotsText,
   parseShotsReply,
@@ -1251,55 +1253,98 @@ function StudioHost({ projectId }: { projectId: string }) {
       label: '正在分析商品原图与需求',
       detail: `已附 ${visualInputs.length} 张视觉素材`,
     })
-    const ac = new AbortController()
-    /* 多模态请求要读图并写逐张提示词，给 60 秒；卡住也必须如实失败。 */
-    const timer = setTimeout(() => ac.abort(), 60_000)
-    try {
-      const result = await channels.completeWithTools({
-        channelId: chatTarget.channelId,
-        model: chatTarget.model,
-        tools: [],
-        inputs: visualInputs,
-        messages: [
-          { role: 'system', content: buildShotsSystem() },
-          {
-            role: 'user',
-            content: buildShotsText(request, platforms, visualInputs.length),
-          },
-        ],
-        signal: ac.signal,
-      })
-      const parsed = parseShotsReply(result.text, request.count, {
-        usage: request.usage,
-        ratio: request.ratio,
-      })
-      if (parsed.ok) {
-        setGenerationStage({
-          phase: 'prompts',
-          label: '正在整理逐张生图提示词',
-          detail: parsed.analysis,
+
+    const runPass = async (
+      system: string,
+      user: string,
+      timeoutMessage: string,
+    ): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 60_000)
+      try {
+        const result = await channels.completeWithTools({
+          channelId: chatTarget.channelId,
+          model: chatTarget.model,
+          tools: [],
+          inputs: visualInputs,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          signal: ac.signal,
         })
+        return { ok: true, text: result.text }
+      } catch (e) {
+        const err = asAppError(e)
+        return {
+          ok: false,
+          error: ac.signal.aborted
+            ? timeoutMessage
+            : err
+              ? describeError(err)
+              : '对话模型请求失败。',
+        }
+      } finally {
+        clearTimeout(timer)
       }
-      return parsed.ok
-        ? {
-            ok: true,
-            shots: parsed.shots,
-            analysis: parsed.analysis,
-            designSystem: parsed.designSystem,
-          }
-        : { ok: false, error: parsed.error }
-    } catch (e) {
-      const err = asAppError(e)
-      return {
-        ok: false,
-        error: ac.signal.aborted
-          ? '商品分析与提示词请求超时（60 秒没回）。'
-          : err
-            ? describeError(err)
-            : '商品分析与提示词请求失败。',
-      }
-    } finally {
-      clearTimeout(timer)
+    }
+
+    const draftPass = await runPass(
+      buildShotsSystem(),
+      buildShotsText(request, platforms, visualInputs.length),
+      '商品分析与提示词请求超时（60 秒没回）。',
+    )
+    if (!draftPass.ok) return draftPass
+    const draft = parseShotsReply(draftPass.text, request.count, {
+      usage: request.usage,
+      ratio: request.ratio,
+    })
+    if (!draft.ok) return draft
+
+    setGenerationStage({
+      phase: 'prompts',
+      label: 'AI 正在自审并修正方案',
+      detail: `逐项检查 ${request.count} 张的模块覆盖、文字、网格与视觉一致性`,
+    })
+    const reviewPass = await runPass(
+      buildShotsReviewSystem(),
+      buildShotsReviewText(
+        request,
+        {
+          productAnalysis: { summary: draft.analysis },
+          designSystem: draft.designSystem,
+          shots: draft.shots.map((shot) => ({
+            title: shot.title,
+            brief: shot.brief,
+            prompt: shot.prompt,
+            ...(shot.ratio ? { ratio: shot.ratio } : {}),
+            ...(shot.headline ? { headline: shot.headline } : {}),
+            ...(shot.subheadline ? { subheadline: shot.subheadline } : {}),
+          })),
+        },
+        platforms,
+        visualInputs.length,
+      ),
+      'AI 自审方案超时（60 秒没回）。',
+    )
+    if (!reviewPass.ok) return { ok: false, error: `AI 自审失败：${reviewPass.error}` }
+    const reviewed = parseShotsReply(reviewPass.text, request.count, {
+      usage: request.usage,
+      ratio: request.ratio,
+    })
+    if (!reviewed.ok) {
+      return { ok: false, error: `AI 自审后的方案不合格：${reviewed.error}` }
+    }
+    setGenerationStage({
+      phase: 'prompts',
+      label: '逐张提示词已通过自审',
+      detail: reviewed.analysis,
+    })
+    return {
+      ok: true,
+      shots: reviewed.shots,
+      analysis: reviewed.analysis,
+      designSystem: reviewed.designSystem,
     }
   }
 

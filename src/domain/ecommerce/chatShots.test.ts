@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildShotsSystem,
+  buildShotsReviewSystem,
+  buildShotsReviewText,
   buildShotsText,
   ECOMMERCE_SHOTS_MARKER,
   looksLikePlanningPrompt,
@@ -64,6 +66,43 @@ describe('shouldExpandShots：值不值得问模型', () => {
     expect(shouldExpandShots(requestOf({ usage: 'white-bg', count: 6 }))).toBe(false)
     expect(shouldExpandShots(requestOf({ usage: 'edit', count: 1 }))).toBe(false)
     expect(shouldExpandShots(requestOf({ mediaKind: 'video', count: 1 }))).toBe(false)
+  })
+})
+
+describe('AI 二次自审', () => {
+  it('★★ 自审系统明确检查模块覆盖、商品事实与跨图视觉一致性', () => {
+    const prompt = buildShotsReviewSystem()
+    expect(prompt).toContain('二次自审修正')
+    expect(prompt).toContain('已选模块是否全部覆盖')
+    expect(prompt).toContain('designSystem 是否被每一条 prompt 真正执行')
+    expect(prompt).toContain('字体家族与字重层级')
+    expect(prompt).toContain('网格、边距、栏间距、对齐、文字安全区')
+    expect(prompt).toContain('输出**修正后的完整 JSON**')
+  })
+
+  it('★★ 自审输入同时带原始要求、14 张约束和第一版完整方案', () => {
+    const request = requestOf({
+      count: 14,
+      modePrompt: '首屏主视觉、核心卖点图、使用场景图',
+    })
+    const draft = {
+      productAnalysis: { summary: '蓝色婴童泳圈，双层气室' },
+      designSystem: {
+        name: '清爽母婴',
+        palette: ['水蓝', '奶油白'],
+        typography: '同一无衬线字体，标题粗体、正文常规',
+        lighting: '柔和左前方自然光',
+        composition: '12 列网格，左右安全边距 64px',
+        imageTreatment: '真实磨砂 PVC 质感',
+      },
+      shots: [shotOf(1)],
+    }
+    const text = buildShotsReviewText(request, draft, ECOMMERCE_PLATFORMS, 2)
+    expect(text).toContain('要求张数：14')
+    expect(text).toContain('首屏主视觉、核心卖点图、使用场景图')
+    expect(text).toContain('蓝色婴童泳圈，双层气室')
+    expect(text).toContain('12 列网格')
+    expect(text).toContain('第一版方案')
   })
 })
 
