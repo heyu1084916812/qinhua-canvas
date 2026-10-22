@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
-import { agentRunOutcomeOf, nextRunConcurrency } from './runOutcome'
+import { agentRunOutcomeOf } from './runOutcome'
 
 function record(overrides: Partial<RunRecord>): RunRecord {
   return {
@@ -70,13 +70,5 @@ describe('agentRunOutcomeOf', () => {
         new Set(['old']),
       ),
     ).toEqual({ nodeId: 'n1', ok: false, error: '这次运行没有留下记录，无法确认是否出图' })
-  })
-})
-
-describe('nextRunConcurrency', () => {
-  it('全部成功保持并发；出现失败后剩余节点降为串行', () => {
-    expect(nextRunConcurrency(2, [{ ok: true }, { ok: true }])).toBe(2)
-    expect(nextRunConcurrency(2, [{ ok: true }, { ok: false }])).toBe(1)
-    expect(nextRunConcurrency(1, [{ ok: false }])).toBe(1)
   })
 })

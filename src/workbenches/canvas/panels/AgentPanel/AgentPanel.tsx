@@ -63,7 +63,7 @@ import {
   runFromNodeIds,
   type AgentToolContext,
 } from '../../agent/tools'
-import { agentRunOutcomeOf, nextRunConcurrency } from '../../agent/runOutcome'
+import { agentRunOutcomeOf } from '../../agent/runOutcome'
 import { runPreflightProblems } from '../../agent/runPreflight'
 import {
   decideToolMode,
@@ -146,14 +146,6 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
  * 到顶就退回手动，把最后那张确认卡留给用户 —— 总比无限花钱好。
  */
 const AUTO_RUN_LIMIT = 6
-/**
- * Agent 对同一批节点最多并发提交几次。
- *
- * 引擎自身能并发，但许多中转站在 3 个以上同时请求时会 429 / 断连。先 2 个并发；
- * 一旦这一小批出现失败，剩余节点自动转串行，既保留能并行时的速度，也不再把
- * “剩下的全部生成”一次打满后成片失败。
- */
-const AGENT_RUN_INITIAL_CONCURRENCY = 2
 
 export function AgentPanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const platform = usePlatform()
@@ -592,56 +584,53 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         }
         const waves = runWaves(ids, store.getSnapshot().edges)
         const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
-        let concurrency = AGENT_RUN_INITIAL_CONCURRENCY
         for (const wave of waves) {
-          for (let offset = 0; offset < wave.length; ) {
-            const batch = wave.slice(offset, offset + concurrency)
-            /**
-             * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
-             * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
-             */
-            const projectId = store.getSnapshot().projectId
-            const beforeRows = (await platform.storage.query('runRecords', {
+          /**
+           * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
+           * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
+           *
+           * 同一波内的节点**全部同时发起**：每条 `runNode` 都是独立 API 请求，
+           * 渠道本身支持并发，不能在这里擅自限流。
+           */
+          const projectId = store.getSnapshot().projectId
+          const beforeRows = (await platform.storage.query('runRecords', {
+            projectId,
+          })) as unknown as RunRecord[]
+          const beforeIds = new Set(beforeRows.map((record) => record.id))
+          const thrown = await Promise.all(
+            wave.map(async (id) => {
+              try {
+                await execution.runNode(id)
+                return null
+              } catch (e) {
+                return {
+                  nodeId: id,
+                  ok: false,
+                  error: e instanceof Error ? e.message : errText(e),
+                }
+              }
+            }),
+          )
+          /**
+           * 运行记录由执行层 flush 后才返回，但多节点并发时偶尔会晚一拍。
+           * 给记录一个很短的 settle 窗口，避免“图已经出来、步骤卡却说没记录”。
+           * 这里只等**本次新记录**，不会重发任何付费请求。
+           */
+          let outcomes: ReturnType<typeof agentRunOutcomeOf>[] = []
+          for (let attempt = 0; attempt < 6; attempt += 1) {
+            const afterRows = (await platform.storage.query('runRecords', {
               projectId,
             })) as unknown as RunRecord[]
-            const beforeIds = new Set(beforeRows.map((record) => record.id))
-            const thrown = await Promise.all(
-              batch.map(async (id) => {
-                try {
-                  await execution.runNode(id)
-                  return null
-                } catch (e) {
-                  return {
-                    nodeId: id,
-                    ok: false,
-                    error: e instanceof Error ? e.message : errText(e),
-                  }
-                }
-              }),
-            )
-            /**
-             * 运行记录由执行层 flush 后才返回，但多节点并发时偶尔会晚一拍。
-             * 给记录一个很短的 settle 窗口，避免“图已经出来、步骤卡却说没记录”。
-             * 这里只等**本次新记录**，不会重发任何付费请求。
-             */
-            let outcomes: ReturnType<typeof agentRunOutcomeOf>[] = []
-            for (let attempt = 0; attempt < 6; attempt += 1) {
-              const afterRows = (await platform.storage.query('runRecords', {
-                projectId,
-              })) as unknown as RunRecord[]
-              outcomes = batch.map((id, index) => {
-                const failure = thrown[index]
-                const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
-                const title = titleOf(id)
-                return title ? { ...base, title } : base
-              })
-              if (!outcomes.some((outcome) => outcome.error?.includes('没有留下记录'))) break
-              await new Promise((resolve) => setTimeout(resolve, 200))
-            }
-            out.push(...outcomes)
-            concurrency = nextRunConcurrency(concurrency, outcomes)
-            offset += batch.length
+            outcomes = wave.map((id, index) => {
+              const failure = thrown[index]
+              const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+              const title = titleOf(id)
+              return title ? { ...base, title } : base
+            })
+            if (!outcomes.some((outcome) => outcome.error?.includes('没有留下记录'))) break
+            await new Promise((resolve) => setTimeout(resolve, 200))
           }
+          out.push(...outcomes)
         }
         return out
       },
