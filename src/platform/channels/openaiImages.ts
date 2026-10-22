@@ -597,18 +597,16 @@ export function createOpenAiImagesAdapter(
   const generateSoonStudioImage = async (
     request: ImageRunRequest,
     count: number,
+    size: string | null,
     quality: string | null,
     background: string | null,
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
-    const ratio =
-      typeof request.params.ratio === 'string' && request.params.ratio.trim()
-        ? request.params.ratio.trim()
-        : 'auto'
     const resolution =
       typeof request.params.resolution === 'string' ? request.params.resolution.trim() : ''
-    const imageSize = /^(?:1k|2k|4k)$/i.test(resolution) ? resolution.toUpperCase() : null
-    const requested = sizeToDimensions(customImageSize(resolution) ?? openAiImageSize(ratio, resolution))
+    const requested = sizeToDimensions(
+      size ?? customImageSize(resolution) ?? openAiImageSize(request.params.ratio, resolution),
+    )
     let res: NetworkResponse
     try {
       res = await deps.network.request(
@@ -620,9 +618,8 @@ export function createOpenAiImagesAdapter(
             model: request.model,
             prompt: request.prompt,
             n: count,
-            aspect_ratio: ratio,
             response_format: 'url',
-            ...(imageSize ? { image_size: imageSize } : {}),
+            ...(size ? { size } : {}),
             ...(quality ? { quality } : {}),
             ...(background ? { background } : {}),
           },
@@ -1035,7 +1032,7 @@ export function createOpenAiImagesAdapter(
       ? { ...request, prompt: `${request.prompt} ${mjSuffix}`.trim() }
       : request
     if (config.protocol === 'soonstudio' && files.length === 0) {
-      return generateSoonStudioImage(outbound, count, quality, background, signal)
+      return generateSoonStudioImage(outbound, count, sizeForBody, quality, background, signal)
     }
     const res = !openAiStyle && size
       ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)

@@ -239,10 +239,10 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(calls[0]!.body).toMatchObject({
       model: 'gpt-image-2',
       response_format: 'url',
-      aspect_ratio: '16:9',
-      image_size: '4K',
+      size: '3840x2160',
     })
-    expect(calls[0]!.body).not.toHaveProperty('size')
+    expect(calls[0]!.body).not.toHaveProperty('aspect_ratio')
+    expect(calls[0]!.body).not.toHaveProperty('image_size')
     expect(calls[1]!.url).toBe('https://soonstudio.ai/v1/images/tasks/task_image_123')
     expect(calls[2]!.url).toBe('https://cdn.example/result.png')
     expect(assets).toHaveLength(1)
