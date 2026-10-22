@@ -249,26 +249,52 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
-  it('★★ SoonStudio 网络失败时只返回传输层原文，不拼接任务信息', async () => {
+  it('★★ SoonStudio 单次轮询超时不会终止任务，下一次成功仍返回图片', async () => {
+    const tiny = solidPng(4, 3, [0x11, 0x22, 0x33])
     const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    let polls = 0
     const a = createOpenAiImagesAdapter(soonCfg, {
       network: createMemoryNetwork({
         handler: async (req) => {
           if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
-            return resp(200, { task_id: 'task_diag_456' })
+            return resp(200, { task_id: 'task_retry_456' })
           }
-          throw { kind: 'network', detail: 'timeout' }
+          if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_retry_456') {
+            polls += 1
+            if (polls === 1) throw { kind: 'network', detail: 'timeout' }
+            return resp(200, {
+              data: {
+                status: 'SUCCESS',
+                data: { url: [`data:image/png;base64,${btoa('fallback')}`, 'https://cdn.example/retry.png'] },
+              },
+            })
+          }
+          if (req.url === 'https://cdn.example/retry.png') {
+            const bytes = new Uint8Array(tiny)
+            return {
+              status: 200,
+              headers: { 'content-type': 'image/png' },
+              async text() {
+                return ''
+              },
+              async json<T>(): Promise<T> {
+                throw new Error('not json')
+              },
+              async arrayBuffer() {
+                return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+              },
+            }
+          }
+          return resp(404, {})
         },
       }),
       assets: platformWithAssets([]).assets,
     })
 
-    const failure = await a
-      .generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal)
-      .catch((e: unknown) => e)
-    expect(failure).toMatchObject({ appError: { kind: 'http', status: 504 } })
-    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
-    expect(body).toBe('network/timeout')
+    const assets = await a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal)
+    expect(polls).toBe(2)
+    expect(assets).toHaveLength(1)
+    expect(assets[0]!.bytes).toEqual(tiny)
   })
 
   it('★★ SoonStudio 任务 FAILURE 时直接返回服务端原始响应', async () => {

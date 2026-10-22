@@ -672,7 +672,9 @@ export function createOpenAiImagesAdapter(
 
     const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
     let lastResponse = ''
-    for (let attempt = 0; attempt < 90; attempt += 1) {
+    let lastTransport = ''
+    const deadline = Date.now() + 8 * 60_000
+    for (let attempt = 0; attempt < 180 && Date.now() < deadline; attempt += 1) {
       if (attempt > 0) await waitFor(2_000, signal)
       let poll: NetworkResponse
       try {
@@ -687,21 +689,14 @@ export function createOpenAiImagesAdapter(
         )
       } catch (e) {
         if (signal.aborted) throw e
-        throw new ChannelError({
-          kind: 'http',
-          status: 504,
-          body: lastResponse || transportTextOf(e),
-          verbatim: true,
-        })
+        lastTransport = transportTextOf(e)
+        continue
       }
       if (poll.status < 200 || poll.status >= 300) {
         const detail = await poll.text().catch(() => '')
-        throw new ChannelError({
-          kind: 'http',
-          status: poll.status,
-          body: detail,
-          verbatim: true,
-        })
+        lastResponse = detail || lastResponse
+        if (poll.status === 408 || poll.status === 429 || poll.status >= 500) continue
+        throw new ChannelError({ kind: 'http', status: poll.status, body: detail, verbatim: true })
       }
       const raw = await poll.text()
       let body: unknown
@@ -731,7 +726,7 @@ export function createOpenAiImagesAdapter(
     throw new ChannelError({
       kind: 'http',
       status: 504,
-      body: lastResponse,
+      body: lastResponse || lastTransport,
       verbatim: true,
     })
   }
