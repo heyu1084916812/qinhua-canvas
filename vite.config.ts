@@ -20,6 +20,9 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 1420,
+    watch: {
+      ignored: ['**/.probe-tmp/**', '**/.playwright-verify/**'],
+    },
   },
   build: {
     // 生产构建剔除 dev/ 陈列室：入口不引用即被 tree-shake，这里再显式排除源码

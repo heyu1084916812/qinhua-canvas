@@ -17,6 +17,7 @@
 - **卡片必须走 CDN 缩略图**：LibTV 地址附加 `x-oss-process=image/resize,w_640/format,webp/quality,q_72`；实测首屏 29 张全部自然宽 ≤640px，加载到 110 张仍全部是缩略图。详情继续用原图。
 - **分页首屏 30 是当前基线**：列表用 `loading=lazy`、`decoding=async` 和 `content-visibility:auto`。110 卡滚动探针 p95 8.1ms、最长 14.8ms、>33ms 0 帧。
 - **桌面路由要直接验 WebView**：Playwright `connectOverCDP` 会被 WebView2 的 shared worker 目标触发内部断言；改用 `/json/list` 的页面级 WebSocket 和原始 CDP 方法。连续 3 次 `/skills → /ecommerce` 无 page error，强制 GC 后堆约 21MB、DOM 806。
+- **Vite 必须忽略临时目录**：`tauri dev` 曾同时扫到 `.probe-tmp/libtv-source-full` 的 2390 个解压文件与截图目录，Vite 涨到约 1.38GB 且 WebView 连续白屏重载。`server.watch.ignored` 固定忽略 `.probe-tmp/**` 与 `.playwright-verify/**`。
 
 ### LibTV 技能库导入可行性（2026-10-21 → 对账 #693–#696）
 
