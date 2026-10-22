@@ -272,6 +272,11 @@ export function ecommerceModeCount(
     )
     return Math.min(Math.max(total || 1, 1), ECOMMERCE_COUNT_MAX)
   }
+  if (modeId === 'product-detail') {
+    const selected = new Set(modeOptionStrings(options, 'detailHighlights'))
+    const total = DETAIL_HIGHLIGHT_OPTIONS.filter((option) => selected.has(option.id)).length
+    return Math.min(Math.max(total || 1, 1), ECOMMERCE_COUNT_MAX)
+  }
   if (modeId !== 'product-set') {
     return Math.min(Math.max(fallback, 1), ECOMMERCE_COUNT_MAX)
   }

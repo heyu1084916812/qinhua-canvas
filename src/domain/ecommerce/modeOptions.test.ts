@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DETAIL_HIGHLIGHT_OPTIONS,
   buildEcommerceModeOptionsPrompt,
   batchWhiteOutputError,
   defaultEcommerceModeOptions,
@@ -61,6 +62,19 @@ describe('ecommerce mode options', () => {
         whiteBgCounts: { front: 1, left45: 2 },
       }),
     ).toContain('白底角度：正面1张、左45°2张')
+  })
+
+  it('★★ A+ 详情页按已选优化项计算张数，14 项就是 14 张', () => {
+    expect(
+      ecommerceModeCount('product-detail', 4, {
+        detailHighlights: DETAIL_HIGHLIGHT_OPTIONS.map((option) => option.id),
+      }),
+    ).toBe(14)
+    expect(
+      ecommerceModeCount('product-detail', 4, {
+        detailHighlights: ['hero', 'usageScene', 'sizeChart', 'not-a-real-option'],
+      }),
+    ).toBe(3)
   })
 
   it('batch white enforces 12 source images and 36 total outputs', () => {

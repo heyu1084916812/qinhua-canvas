@@ -20,6 +20,7 @@
 - **Agent 改模型要和手动面板同源**：`updateNode` 收到 `model` 时必须由 `channelIdForModel()` 反查并写入渠道，忽略 Agent 自报的 `channelId`；找不到提供者就整批不改。系统提示也禁止 Agent 自己写渠道 id（对账 #710）。
 - **4K 生图不要 120 秒截断**：共享库同节点同指纹请求，Agent 121 秒超时，手动 36 秒成功。图片生成超时已拆出 `IMAGE_GENERATE_TIMEOUT_MS=300_000`；视频/其它生成仍用各自超时，且不自动重试付费请求。
 - **Agent 出图流程要像点节点按钮**：`applyPlan` 建好节点后，直接一次 `runNode` 跑本次全部 generation 节点；不要先挑一张试跑，不要因第一张失败暂停其余节点。执行入口与用户点节点「生成」按钮必须是同一套。
+- **A+ 快速优化项就是生成结构**：`product-detail` 的张数必须等于已选且合法的 `detailHighlights` 数量，不能再返回模式默认 4。默认 4 项 = 4 张，14 项 = 14 张；非法旧 id 不计数（对账 #711）。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
 - **4K 已坐实**：文生图发 `size:"3840x2160"` + `quality:"high"` 后，真实产物为 **3840×2160 / 8301589 bytes**；不要再发无效的 `image_size/aspect_ratio`。
