@@ -289,8 +289,21 @@ function imageItemsIn(value: unknown): ImageItem[] {
     }
     if (typeof node !== 'object') return
     const row = node as Record<string, unknown>
-    if (typeof row.url === 'string') push({ url: row.url })
-    if (typeof row.b64_json === 'string') push({ b64_json: row.b64_json })
+    const urls = Array.isArray(row.url)
+      ? row.url.filter((item): item is string => typeof item === 'string')
+      : typeof row.url === 'string'
+        ? [row.url]
+        : []
+    const preferredUrl =
+      urls.find((item) => /^https?:\/\//i.test(item)) ??
+      urls.find((item) => /^data:image\//i.test(item))
+    if (preferredUrl) push({ url: preferredUrl })
+    const b64Values = Array.isArray(row.b64_json)
+      ? row.b64_json.filter((item): item is string => typeof item === 'string')
+      : typeof row.b64_json === 'string'
+        ? [row.b64_json]
+        : []
+    if (!preferredUrl && b64Values[0]) push({ b64_json: b64Values[0] })
     for (const key of ['data', 'output', 'outputs', 'images', 'result', 'results', 'image']) {
       if (key in row) visit(row[key], depth + 1)
     }

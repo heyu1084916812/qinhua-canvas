@@ -6,8 +6,10 @@
 - **文生图不要挂同步长连接**：Light 的 11:27 记录是纯文生图，120010ms 超时。SoonStudio Web 客户端用 `POST /v1/images/generations?async=true` 创建任务，再轮询 `GET /v1/images/tasks/{task_id}`；同步请求等 4K 结果会被网络层截断。
 - **请求使用站点方言**：无参考图时发 `model / prompt / n / aspect_ratio / image_size / quality / response_format:"url"`。响应直接有 URL 就解析，否则取 `task_id`；轮询间隔 2 秒，最多 90 次。
 - **URL 产物仍落本地**：拿到最终图片 URL 后由 `assetsFromItems()` 下载原始字节并入库；不要求用户配置自己的 OSS。用户说的 OSS 只与图生图参考素材的公网传递有关，与本条文生图无关。
+- **真实响应里 `data.url` 是数组**：`gpt-image-2.5-sunburst` 成功时同时返回 `data:image/png;base64,...` 和 HTTPS 地址。解析器必须接受数组并优先 HTTPS；只认字符串会把成功任务继续轮询到超时。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
+- **4K 能力尚未坐实**：真实请求带 `image_size:"4K"` / `aspect_ratio:"16:9"`，产物实际是 **1536×1024（3:2）**；需要继续核对 MaYi 的分组头或模型路由，不能只按模型缓存宣称 4K。
 
 ### Agent 节点别名与 SoonStudio 传输失败（2026-10-22 → 对账 #701）
 

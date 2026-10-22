@@ -198,7 +198,12 @@ describe('openaiImages adapter / 基础契约', () => {
           return resp(200, {
             data: {
               status: 'SUCCESS',
-              data: { data: [{ url: 'https://cdn.example/result.png' }] },
+              data: {
+                url: [
+                  `data:image/png;base64,${btoa('fallback-data-uri')}`,
+                  'https://cdn.example/result.png',
+                ],
+              },
             },
           })
         }
