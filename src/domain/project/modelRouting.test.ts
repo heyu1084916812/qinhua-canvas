@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROUTE_STRATEGIES,
+  resolveRouteForChannel,
   resolveRouteFor,
   routeCandidatesFor,
   selectRoute,
@@ -148,6 +149,56 @@ describe('selectRoute', () => {
       expect(s.label.length).toBeGreaterThan(0)
       expect(s.hint.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('resolveRouteForChannel', () => {
+  const source = (id: string, over: Partial<RouteChannelSource> = {}): RouteChannelSource => ({
+    id,
+    enabled: true,
+    hasToken: true,
+    priority: 0,
+    weight: 0,
+    lastTestLatency: null,
+    modelIds: ['GPT Image 2'],
+    modelMap: { 'GPT Image 2': 'gpt-image-2' },
+    ...over,
+  })
+
+  it('★★ 节点选了渠道后只在这条渠道里解析，不被优先度更高的同名渠道抢走', () => {
+    expect(
+      resolveRouteForChannel(
+        [
+          source('builtin', { priority: 999 }),
+          source('soon图', { priority: 0 }),
+        ],
+        'GPT Image 2',
+        'soon图',
+        resolveUpstreamModel,
+      ),
+    ).toEqual({
+      ok: true,
+      selection: { channelId: 'soon图', upstreamModel: 'gpt-image-2' },
+    })
+  })
+
+  it('节点指定渠道不可用时如实拒绝，不静默改道', () => {
+    expect(resolveRouteForChannel([source('soon图', { enabled: false })], 'GPT Image 2', 'soon图', resolveUpstreamModel)).toEqual({
+      ok: false,
+      reason: 'channel_disabled',
+    })
+    expect(resolveRouteForChannel([source('soon图')], 'GPT Image 2', 'missing', resolveUpstreamModel)).toEqual({
+      ok: false,
+      reason: 'channel_missing',
+    })
+    expect(resolveRouteForChannel([source('soon图', { hasToken: false })], 'GPT Image 2', 'soon图', resolveUpstreamModel)).toEqual({
+      ok: false,
+      reason: 'channel_no_token',
+    })
+    expect(resolveRouteForChannel([source('soon图', { modelIds: [], modelMap: {} })], 'GPT Image 2', 'soon图', resolveUpstreamModel)).toEqual({
+      ok: false,
+      reason: 'model_missing',
+    })
   })
 })
 

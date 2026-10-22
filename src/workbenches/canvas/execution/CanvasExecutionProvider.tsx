@@ -60,6 +60,7 @@ import { asAppError, describeError } from '../../../shared/result'
 import { emitRunRecordChanged } from './runRecordEvents'
 import {
   resolveRouteFor,
+  resolveRouteForChannel,
   type RouteChannelSource,
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
@@ -414,11 +415,42 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const strategy = channels.getState().routeStrategy
       for (const task of plan.tasks) {
         const logical = task.request.model
-        const picked = resolveRouteFor(sources, logical, {
-          strategy,
-          resolve: resolveUpstreamModel,
-          random: Math.random(),
-        })
+        const explicitChannelId = task.request.channelId.trim()
+        let picked: { channelId: string; upstreamModel: string } | null = null
+        if (explicitChannelId) {
+          /**
+           * 节点上的渠道是用户已经确认过的路径，发送时不得再按全局策略改道。
+           * 否则两个渠道都声明了同名模型时，优先度更高的那条会悄悄接管，
+           * 失败文案还会来自另一条渠道（2026-10-22 真机：soon图 → 内置 SoonStudio）。
+           */
+          const channelName =
+            all.find((channel) => channel.id === explicitChannelId)?.name ?? explicitChannelId
+          const routed = resolveRouteForChannel(
+            sources,
+            logical,
+            explicitChannelId,
+            resolveUpstreamModel,
+          )
+          if (!routed.ok) {
+            const reason =
+              routed.reason === 'channel_missing'
+                ? `节点指定的渠道不存在（${channelName}）`
+                : routed.reason === 'channel_disabled'
+                  ? `节点指定的渠道「${channelName}」已停用`
+                  : routed.reason === 'channel_no_token'
+                    ? `节点指定的渠道「${channelName}」没有可用令牌`
+                    : `节点指定的渠道「${channelName}」没有提供模型「${logical}」`
+            store.notify(reason, 'error')
+            return
+          }
+          picked = routed.selection
+        } else {
+          picked = resolveRouteFor(sources, logical, {
+            strategy,
+            resolve: resolveUpstreamModel,
+            random: Math.random(),
+          })
+        }
         if (!picked) {
           store.notify(
             `没有渠道提供模型「${logical}」：请到后台设置的「模型管理」里勾选并配置映射`,

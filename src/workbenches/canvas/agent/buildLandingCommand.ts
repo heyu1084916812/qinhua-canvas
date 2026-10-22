@@ -69,6 +69,22 @@ export interface LandingPayload {
   idOf: Record<string, string>
 }
 
+/**
+ * 计划里的空 `channelId` / `model` 不能覆盖已经解析好的默认配方。
+ *
+ * 模型经常把字段名写全、值留空（`channelId:""` / `model:" "`）；如果直接展开在
+ * 最后一层，就会把 `dataFor()` 算出来的真实渠道和模型擦掉。非空显式值仍按既有
+ * 契约保留 —— 用户明确点名渠道 / 模型时，计划数据本来就该赢。
+ */
+function nonEmptyPlannedData(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(data).filter(([key, value]) => {
+      if (key !== 'channelId' && key !== 'model') return true
+      return typeof value !== 'string' || value.trim() !== ''
+    }),
+  )
+}
+
 /** 每种节点的默认尺寸 —— 从 `nodeSpecs` 取，不写第二份（词表同理，见 §5.2） */
 function sizeOf(type: AgentNodeType): { w: number; h: number } {
   const spec = getSpec(type)
@@ -273,7 +289,7 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
          * 所以用户点名要换的东西照样赢，只有他没提的那些才继承。
          */
         ...recipeFromAttached({ plan, graph, node }),
-        ...node.data,
+        ...nonEmptyPlannedData(node.data),
       } as NodeData,
     })
   }

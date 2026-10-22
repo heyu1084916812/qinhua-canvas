@@ -163,6 +163,34 @@ describe('buildLandingCommand', () => {
     expect(data.model).toBe('relay-img')
     expect(data.mode).toBeTruthy() // spec 默认值也还在
   })
+
+  it('★★ 计划里的空 channelId / model 不得擦掉默认配方', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: 'x',
+      nodes: [
+        {
+          localId: 'g1',
+          type: 'generation',
+          data: { channelId: '', model: '   ', prompt: '白底图' },
+          order: 0,
+        },
+      ],
+      edges: [],
+    }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph(),
+      origin: { x: 0, y: 0 },
+      newId,
+      dataFor: () => ({ channelId: 'ch-soon', model: 'GPT Image 2' }),
+    })
+    expect(r.command.nodes[0]!.data).toMatchObject({
+      channelId: 'ch-soon',
+      model: 'GPT Image 2',
+      prompt: '白底图',
+    })
+  })
 })
 
 /**

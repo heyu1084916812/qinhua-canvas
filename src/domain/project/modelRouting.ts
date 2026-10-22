@@ -64,6 +64,13 @@ export interface RouteSelection {
   upstreamModel: string
 }
 
+export type ChannelRouteResult =
+  | { ok: true; selection: RouteSelection }
+  | {
+      ok: false
+      reason: 'channel_missing' | 'channel_disabled' | 'channel_no_token' | 'model_missing'
+    }
+
 /**
  * 退化用的「缺省权重」：weight=0 的候选也必须有机会被选中，
  * 否则「均衡分摊」会退化成只有配过权重的渠道能出图（new-api 的 `weight+10` 同款理由）。
@@ -299,4 +306,29 @@ export function resolveRouteFor(
     attempt: options.attempt,
     random: options.random,
   })
+}
+
+/**
+ * 节点已经选好渠道时，只允许在这条渠道里解析模型。
+ *
+ * 生成节点的 `channelId` 是用户设置链路的既成事实，不能拿全局策略重新猜测。
+ * 尤其是另一条渠道声明过同名映射时，`resolveRouteFor()` 会按优先度选走它；
+ * 用户看到的就是“明明选了 soon图，却发到内置 SoonStudio”。
+ */
+export function resolveRouteForChannel(
+  channels: readonly RouteChannelSource[],
+  logicalModel: string,
+  channelId: string,
+  resolve: (map: Readonly<Record<string, string>> | null | undefined, name: string) => string | null,
+): ChannelRouteResult {
+  const source = channels.find((channel) => channel.id === channelId)
+  if (!source) return { ok: false, reason: 'channel_missing' }
+  if (!source.enabled) return { ok: false, reason: 'channel_disabled' }
+  if (!source.hasToken) return { ok: false, reason: 'channel_no_token' }
+  const candidate = routeCandidatesFor([source], logicalModel, resolve)[0]
+  if (!candidate?.upstreamModel) return { ok: false, reason: 'model_missing' }
+  return {
+    ok: true,
+    selection: { channelId: source.id, upstreamModel: candidate.upstreamModel },
+  }
 }
