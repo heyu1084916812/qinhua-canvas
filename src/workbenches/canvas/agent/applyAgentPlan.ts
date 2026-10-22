@@ -23,6 +23,14 @@ export interface ApplyAgentPlanResult {
   problems: string[]
   /** 本次新建的节点 id —— 界面据此高亮/选中，让你一眼看到它建了什么 */
   createdNodeIds: string[]
+  /** 计划临时 id → 真实节点 id；模型执行 runNode / runFrom 时必须用 nodeId */
+  resolvedNodes: {
+    localId: string
+    nodeId: string
+    type: AgentPlan['nodes'][number]['type']
+    title?: string
+    created: boolean
+  }[]
 }
 
 /** 图快照 → 自检要的视图（只保留它关心的字段） */
@@ -71,10 +79,24 @@ export function applyAgentPlan(
 
   const after = toGraphView(store.getSnapshot())
   const check = verifyAgentPlanLanding({ plan, idOf, before, after })
+  const createdIds = new Set(command.nodes.map((n) => n.id))
 
   return {
     ok: check.ok,
     problems: check.problems,
-    createdNodeIds: command.nodes.map((n) => n.id),
+    createdNodeIds: [...createdIds],
+    resolvedNodes: plan.nodes.flatMap((node) => {
+      const nodeId = idOf[node.localId]
+      if (!nodeId) return []
+      return [
+        {
+          localId: node.localId,
+          nodeId,
+          type: node.type,
+          ...(node.title ? { title: node.title } : {}),
+          created: createdIds.has(nodeId),
+        },
+      ]
+    }),
   }
 }

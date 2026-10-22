@@ -146,13 +146,32 @@ export function classifyError(
   // `String(e)`，设置页状态行显示「✗ [object Object]」——失败原因一个字都没传上来。
   const app = asAppError(e)
   if (app) return { error: app, message: appErrorMessage(app) }
-  if (e instanceof Error) {
-    const msg = e.message.toLowerCase()
+  /**
+   * 桌面壳的 `invoke()` 在原生 HTTP 失败时抛的是**裸字符串**，不是 Error：
+   * `error sending request for url (...)`。它代表连接没建立 / 中途断开，
+   * 不是“服务端返回了一段无法解析的 JSON”。若落到 parse 分支，日志会显示
+   * “格式对不上”，把网络故障误导成协议故障。
+   */
+  const rawMessage =
+    e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+  if (rawMessage) {
+    const msg = rawMessage.toLowerCase()
     if (msg.includes('cors') || msg.includes('cross-origin')) return { error: { kind: 'network', detail: 'cors' }, message: '跨域被拦截，中继需开放 CORS' }
     if (msg.includes('certificate') || msg.includes('tls') || msg.includes('ssl')) return { error: { kind: 'network', detail: 'tls' }, message: 'TLS / 证书错误' }
     if (msg.includes('timeout') || msg.includes('aborted')) return { error: { kind: 'network', detail: 'timeout' }, message: '请求超时' }
-    if (msg.includes('dns') || msg.includes('resolve') || msg.includes('fetch')) return { error: { kind: 'network', detail: 'dns' }, message: NETWORK_MESSAGE.dns }
-    return { error: { kind: 'network', detail: 'dns' }, message: e.message }
+    if (
+      msg.includes('error sending request') ||
+      msg.includes('error trying to connect') ||
+      msg.includes('connection') ||
+      msg.includes('dns') ||
+      msg.includes('resolve') ||
+      msg.includes('fetch')
+    ) {
+      return { error: { kind: 'network', detail: 'dns' }, message: rawMessage }
+    }
+    if (e instanceof Error) {
+      return { error: { kind: 'network', detail: 'dns' }, message: rawMessage }
+    }
   }
   return { error: { kind: 'parse', raw: String(e) }, message: String(e) }
 }

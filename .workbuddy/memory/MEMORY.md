@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 节点别名与 SoonStudio 传输失败（2026-10-22 → 对账 #701）
+
+- **`gen_sheet` 不是节点 id**：Agent 会话里 `applyPlan` 建出了 `node_916...`，模型却先拿计划 `localId=gen_sheet` 调 `runNode`。预检拒绝后它才改正。落地结果必须返回 `resolvedNodes[{localId,nodeId}]`，不能只给一份 createdNodeIds 让模型自己猜对应关系。
+- **别名表必须按会话隔离**：`planAliasesRef: sessionId -> Map<localId,nodeId>`。`runNode / runFrom` 的执行与预检都解析同一份表；不要做成面板全局表，否则新对话里的同名 `gen_sheet` 会串到旧会话。
+- **`error sending request for url` 是网络层**：Tauri `invoke()` 抛裸字符串，若落到 parse 分支会显示“看不懂服务端返回”。必须在 `classifyError` 识别 error sending / connection / resolve 等传输信号。
+- **付费请求不自动重试**：连接断开可能发生在服务端已受理之后。自动重发有重复扣费风险；让用户看到真实网络错误后手动重试。
+- 证据：Agent session 的 tool calls 依次为 `runNode(["gen_sheet"])` → `节点不存在` → `runNode(["node_916..."])`；最新功能日志另报 `/v1/images/generations` 传输失败。
+
 ### 图生图 HTTP 400 与桌面 multipart（2026-10-22 → 对账 #700）
 
 - **先看渠道配置，再看回落 body**：SoonStudio 的 `soonstudio` 协议、`gpt-image-2` 勾选和映射都正确，浏览器侧 FormData 也有 `model`。错误文案说缺 model，不代表协议没写 model。

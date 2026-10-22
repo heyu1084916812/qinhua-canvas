@@ -145,6 +145,13 @@ describe('素材段与技能段', () => {
     expect(p).not.toContain('本会话启用的技能')
   })
 
+  it('★★ 明确要求 runNode 使用 applyPlan 返回的真实 nodeId，而不是 localId', () => {
+    const p = buildAgentSystemPromptWithContext(empty)
+    expect(p).toContain('resolvedNodes[{localId,nodeId}]')
+    expect(p).toContain('不要把 `localId`')
+    expect(p).toContain('node_xxx')
+  })
+
   it('★★ JSON 模式把工具声明与调用格式写进提示词（不支持 tools 的模型也有路可走）', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, {
       jsonToolFallback: true,

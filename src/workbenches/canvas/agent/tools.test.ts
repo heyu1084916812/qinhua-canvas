@@ -419,6 +419,22 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(runNodes).toHaveBeenCalledWith([id])
   })
 
+  it('★★ runNode 用本轮 applyPlan 的 localId 别名时，会确定性解析成真实节点 id', async () => {
+    const { store, ctx, runNodes } = setup()
+    const id = addNode(store, 'generation', { mode: 'image' })
+    const r = (await executeConfirmedTool(
+      'runNode',
+      { nodeIds: ['gen_sheet'] },
+      {
+        ...ctx,
+        resolveNodeIds: (ids) => ids.map((nodeId) => (nodeId === 'gen_sheet' ? id : nodeId)),
+      },
+    )) as { ok: boolean; outcomes: { nodeId: string }[] }
+    expect(r.ok).toBe(true)
+    expect(runNodes).toHaveBeenCalledWith([id])
+    expect(r.outcomes[0]?.nodeId).toBe(id)
+  })
+
   it('★★ runNode 把失败节点原样回报，不能把失败当成功', async () => {
     const { store, ctx } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })

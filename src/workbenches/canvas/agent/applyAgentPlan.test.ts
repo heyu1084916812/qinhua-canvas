@@ -35,6 +35,11 @@ describe('applyAgentPlan · 落地并自检', () => {
     expect(r.ok).toBe(true)
     expect(r.problems).toEqual([])
     expect(r.createdNodeIds).toHaveLength(2)
+    expect(Object.fromEntries(r.resolvedNodes.map((node) => [node.localId, node.nodeId]))).toEqual({
+      p1: r.createdNodeIds[0],
+      g1: r.createdNodeIds[1],
+    })
+    expect(r.resolvedNodes.every((node) => node.created)).toBe(true)
 
     // 回读画布核对 —— 这才是「验证」的实据，不是命令没报错
     const g = s.getSnapshot()
@@ -82,6 +87,10 @@ describe('applyAgentPlan · 落地并自检', () => {
     expect(g.nodes).toHaveLength(2) // 复用的那个不重造
     expect(g.edges).toHaveLength(1)
     expect(g.edges[0]!.source).toBe(srcId)
+    expect(r.resolvedNodes.find((node) => node.localId === 'src')).toMatchObject({
+      nodeId: srcId,
+      created: false,
+    })
   })
 
   it('★ 非法连线（连到自己 / 类型不允许）→ 命令抛错，画布不被改脏', () => {

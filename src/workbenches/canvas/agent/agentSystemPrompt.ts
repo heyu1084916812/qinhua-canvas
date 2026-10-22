@@ -225,6 +225,8 @@ const IDENTITY_AND_RULES = [
    */
   '- 建完图之后**必须调用 runNode** 提交执行（要出图的节点、要出片的节点都算）。',
   '  「等用户确认」由**系统的确认卡**负责，不是让你在文字里问一句就停下。',
+  '- `applyPlan` 返回 `resolvedNodes[{localId,nodeId}]`。之后 `runNode / runFrom` 的',
+  '  `nodeIds` **只填其中的 `nodeId`（node_xxx）**；不要把 `localId`、标题或自己猜的名字当节点 id。',
   '- 如果用户要的是「从这一步把后面整条流程继续跑完」，用 **runFrom**；',
   '  它只沿连线把可执行的生成 / 融合节点跑一遍。批量 / 循环这类分发器仍直接对它们调 runNode。',
   '- `runNode` 的返回里只要有 `ok:false` 或某个 outcome `ok:false`，就说明这次渠道没出图。',

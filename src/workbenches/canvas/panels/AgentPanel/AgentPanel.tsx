@@ -263,6 +263,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const abortRefs = useRef(new Map<string, AbortController>())
   /** 每个会话这个回合走的是原生 tools 还是 JSON 降级；确认后续跑要沿用同一条 */
   const toolModeRef = useRef(new Map<string, 'native' | 'json'>())
+  const planAliasesRef = useRef(new Map<string, Map<string, string>>())
   /**
    * 一次用户回合解析出的实际渠道。
    *
@@ -531,7 +532,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const toolCtx = useCallback(
-    (origin: { x: number; y: number }): AgentToolContext => ({
+    (
+      origin: { x: number; y: number },
+      sessionId: string = current?.id ?? '',
+    ): AgentToolContext => ({
       store,
       origin,
       selectedIds: () => selection,
@@ -541,6 +545,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * （中间隔着一次确认），闭包里的旧值必然过期。ref 读的是**最新一次发消息**算出来的判断。
        */
       ...(perImageRef.current ? { perImage: true } : {}),
+      resolveNodeIds: (ids) => {
+        const aliases = planAliasesRef.current.get(sessionId)
+        return ids.map((id) => aliases?.get(id) ?? id)
+      },
       runNodes: async (ids) => {
         /**
          * **互不依赖的节点同时跑**（用户 2026-10-05 第 2 条：「我并行的要求没有给我实现，
@@ -700,10 +708,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 循环自己的指纹刹车会把这一轮停下来。
        */
       precheck: (name: string, args: unknown) => {
-        if (name !== 'runNode') return { ok: true as const }
+        if (name !== 'runNode' && name !== 'runFrom') return { ok: true as const }
         /** 节点都不在画布上，就别让用户点「批准运行」了（他批的是一团空气） */
         const args2 = (args ?? {}) as { nodeIds?: unknown }
-        const ids = Array.isArray(args2.nodeIds) ? args2.nodeIds.map(String) : []
+        const aliases = planAliasesRef.current.get(session.id)
+        const ids = (Array.isArray(args2.nodeIds) ? args2.nodeIds.map(String) : []).map(
+          (id) => aliases?.get(id) ?? id,
+        )
         const existing = new Set(store.getSnapshot().nodes.map((n) => n.id))
         const missing = ids.filter((id) => !existing.has(id))
         return missing.length > 0
@@ -715,8 +726,30 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 「他直接给我新建进去，但是生成与否需要让我确认，取消后也不会撤回
        * 已经新建到画布中的工作流」。
        */
-      executeWrite: (name: string, args: unknown) =>
-        executeConfirmedTool(name, args, toolCtx(originOf(viewport))),
+      executeWrite: async (name: string, args: unknown) => {
+        const result = await executeConfirmedTool(
+          name,
+          args,
+          toolCtx(originOf(viewport), session.id),
+        )
+        if (name === 'applyPlan') {
+          const resolved = (result as { resolvedNodes?: { localId?: unknown; nodeId?: unknown }[] })
+            .resolvedNodes
+          if (Array.isArray(resolved)) {
+            planAliasesRef.current.set(
+              session.id,
+              new Map(
+                resolved.flatMap((node) =>
+                  typeof node.localId === 'string' && typeof node.nodeId === 'string'
+                    ? [[node.localId, node.nodeId] as const]
+                    : [],
+                ),
+              ),
+            )
+          }
+        }
+        return result
+      },
       executeRead: (name: string, args: unknown) =>
         executeReadTool(name, args, toolCtx(originOf(viewport))),
         signal: abortRefs.current.get(session.id)?.signal ?? new AbortController().signal,

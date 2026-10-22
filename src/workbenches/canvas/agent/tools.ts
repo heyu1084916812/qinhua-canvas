@@ -155,7 +155,10 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
   },
   {
     name: 'runNode',
-    description: '跑指定的节点（会花钱，先让用户确认）。',
+    description:
+      '跑指定的节点（会花钱，先让用户确认）。nodeIds 必须是画布上的真实 id：' +
+      'applyPlan 返回的 resolvedNodes[].nodeId，或 readGraph 摘要里的 node_xxx；' +
+      '绝不能填计划里的 localId 或节点标题。',
     parameters: {
       type: 'object',
       properties: { nodeIds: { type: 'array', items: { type: 'string' } } },
@@ -373,6 +376,8 @@ export interface AgentToolContext {
   origin: { x: number; y: number }
   /** 跑节点 —— 由执行层注入：agent 自己不直接发渠道请求 */
   runNodes: (nodeIds: string[]) => Promise<AgentRunOutcome[]>
+  /** 把本轮 applyPlan 产生的 localId 别名解析成真实节点 id（确定性兜底） */
+  resolveNodeIds?: (nodeIds: readonly string[]) => string[]
   /** 当前选中的节点 —— `readGraph` 的 `selection` 范围要用；不给就按全图算 */
   selectedIds?: () => readonly string[]
   /**
@@ -714,13 +719,16 @@ export async function executeConfirmedTool(
       return { ok: true }
     }
     case 'runNode': {
-      const ids = asStringArray(a.nodeIds)
+      const rawIds = asStringArray(a.nodeIds)
+      const ids = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
       if (ids.length === 0) return { ok: false, problems: ['没有指定要跑的节点'] }
       const outcomes = await ctx.runNodes(ids)
       return { ok: outcomes.every((o) => o.ok), outcomes }
     }
     case 'runFrom': {
-      const resolved = runFromNodeIds(ctx.store, a.nodeIds)
+      const rawIds = asStringArray(a.nodeIds)
+      const ids = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
+      const resolved = runFromNodeIds(ctx.store, ids)
       if (!resolved.ok) return resolved
       const outcomes = await ctx.runNodes(resolved.ids)
       return { ok: outcomes.every((o) => o.ok), outcomes }
