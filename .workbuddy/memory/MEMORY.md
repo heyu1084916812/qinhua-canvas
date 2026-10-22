@@ -11,6 +11,7 @@
 - **单次轮询超时不能判任务失败**：`gpt-image-2.5-sunburst` 比 `gpt-image-2` 慢；三个被应用标记失败的 Agent 任务事后回查全部 `SUCCESS`。轮询 GET 超时、408/429/5xx 应继续，直到任务成功、上游明确失败或总时限到达（当前 180 次 / 8 分钟）。
 - **Agent 对话展示的是工具过程**：简单需求当前走 `applyPlan → runNode → readResult/readAsset → 最终回复`。`runNode` 失败卡若后续 `readResult` 对同节点确认 `ok`，旧失败卡必须收起；失败卡本身不挂缩略图，避免“失败但下方有图”。
 - **过程卡只报节点标题**：`readAssetInfo / readResults` 返回 `title`，UI 的 `readResult / readAsset / runNode / runFrom` 卡标题优先、无标题才回退 id；最终回复也禁止贴 `node_...`。
+- **技能设置不自动变成输入框 chip**：Agent 重开时 `restoredSessionRef` 只恢复素材；会话 `skillId` 照常生效并进入系统提示词，但正文只有用户主动从技能菜单选择时才显示 `skill:` chip。反向同步只认“曾出现、随后被用户删除”，否则用户正常打字会把技能误清空（对账 #707）。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
 - **4K 已坐实**：文生图发 `size:"3840x2160"` + `quality:"high"` 后，真实产物为 **3840×2160 / 8301589 bytes**；不要再发无效的 `image_size/aspect_ratio`。

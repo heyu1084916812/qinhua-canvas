@@ -15155,11 +15155,14 @@ async function g82(browser) {
   await page.locator('[data-canvas-agent]').click()
   await sleep(800)
   const agentSkillTitle = await page.locator('[data-agent-skill-open]').getAttribute('title')
+  const restoredSkillChips = await page
+    .locator('[data-agent-input] [data-mention-kind="skill"]')
+    .count()
   rec(
     g,
-    '★★ 添加到 Agent 的单技能在新会话中真实生效',
-    !!agentSkillTitle && agentSkillTitle.includes('分镜升镜师'),
-    agentSkillTitle ?? '无标题',
+    '★★ 默认技能生效，但重新打开 Agent 不把它自动塞进输入框',
+    !!agentSkillTitle && agentSkillTitle.includes('分镜升镜师') && restoredSkillChips === 0,
+    `${agentSkillTitle ?? '无标题'} / skillChips=${restoredSkillChips}`,
   )
 
   // 冒烟库是组间共享的：把本组创建的默认技能、收藏和用户技能恢复原状。

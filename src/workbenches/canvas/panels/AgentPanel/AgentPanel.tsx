@@ -1184,7 +1184,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       /**
        * 同一枚（kind + id）已经在正文里就**不再插第二枚**。
        *
-       * 进会话时会按会话行把 chip 补回正文（技能 / 生成模型 / 素材），用户再点一次
+       * 进会话时会按会话行把素材 chip 补回正文，用户再点一次
        * 同一项就会出现两枚一模一样的 chip —— 那不是「又用了一次」，是重复。
        */
       if (parseMentions(draft).some((m) => m.kind === kind && m.id === id)) return
@@ -1560,11 +1560,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 会话字段 → **正文 chip**（用户 2026-10-02：「我需要全部出现在正文里面，全部保持
    * 和艾特的出现的地方一样」）。
    *
-   * 进一个会话时，把「这次挂着的技能 / 素材」补成本文里的引用 chip：
+   * 进一个会话时，把「这次挂着的素材」补成本文里的引用 chip：
    * 正文是**看得见的记录**（「这次用它」），会话行是**真正生效的设置**。
    *
    * 两条纪律：① 只在正文还空着的时候补（用户写了一半的那句话不能被冲掉）；
    * ② 每个会话只补一次（发完消息正文会清空，不能把刚发走的那几枚引用又倒回来）。
+   *
+   * ⚠️ **技能不补**（用户 2026-10-22：「每次打开 agent 都把我在技能库里点击
+   * 使用的 skill 放在对话框里」）：技能是会话设置，只在用户主动从 Agent 技能
+   * 菜单里选择时落成正文 chip；重新打开面板不能凭空生成一枚技能引用。
    *
    * ⚠️ **图片 / 视频模型不补**（用户 2026-10-05 第 1 条：「每次打开对话，对话框会有
    * 两个模型」）：那是**会话设置**（建生成节点时用哪一档），不是这句话要说出去的内容。
@@ -1577,29 +1581,47 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     restoredSessionRef.current = current.id
     if (draft.trim()) return
     const tokens: string[] = []
-    if (current.skillId) {
-      const hit = allSkills.find((s) => s.id === current.skillId)
-      tokens.push(mentionToken('skill', current.skillId, hit?.name ?? '技能'))
-    }
     for (const id of current.pendingAssetIds ?? []) {
       tokens.push(mentionToken('node', id, nodeLabelOf(id)))
     }
     if (tokens.length > 0) setDraft(tokens.join(''))
-  }, [current, draft, allSkills, nodeLabelOf])
+  }, [current, draft, nodeLabelOf])
 
   /**
-   * 正文 chip → 会话字段（反向）：用户把技能那枚 chip 删掉 = **这次不用这个技能**。
+   * 正文 chip → 会话字段（反向）：用户把主动插入的技能 chip 删掉 = **这次不用这个技能**。
    *
-   * 只在正文非空时同步 —— 发送之后正文会被清空，那一瞬间不该把设置也一并清光
-   * （素材 / 技能是「本会话挂着的东西」，不是「这一条的附件」）。
+   * 不能再用「正文非空但没有技能 chip」来判断：进入会话时技能本来就不再自动
+   * 写进正文，用户正常打字也会命中这个条件。这里只认一次真实删除 —— 同一个
+   * 会话、同一个技能，上一拍正文里见过这枚 chip，下一拍它消失了。
+   *
+   * 发送之后正文会被清空，那一瞬间不该把设置也一并清光（技能是「本会话挂着的
+   * 东西」，不是「这一条的附件」）。
    */
+  const seenSkillChipRef = useRef<{
+    sessionId: string
+    skillId: string
+    seen: boolean
+  } | null>(null)
   useEffect(() => {
-    if (!current || !draft) return
+    if (!current?.skillId) {
+      seenSkillChipRef.current = null
+      return
+    }
+    const skillId = current.skillId
     const skillIds = parseMentions(draft)
       .filter((m) => m.kind === 'skill')
       .map((m) => m.id)
-    if (current.skillId && !skillIds.includes(current.skillId)) void setSkill('')
-  }, [draft, current, setSkill])
+    const seen = skillIds.includes(skillId)
+    const prev = seenSkillChipRef.current
+    const removed =
+      draft.trim() !== '' &&
+      prev?.sessionId === current.id &&
+      prev.skillId === skillId &&
+      prev.seen &&
+      !seen
+    if (removed) void setSkill('')
+    seenSkillChipRef.current = { sessionId: current.id, skillId, seen }
+  }, [draft, current?.id, current?.skillId, setSkill])
 
   /** 卸载时把建出来的 objectURL 回收掉（不回收就是一路泄漏） */
   useEffect(
@@ -1953,8 +1975,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           · 插入：`insertMention(...)`（见上面各处的 onSelect / attachSelection）；
           · 会话字段仍然照写（技能、图片 / 视频模型、素材 id），因为提示词与落地配方
             读的是它们 —— 正文是**看得见的记录**，会话行是**真正生效的设置**；
-          · 进一个会话时按会话行把 chip 补回正文（见下面那个 `restoredSessionRef` 的
-            effect），两边不会各说各话。
+          · 进一个会话时只把素材 chip 补回正文（见下面那个 `restoredSessionRef` 的
+            effect）；技能设置照常生效，但必须由用户主动选择后才显示 chip。
         */}
 
         <MentionEditor
