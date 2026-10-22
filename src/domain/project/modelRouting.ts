@@ -71,6 +71,18 @@ export type ChannelRouteResult =
       reason: 'channel_missing' | 'channel_disabled' | 'channel_no_token' | 'model_missing'
     }
 
+export type NodeRouteResult =
+  | {
+      ok: true
+      selection: RouteSelection
+      /** 原渠道不存在 / 不提供该模型，已按模型修复到另一条渠道 */
+      repaired: boolean
+    }
+  | {
+      ok: false
+      reason: 'channel_disabled' | 'channel_no_token' | 'no_provider'
+    }
+
 /**
  * 退化用的「缺省权重」：weight=0 的候选也必须有机会被选中，
  * 否则「均衡分摊」会退化成只有配过权重的渠道能出图（new-api 的 `weight+10` 同款理由）。
@@ -331,4 +343,51 @@ export function resolveRouteForChannel(
     ok: true,
     selection: { channelId: source.id, upstreamModel: candidate.upstreamModel },
   }
+}
+
+/**
+ * 生成节点最终走哪条渠道。
+ *
+ * - 原渠道**确实提供**该模型：严格用它，不参与全局竞争；
+ * - 原渠道不存在 / 不提供该模型：视为旧数据，按模型找到唯一可用提供者并修复；
+ * - 原渠道停用 / 缺令牌：如实失败，不偷偷换站；
+ * - 没有原渠道：沿用全局策略。
+ */
+export function resolveNodeRoute(
+  channels: readonly RouteChannelSource[],
+  logicalModel: string,
+  explicitChannelId: string,
+  options: {
+    strategy?: RouteStrategy
+    attempt?: number
+    random?: number
+    resolve?: (map: Readonly<Record<string, string>> | null | undefined, name: string) => string | null
+  } = {},
+): NodeRouteResult {
+  const resolve = options.resolve ?? defaultResolve
+  if (explicitChannelId.trim()) {
+    const direct = resolveRouteForChannel(channels, logicalModel, explicitChannelId, resolve)
+    if (direct.ok) return { ok: true, selection: direct.selection, repaired: false }
+    if (direct.reason === 'channel_disabled' || direct.reason === 'channel_no_token') {
+      return { ok: false, reason: direct.reason }
+    }
+    const fallback = resolveRouteFor(channels, logicalModel, {
+      strategy: options.strategy,
+      attempt: options.attempt,
+      random: options.random,
+      resolve,
+    })
+    return fallback
+      ? { ok: true, selection: fallback, repaired: true }
+      : { ok: false, reason: 'no_provider' }
+  }
+  const routed = resolveRouteFor(channels, logicalModel, {
+    strategy: options.strategy,
+    attempt: options.attempt,
+    random: options.random,
+    resolve,
+  })
+  return routed
+    ? { ok: true, selection: routed, repaired: false }
+    : { ok: false, reason: 'no_provider' }
 }

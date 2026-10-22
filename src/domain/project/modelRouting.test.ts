@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROUTE_STRATEGIES,
+  resolveNodeRoute,
   resolveRouteForChannel,
   resolveRouteFor,
   routeCandidatesFor,
@@ -199,6 +200,82 @@ describe('resolveRouteForChannel', () => {
       ok: false,
       reason: 'model_missing',
     })
+  })
+})
+
+describe('resolveNodeRoute', () => {
+  const source = (id: string, over: Partial<RouteChannelSource> = {}): RouteChannelSource => ({
+    id,
+    enabled: true,
+    hasToken: true,
+    priority: 0,
+    weight: 0,
+    lastTestLatency: null,
+    modelIds: [],
+    modelMap: {},
+    ...over,
+  })
+
+  it('原渠道确实提供模型时严格用它，不被更高优先度渠道抢走', () => {
+    expect(
+      resolveNodeRoute(
+        [
+          source('builtin', {
+            priority: 99,
+            modelIds: ['gpt-image-2'],
+            modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          }),
+          source('soon图', {
+            modelIds: ['gpt-image-2'],
+            modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          }),
+        ],
+        'GPT Image 2',
+        'soon图',
+        { resolve: resolveUpstreamModel },
+      ),
+    ).toEqual({
+      ok: true,
+      repaired: false,
+      selection: { channelId: 'soon图', upstreamModel: 'gpt-image-2' },
+    })
+  })
+
+  it('旧节点渠道已不提供该模型时按模型修复到真实提供者', () => {
+    expect(
+      resolveNodeRoute(
+        [
+          source('ch_builtin_soonstudio', {
+            priority: 99,
+            modelIds: ['gemini-4-argon'],
+          }),
+          source('soon图', {
+            modelIds: ['gpt-image-2'],
+            modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          }),
+        ],
+        'GPT Image 2',
+        'ch_builtin_soonstudio',
+        { resolve: resolveUpstreamModel },
+      ),
+    ).toEqual({
+      ok: true,
+      repaired: true,
+      selection: { channelId: 'soon图', upstreamModel: 'gpt-image-2' },
+    })
+  })
+
+  it('原渠道停用 / 缺令牌时失败，不借修复之名换站', () => {
+    expect(
+      resolveNodeRoute([source('soon图', { enabled: false })], 'GPT Image 2', 'soon图', {
+        resolve: resolveUpstreamModel,
+      }),
+    ).toEqual({ ok: false, reason: 'channel_disabled' })
+    expect(
+      resolveNodeRoute([source('soon图', { hasToken: false })], 'GPT Image 2', 'soon图', {
+        resolve: resolveUpstreamModel,
+      }),
+    ).toEqual({ ok: false, reason: 'channel_no_token' })
   })
 })
 

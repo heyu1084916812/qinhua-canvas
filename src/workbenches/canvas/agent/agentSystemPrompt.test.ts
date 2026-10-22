@@ -206,6 +206,14 @@ describe('素材段与技能段', () => {
     expect(p).toContain('部分成功不许说成全部完成')
   })
 
+  it('★★ applyPlan 之后直接跑全部新建生成节点，不挑一张试跑', () => {
+    const p = buildAgentSystemPrompt({ nodes: [], edges: [] })
+    expect(p).toContain('直接对这次新建的**全部 generation 节点**')
+    expect(p).toContain('和用户点节点「生成」按钮走同一条执行链路')
+    expect(p).toContain('不要先挑一张试跑')
+    expect(p).toContain('不要因为第一张失败就暂停其余节点')
+  })
+
   it('★★ 生成节点不许自己写 channelId，改模型只传 model', () => {
     const p = buildAgentSystemPrompt({ nodes: [], edges: [] })
     expect(p).toContain('生成节点不要自己写 `channelId`')

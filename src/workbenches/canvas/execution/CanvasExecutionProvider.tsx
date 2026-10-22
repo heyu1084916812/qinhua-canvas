@@ -59,8 +59,7 @@ import { trimToolResult } from '../../../features/shared/promptTools/promptTools
 import { asAppError, describeError } from '../../../shared/result'
 import { emitRunRecordChanged } from './runRecordEvents'
 import {
-  resolveRouteFor,
-  resolveRouteForChannel,
+  resolveNodeRoute,
   type RouteChannelSource,
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
@@ -416,47 +415,42 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       for (const task of plan.tasks) {
         const logical = task.request.model
         const explicitChannelId = task.request.channelId.trim()
-        let picked: { channelId: string; upstreamModel: string } | null = null
-        if (explicitChannelId) {
-          /**
-           * 节点上的渠道是用户已经确认过的路径，发送时不得再按全局策略改道。
-           * 否则两个渠道都声明了同名模型时，优先度更高的那条会悄悄接管，
-           * 失败文案还会来自另一条渠道（2026-10-22 真机：soon图 → 内置 SoonStudio）。
-           */
+        const routed = resolveNodeRoute(sources, logical, explicitChannelId, {
+          strategy,
+          resolve: resolveUpstreamModel,
+          random: Math.random(),
+        })
+        if (!routed.ok) {
           const channelName =
             all.find((channel) => channel.id === explicitChannelId)?.name ?? explicitChannelId
-          const routed = resolveRouteForChannel(
-            sources,
-            logical,
-            explicitChannelId,
-            resolveUpstreamModel,
-          )
-          if (!routed.ok) {
-            const reason =
-              routed.reason === 'channel_missing'
-                ? `节点指定的渠道不存在（${channelName}）`
-                : routed.reason === 'channel_disabled'
-                  ? `节点指定的渠道「${channelName}」已停用`
-                  : routed.reason === 'channel_no_token'
-                    ? `节点指定的渠道「${channelName}」没有可用令牌`
-                    : `节点指定的渠道「${channelName}」没有提供模型「${logical}」`
+          const reason =
+            routed.reason === 'channel_disabled'
+              ? `节点指定的渠道「${channelName}」已停用`
+              : routed.reason === 'channel_no_token'
+                ? `节点指定的渠道「${channelName}」没有可用令牌`
+                : null
+          if (reason) {
             store.notify(reason, 'error')
             return
           }
-          picked = routed.selection
-        } else {
-          picked = resolveRouteFor(sources, logical, {
-            strategy,
-            resolve: resolveUpstreamModel,
-            random: Math.random(),
-          })
-        }
-        if (!picked) {
           store.notify(
             `没有渠道提供模型「${logical}」：请到后台设置的「模型管理」里勾选并配置映射`,
             'error',
           )
           return
+        }
+        const picked = routed.selection
+        /**
+         * 旧节点可能把“内置 SoonStudio + GPT Image 2”这种已失效组合留在 data 里。
+         * 原渠道不提供该模型时，按模型修复到真实提供者并写回节点；后续再跑就不会
+         * 反复走同一条错误路径。停用 / 缺令牌的渠道不做这种修复。
+         */
+        if (routed.repaired) {
+          store.dispatch({
+            kind: 'node.updateData',
+            id: task.nodeId,
+            patch: { channelId: picked.channelId },
+          })
         }
         task.request = {
           ...task.request,
