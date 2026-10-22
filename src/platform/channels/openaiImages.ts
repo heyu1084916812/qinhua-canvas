@@ -258,6 +258,92 @@ function toAsset(
   }
 }
 
+interface ImageItem {
+  b64_json?: string
+  url?: string
+}
+
+function imageItemsIn(value: unknown): ImageItem[] {
+  const out: ImageItem[] = []
+  const seen = new Set<string>()
+  const push = (item: ImageItem): void => {
+    const key = item.url ? `url:${item.url}` : item.b64_json ? `b64:${item.b64_json.slice(0, 64)}` : ''
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    out.push(item)
+  }
+  const visit = (node: unknown, depth: number): void => {
+    if (node == null || depth > 8) return
+    if (typeof node === 'string') {
+      const text = node.trim()
+      if (/^https?:\/\//i.test(text) || /^data:image\//i.test(text)) {
+        push({ url: text })
+      } else if (text.length >= 256 && /^[A-Za-z0-9+/=\r\n]+$/.test(text)) {
+        push({ b64_json: text })
+      }
+      return
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1)
+      return
+    }
+    if (typeof node !== 'object') return
+    const row = node as Record<string, unknown>
+    if (typeof row.url === 'string') push({ url: row.url })
+    if (typeof row.b64_json === 'string') push({ b64_json: row.b64_json })
+    for (const key of ['data', 'output', 'outputs', 'images', 'result', 'results', 'image']) {
+      if (key in row) visit(row[key], depth + 1)
+    }
+  }
+  visit(value, 0)
+  return out
+}
+
+function soonStudioTaskIdIn(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  if (typeof row.task_id === 'string' && row.task_id.trim()) return row.task_id.trim()
+  if (typeof row.taskId === 'string' && row.taskId.trim()) return row.taskId.trim()
+  if (typeof row.data === 'string' && /^[A-Za-z0-9_-]{8,}$/.test(row.data.trim())) {
+    return row.data.trim()
+  }
+  if (row.data && typeof row.data === 'object') {
+    const nested = row.data as Record<string, unknown>
+    if (typeof nested.task_id === 'string' && nested.task_id.trim()) return nested.task_id.trim()
+    if (typeof nested.taskId === 'string' && nested.taskId.trim()) return nested.taskId.trim()
+  }
+  return null
+}
+
+function soonStudioFailureIn(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const root = value as Record<string, unknown>
+  const data = root.data && typeof root.data === 'object'
+    ? root.data as Record<string, unknown>
+    : root
+  const status = String(data.status ?? root.status ?? '').toUpperCase()
+  if (status !== 'FAILURE' && status !== 'FAILED' && status !== 'ERROR') return null
+  const reason = data.fail_reason ?? data.failReason ?? data.error ?? root.fail_reason ?? root.error
+  return typeof reason === 'string' && reason.trim() ? reason.trim() : '生成失败'
+}
+
+function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new ChannelError({ kind: 'network', detail: 'aborted' }))
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new ChannelError({ kind: 'network', detail: 'aborted' }))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 export function createOpenAiImagesAdapter(
   config: OpenAiAdapterConfig,
   deps: ChannelDeps,
@@ -268,6 +354,12 @@ export function createOpenAiImagesAdapter(
   const imagesUrl = `${base}/images/generations`
   /** 图生图端点（M6-12）：带参考图时走这里，multipart 上传 */
   const editsUrl = `${base}/images/edits`
+  /**
+   * SoonStudio 的 GPT Image 2 系列走 URL 产物。要求 b64_json 时网关会把整张
+   * 4K PNG 内联进 JSON，既显著放大响应，也会撞上桌面回落的 8MB 文本上限。
+   * 其他 OpenAI 兼容渠道仍保持原契约，避免扩大改动面。
+   */
+  const imageResponseFormat = config.protocol === 'soonstudio' ? 'url' : 'b64_json'
   /**
    * Gemini 系图片模型（Nano Banana）的出路：中转站把它们的图放在 **chat 回复正文**里
    * （`![image](url)`），而 `/images/generations` 对 `gemini-3-pro-image` 直接 503。
@@ -324,42 +416,52 @@ export function createOpenAiImagesAdapter(
   }
 
   /** 把 b64 / url 两种返回形态统一解码成产物；两种都没有时该项跳过 */
-  const toAssets = async (
-    res: NetworkResponse,
+  const assetsFromItems = async (
+    items: ImageItem[],
     requested: { width?: number; height?: number },
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
-    const body = await res.json<{ data?: { b64_json?: string; url?: string }[] }>()
-    const items = body.data
-    if (!Array.isArray(items)) {
-      throw new ChannelError({
-        kind: 'parse',
-        raw: `图片接口返回的不是图片列表：${JSON.stringify(body).slice(0, 2000)}`,
-      })
-    }
-    if (items.length === 0) {
-      throw new ChannelError({
-        kind: 'parse',
-        raw: `图片接口返回 0 张图：${JSON.stringify(body).slice(0, 2000)}`,
-      })
-    }
     const assets: GeneratedAsset[] = []
     for (const item of items) {
       if (item.b64_json) {
-        const bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))
+        const bytes = Uint8Array.from(atob(item.b64_json.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
         // hash 取**产物字节**指纹（内容寻址）：旧的 model|prompt|index 在两次
         // 生成同 model + prompt 时 index 碰撞 ⇒ 不同的图共用一个 hash（用户报）
         const hash = await fingerprintBytes(bytes)
         assets.push(toAsset(hash, 'image/png', bytes, requested))
       } else if (item.url) {
-        const dl = await deps.network.request({ url: item.url, method: 'GET', headers: {} }, signal)
-        const buf = await dl.arrayBuffer()
-        const bytes = new Uint8Array(buf)
+        const dataUri = /^data:([^;,]+);base64,(.*)$/is.exec(item.url)
+        const bytes = dataUri
+          ? Uint8Array.from(atob(dataUri[2]!.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
+          : new Uint8Array(
+              await (
+                await deps.network.request(
+                  { url: item.url, method: 'GET', headers: {}, timeoutMs: GENERATE_TIMEOUT_MS },
+                  signal,
+                )
+              ).arrayBuffer(),
+            )
         const hash = await fingerprintBytes(bytes)
-        assets.push(toAsset(hash, 'image/png', bytes, requested))
+        assets.push(toAsset(hash, dataUri?.[1] ?? 'image/png', bytes, requested))
       }
     }
     return assets
+  }
+
+  const toAssets = async (
+    res: NetworkResponse,
+    requested: { width?: number; height?: number },
+    signal: AbortSignal,
+  ): Promise<GeneratedAsset[]> => {
+    const body = await res.json<unknown>()
+    const items = imageItemsIn(body)
+    if (items.length === 0) {
+      throw new ChannelError({
+        kind: 'parse',
+        raw: `图片接口返回的不是图片列表：${JSON.stringify(body).slice(0, 2000)}`,
+      })
+    }
+    return assetsFromItems(items, requested, signal)
   }
 
   /**
@@ -418,7 +520,7 @@ export function createOpenAiImagesAdapter(
     if (quality) form.append('quality', quality)
     /** 背景（图一）：只在用户显式选了非「自动」时才发 */
     if (background) form.append('background', background)
-    form.append('response_format', 'b64_json')
+    form.append('response_format', imageResponseFormat)
     for (const f of files) form.append('image', f.blob, f.name)
     return deps.network.request(
       {
@@ -453,12 +555,97 @@ export function createOpenAiImagesAdapter(
           ...(size ? { size } : {}),
           ...(quality ? { quality } : {}),
           ...(background ? { background } : {}),
-          response_format: 'b64_json',
+          response_format: imageResponseFormat,
         },
         timeoutMs: GENERATE_TIMEOUT_MS,
       },
       signal,
     )
+
+  /**
+   * SoonStudio text-to-image uses a short create call plus task polling in the
+   * working web client. Keeping the POST open until a 4K result is ready is
+   * what times out here. The create response may still contain an immediate
+   * image, so both shapes are accepted.
+   */
+  const generateSoonStudioImage = async (
+    request: ImageRunRequest,
+    count: number,
+    quality: string | null,
+    background: string | null,
+    signal: AbortSignal,
+  ): Promise<GeneratedAsset[]> => {
+    const ratio =
+      typeof request.params.ratio === 'string' && request.params.ratio.trim()
+        ? request.params.ratio.trim()
+        : 'auto'
+    const resolution =
+      typeof request.params.resolution === 'string' ? request.params.resolution.trim() : ''
+    const imageSize = /^(?:1k|2k|4k)$/i.test(resolution) ? resolution.toUpperCase() : null
+    const requested = sizeToDimensions(customImageSize(resolution) ?? openAiImageSize(ratio, resolution))
+    const res = await deps.network.request(
+      {
+        url: `${imagesUrl}?async=true`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+        body: {
+          model: request.model,
+          prompt: request.prompt,
+          n: count,
+          aspect_ratio: ratio,
+          response_format: 'url',
+          ...(imageSize ? { image_size: imageSize } : {}),
+          ...(quality ? { quality } : {}),
+          ...(background ? { background } : {}),
+        },
+        timeoutMs: VERIFY_TIMEOUT_MS,
+      },
+      signal,
+    )
+    if (res.status < 200 || res.status >= 300) {
+      const detail = await res.text().catch(() => '')
+      const { error } = classifyError(null, res.status, detail)
+      throw new ChannelError(error)
+    }
+    const created = await res.json<unknown>()
+    const immediate = imageItemsIn(created)
+    if (immediate.length > 0) return assetsFromItems(immediate, requested, signal)
+
+    const taskId = soonStudioTaskIdIn(created)
+    if (!taskId) {
+      throw new ChannelError({
+        kind: 'parse',
+        raw: `SoonStudio 未返回 task_id：${JSON.stringify(created).slice(0, 2000)}`,
+      })
+    }
+
+    const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      if (attempt > 0) await waitFor(2_000, signal)
+      const poll = await deps.network.request(
+        {
+          url: pollUrl,
+          method: 'GET',
+          headers: authHeader(config.apiKey),
+          timeoutMs: VERIFY_TIMEOUT_MS,
+        },
+        signal,
+      )
+      if (poll.status < 200 || poll.status >= 300) {
+        const detail = await poll.text().catch(() => '')
+        const { error } = classifyError(null, poll.status, detail)
+        throw new ChannelError(error)
+      }
+      const body = await poll.json<unknown>()
+      const failure = soonStudioFailureIn(body)
+      if (failure) {
+        throw new ChannelError({ kind: 'http', status: 502, body: failure })
+      }
+      const items = imageItemsIn(body)
+      if (items.length > 0) return assetsFromItems(items, requested, signal)
+    }
+    throw new ChannelError({ kind: 'network', detail: 'timeout' })
+  }
 
   /** 参考素材 → Data URI（Agnes 图片接口文档明写 `image` 收 Data URI Base64） */
   const toDataUris = async (request: ImageRunRequest): Promise<string[]> => {
@@ -538,7 +725,7 @@ export function createOpenAiImagesAdapter(
            * Agnes 文档把它写在 `extra_body.response_format` 下，但我们没有实证过那条，
            * 不在这次改动里换路径。
            */
-          response_format: 'b64_json',
+          response_format: imageResponseFormat,
         },
         timeoutMs: GENERATE_TIMEOUT_MS,
       },
@@ -755,6 +942,9 @@ export function createOpenAiImagesAdapter(
     const outbound: ImageRunRequest = mjSuffix
       ? { ...request, prompt: `${request.prompt} ${mjSuffix}`.trim() }
       : request
+    if (config.protocol === 'soonstudio' && files.length === 0) {
+      return generateSoonStudioImage(outbound, count, quality, background, signal)
+    }
     const res = !openAiStyle && size
       ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
       : files.length > 0

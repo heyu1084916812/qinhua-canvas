@@ -31,6 +31,37 @@ function makePlan(): RunPlan<RunTask> {
 }
 
 describe('runEngine / 回调参数契约', () => {
+  it('★★ 生图网络超时只调用一次，不自动重复提交付费请求', async () => {
+    const plan = makePlan()
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            throw { kind: 'network', detail: 'timeout' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
+    expect(summary.records[0]?.errorText).toContain('超时')
+  })
+
   it('★ onTaskTarget 三参到位：(planId, taskId, targetId)', async () => {
     const plan = makePlan()
     const seen: { planId: string; taskId: string; targetId: string }[] = []

@@ -183,6 +183,93 @@ describe('openaiImages adapter / 基础契约', () => {
     // 无图像输入时请求体仍是普通 JSON（与 M6-12 前完全一致，零回归）
     expect(calls[0]!.body).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', n: 1 })
   })
+
+  it('★★ SoonStudio 生图请求 URL 产物并下载原始字节，不等待 4K Base64 JSON', async () => {
+    const tiny = solidPng(4, 3, [0x11, 0x22, 0x33])
+    const calls: { url: string; body: unknown }[] = []
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+          return resp(200, { task_id: 'task_image_123' })
+        }
+        if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_image_123') {
+          return resp(200, {
+            data: {
+              status: 'SUCCESS',
+              data: { data: [{ url: 'https://cdn.example/result.png' }] },
+            },
+          })
+        }
+        if (req.url === 'https://cdn.example/result.png') {
+          const bytes = new Uint8Array(tiny)
+          return {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+            async text() {
+              return ''
+            },
+            async json<T>(): Promise<T> {
+              throw new Error('not json')
+            },
+            async arrayBuffer() {
+              return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+            },
+          }
+        }
+        return resp(404, {})
+      },
+    })
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+    const assets = await a.generateImage(
+      request([], 1, { ratio: '16:9', resolution: '4K', quality: 'high' }),
+      signal,
+    )
+
+    expect(calls[0]!.url).toBe('https://soonstudio.ai/v1/images/generations?async=true')
+    expect(calls[0]!.body).toMatchObject({
+      model: 'gpt-image-2',
+      response_format: 'url',
+      aspect_ratio: '16:9',
+      image_size: '4K',
+    })
+    expect(calls[0]!.body).not.toHaveProperty('size')
+    expect(calls[1]!.url).toBe('https://soonstudio.ai/v1/images/tasks/task_image_123')
+    expect(calls[2]!.url).toBe('https://cdn.example/result.png')
+    expect(assets).toHaveLength(1)
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
+  it('★★ SoonStudio 图生图表单同样请求 URL 产物', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const platform = platformWithAssets([{ id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }])
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          calls.push({ url: req.url, body: req.body })
+          if (req.url === 'https://soonstudio.ai/v1/images/edits') {
+            return resp(200, { data: [{ b64_json: btoa('fakepng') }] })
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platform.assets,
+    })
+
+    await a.generateImage(
+      request([{ kind: 'asset', nodeId: 'up', assetHash: 'h1', mime: 'image/png' }]),
+      signal,
+    )
+
+    const form = calls[0]!.body as FormData
+    expect(calls[0]!.url).toBe('https://soonstudio.ai/v1/images/edits')
+    expect(form.get('response_format')).toBe('url')
+  })
 })
 
 describe('openaiImages adapter / 图生图（M6-12）', () => {

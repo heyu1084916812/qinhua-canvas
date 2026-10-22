@@ -115,7 +115,14 @@ function normalizeError(e: unknown): AppError {
 }
 
 function isRetryable(error: AppError, policy: RunPolicy): boolean {
-  if (error.kind === 'network') return error.detail !== 'aborted'
+  /**
+   * 超时可能发生在上游已经受理、只是还没返回的时候。自动重发会拉长等待，
+   * 也可能产生第二笔付费生成；让用户看到真实超时后手动决定是否重试。
+   * 地址 / TLS / CORS 这类立刻失败的连接问题仍可按策略重试。
+   */
+  if (error.kind === 'network') {
+    return error.detail !== 'aborted' && error.detail !== 'timeout'
+  }
   if (error.kind === 'http') {
     /*
      * 免费账户的速率限制通常是一个较长的冷却窗口。本轮内等 1–2 秒再打只会

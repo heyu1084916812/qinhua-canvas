@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### SoonStudio 文生图异步任务（2026-10-22 → 对账 #702）
+
+- **“节点选 SoonStudio、实际发 soon图”不是根因**：两条渠道都存 `protocol=soonstudio`、`baseUrl=https://soonstudio.ai`；日志里的差异只是全局选路，不能据此改协议。
+- **文生图不要挂同步长连接**：Light 的 11:27 记录是纯文生图，120010ms 超时。SoonStudio Web 客户端用 `POST /v1/images/generations?async=true` 创建任务，再轮询 `GET /v1/images/tasks/{task_id}`；同步请求等 4K 结果会被网络层截断。
+- **请求使用站点方言**：无参考图时发 `model / prompt / n / aspect_ratio / image_size / quality / response_format:"url"`。响应直接有 URL 就解析，否则取 `task_id`；轮询间隔 2 秒，最多 90 次。
+- **URL 产物仍落本地**：拿到最终图片 URL 后由 `assetsFromItems()` 下载原始字节并入库；不要求用户配置自己的 OSS。用户说的 OSS 只与图生图参考素材的公网传递有关，与本条文生图无关。
+- **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
+
 ### Agent 节点别名与 SoonStudio 传输失败（2026-10-22 → 对账 #701）
 
 - **`gen_sheet` 不是节点 id**：Agent 会话里 `applyPlan` 建出了 `node_916...`，模型却先拿计划 `localId=gen_sheet` 调 `runNode`。预检拒绝后它才改正。落地结果必须返回 `resolvedNodes[{localId,nodeId}]`，不能只给一份 createdNodeIds 让模型自己猜对应关系。
