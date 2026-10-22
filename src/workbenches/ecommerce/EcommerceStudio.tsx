@@ -2419,13 +2419,13 @@ export function EcommerceStudio({
           />
         </div>
 
+        </div>
+
         {error ? (
           <p className={styles.error} role="alert" data-ecommerce-error>
             {error}
           </p>
         ) : null}
-        </div>
-
         <button
           type="button"
           className={styles.generate}

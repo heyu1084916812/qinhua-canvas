@@ -3,8 +3,8 @@ import { channelIsRoutable } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
 import { resolveUpstreamModel } from '../project/modelMapping'
 import {
-  resolveRouteFor,
-  type RouteChannelSource,
+  selectRoute,
+  type RouteCandidate,
   type RouteStrategy,
 } from '../project/modelRouting'
 
@@ -121,29 +121,13 @@ export function resolveChatTarget(
 }
 
 /**
- * 把渠道行收敛成选路所需的最小视图。
- *
- * `channelIsRoutable()` 是唯一「现在真的能发请求」判据：它同时考虑启用状态、
- * 协议是否就绪、地址是否齐全、令牌是否保存，以及 localhost / 本机 CLI 的例外。
- */
-function routeSources(channels: readonly Channel[]): RouteChannelSource[] {
-  return channels.map((channel) => ({
-    id: channel.id,
-    enabled: channel.enabled,
-    hasToken: channelIsRoutable(channel),
-    priority: channel.priority,
-    weight: channel.weight,
-    lastTestLatency: channel.lastTestLatency,
-    modelIds: channel.models.map((model) => model.id),
-    modelMap: channel.modelMap,
-  }))
-}
-
-/**
  * 固定前端逻辑名 → 本轮实际渠道。
  *
  * 画布 Agent 不把渠道写进模型选择：同一个显示名可能由多条渠道提供，
  * 哪一条能跑、该优先哪一条，统一交给全局选路策略。
+ *
+ * 候选必须来自渠道已勾选且 `category === 'chat'` 的模型。仅有映射表条目
+ * 不代表渠道能对话：映射目标可能只是图片模型或根本不在勾选清单里。
  */
 export function resolveRoutedChatTarget(
   channels: readonly Channel[],
@@ -153,12 +137,31 @@ export function resolveRoutedChatTarget(
 ): RoutedChatTarget | null {
   const logical = logicalModel.trim()
   if (!logical) return null
-  const picked = resolveRouteFor(routeSources(channels), logical, {
-    strategy,
-    resolve: resolveUpstreamModel,
-    ...(options.random !== undefined ? { random: options.random } : {}),
-    ...(options.attempt !== undefined ? { attempt: options.attempt } : {}),
-  })
+  const candidates: RouteCandidate[] = []
+  const seen = new Set<string>()
+  for (const channel of channels) {
+    if (!channelIsRoutable(channel)) continue
+    for (const model of channel.models ?? []) {
+      if (model.category !== 'chat') continue
+      const shown = toLogicalName(channels, model.id) || model.id
+      if (shown !== logical && model.id !== logical) continue
+      const upstreamModel =
+        resolveUpstreamModel(channel.modelMap, model.id) ?? model.id
+      const key = `${channel.id}\u0000${upstreamModel}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      candidates.push({
+        channelId: channel.id,
+        enabled: channel.enabled,
+        hasToken: true,
+        priority: channel.priority,
+        weight: channel.weight,
+        latencyMs: channel.lastTestLatency,
+        upstreamModel,
+      })
+    }
+  }
+  const picked = selectRoute(candidates, strategy, options)
   return picked
     ? {
         channelId: picked.channelId,

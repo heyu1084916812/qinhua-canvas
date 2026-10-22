@@ -13,10 +13,10 @@ import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
-import { channelIsRoutable } from '../../domain/project/channel'
-import { resolveRouteFor } from '../../domain/project/modelRouting'
-import { resolveUpstreamModel } from '../../domain/project/modelMapping'
 import { resolveGenerationTarget } from '../../domain/project/generationRouting'
+import {
+  resolveRoutedChatTarget,
+} from '../../domain/shared/chatTarget'
 import {
   planTitleOf,
   recentPlanSessions,
@@ -923,8 +923,8 @@ function StudioHost({ projectId }: { projectId: string }) {
   }, [flushDraft])
 
   /**
-   * 对话模型与画布同口径：下拉只显示固定前端显示名，渠道是实现细节；
-   * 真正请求时由 `resolveRouteFor` 按全局选路策略选择启用且可路由的渠道。
+   * 对话模型下拉保持固定的前端清单，不按当前渠道增删。
+   * 渠道是实现细节，真正请求时再按全局选路策略解析。
    *
    * 用 `useSyncExternalStore` 而不是读一次：用户去设置页改完渠道再切回来，
    * 这一栏的按钮状态必须立刻跟上，否则会停在"没有可用的对话模型"上，看起来像坏了。
@@ -962,57 +962,28 @@ function StudioHost({ projectId }: { projectId: string }) {
     () => channels.getState().routeStrategy,
     () => channels.getState().routeStrategy,
   )
-  const routedChatChannels = useMemo(
-    () =>
-      channelList.filter(
-        (channel) =>
-          channel.protocol !== 'mock' &&
-          channel.enabled &&
-          channelIsRoutable(channel),
-      ),
-    [channelList],
-  )
-  const chatRouteSources = useMemo(
-    () =>
-      routedChatChannels.map((channel) => ({
-        id: channel.id,
-        enabled: channel.enabled,
-        /** 与画布执行宿主同一口径：localhost / 本机网关无令牌也可路由。 */
-        hasToken: channelIsRoutable(channel),
-        priority: channel.priority,
-        weight: channel.weight,
-        lastTestLatency: channel.lastTestLatency,
-        modelIds: channel.models.map((model) => model.id),
-        modelMap: channel.modelMap,
-      })),
-    [routedChatChannels],
-  )
   const intentModelOptions = useMemo(
-    () =>
-      panelModelOptions('chat').filter(
-        (name) =>
-          resolveRouteFor(chatRouteSources, name, {
-            strategy: routeStrategy,
-            resolve: resolveUpstreamModel,
-          }) !== null,
-      ),
-    [chatRouteSources, routeStrategy],
+    () => panelModelOptions('chat'),
+    [],
   )
   const [intentModel, setIntentModel] = useState('')
   const chatTarget = useMemo(
     () => {
       const selected = intentModelOptions.includes(intentModel)
         ? intentModel
-        : (intentModelOptions[0] ?? '')
-      const route = resolveRouteFor(chatRouteSources, selected, {
-        strategy: routeStrategy,
-        resolve: resolveUpstreamModel,
-      })
+        : (intentModelOptions.find(
+            (name) => resolveRoutedChatTarget(channelList, name, routeStrategy) !== null,
+          ) ?? intentModelOptions[0] ?? '')
+      const route = resolveRoutedChatTarget(channelList, selected, routeStrategy)
       return route
-        ? { channelId: route.channelId, model: selected, label: selected }
+        ? {
+            channelId: route.channelId,
+            logicalModel: route.logicalModel,
+            upstreamModel: route.upstreamModel,
+          }
         : null
     },
-    [chatRouteSources, intentModel, intentModelOptions, routeStrategy],
+    [channelList, intentModel, intentModelOptions, routeStrategy],
   )
 
   /**
@@ -1047,7 +1018,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       const created = await planSessions.create({
         projectId,
         channelId: chatTarget.channelId,
-        model: chatTarget.model,
+        model: chatTarget.logicalModel,
         title: planTitleOf(text),
       })
       await planSessions.save({ ...created, messages: toPlanMessages(text, draft) })
@@ -1072,7 +1043,8 @@ function StudioHost({ projectId }: { projectId: string }) {
     try {
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
-        model: chatTarget.model,
+        model: chatTarget.upstreamModel,
+        modelIsUpstream: true,
         tools: [],
         messages: [
           { role: 'system', content: buildIntentSystem() },
@@ -1110,7 +1082,8 @@ function StudioHost({ projectId }: { projectId: string }) {
         ECOMMERCE_PLATFORMS.find((item) => item.id === request.platformId)?.name ?? '通用'
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
-        model: chatTarget.model,
+        model: chatTarget.upstreamModel,
+        modelIsUpstream: true,
         tools: [],
         messages: [
           {
@@ -1264,7 +1237,8 @@ function StudioHost({ projectId }: { projectId: string }) {
       try {
         const result = await channels.completeWithTools({
           channelId: chatTarget.channelId,
-          model: chatTarget.model,
+          model: chatTarget.upstreamModel,
+          modelIsUpstream: true,
           tools: [],
           inputs: visualInputs,
           messages: [
@@ -1409,7 +1383,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           }
           plan = buildEcommercePlan(request, { platforms, shots: out.shots })
           setShotPlanNote(
-            `已分析商品图，并由 ${chatTarget.label} 生成 ${request.count} 条不同的最终提示词。`,
+            `已分析商品图，并由 ${chatTarget.logicalModel} 生成 ${request.count} 条不同的最终提示词。`,
           )
         } finally {
           setPreparingShots(false)
@@ -2134,7 +2108,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       activeTaskId={activeTask?.id ?? ''}
       onSelectTask={(taskId) => void onSelectTask(taskId)}
       onRemoveTask={(taskId) => void onRemoveTask(taskId)}
-      chatTargetLabel={chatTarget?.label ?? ''}
+      chatTargetLabel={chatTarget?.logicalModel ?? ''}
       chatModels={intentModelOptions}
       intentModel={intentModel}
       onIntentModelChange={setIntentModel}

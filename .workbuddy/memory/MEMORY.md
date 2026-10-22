@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### 对话模型固定清单与幽灵映射（2026-10-22 → 对账 #713）
+
+- **下拉固定，路由从严**：电商与画布 Agent 的对话模型始终用 `panelModelOptions('chat')` 的固定 9 项，不按渠道现状增删；渠道只参与发送前的路由解析。
+- **映射键不等于渠道能力**：`resolveRoutedChatTarget()` 只能从渠道已勾选且 `category === 'chat'` 的实际模型构造候选。仅有 `modelMap` 条目、目标不在勾选清单或类别为 image，必须视为不可路由。
+- **这次 60 秒超时的真实原因**：`Chat2api` 只有图片模型却存了 `GPT-6 Astra → gpt-6`，`soon图` / `SoonStudio` 也有指向不存在 `gpt-6-astra` 的旧映射；旧 `resolveRouteFor()` 看到映射键就选渠道，请求已发出后才超时。现在 `GPT-6 Astra` 返回 `null`，点击生成前立即提示没有可用对话模型。
+- **上游 ID 只翻译一次**：电商 `completeWithTools` 使用路由结果里的 `upstreamModel` 并传 `modelIsUpstream:true`，不要再拿逻辑显示名做第二次映射。
+- **真实页面证据**：固定清单 9 项未增删，默认自动落到有效的 `Gemini 3.8 Flash`，无控制台错误；选择 `GPT-6 Astra` 后错误条显示在生成按钮正上方，且没有任何 `/v1` / chat / generateContent 请求。定向 78/78；全量 2992 passed / 1 skipped；check/build 通过。
+
 ### SoonStudio 文生图异步任务（2026-10-22 → 对账 #702）
 
 - **“节点选 SoonStudio、实际发 soon图”不是根因**：两条渠道都存 `protocol=soonstudio`、`baseUrl=https://soonstudio.ai`；日志里的差异只是全局选路，不能据此改协议。

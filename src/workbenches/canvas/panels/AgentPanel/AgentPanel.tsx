@@ -305,15 +305,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 归一显示名在后」，与生成节点那侧完全同源。
    */
   /**
-   * 对话窗的模型清单：**只列当前真的跑得起来的那些**。
-   *
-   * 与创作面板的差别（用户 2026-10-02：「agnes 的是不是多了」）：那边留着一批
-   * 「固定显示名」是为了**先把名字选好、再去后台配映射**；对话窗不是这个场景 ——
-   * 这里的模型**下一句话就要发请求**。列一个没有渠道能提供的模型，用户选中之后
-   * 只会得到一句「没有渠道提供模型」，白点一次。
-   *
-   * 判据就是选模型时用的那一条（`channelIdForLogical`）：能解析出渠道 = 能跑。
-   * 两处共用同一份搜索，不会出现「这里列得出来、那里选不动」。
+   * 对话窗的模型清单：固定前端名，不按渠道当前是否可路由增删。
+   * 没有真实对话渠道提供所选名称时，发送前的 `resolveRoutedChatTarget()`
+   * 会立即返回空并给出明确错误，不会把请求发出去等超时。
    */
   const modelOptionsByKind = useMemo(() => {
     /**
@@ -330,19 +324,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 它是单独一行（agent 自己的 LLM）。
      */
     const pick = (category: 'image' | 'video') => panelModelOptions(category)
-    /**
-     * 对话模型：仍然只列**真跑得起来**的。
-     *
-     * 与生成模型相反的理由：它下一句话就要发请求，列一个没有渠道能提供的模型，
-     * 用户选中之后只会得到一句「没有渠道提供模型」，白点一次（用户 2026-10-02
-     * 第二轮报的「agnes 的是不是多了」就是这条）。
-     */
-    const chat = panelModelOptions('chat').filter(
-      (name) =>
-        resolveRoutedChatTarget(allChannels, name, routeStrategy, { random: 0 }) !== null,
-    )
+    /** 对话模型也保持固定的前端清单，不按渠道能力增删。 */
+    const chat = panelModelOptions('chat')
     return { image: pick('image'), video: pick('video'), chat }
-  }, [allChannels, enabled, routeStrategy])
+  }, [])
   const chatModelOptions = modelOptionsByKind.chat
   /**
    * **已经放进这次对话的模型**（正文里的 `model` chip）。
@@ -454,15 +439,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         panelModelOptions(category).filter(
           (n) => channelIdForLogical(liveEnabled, n) !== undefined,
         )
-      const liveModelOptions = panelModelOptions('chat').filter(
-        (name) =>
-          resolveRoutedChatTarget(
-            liveChannels,
-            name,
-            channels.getState().routeStrategy,
-            { random: 0 },
-          ) !== null,
-      )
+      const liveModelOptions = panelModelOptions('chat')
       const saved = await presets.loadAgentDefault()
       const savedModel = toLogicalName(liveChannels, saved?.model ?? '')
       const created = await sessions.create({

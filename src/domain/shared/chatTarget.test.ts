@@ -81,6 +81,25 @@ describe('resolveSpeechTarget', () => {
 describe('resolveRoutedChatTarget', () => {
   const chatModel = { id: 'gpt-6-astra', category: 'chat' as const, inputTypes: ['text' as const] }
 
+  it('只有映射键、没有对应 chat 模型时不参与对话选路', () => {
+    expect(
+      resolveRoutedChatTarget(
+        [
+          channel({
+            id: 'image-only',
+            protocol: 'openai-compatible',
+            baseUrl: 'https://image.test/v1',
+            hasToken: true,
+            models: [{ id: 'gpt-image-2', category: 'image', inputTypes: ['text'] }],
+            modelMap: { 'GPT-6 Astra': 'gpt-6' },
+          }),
+        ],
+        'GPT-6 Astra',
+        'priority',
+      ),
+    ).toBeNull()
+  })
+
   it('固定显示名交给全局优先度选路，不依赖会话里上次的渠道', () => {
     const target = resolveRoutedChatTarget(
       [
@@ -120,6 +139,9 @@ describe('resolveRoutedChatTarget', () => {
           protocol: 'openai-compatible',
           baseUrl: 'https://mapped.test/v1',
           hasToken: true,
+          models: [
+            { id: 'gpt-6-astra-site', category: 'chat', inputTypes: ['text'] },
+          ],
           modelMap: { 'GPT-6 Astra': 'gpt-6-astra-site' },
         }),
       ],

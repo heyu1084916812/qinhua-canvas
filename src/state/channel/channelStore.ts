@@ -218,6 +218,8 @@ export interface ChannelStoreActions {
   completeWithTools(req: {
     channelId: string
     model: string
+    /** 调用方已经解析过渠道映射；电商对话会显式传上游 ID，避免二次翻译 */
+    modelIsUpstream?: boolean
     tools: readonly ToolDeclaration[]
     messages: readonly ChatMessage[]
     /**
@@ -795,6 +797,7 @@ export function createChannelStore(
   const completeWithTools: ChannelStoreActions['completeWithTools'] = async ({
     channelId,
     model,
+    modelIsUpstream = false,
     tools,
     messages,
     inputs = [],
@@ -816,7 +819,9 @@ export function createChannelStore(
      * `resolveUpstreamModel` 的 null 只发生在「传入的是空串」这一种情况；
      * 上面已经拦过空模型，这里兜一层保持类型收窄 —— 不静默换模型。
      */
-    const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
+    const upstreamModel = modelIsUpstream
+      ? model
+      : (resolveUpstreamModel(ch.modelMap, model) ?? model)
     return adapter.completeText(
       {
         kind: 'text',
