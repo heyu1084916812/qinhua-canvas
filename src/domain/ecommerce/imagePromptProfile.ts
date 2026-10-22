@@ -93,20 +93,16 @@ export function imagePromptForModel(input: ImagePromptProfileInput): string {
   if (family === 'gpt-image') {
     return chinese
       ? [
-          '图片目标：生成一张可直接用于电商上架的高质量商品视觉。',
           prompt,
-          ratio ? `构图：使用 ${ratio} 画幅，商品完整可见，文字与主体保留安全边距。` : '',
+          ratio ? `画幅：${ratio}。` : '',
           copy ?? '',
           '限制：严格保留输入商品的外观、颜色、材质与结构；不编造参数、认证、功效或价格；不出现水印和无关 Logo。',
         ]
           .filter(Boolean)
           .join('\n')
       : [
-          'Image goal: Create a production-ready e-commerce product visual.',
           prompt,
-          ratio
-            ? `Composition: ${ratio} aspect ratio, product fully visible, with safe margins for copy.`
-            : '',
+          ratio ? `Aspect ratio: ${ratio}.` : '',
           copy ?? '',
           'Constraints: Preserve the exact visible product shape, color, material, and structure from the input image. No fabricated specifications, certifications, claims, prices, watermarks, or unrelated logos.',
         ]

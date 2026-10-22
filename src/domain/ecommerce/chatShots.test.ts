@@ -70,13 +70,14 @@ describe('shouldExpandShots：值不值得问模型', () => {
 })
 
 describe('AI 二次自审', () => {
-  it('★★ 自审系统明确检查模块覆盖、商品事实与跨图视觉一致性', () => {
+  it('★★ 自审系统明确检查模块覆盖、商品事实与跨图视觉一致性，并主动做减法', () => {
     const prompt = buildShotsReviewSystem()
     expect(prompt).toContain('二次自审修正')
     expect(prompt).toContain('已选模块是否全部覆盖')
-    expect(prompt).toContain('designSystem 是否被每一条 prompt 真正执行')
-    expect(prompt).toContain('字体家族与字重层级')
-    expect(prompt).toContain('网格、边距、栏间距、对齐、文字安全区')
+    expect(prompt).toContain('不是继续加规则，而是做减法和统一')
+    expect(prompt).toContain('百分比、像素、固定网格列数、字号倍率、坐标')
+    expect(prompt).toContain('商品必须完整可见')
+    expect(prompt).toContain('不能比第一版更长或塞进更多规则')
     expect(prompt).toContain('输出**修正后的完整 JSON**')
   })
 
@@ -300,16 +301,16 @@ describe('shotKeyOf：一份方案还算不算数', () => {
 })
 
 describe('提示词与逐张拼装', () => {
-  it('用户消息里带着那句话、张数、平台规则与默认脚本（模型是"改"结构而不是从零编）', () => {
+  it('用户消息里带着那句话、张数、平台规则与统一边界，不规定固定镜头脚本', () => {
     const text = buildShotsText(requestOf(), ECOMMERCE_PLATFORMS, 2)
     expect(text).toContain('附带的视觉素材：2 张商品原图 / 参考图')
     expect(text).toContain('用户的要求：突出防水材质，模特手持场景')
     expect(text).toContain('要求张数：4')
     expect(text).toContain('比例参数：固定 3:4')
     expect(text).toContain('亚马逊')
-    expect(text).toContain('默认镜头脚本')
-    /* 默认脚本的条目也要在（第 1 条对应第 1 张） */
-    expect(text).toContain('- 首图：全貌 + 卖点主张')
+    expect(text).toContain('只统一视觉风格、排版语言、字体气质和文案体系')
+    expect(text).toContain('具体镜头、景别、背景与构图由你')
+    expect(text).not.toContain('默认镜头脚本')
   })
 
   it('平台与语言会提供不同的视觉 / 排版预设，而不是只换一句语言名', () => {
@@ -330,7 +331,9 @@ describe('提示词与逐张拼装', () => {
     expect(system).toContain('条数必须等于要求的张数')
     expect(system).toContain('不许编造材质、参数、认证、功效、价格、品牌')
     expect(system).toContain('designSystem')
-    expect(system).toContain('同一字体家族与字重层级')
+    expect(system).toContain('不要写百分比、像素、固定网格列数、字号倍率、坐标')
+    expect(system).toContain('一到两段自然的商业视觉描述')
+    expect(system).toContain('不要机械复用同一模板')
     expect(system).toContain('白底主图必须把两项写成空字符串')
   })
 
