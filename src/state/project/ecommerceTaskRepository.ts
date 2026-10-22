@@ -128,6 +128,12 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
   }
 }
 
+/** RunRecord 的成功产物可能不止一张；电商一格只认第一张。 */
+function firstOutputHashOf(run: Record<string, unknown> | undefined): string | undefined {
+  if (!Array.isArray(run?.outputHashes)) return undefined
+  return run.outputHashes.map(String).find((hash) => hash.length > 0)
+}
+
 export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTaskRepository {
   const resultsOf = async (taskId: string) =>
     (
@@ -372,18 +378,24 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       }
       const changed: EcommerceResultRecord[] = []
       const nextResults = results.map((row) => {
-        if (row.status !== 'pending' && row.status !== 'running') return row
         const run = latestByNode.get(row.nodeId)
         const runStatus = String(run?.status ?? '')
+        const outputHash = firstOutputHashOf(run)
+        const active = row.status === 'pending' || row.status === 'running'
+        const needsHashBackfill = row.status === 'done' && !row.assetHash
+        if ((!active && !needsHashBackfill) || !run) return row
         if (runStatus !== 'succeeded' && runStatus !== 'failed' && runStatus !== 'canceled') {
           return row
         }
+        const succeeded = runStatus === 'succeeded'
+        const assetHash = outputHash ?? row.assetHash
         const { errorText: _oldError, ...rest } = row
         const next: EcommerceResultRecord = {
           ...rest,
           updatedAt: at,
-          status: runStatus === 'succeeded' ? 'done' : 'failed',
-          ...(runStatus === 'succeeded' && typeof run?.sentModel === 'string'
+          status: succeeded ? (assetHash ? 'done' : 'failed') : 'failed',
+          ...(assetHash ? { assetHash } : {}),
+          ...(succeeded && typeof run?.sentModel === 'string'
             ? { model: run.sentModel }
             : {}),
           ...(typeof run?.outputWidth === 'number' && run.outputWidth > 0
@@ -392,12 +404,16 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
           ...(typeof run?.outputHeight === 'number' && run.outputHeight > 0
             ? { height: run.outputHeight }
             : {}),
-          ...(runStatus !== 'succeeded'
+          ...(!succeeded || !assetHash
             ? {
                 errorText:
-                  typeof run?.errorText === 'string' && run.errorText
+                  !succeeded &&
+                  typeof run?.errorText === 'string' &&
+                  run.errorText
                     ? run.errorText
-                    : '这次 API 调用失败，但上游没有返回可读原因',
+                    : !succeeded
+                      ? '这次 API 调用失败，但上游没有返回可读原因'
+                      : '生成已完成，但没有找到可展示的产物',
               }
             : {}),
         }

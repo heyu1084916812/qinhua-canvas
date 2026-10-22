@@ -127,6 +127,94 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(await repo.interruptUnfinished(task.id, '再次收口', 300)).toBeNull()
   })
 
+  it('成功 RunRecord 必须把产物 hash 回填到结果行，done 缺 hash 的历史行也会补账', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { task, results } = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-reconcile-hash',
+      request,
+      nodeIds: ['n1', 'n2'],
+      at: 100,
+    })
+    await repo.updateResult({
+      ...results[1]!,
+      status: 'done',
+      updatedAt: 110,
+    })
+    await storage.put('runRecords', {
+      id: 'run-1',
+      nodeId: 'n1',
+      projectId: 'p1',
+      version: 1,
+      createdAt: 120,
+      status: 'succeeded',
+      inputs: [],
+      params: {},
+      outputHashes: ['hash-n1'],
+      fingerprint: 'fp-1',
+      taskId: 'task-1',
+      durationMs: 10,
+      sentModel: 'gpt-image-2',
+      outputWidth: 1024,
+      outputHeight: 1024,
+    })
+    await storage.put('runRecords', {
+      id: 'run-2',
+      nodeId: 'n2',
+      projectId: 'p1',
+      version: 1,
+      createdAt: 130,
+      status: 'succeeded',
+      inputs: [],
+      params: {},
+      outputHashes: ['hash-n2'],
+      fingerprint: 'fp-2',
+      taskId: 'task-2',
+      durationMs: 10,
+    })
+
+    const reconciled = await repo.reconcileFromRunRecords('p1', 200)
+    expect(reconciled.results.map((row) => [row.status, row.assetHash ?? ''])).toEqual([
+      ['done', 'hash-n1'],
+      ['done', 'hash-n2'],
+    ])
+    expect(reconciled.results[0]?.width).toBe(1024)
+    expect(reconciled.results[0]?.model).toBe('gpt-image-2')
+    expect(reconciled.tasks.find((row) => row.id === task.id)?.status).toBe('done')
+  })
+
+  it('RunRecord 报成功却没有产物时不伪装成 done', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { results } = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-empty-success',
+      request,
+      nodeIds: ['n1'],
+      at: 100,
+    })
+    await storage.put('runRecords', {
+      id: 'run-empty',
+      nodeId: 'n1',
+      projectId: 'p1',
+      version: 1,
+      createdAt: 120,
+      status: 'succeeded',
+      inputs: [],
+      params: {},
+      outputHashes: [],
+      fingerprint: 'fp-empty',
+      taskId: 'task-empty',
+      durationMs: 10,
+    })
+
+    const reconciled = await repo.reconcileFromRunRecords('p1', 200)
+    expect(reconciled.results[0]?.status).toBe('failed')
+    expect(reconciled.results[0]?.errorText).toContain('没有找到可展示的产物')
+    expect(reconciled.results[0]?.id).toBe(results[0]?.id)
+  })
+
   it('失败记录可单独移除：成功结果保留，任务节点与状态重新收口', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)

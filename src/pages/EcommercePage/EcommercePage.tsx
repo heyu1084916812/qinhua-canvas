@@ -568,7 +568,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     async (taskId: string, nodeId: string) => {
       const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
       const state = exec.nodeStateOf(nodeId)
-      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      const nodeHash = node ? assetHashesOfNode(node)[0] : undefined
       const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
       const data = node?.data as
@@ -600,11 +600,17 @@ function StudioHost({ projectId }: { projectId: string }) {
         (await platform.storage.query('runRecords', { projectId, nodeId })) as unknown as RunRecord[]
       ).sort((a, b) => b.createdAt - a.createdAt)
       const run = runRows[0]
+      const runHash = Array.isArray(run?.outputHashes)
+        ? run.outputHashes.find((item) => item.trim().length > 0)
+        : undefined
+      const hash = nodeHash ?? runHash
       const status: EcommerceResultRecord['status'] =
         run?.status === 'failed' || run?.status === 'canceled'
           ? 'failed'
           : run?.status === 'succeeded'
-            ? 'done'
+            ? hash
+              ? 'done'
+              : 'failed'
             : state?.kind === 'canceled'
           ? 'canceled'
           : resultDisplayStatus({
@@ -644,6 +650,8 @@ function StudioHost({ projectId }: { projectId: string }) {
           : {}),
         ...(run?.errorText
           ? { errorText: run.errorText }
+          : run?.status === 'succeeded' && !hash
+            ? { errorText: '生成已完成，但没有找到可展示的产物' }
           : state?.kind === 'failed'
             ? { errorText: describeError(state.error) }
             : {}),

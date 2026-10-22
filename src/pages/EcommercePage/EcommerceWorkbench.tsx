@@ -29,6 +29,7 @@ import {
 } from '../../domain/canvas/geometry/coords'
 import { fitViewport, panBy, zoomAt } from '../../domain/canvas/geometry/transform'
 import { createId } from '../../shared/id'
+import { workbenchBlankDragIntent } from '../../domain/ecommerce/workbenchGesture'
 import {
   useAssetMeta,
   useAssetPreview,
@@ -61,6 +62,7 @@ interface Interaction {
   center?: Point
   startAngle?: number
   additive?: boolean
+  button?: number
   moved: boolean
 }
 
@@ -721,7 +723,7 @@ export function EcommerceWorkbench({
     event.stopPropagation()
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
-    const additive = event.shiftKey || event.ctrlKey || event.metaKey
+    const additive = event.shiftKey
     let nextSelection: Set<string>
     if (additive) {
       nextSelection = new Set(selectedIds)
@@ -796,47 +798,53 @@ export function EcommerceWorkbench({
   }
 
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button === 0 && tool === 'select' && !spaceHeld) {
-      const target = event.target as HTMLElement
-      if (
-        !target.closest(
-          '[data-ecommerce-workbench-item], [data-ecommerce-action-panel], [data-ecommerce-workbench-toolbar], [data-ecommerce-workbench-log], [data-ecommerce-workbench-zoom], [data-ecommerce-workbench-minimap], button',
-        )
-      ) {
-        setEditingTextId(null)
-        const rect = viewportRef.current?.getBoundingClientRect()
-        if (rect) {
-          const box = {
-            left: event.clientX - rect.left,
-            top: event.clientY - rect.top,
-            width: 0,
-            height: 0,
-          }
-          selectionBoxRef.current = box
-          setSelectionBox(box)
-          interactionRef.current = {
-            kind: 'marquee',
-            startClient: { x: event.clientX, y: event.clientY },
-            startViewport: viewport,
-            startWorld: { x: 0, y: 0 },
-            additive: event.shiftKey,
-            moved: false,
-          }
-          event.currentTarget.setPointerCapture?.(event.pointerId)
-          event.preventDefault()
-        }
+    const target = event.target as HTMLElement
+    const blank = !target.closest(
+      '[data-ecommerce-workbench-item], [data-ecommerce-action-panel], [data-ecommerce-workbench-toolbar], [data-ecommerce-workbench-log], [data-ecommerce-workbench-zoom], [data-ecommerce-workbench-minimap], button',
+    )
+    if (!blank) return
+    const intent = workbenchBlankDragIntent({
+      button: event.button,
+      tool,
+      spaceHeld,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    })
+    if (intent === 'none') return
+    event.preventDefault()
+    setEditingTextId(null)
+    if (intent === 'marquee') {
+      const rect = viewportRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const box = {
+        left: event.clientX - rect.left,
+        top: event.clientY - rect.top,
+        width: 0,
+        height: 0,
       }
+      selectionBoxRef.current = box
+      setSelectionBox(box)
+      interactionRef.current = {
+        kind: 'marquee',
+        startClient: { x: event.clientX, y: event.clientY },
+        startViewport: viewport,
+        startWorld: { x: 0, y: 0 },
+        additive: event.shiftKey,
+        button: event.button,
+        moved: false,
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
       return
     }
-    if (event.button !== 1 && tool !== 'hand' && !spaceHeld) return
-    event.preventDefault()
     interactionRef.current = {
       kind: 'pan',
       startClient: { x: event.clientX, y: event.clientY },
       startViewport: viewport,
       startWorld: { x: 0, y: 0 },
+      button: event.button,
       moved: false,
     }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
   const finishInteraction = useCallback(() => {
@@ -864,7 +872,11 @@ export function EcommerceWorkbench({
       selectionBoxRef.current = null
       return
     }
-    if (interaction.kind !== 'pan' && interaction.moved) {
+    if (interaction.kind === 'pan') {
+      if (!interaction.moved && interaction.button === 0) setSelectedIds(new Set())
+      return
+    }
+    if (interaction.moved) {
       undoRef.current.push([...items])
       redoRef.current = []
       setHistoryVersion((value) => value + 1)
@@ -1617,7 +1629,7 @@ export function EcommerceWorkbench({
       {localItems.length === 0 ? (
         <div className={styles.empty} data-ecommerce-workbench-empty>
           <span>生成结果会按任务顺序出现在这里</span>
-          <small>滚轮缩放，空格或抓手拖动</small>
+          <small>滚轮缩放 · 左键拖空白平移 · Ctrl+拖动框选</small>
         </div>
       ) : null}
 

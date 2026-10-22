@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商结果补账与工作台手势（2026-10-22 → 对账 #715）
+
+- **`done` 必须带可展示的资产**：`ecommerceResults` 行出现 `done` 但无 `assetHash` 时，从同一节点最新成功 RunRecord 的 `outputHashes[0]` 回填；不能只对账 `pending / running`，否则坏行会永久显示“素材不存在”。
+- **成功但无产物不是完成**：RunRecord `succeeded` 且 `outputHashes` 为空时，结果收口为 failed，并写“生成已完成，但没有找到可展示的产物”。
+- **`syncResultRow` 不能只读节点 hash**：节点内存/数据可能已被执行宿主清理，必须回落到最新 RunRecord 的 `outputHashes`。
+- **真实证据**：项目 `proj_b710e6ed...` 的 10 个旧结果全部补回 hash，状态 10 done / 0 running / 0 failed，“素材不存在”消失，10 张缩略图最终全部加载。
+- **手势对齐无限画布**：空白左键拖 = 平移；Ctrl / Cmd + 左键拖 = 框选；Shift = 增选；中键 / 抓手 / 空格 + 拖 = 平移。真实页面视口 `48,48 → 168,128`，Ctrl 框选时视口不动且框选层出现。
+- 验证：定向 14/14；全量 2998 passed / 1 skipped；check/build 通过。
+
 ### 电商套图：少约束、强统一（2026-10-22 → 对账 #714）
 
 - **只统一三件事**：视觉风格、排版语言、文案体系。具体镜头、景别、背景、构图由模型自己决定；不要写成统一机位或统一模板。
