@@ -9,6 +9,8 @@
 - **URL 产物仍落本地**：拿到最终图片 URL 后由 `assetsFromItems()` 下载原始字节并入库；不要求用户配置自己的 OSS。用户说的 OSS 只与图生图参考素材的公网传递有关，与本条文生图无关。
 - **真实响应里 `data.url` 是数组**：`gpt-image-2.5-sunburst` 成功时同时返回 `data:image/png;base64,...` 和 HTTPS 地址。解析器必须接受数组并优先 HTTPS；只认字符串会把成功任务继续轮询到超时。
 - **单次轮询超时不能判任务失败**：`gpt-image-2.5-sunburst` 比 `gpt-image-2` 慢；三个被应用标记失败的 Agent 任务事后回查全部 `SUCCESS`。轮询 GET 超时、408/429/5xx 应继续，直到任务成功、上游明确失败或总时限到达（当前 180 次 / 8 分钟）。
+- **Agent 对话展示的是工具过程**：简单需求当前走 `applyPlan → runNode → readResult/readAsset → 最终回复`。`runNode` 失败卡若后续 `readResult` 对同节点确认 `ok`，旧失败卡必须收起；失败卡本身不挂缩略图，避免“失败但下方有图”。
+- **过程卡只报节点标题**：`readAssetInfo / readResults` 返回 `title`，UI 的 `readResult / readAsset / runNode / runFrom` 卡标题优先、无标题才回退 id；最终回复也禁止贴 `node_...`。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
 - **4K 已坐实**：文生图发 `size:"3840x2160"` + `quality:"high"` 后，真实产物为 **3840×2160 / 8301589 bytes**；不要再发无效的 `image_size/aspect_ratio`。

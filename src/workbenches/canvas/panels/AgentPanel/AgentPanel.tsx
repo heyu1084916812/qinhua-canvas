@@ -1820,7 +1820,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             )
           }
           /** 步骤卡：一行标题 + 可展开的明细；涉及到的节点把产物缩略图直接嵌进来 */
-          const thumbs = item.nodeIds
+          const thumbs = (item.failed ? [] : item.nodeIds)
             .map((id) => ({ id, hash: hashOfNode.get(id) }))
             .filter((x): x is { id: string; hash: string } => Boolean(x.hash))
           const isOpen = expanded.has(item.id)

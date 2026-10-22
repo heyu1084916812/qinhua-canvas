@@ -106,12 +106,22 @@ export function describeToolResult(
     }
     case 'readAsset': {
       const assets = asArray(r.assets)
-      return { lines: [`读了 ${assets.length} 个素材`], nodeIds: [], failed: false }
+      const names = assets.map((x) => {
+        const a = asRecord(x)
+        return String(a.title || a.nodeId || '?')
+      })
+      return {
+        lines: [`读了 ${assets.length} 个素材${names.length > 0 ? `：${names.join('、')}` : ''}`],
+        nodeIds: [],
+        failed: false,
+      }
     }
     case 'readResult': {
       const results = asArray(r.results).map(asRecord)
       return {
-        lines: results.map((x) => `${String(x.nodeId ?? '?')}：${String(x.status ?? '?')}`),
+        lines: results.map(
+          (x) => `${String(x.title || x.nodeId || '?')}：${String(x.status ?? '?')}`,
+        ),
         nodeIds: results.filter((x) => x.status === 'ok').map((x) => String(x.nodeId)),
         failed: false,
       }
@@ -142,7 +152,7 @@ export function describeToolResult(
         lines: outcomes.length
           ? outcomes.map((o) =>
               o.ok === false
-                ? `运行失败：${String(o.error ?? '未知原因')}`
+                ? `${String(o.title || o.nodeId || '?')} 运行失败：${String(o.error ?? '未知原因')}`
                 /**
                  * 优先报**节点名**（用户 2026-10-14：「每个图片的名字都是有的，
                  * 右边 agent 完成的时候是不是可以不用写节点 id」）——
@@ -151,7 +161,9 @@ export function describeToolResult(
                 : `${String(o.title || o.nodeId || '?')} 运行完成`,
             )
           : problems,
-        nodeIds: outcomes.map((o) => String(o.nodeId)),
+        nodeIds: outcomes
+          .filter((o) => (failed ? o.ok === false : o.ok !== false))
+          .map((o) => String(o.nodeId)),
         failed,
       }
     }
@@ -242,12 +254,19 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
    * 别顺手把所有失败都藏起来）。
    */
   const lastOkAt = new Map<string, number>()
+  const lastOkAtByNode = new Map<string, number>()
   out.forEach((item, i) => {
-    if (item.kind === 'step' && !item.failed) lastOkAt.set(item.tool, i)
+    if (item.kind !== 'step' || item.failed) return
+    lastOkAt.set(item.tool, i)
+    for (const nodeId of item.nodeIds) lastOkAtByNode.set(nodeId, i)
   })
   return out.filter((item, i) => {
     if (item.kind !== 'step' || !item.failed) return true
     const okAt = lastOkAt.get(item.tool)
-    return okAt === undefined || okAt < i
+    if (okAt !== undefined && okAt > i) return false
+    const nodesRecovered =
+      item.nodeIds.length > 0 &&
+      item.nodeIds.every((nodeId) => (lastOkAtByNode.get(nodeId) ?? -1) > i)
+    return !nodesRecovered
   })
 }

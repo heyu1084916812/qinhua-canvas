@@ -294,7 +294,7 @@ export function readGraphSummary(
  */
 export function readAssetInfo(store: CanvasStore, nodeIds: unknown) {
   const graph = store.getSnapshot()
-  const out: { nodeId: string; mime: string; width?: number; height?: number }[] = []
+  const out: { nodeId: string; title?: string; mime: string; width?: number; height?: number }[] = []
   for (const id of asStringArray(nodeIds)) {
     const node = graph.nodes.find((n) => n.id === id)
     if (!node) {
@@ -302,11 +302,13 @@ export function readAssetInfo(store: CanvasStore, nodeIds: unknown) {
       continue
     }
     const data = asRecord(node.data)
+    const title = (node.title ?? '').trim()
     const size = asRecord(data.naturalSize)
     const w = typeof size.width === 'number' ? size.width : undefined
     const h = typeof size.height === 'number' ? size.height : undefined
     out.push({
       nodeId: id,
+      ...(title ? { title } : {}),
       mime: node.type === 'generation' && data.mode === 'video' ? 'video/mp4' : 'image/png',
       ...(w && h ? { width: w, height: h } : {}),
     })
@@ -340,6 +342,7 @@ export function readResults(store: CanvasStore, nodeIds: unknown) {
   return asStringArray(nodeIds).map((id) => {
     const node = graph.nodes.find((n) => n.id === id)
     if (!node) return { nodeId: id, status: 'missing' as const }
+    const title = (node.title ?? '').trim()
     const own = asRecord(node.data).assetHash
     const carrierIds = carriersOf.get(id) ?? []
     const hashes: string[] = []
@@ -352,6 +355,7 @@ export function readResults(store: CanvasStore, nodeIds: unknown) {
     return hashes.length > 0
       ? {
           nodeId: id,
+          ...(title ? { title } : {}),
           status: 'ok' as const,
           outputs: hashes.map((hash) => ({ hash, mime: 'image/png' })),
           /** 产物散在哪些节点上 —— 模型据此知道该去改哪一张，而不是再来问一遍 */
@@ -359,6 +363,7 @@ export function readResults(store: CanvasStore, nodeIds: unknown) {
         }
       : {
           nodeId: id,
+          ...(title ? { title } : {}),
           status: 'empty' as const,
           /**
            * 「这个节点自己是空的」**不等于**「这次没有出图」：批量 / 循环的产物可能全在

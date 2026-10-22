@@ -40,9 +40,12 @@ const addNode = (
   /** 也允许 `batch`：只为验「分发器的产物落在承载节点上」那一组读取逻辑 */
   type: 'prompt' | 'generation' | 'batch',
   data: Record<string, unknown> = {},
+  title?: string,
 ) => {
   store.dispatch({ kind: 'node.create', projectId: 'p1', type, at: { x: 0, y: 0 }, data })
-  return store.getSnapshot().nodes.at(-1)!.id
+  const id = store.getSnapshot().nodes.at(-1)!.id
+  if (title) store.dispatch({ kind: 'node.rename', id, title })
+  return id
 }
 
 describe('工具声明', () => {
@@ -90,11 +93,11 @@ describe('读类工具', () => {
     const withSize = addNode(store, 'generation', {
       mode: 'image',
       naturalSize: { width: 1024, height: 768 },
-    })
-    const noSize = addNode(store, 'generation', { mode: 'image' })
+    }, '商品主图')
+    const noSize = addNode(store, 'generation', { mode: 'image' }, '草稿图')
 
     const out = readAssetInfo(store, [withSize, noSize, 'nope'])
-    expect(out[0]).toMatchObject({ nodeId: withSize, width: 1024, height: 768 })
+    expect(out[0]).toMatchObject({ nodeId: withSize, title: '商品主图', width: 1024, height: 768 })
     // 没记录尺寸 → 不出现 width/height（编一个会让 agent 判断错）
     expect(out[1]!.width).toBeUndefined()
     expect(out[2]!.mime).toBe('unknown')
@@ -106,10 +109,11 @@ describe('读类工具', () => {
 
   it('★ readResult：有产物就是 ok，没有就是 empty，节点不存在就 missing', () => {
     const { store } = setup()
-    const ok = addNode(store, 'generation', { mode: 'image', assetHash: 'h1' })
+    const ok = addNode(store, 'generation', { mode: 'image', assetHash: 'h1' }, '三视图设定')
     const empty = addNode(store, 'generation', { mode: 'image' })
     const out = readResults(store, [ok, empty, 'gone'])
     expect(out.map((r) => r.status)).toEqual(['ok', 'empty', 'missing'])
+    expect(out[0]).toMatchObject({ title: '三视图设定' })
   })
 
   /**

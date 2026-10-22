@@ -109,6 +109,32 @@ describe('工具结果 → 人话', () => {
     expect(toolLabel('runNode')).toBe('已运行生成')
     expect(toolLabel('someFutureTool')).toContain('someFutureTool')
   })
+
+  it('★★ result and asset tool cards prefer node titles over raw ids', () => {
+    const result = describeToolResult(
+      'readResult',
+      JSON.stringify({
+        results: [{ nodeId: 'node_8936ccef', title: '古装美女三视图设定', status: 'ok' }],
+      }),
+    )
+    const asset = describeToolResult(
+      'readAsset',
+      JSON.stringify({
+        assets: [{ nodeId: 'node_8936ccef', title: '古装美女三视图设定', mime: 'image/png' }],
+      }),
+    )
+    const run = describeToolResult(
+      'runNode',
+      JSON.stringify({
+        ok: false,
+        outcomes: [{ nodeId: 'node_8936ccef', title: '古装美女三视图设定', ok: false, error: '超时' }],
+      }),
+    )
+    for (const d of [result, asset, run]) {
+      expect(d.lines.join(' ')).toContain('古装美女三视图设定')
+      expect(d.lines.join(' ')).not.toContain('node_8936ccef')
+    }
+  })
 })
 
 describe('消息 → 对话条目', () => {
@@ -255,5 +281,64 @@ describe('重试过程不进对话（#182）', () => {
       ]),
     )
     expect(steps.map((s) => s.label)).toEqual(['工作流已创建', '工作流没建成'])
+  })
+})
+
+describe('工具结果跨轮次对账', () => {
+  it('hides an earlier failed runNode when readResult later confirms the same node ok', () => {
+    const items = toConversation([
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'run', name: 'runNode', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'run',
+        content: JSON.stringify({
+          ok: false,
+          outcomes: [{ nodeId: 'n1', ok: false, error: 'not recorded yet' }],
+        }),
+      },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'read', name: 'readResult', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'read',
+        content: JSON.stringify({ results: [{ nodeId: 'n1', status: 'ok' }] }),
+      },
+    ])
+    const steps = items.filter(
+      (item): item is Extract<ConversationItem, { kind: 'step' }> => item.kind === 'step',
+    )
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.tool).toBe('readResult')
+    expect(steps[0]!.nodeIds).toEqual(['n1'])
+  })
+
+  it('keeps a failed runNode when no later result confirms that node', () => {
+    const steps = toConversation([
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'run', name: 'runNode', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'run',
+        content: JSON.stringify({
+          ok: false,
+          outcomes: [{ nodeId: 'n1', ok: false, error: 'real failure' }],
+        }),
+      },
+    ]).filter(
+      (item): item is Extract<ConversationItem, { kind: 'step' }> => item.kind === 'step',
+    )
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.failed).toBe(true)
+    expect(steps[0]!.nodeIds).toEqual(['n1'])
   })
 })
