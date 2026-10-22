@@ -521,7 +521,21 @@ export interface RemoteTextRequest {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'
   headers?: Record<string, string>
   body?: string
+  /** 非 multipart 的原始请求体；桌面壳解码后再发，避免把二进制当 UTF-8。 */
+  bodyBase64?: string
+  /** 与 `bodyBase64` 配套；调用方已按原始体类型给出时使用。 */
+  contentType?: string
+  /** FormData 的结构化投影；字段顺序与原始 FormData 一致。 */
+  multipart?: RemoteMultipartPart[]
   timeoutMs?: number
+}
+
+export interface RemoteMultipartPart {
+  name: string
+  value?: string
+  dataBase64?: string
+  fileName?: string
+  contentType?: string
 }
 
 export interface RemoteTextResponse {

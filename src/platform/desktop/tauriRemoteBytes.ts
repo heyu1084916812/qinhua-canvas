@@ -58,6 +58,9 @@ export function createTauriRemoteBytes(): RemoteBytesPort {
         method: req.method ?? 'GET',
         headers: req.headers ?? {},
         body: req.body ?? '',
+        bodyBase64: req.bodyBase64 ?? '',
+        contentType: req.contentType ?? '',
+        multipart: req.multipart ?? [],
         timeoutMs: req.timeoutMs,
       })
       return {

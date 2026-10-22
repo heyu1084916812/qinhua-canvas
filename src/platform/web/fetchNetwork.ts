@@ -1,7 +1,15 @@
-import type { NetworkPort, NetworkRequest, NetworkResponse, StreamChunk } from '../ports'
+import type {
+  NetworkPort,
+  NetworkRequest,
+  NetworkResponse,
+  RemoteBytesPort,
+  RemoteMultipartPart,
+  RemoteTextRequest,
+  StreamChunk,
+} from '../ports'
 import type { AppError } from '../../shared/result'
 import { parseSSELine, createLineSplitter } from '../sse'
-import { base64ToBytes } from '../../domain/shared/base64'
+import { base64ToBytes, bytesToBase64 } from '../../domain/shared/base64'
 
 /**
  * 请求体是否「原样上传」的形态（M6-12）。
@@ -104,29 +112,64 @@ function isCorsLikeNetworkError(err: unknown): boolean {
   return e.detail === 'dns' || e.detail === 'cors' || e.detail === 'tls'
 }
 
+async function shellMultipartOf(form: FormData): Promise<RemoteMultipartPart[]> {
+  const parts: RemoteMultipartPart[] = []
+  for (const [name, value] of form.entries()) {
+    if (typeof value === 'string') {
+      parts.push({ name, value })
+      continue
+    }
+    const bytes = new Uint8Array(await value.arrayBuffer())
+    parts.push({
+      name,
+      dataBase64: bytesToBase64(bytes),
+      fileName: value instanceof File ? value.name : name,
+      contentType: value.type || 'application/octet-stream',
+    })
+  }
+  return parts
+}
+
+async function shellBodyOf(
+  body: BodyInit,
+): Promise<Pick<RemoteTextRequest, 'body' | 'bodyBase64' | 'contentType' | 'multipart'>> {
+  if (body instanceof FormData) return { multipart: await shellMultipartOf(body) }
+  if (body instanceof URLSearchParams) {
+    return { body: body.toString(), contentType: 'application/x-www-form-urlencoded' }
+  }
+  if (body instanceof Blob) {
+    const bytes = new Uint8Array(await body.arrayBuffer())
+    return {
+      bodyBase64: bytesToBase64(bytes),
+      contentType: body.type || 'application/octet-stream',
+    }
+  }
+  if (body instanceof ArrayBuffer) {
+    return { bodyBase64: bytesToBase64(new Uint8Array(body)) }
+  }
+  if (ArrayBuffer.isView(body)) {
+    return {
+      bodyBase64: bytesToBase64(
+        new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+      ),
+    }
+  }
+  return {}
+}
+
 export function createFetchNetwork(remote?: {
-  request?(req: {
-    url: string
-    method?: string
-    headers?: Record<string, string>
-    body?: string
-    timeoutMs?: number
-  }): Promise<{
-    status: number
-    headers: Record<string, string>
-    text: string
-    bodyBase64?: string
-  }>
+  request?: NonNullable<RemoteBytesPort['request']>
 }): NetworkPort {
   const shellRequest = remote?.request
   /** 走壳的原生 HTTP 打一次（不带 signal：Rust 侧自带超时） */
   const viaShell = async (req: NetworkRequest): Promise<NetworkResponse> => {
     const { headers, body } = requestInit(req)
+    const bodyFields = body ? await shellBodyOf(body) : {}
     const res = await shellRequest!({
       url: req.url,
       method: req.method ?? 'GET',
       headers,
-      body: typeof body === 'string' ? body : '',
+      ...(typeof body === 'string' ? { body } : bodyFields),
       timeoutMs: req.timeoutMs,
     })
     if (res.status < 200 || res.status >= 300) {

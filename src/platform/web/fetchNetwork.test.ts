@@ -134,6 +134,56 @@ describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
     }
   })
 
+  it('★★ multipart 跨域回落保留 model / prompt / 文件名 / MIME / 图片字节', async () => {
+    const seen: {
+      body?: string
+      multipart?: {
+        name: string
+        value?: string
+        dataBase64?: string
+        fileName?: string
+        contentType?: string
+      }[]
+    }[] = []
+    const network = createFetchNetwork({
+      request: async (req) => {
+        seen.push(req)
+        return { status: 200, headers: { 'content-type': 'application/json' }, text: '{"data":[]}' }
+      },
+    })
+    const form = new FormData()
+    form.append('model', 'gpt-image-2')
+    form.append('prompt', 'replace the display')
+    form.append(
+      'image',
+      new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }),
+      'reference.png',
+    )
+    const original = globalThis.fetch
+    globalThis.fetch = (() => {
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    try {
+      await network.request(
+        { url: 'https://soonstudio.ai/v1/images/edits', method: 'POST', body: form },
+        abort(),
+      )
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.multipart?.slice(0, 2)).toEqual([
+        { name: 'model', value: 'gpt-image-2' },
+        { name: 'prompt', value: 'replace the display' },
+      ])
+      expect(seen[0]!.multipart?.[2]).toMatchObject({
+        name: 'image',
+        fileName: 'reference.png',
+        contentType: 'image/png',
+      })
+      expect(atob(seen[0]!.multipart?.[2]?.dataBase64 ?? '')).toBe('\u0089PNG')
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('★★ HTTP 状态码失败**不**回落（服务端真回答了，换条路也是同一个答复）', async () => {
     let shellCalls = 0
     const network = createFetchNetwork({

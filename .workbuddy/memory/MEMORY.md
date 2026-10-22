@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### 图生图 HTTP 400 与桌面 multipart（2026-10-22 → 对账 #700）
+
+- **先看渠道配置，再看回落 body**：SoonStudio 的 `soonstudio` 协议、`gpt-image-2` 勾选和映射都正确，浏览器侧 FormData 也有 `model`。错误文案说缺 model，不代表协议没写 model。
+- **CORS 回落曾把 FormData 丢成空串**：`createFetchNetwork.viaShell()` 原先只接受 string body，`FormData` 传进去后变成 `body:''`。Rust 收到的 multipart 没有 `model` / `prompt` / `image`，网关只能回 `Specify an image model...`。
+- **修复契约**：`RemoteTextRequest` 支持 `multipart`、`bodyBase64`、`contentType`。FormData 保持字段顺序，文件项带 `fileName` / `contentType` / `dataBase64`；Rust 自己拼标准 boundary 和 CRLF 分段，不引 `reqwest multipart`（会新增 `mime_guess` 依赖）。
+- **不能再静默降级**：未知 raw body 不能当空串发；至少保留可诊断错误。文本、二进制、URLSearchParams 和 multipart 各有明确回落路径。
+- 回归：前端 multipart 序列化断言、Rust CRLF/文件字节断言、`fetchNetwork + openaiImages` 64/64、全量 2957 passed / 1 skipped。
+
 ### 多文件 Skill 与文档 / JSON 视图（2026-10-22 → 对账 #699）
 
 - **技能不是一份 Markdown**：ZIP 内主文件旁还有 `<技能名>_附件/`，下面可能出现 `references/`、`templates/`、`adapters/`、`tests/`。当前 704 个有正文技能共 **1804 个 MD 文件**，151 个是多文件技能，1100 个附件。

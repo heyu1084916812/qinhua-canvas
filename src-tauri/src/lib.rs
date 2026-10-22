@@ -715,6 +715,65 @@ struct FetchedText {
     body_base64: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchMultipartPart {
+    name: String,
+    value: Option<String>,
+    data_base64: Option<String>,
+    file_name: Option<String>,
+    content_type: Option<String>,
+}
+
+fn quoted_param(value: &str) -> Result<String, String> {
+    if value.contains('\r') || value.contains('\n') {
+        return Err("multipart 字段名或文件名不能包含换行".into());
+    }
+    Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn multipart_body(parts: Vec<FetchMultipartPart>) -> Result<(String, Vec<u8>), String> {
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let boundary = format!("----qinghua-form-{}-{sequence}", std::process::id());
+    let mut out = Vec::new();
+    for part in parts {
+        out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        let name = quoted_param(&part.name)?;
+        if let Some(data) = part.data_base64.filter(|value| !value.is_empty()) {
+            let file_name = quoted_param(
+                part.file_name
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(&part.name),
+            )?;
+            out.extend_from_slice(
+                format!(
+                    "Content-Disposition: form-data; name=\"{name}\"; filename=\"{file_name}\"\r\n"
+                )
+                .as_bytes(),
+            );
+            if let Some(content_type) = part.content_type.filter(|value| !value.is_empty()) {
+                if content_type.contains('\r') || content_type.contains('\n') {
+                    return Err("multipart 文件类型不能包含换行".into());
+                }
+                out.extend_from_slice(format!("Content-Type: {content_type}\r\n").as_bytes());
+            }
+            out.extend_from_slice(b"\r\n");
+            out.extend_from_slice(&base64_decode(&data)?);
+            out.extend_from_slice(b"\r\n");
+        } else {
+            out.extend_from_slice(
+                format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
+            );
+            out.extend_from_slice(part.value.unwrap_or_default().as_bytes());
+            out.extend_from_slice(b"\r\n");
+        }
+    }
+    out.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Ok((format!("multipart/form-data; boundary={boundary}"), out))
+}
+
 fn is_textual_content_type(value: Option<&str>) -> bool {
     let Some(value) = value else {
         return false;
@@ -733,6 +792,9 @@ async fn fetch_text(
     method: Option<String>,
     headers: Option<std::collections::HashMap<String, String>>,
     body: Option<String>,
+    body_base64: Option<String>,
+    content_type: Option<String>,
+    multipart: Option<Vec<FetchMultipartPart>>,
     timeout_ms: Option<u64>,
 ) -> Result<FetchedText, String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -754,12 +816,25 @@ async fn fetch_text(
         "HEAD" => client.head(&url),
         other => return Err(format!("不支持的请求方法：{other}")),
     };
+    let has_multipart = multipart.as_ref().is_some_and(|parts| !parts.is_empty());
+    let has_binary_body = body_base64.as_ref().is_some_and(|value| !value.is_empty());
     if let Some(map) = headers {
         for (k, v) in map {
+            if (has_multipart || has_binary_body) && k.eq_ignore_ascii_case("content-type") {
+                continue;
+            }
             req = req.header(k, v);
         }
     }
-    if let Some(payload) = body {
+    if has_multipart {
+        let (content_type, payload) = multipart_body(multipart.unwrap_or_default())?;
+        req = req.header("content-type", content_type).body(payload);
+    } else if let Some(payload) = body_base64.filter(|value| !value.is_empty()) {
+        if let Some(content_type) = content_type.filter(|value| !value.is_empty()) {
+            req = req.header("content-type", content_type);
+        }
+        req = req.body(base64_decode(&payload)?);
+    } else if let Some(payload) = body {
         if !payload.is_empty() {
             req = req.body(payload);
         }
@@ -1466,6 +1541,45 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    let clean = text.trim();
+    if clean.len() % 4 != 0 {
+        return Err("base64 长度不是 4 的倍数".into());
+    }
+    let mut out = Vec::with_capacity(clean.len() / 4 * 3);
+    for chunk in clean.as_bytes().chunks_exact(4) {
+        let digit = |value: u8| -> Result<u8, String> {
+            match value {
+                b'A'..=b'Z' => Ok(value - b'A'),
+                b'a'..=b'z' => Ok(value - b'a' + 26),
+                b'0'..=b'9' => Ok(value - b'0' + 52),
+                b'+' => Ok(62),
+                b'/' => Ok(63),
+                _ => Err("base64 含非法字符".into()),
+            }
+        };
+        if chunk[0] == b'=' || chunk[1] == b'=' {
+            return Err("base64 首两位不能是填充符".into());
+        }
+        let a = digit(chunk[0])? as u32;
+        let b = digit(chunk[1])? as u32;
+        let c = if chunk[2] == b'=' { 0 } else { digit(chunk[2])? as u32 };
+        let d = if chunk[3] == b'=' { 0 } else { digit(chunk[3])? as u32 };
+        if chunk[2] == b'=' && chunk[3] != b'=' {
+            return Err("base64 填充格式错误".into());
+        }
+        let value = (a << 18) | (b << 12) | (c << 6) | d;
+        out.push(((value >> 16) & 0xff) as u8);
+        if chunk[2] != b'=' {
+            out.push(((value >> 8) & 0xff) as u8);
+        }
+        if chunk[3] != b'=' {
+            out.push((value & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
+
 /// 目标是否在根目录**里面**。
 ///
 /// 两道关：
@@ -1639,6 +1753,50 @@ mod cli_out_tests {
         assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
         // 高位字节（>127）：PNG / JPEG 的头就是这种，编码表用错会在这里露馅
         assert_eq!(base64_encode(&[0x89, 0x50, 0x4e, 0x47]), "iVBORw==");
+    }
+
+    #[test]
+    fn base64_decode_round_trips_binary_vectors() {
+        for bytes in [
+            b"".as_slice(),
+            b"f".as_slice(),
+            b"fo".as_slice(),
+            b"foo".as_slice(),
+            b"foobar".as_slice(),
+            &[0x89, 0x50, 0x4e, 0x47],
+        ] {
+            assert_eq!(base64_decode(&base64_encode(bytes)).unwrap(), bytes);
+        }
+        assert!(base64_decode("iVBOR===").is_err());
+        assert!(base64_decode("iV!ORw==").is_err());
+    }
+
+    #[test]
+    fn multipart_body_preserves_text_fields_and_file_bytes() {
+        let (content_type, body) = multipart_body(vec![
+            FetchMultipartPart {
+                name: "model".into(),
+                value: Some("gpt-image-2".into()),
+                data_base64: None,
+                file_name: None,
+                content_type: None,
+            },
+            FetchMultipartPart {
+                name: "image".into(),
+                value: None,
+                data_base64: Some(base64_encode(&[0x89, 0x50, 0x4e, 0x47])),
+                file_name: Some("reference.png".into()),
+                content_type: Some("image/png".into()),
+            },
+        ])
+        .unwrap();
+        assert!(content_type.starts_with("multipart/form-data; boundary="));
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("name=\"model\""));
+        assert!(text.contains("gpt-image-2"));
+        assert!(text.contains("filename=\"reference.png\""));
+        assert!(text.contains("Content-Type: image/png"));
+        assert!(body.windows(4).any(|window| window == [0x89, 0x50, 0x4e, 0x47]));
     }
 
     #[test]
