@@ -3,7 +3,7 @@
  */
 export type AppError =
   | { kind: 'network'; detail: 'dns' | 'tls' | 'cors' | 'timeout' | 'aborted' }
-  | { kind: 'http'; status: number; body?: string }
+  | { kind: 'http'; status: number; body?: string; verbatim?: boolean }
   | { kind: 'parse'; raw: string }
   | { kind: 'storage'; detail: 'quota' | 'corrupt' | 'permission' }
   | { kind: 'validation'; field: string; reason: string }
@@ -135,6 +135,7 @@ export function describeError(e: AppError): string {
     case 'network':
       return `连不上：${NETWORK_TEXT[e.detail]}`
     case 'http': {
+      if (e.verbatim && e.body) return e.body
       /**
        * **服务端的原话优先**（它通常就是中文，比如「预扣费不足」）——
        * 状态码只作为括号里的补充，原因看不清时也留一句人话，不把裸码丢给用户。

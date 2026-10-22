@@ -107,6 +107,11 @@ describe('asAppError', () => {
     expect(noReason).not.toBe('HTTP 503')
   })
 
+  it('★★ verbatim HTTP error returns the raw server body', () => {
+    const raw = '{"data":{"status":"FAILURE","fail_reason":"upstream pool exhausted"}}'
+    expect(describeError({ kind: 'http', status: 502, body: raw, verbatim: true })).toBe(raw)
+  })
+
   /**
    * comfly 这类网关在地区限制 / WAF / 登录页上会回整页 HTML。
    * 以前 parse 错误只显示“格式对不上”，用户看不到 HTML 里真正的“不支持当前地区”；

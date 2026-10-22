@@ -244,6 +244,59 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('★★ SoonStudio 网络失败时只返回传输层原文，不拼接任务信息', async () => {
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, { task_id: 'task_diag_456' })
+          }
+          throw { kind: 'network', detail: 'timeout' }
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const failure = await a
+      .generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal)
+      .catch((e: unknown) => e)
+    expect(failure).toMatchObject({ appError: { kind: 'http', status: 504 } })
+    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
+    expect(body).toBe('network/timeout')
+  })
+
+  it('★★ SoonStudio 任务 FAILURE 时直接返回服务端原始响应', async () => {
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, { task_id: 'task_failed_789' })
+          }
+          return resp(200, {
+            data: {
+              status: 'FAILURE',
+              fail_reason: 'upstream account pool exhausted',
+            },
+          })
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const failure = await a.generateImage(request([], 1), signal).catch((e: unknown) => e)
+    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
+    expect(body).toBe(
+      JSON.stringify({
+        data: {
+          status: 'FAILURE',
+          fail_reason: 'upstream account pool exhausted',
+        },
+      }),
+    )
+  })
+
   it('★★ SoonStudio 图生图表单同样请求 URL 产物', async () => {
     const calls: { url: string; body: unknown }[] = []
     const platform = platformWithAssets([{ id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }])

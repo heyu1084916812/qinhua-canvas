@@ -327,6 +327,19 @@ function soonStudioFailureIn(value: unknown): string | null {
   return typeof reason === 'string' && reason.trim() ? reason.trim() : '生成失败'
 }
 
+function transportTextOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && 'detail' in error) {
+    return `${String((error as { kind?: unknown }).kind ?? 'network')}/${String((error as { detail: unknown }).detail)}`
+  }
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
     return Promise.reject(new ChannelError({ kind: 'network', detail: 'aborted' }))
@@ -583,68 +596,134 @@ export function createOpenAiImagesAdapter(
       typeof request.params.resolution === 'string' ? request.params.resolution.trim() : ''
     const imageSize = /^(?:1k|2k|4k)$/i.test(resolution) ? resolution.toUpperCase() : null
     const requested = sizeToDimensions(customImageSize(resolution) ?? openAiImageSize(ratio, resolution))
-    const res = await deps.network.request(
-      {
-        url: `${imagesUrl}?async=true`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
-        body: {
-          model: request.model,
-          prompt: request.prompt,
-          n: count,
-          aspect_ratio: ratio,
-          response_format: 'url',
-          ...(imageSize ? { image_size: imageSize } : {}),
-          ...(quality ? { quality } : {}),
-          ...(background ? { background } : {}),
+    let res: NetworkResponse
+    try {
+      res = await deps.network.request(
+        {
+          url: `${imagesUrl}?async=true`,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+          body: {
+            model: request.model,
+            prompt: request.prompt,
+            n: count,
+            aspect_ratio: ratio,
+            response_format: 'url',
+            ...(imageSize ? { image_size: imageSize } : {}),
+            ...(quality ? { quality } : {}),
+            ...(background ? { background } : {}),
+          },
+          timeoutMs: VERIFY_TIMEOUT_MS,
         },
-        timeoutMs: VERIFY_TIMEOUT_MS,
-      },
-      signal,
-    )
+        signal,
+      )
+    } catch (e) {
+      if (signal.aborted) throw e
+      throw new ChannelError({
+        kind: 'http',
+        status: 504,
+        body: transportTextOf(e),
+        verbatim: true,
+      })
+    }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
-      const { error } = classifyError(null, res.status, detail)
-      throw new ChannelError(error)
+      throw new ChannelError({
+        kind: 'http',
+        status: res.status,
+        body: detail,
+        verbatim: true,
+      })
     }
-    const created = await res.json<unknown>()
+    const createdRaw = await res.text()
+    let created: unknown
+    try {
+      created = JSON.parse(createdRaw) as unknown
+    } catch {
+      throw new ChannelError({
+        kind: 'http',
+        status: res.status,
+        body: createdRaw,
+        verbatim: true,
+      })
+    }
     const immediate = imageItemsIn(created)
     if (immediate.length > 0) return assetsFromItems(immediate, requested, signal)
 
     const taskId = soonStudioTaskIdIn(created)
     if (!taskId) {
       throw new ChannelError({
-        kind: 'parse',
-        raw: `SoonStudio 未返回 task_id：${JSON.stringify(created).slice(0, 2000)}`,
+        kind: 'http',
+        status: res.status,
+        body: createdRaw,
+        verbatim: true,
       })
     }
 
     const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
+    let lastResponse = ''
     for (let attempt = 0; attempt < 90; attempt += 1) {
       if (attempt > 0) await waitFor(2_000, signal)
-      const poll = await deps.network.request(
-        {
-          url: pollUrl,
-          method: 'GET',
-          headers: authHeader(config.apiKey),
-          timeoutMs: VERIFY_TIMEOUT_MS,
-        },
-        signal,
-      )
+      let poll: NetworkResponse
+      try {
+        poll = await deps.network.request(
+          {
+            url: pollUrl,
+            method: 'GET',
+            headers: authHeader(config.apiKey),
+            timeoutMs: VERIFY_TIMEOUT_MS,
+          },
+          signal,
+        )
+      } catch (e) {
+        if (signal.aborted) throw e
+        throw new ChannelError({
+          kind: 'http',
+          status: 504,
+          body: lastResponse || transportTextOf(e),
+          verbatim: true,
+        })
+      }
       if (poll.status < 200 || poll.status >= 300) {
         const detail = await poll.text().catch(() => '')
-        const { error } = classifyError(null, poll.status, detail)
-        throw new ChannelError(error)
+        throw new ChannelError({
+          kind: 'http',
+          status: poll.status,
+          body: detail,
+          verbatim: true,
+        })
       }
-      const body = await poll.json<unknown>()
+      const raw = await poll.text()
+      let body: unknown
+      try {
+        body = JSON.parse(raw) as unknown
+      } catch {
+        throw new ChannelError({
+          kind: 'http',
+          status: poll.status,
+          body: raw,
+          verbatim: true,
+        })
+      }
+      lastResponse = raw
       const failure = soonStudioFailureIn(body)
       if (failure) {
-        throw new ChannelError({ kind: 'http', status: 502, body: failure })
+        throw new ChannelError({
+          kind: 'http',
+          status: 502,
+          body: raw,
+          verbatim: true,
+        })
       }
       const items = imageItemsIn(body)
       if (items.length > 0) return assetsFromItems(items, requested, signal)
     }
-    throw new ChannelError({ kind: 'network', detail: 'timeout' })
+    throw new ChannelError({
+      kind: 'http',
+      status: 504,
+      body: lastResponse,
+      verbatim: true,
+    })
   }
 
   /** 参考素材 → Data URI（Agnes 图片接口文档明写 `image` 收 Data URI Base64） */

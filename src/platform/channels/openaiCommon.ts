@@ -113,6 +113,7 @@ export function appErrorMessage(e: AppError): string {
     case 'network':
       return NETWORK_MESSAGE[e.detail]
     case 'http':
+      if (e.verbatim && e.body) return e.body
       // 与 shared/result.describeError 同口径：拿到 body 就把服务端原话带上
       return e.body ? `${httpMessage(e.status)}｜服务端：${serverReasonOf(e.body) ?? e.body.slice(0, 200)}` : httpMessage(e.status)
     case 'channel':
