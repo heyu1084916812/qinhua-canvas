@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createChannel, type Channel } from './channel'
 import { BUILTIN_CATALOG } from './protocol'
 import type { ModelCapability } from '../shared/capability'
-import { resolveGenerationTarget } from './generationRouting'
+import { generationAvailabilityOf, resolveGenerationTarget } from './generationRouting'
 
 function image(id: string): ModelCapability {
   return {
@@ -131,5 +131,32 @@ describe('resolveGenerationTarget', () => {
       logicalModel: 'real-image',
       usedMock: false,
     })
+  })
+})
+
+describe('generationAvailabilityOf', () => {
+  it('没有渠道、渠道停用、缺令牌、缺图片模型时分别给出可执行原因', () => {
+    expect(generationAvailabilityOf([], 'image')).toEqual({
+      ready: false,
+      reason: '还没有配置任何渠道',
+    })
+    expect(generationAvailabilityOf([channel({ id: 'off', protocol: 'openai-compatible', models: [image('m')], enabled: false })], 'image').reason).toBe(
+      '已配置的渠道都未启用',
+    )
+    expect(generationAvailabilityOf([channel({ id: 'no-token', protocol: 'openai-compatible', models: [image('m')], hasToken: false })], 'image').reason).toBe(
+      '已启用的渠道缺少有效令牌、地址或可用协议',
+    )
+    expect(generationAvailabilityOf([channel({ id: 'text', protocol: 'openai-compatible', models: [] })], 'image').reason).toBe(
+      '可路由的渠道里还没有勾选图片模型',
+    )
+  })
+
+  it('存在可路由且带对应模型的渠道时标记为可用', () => {
+    expect(
+      generationAvailabilityOf(
+        [channel({ id: 'ready', protocol: 'openai-compatible', models: [image('m')] })],
+        'image',
+      ),
+    ).toEqual({ ready: true, reason: null })
   })
 })

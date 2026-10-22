@@ -185,6 +185,26 @@ describe('素材段与技能段', () => {
     expect(p.indexOf('本会话启用的技能')).toBeGreaterThan(p.indexOf('随这次对话给的素材'))
     expect(p).toContain('阶段一：脚本')
   })
+
+  it('★★ 没有可用生成渠道时把真实原因交给模型，禁止解释成排队', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      generationAvailability: {
+        image: { ready: false, reason: '还没有配置任何渠道' },
+        video: { ready: true, reason: null },
+      },
+    })
+    expect(p).toContain('## 当前生成渠道')
+    expect(p).toContain('图片生成：不可用（还没有配置任何渠道）')
+    expect(p).toContain('视频生成：可用')
+    expect(p).toContain('不要把“没有留下记录”解释成排队')
+  })
+
+  it('★★ “剩下的全部生成”必须先合成一次 runNode，并逐项汇报结果', () => {
+    const p = buildAgentSystemPrompt({ nodes: [], edges: [] })
+    expect(p).toContain('剩下的全部生成')
+    expect(p).toContain('一次交给 `runNode.nodeIds`')
+    expect(p).toContain('部分成功不许说成全部完成')
+  })
 })
 
 /**

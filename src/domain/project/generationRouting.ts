@@ -28,6 +28,42 @@ export interface GenerationRoutingTarget {
   usedMock: boolean
 }
 
+export interface GenerationAvailability {
+  ready: boolean
+  reason: string | null
+}
+
+/**
+ * 给 Agent 看的生成渠道可用性。
+ *
+ * `resolveGenerationTarget()` 要具体模型才能选路；Agent 在建图前只需要知道
+ * 当前类别有没有一条**现在真能发请求**的渠道。没有这条信息时，执行层会在
+ * 计划为空时静默 return，模型只能看到“没有运行记录”，于是把缺渠道误判成
+ * 渠道排队或延迟。
+ */
+export function generationAvailabilityOf(
+  channels: readonly Channel[],
+  category: GenerationMediaKind,
+  catalog?: ProtocolCatalog,
+): GenerationAvailability {
+  const label = category === 'video' ? '视频' : '图片'
+  if (channels.length === 0) {
+    return { ready: false, reason: '还没有配置任何渠道' }
+  }
+  const enabled = channels.filter((channel) => channel.enabled)
+  if (enabled.length === 0) {
+    return { ready: false, reason: '已配置的渠道都未启用' }
+  }
+  const routable = enabled.filter((channel) => channelIsRoutable(channel, catalog))
+  if (routable.length === 0) {
+    return { ready: false, reason: '已启用的渠道缺少有效令牌、地址或可用协议' }
+  }
+  if (!routable.some((channel) => channel.models.some((model) => model.category === category))) {
+    return { ready: false, reason: `可路由的渠道里还没有勾选${label}模型` }
+  }
+  return { ready: true, reason: null }
+}
+
 function sourceOf(channel: Channel): RouteChannelSource {
   return {
     id: channel.id,

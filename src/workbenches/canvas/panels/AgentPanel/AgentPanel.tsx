@@ -26,6 +26,7 @@ import {
   type RoutedChatTarget,
 } from '../../../../domain/shared/chatTarget'
 import { presetModelsOf } from '../../../../domain/project/modelPresets'
+import { generationAvailabilityOf } from '../../../../domain/project/generationRouting'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
 import {
@@ -62,7 +63,8 @@ import {
   runFromNodeIds,
   type AgentToolContext,
 } from '../../agent/tools'
-import { agentRunOutcomeOf } from '../../agent/runOutcome'
+import { agentRunOutcomeOf, nextRunConcurrency } from '../../agent/runOutcome'
+import { runPreflightProblems } from '../../agent/runPreflight'
 import {
   decideToolMode,
   ensureToolSupport,
@@ -144,6 +146,14 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
  * 到顶就退回手动，把最后那张确认卡留给用户 —— 总比无限花钱好。
  */
 const AUTO_RUN_LIMIT = 6
+/**
+ * Agent 对同一批节点最多并发提交几次。
+ *
+ * 引擎自身能并发，但许多中转站在 3 个以上同时请求时会 429 / 断连。先 2 个并发；
+ * 一旦这一小批出现失败，剩余节点自动转串行，既保留能并行时的速度，也不再把
+ * “剩下的全部生成”一次打满后成片失败。
+ */
+const AGENT_RUN_INITIAL_CONCURRENCY = 2
 
 export function AgentPanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const platform = usePlatform()
@@ -264,6 +274,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   /** 每个会话这个回合走的是原生 tools 还是 JSON 降级；确认后续跑要沿用同一条 */
   const toolModeRef = useRef(new Map<string, 'native' | 'json'>())
   const planAliasesRef = useRef(new Map<string, Map<string, string>>())
+  /** 自动生成是“实时开关”：用户在本轮运行中切换，已经发出的这一轮也要立刻认新值 */
+  const autoRunRef = useRef(new Map<string, boolean>())
   /**
    * 一次用户回合解析出的实际渠道。
    *
@@ -279,6 +291,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * `useCallback` 的依赖永不相等，回调每帧重建。
    */
   const enabled = useMemo(() => channels.enabledChannels(), [channels, allChannels])
+  const generationAvailability = useMemo(
+    () => ({
+      image: generationAvailabilityOf(allChannels, 'image', channels.protocolCatalog()),
+      video: generationAvailabilityOf(allChannels, 'video', channels.protocolCatalog()),
+    }),
+    [allChannels, channels],
+  )
   /** 技能列表：内置 + 我的。放在 `send` 之前 —— 它要在拼系统提示词时用到 */
   const allSkills = useMemo(
     () => [...skills.builtinSkills, ...skills.userSkills],
@@ -566,41 +585,63 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         const titleOf = (id: string): string => {
           const node = store.getSnapshot().nodes.find((n) => n.id === id)
           const data = (node?.data ?? {}) as { title?: unknown }
-          return typeof data.title === 'string' ? data.title.trim() : ''
+          return (
+            (node?.title ?? '').trim() ||
+            (typeof data.title === 'string' ? data.title.trim() : '')
+          )
         }
         const waves = runWaves(ids, store.getSnapshot().edges)
         const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
+        let concurrency = AGENT_RUN_INITIAL_CONCURRENCY
         for (const wave of waves) {
-          /**
-           * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
-           * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
-           */
-          const projectId = store.getSnapshot().projectId
-          const beforeRows = (await platform.storage.query('runRecords', {
-            projectId,
-          })) as unknown as RunRecord[]
-          const beforeIds = new Set(beforeRows.map((record) => record.id))
-          const thrown = await Promise.all(
-            wave.map(async (id) => {
-              try {
-                await execution.runNode(id)
-                return null
-              } catch (e) {
-                return { nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) }
-              }
-            }),
-          )
-          const afterRows = (await platform.storage.query('runRecords', {
-            projectId,
-          })) as unknown as RunRecord[]
-          out.push(
-            ...wave.map((id, index) => {
-              const failure = thrown[index]
-              const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
-              const title = titleOf(id)
-              return title ? { ...base, title } : base
-            }),
-          )
+          for (let offset = 0; offset < wave.length; ) {
+            const batch = wave.slice(offset, offset + concurrency)
+            /**
+             * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
+             * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
+             */
+            const projectId = store.getSnapshot().projectId
+            const beforeRows = (await platform.storage.query('runRecords', {
+              projectId,
+            })) as unknown as RunRecord[]
+            const beforeIds = new Set(beforeRows.map((record) => record.id))
+            const thrown = await Promise.all(
+              batch.map(async (id) => {
+                try {
+                  await execution.runNode(id)
+                  return null
+                } catch (e) {
+                  return {
+                    nodeId: id,
+                    ok: false,
+                    error: e instanceof Error ? e.message : errText(e),
+                  }
+                }
+              }),
+            )
+            /**
+             * 运行记录由执行层 flush 后才返回，但多节点并发时偶尔会晚一拍。
+             * 给记录一个很短的 settle 窗口，避免“图已经出来、步骤卡却说没记录”。
+             * 这里只等**本次新记录**，不会重发任何付费请求。
+             */
+            let outcomes: ReturnType<typeof agentRunOutcomeOf>[] = []
+            for (let attempt = 0; attempt < 6; attempt += 1) {
+              const afterRows = (await platform.storage.query('runRecords', {
+                projectId,
+              })) as unknown as RunRecord[]
+              outcomes = batch.map((id, index) => {
+                const failure = thrown[index]
+                const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+                const title = titleOf(id)
+                return title ? { ...base, title } : base
+              })
+              if (!outcomes.some((outcome) => outcome.error?.includes('没有留下记录'))) break
+              await new Promise((resolve) => setTimeout(resolve, 200))
+            }
+            out.push(...outcomes)
+            concurrency = nextRunConcurrency(concurrency, outcomes)
+            offset += batch.length
+          }
         }
         return out
       },
@@ -709,16 +750,27 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       precheck: (name: string, args: unknown) => {
         if (name !== 'runNode' && name !== 'runFrom') return { ok: true as const }
-        /** 节点都不在画布上，就别让用户点「批准运行」了（他批的是一团空气） */
+        /** 节点不在画布、没渠道 / 模型 / 提示词时，别让用户点「批准运行」 */
         const args2 = (args ?? {}) as { nodeIds?: unknown }
         const aliases = planAliasesRef.current.get(session.id)
-        const ids = (Array.isArray(args2.nodeIds) ? args2.nodeIds.map(String) : []).map(
+        const requested = (Array.isArray(args2.nodeIds) ? args2.nodeIds.map(String) : []).map(
           (id) => aliases?.get(id) ?? id,
         )
-        const existing = new Set(store.getSnapshot().nodes.map((n) => n.id))
-        const missing = ids.filter((id) => !existing.has(id))
-        return missing.length > 0
-          ? { ok: false as const, result: { ok: false, problems: missing.map((id) => `节点不存在：${id}`) } }
+        const graph = store.getSnapshot()
+        let targets = requested
+        if (name === 'runFrom') {
+          const resolved = runFromNodeIds(store, requested)
+          if (!resolved.ok) return { ok: false as const, result: resolved }
+          targets = resolved.ids
+        }
+        const problems = runPreflightProblems(
+          targets,
+          graph,
+          channels.getState().channels,
+          channels.protocolCatalog(),
+        )
+        return problems.length > 0
+          ? { ok: false as const, result: { ok: false, problems } }
           : { ok: true as const }
       },
       /**
@@ -818,6 +870,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const controller = new AbortController()
     abortRefs.current.set(current.id, controller)
     setStatusFor(current.id, { kind: 'thinking' })
+    autoRunRef.current.set(current.id, current.autoRun === true)
 
     /**
      * 发消息前先问一次「这个对话模型到底会不会 tool_calls」。
@@ -937,6 +990,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
+        generationAvailability,
         /** JSON 降级时要把工具声明列进提示词，模型才知道 tool 能填什么（路线 B） */
         ...(toolMode === 'json' ? { jsonToolFallback: true, tools: AGENT_TOOLS } : {}),
       },
@@ -983,7 +1037,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 确认卡留给用户。
      */
     let autoSteps = 0
-    while (outcome.kind === 'confirm' && current.autoRun === true && autoSteps < AUTO_RUN_LIMIT) {
+    while (
+      outcome.kind === 'confirm' &&
+      autoRunRef.current.get(current.id) === true &&
+      autoSteps < AUTO_RUN_LIMIT
+    ) {
       autoSteps += 1
       setStatusFor(current.id, { kind: 'executing' })
       const done = await executeConfirmedTool(
@@ -1013,6 +1071,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     viewport,
     resolveChatRoute,
     shownModel,
+    generationAvailability,
   ])
 
   /** 输入框那条路：把草稿交给 `sendText` */
@@ -1168,9 +1227,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const setAutoRun = useCallback(
     async (autoRun: boolean) => {
+      if (!current) return
+      /**
+       * 本轮模型循环可能早就开始了，`sendText` 捕获的是旧的 `current`。
+       * 先写实时 map，再落会话；这样用户在“思考中 / 正在执行”时切到自动，
+       * 下一张确认卡到达就会按新值继续，而不是继续沿用开局的手动模式。
+       */
+      autoRunRef.current.set(current.id, autoRun)
+      const resumeCurrent = autoRun && status.kind === 'awaitingConfirm'
       await patchSession({ autoRun })
+      /**
+       * 已经停在确认卡时也要立刻接管：用户不是在预约“下一次自动”，
+       * 而是要求这一刻起别再问。
+       */
+      if (resumeCurrent) await confirm()
     },
-    [patchSession],
+    [current, status, patchSession, confirm],
   )
 
   /**

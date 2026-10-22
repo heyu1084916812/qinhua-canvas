@@ -47,3 +47,16 @@ export function agentRunOutcomeOf(
   if (fresh.sentModel) outcome.model = fresh.sentModel
   return outcome
 }
+
+/**
+ * 一小批里只要有一个失败，就把这批 Agent 运行降为串行。
+ *
+ * 这是对“同一渠道一次打七个、只成功一个”的确定性降载：
+ * 已经发出去的那一批无法撤回，但后续节点不应继续按高并发打满。
+ */
+export function nextRunConcurrency(
+  current: number,
+  outcomes: readonly Pick<AgentRunOutcome, 'ok'>[],
+): number {
+  return current > 1 && outcomes.some((outcome) => !outcome.ok) ? 1 : current
+}

@@ -12,6 +12,9 @@
 - **Agent 对话展示的是工具过程**：简单需求当前走 `applyPlan → runNode → readResult/readAsset → 最终回复`。`runNode` 失败卡若后续 `readResult` 对同节点确认 `ok`，旧失败卡必须收起；失败卡本身不挂缩略图，避免“失败但下方有图”。
 - **过程卡只报节点标题**：`readAssetInfo / readResults` 返回 `title`，UI 的 `readResult / readAsset / runNode / runFrom` 卡标题优先、无标题才回退 id；最终回复也禁止贴 `node_...`。
 - **技能设置不自动变成输入框 chip**：Agent 重开时 `restoredSessionRef` 只恢复素材；会话 `skillId` 照常生效并进入系统提示词，但正文只有用户主动从技能菜单选择时才显示 `skill:` chip。反向同步只认“曾出现、随后被用户删除”，否则用户正常打字会把技能误清空（对账 #707）。
+- **Agent 必须知道生成渠道是否真的可用**：系统提示词带图片 / 视频可用性与原因；`runNode / runFrom` 预检同时用 `buildRunPlan` + `emptyPlanReason`。缺渠道 / 未启用 / 缺令牌 / 缺模型 / 缺提示词在确认前回给模型，禁止把“没有运行记录”说成排队（对账 #708）。
+- **自动生成是实时开关**：`autoRunRef` 按会话更新，模型循环和已有确认卡都读它；用户在本轮中途切自动也要立刻继续，不能沿用 `sendText` 开局时的闭包。
+- **Agent 批量生成要降载**：同批先 2 路并发；一小批出现失败后剩余节点转串行。运行记录查询允许短暂 settle，避免图已出来但步骤卡报“没有留下记录”。用户说“剩下的全部生成”时一次 `runNode` 覆盖全部 nodeId，并逐项汇报成败。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
 - **4K 已坐实**：文生图发 `size:"3840x2160"` + `quality:"high"` 后，真实产物为 **3840×2160 / 8301589 bytes**；不要再发无效的 `image_size/aspect_ratio`。

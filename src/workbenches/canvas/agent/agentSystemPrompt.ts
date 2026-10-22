@@ -3,6 +3,7 @@ import { GENERATION_PARAM_KEYS } from '../../../domain/canvas/nodeSpecs/newNodeP
 import { allSpecs } from '../../../domain/canvas/nodeSpecs/registry'
 import type { GraphSummary } from './tools'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
+import type { GenerationAvailability } from '../../../domain/project/generationRouting'
 
 /**
  * Agent 的系统提示词（设计文档 §4.1 的四段）。
@@ -173,6 +174,9 @@ const IDENTITY_AND_RULES = [
    */
   '- 用户说「**都改 / 全部 / 这几张都改**」时要改多个节点：**用 `nodeIds` 一次改完**，',
   '  不要一次一个节点地调 updateNode —— 那会让他确认八次。一次意图只确认一次。',
+  '- 用户说「**剩下的全部生成 / 都生成 / 一起跑**」时：把这一轮要跑的**全部真实 nodeId**',
+  '  一次交给 `runNode.nodeIds`。不要只挑一部分，不要把一次意图拆成多次确认；',
+  '  运行后按 outcomes 逐项汇报成功与失败，部分成功不许说成全部完成。',
   '- 用户的话里带「其他保持不变 / 其余不变 / 只改 X」时，**提示词必须把这条约束说出来**，',
   '  但**写法分两种**（混用的代价很大，见下面那条真机事故）：',
   '  ① 要改的是**画面属性**（材质 / 风格 / 画质 / 光线 / 分辨率）**且这次接了参考图**：',
@@ -414,6 +418,16 @@ export interface AgentPromptExtras {
    */
   mediaModels?: { image?: string; video?: string }
   /**
+   * 当前“现在真能发请求”的图片 / 视频渠道状态。
+   *
+   * 只告诉模型模型名不够：没有生成渠道时执行计划会是空的，而工具结果只会
+   * 留下“没有运行记录”。把真实原因提前给模型，避免它把配置问题说成排队。
+   */
+  generationAvailability?: {
+    image?: GenerationAvailability
+    video?: GenerationAvailability
+  }
+  /**
    * 路线 B：渠道不支持原生 tools 时，改成"每次只输出一个 JSON 工具调用"。
    * 这里要把工具声明再列一遍，模型才知道 `tool` 能填什么。
    */
@@ -539,6 +553,31 @@ export function buildAgentSystemPromptWithContext(
         '也不要用别的模型替掉它（除非用户在这条对话里明确点了另一个）。',
       ].join('\n'),
     )
+  }
+
+  const availability = extras.generationAvailability
+  if (availability) {
+    const rows = (['image', 'video'] as const).flatMap((kind) => {
+      const item = availability[kind]
+      if (!item) return []
+      return [
+        `- ${kind === 'image' ? '图片' : '视频'}生成：${
+          item.ready ? '可用' : `不可用（${item.reason ?? '原因未知'}）`
+        }`,
+      ]
+    })
+    if (rows.length > 0) {
+      parts.push(
+        [
+          '## 当前生成渠道',
+          ...rows,
+          '',
+          '如果用户这次需要的类别是“不可用”：先明确告诉用户真实原因和修复位置（渠道配置），',
+          '不要在计划里假装它已经能生成，也不要调用 runNode，更不要把“没有留下记录”解释成排队、延迟或稍后自动出图。',
+          '如果用户只要求建草稿，可以说明“节点可以先建，但当前不能出图”后再按他的意愿执行。',
+        ].join('\n'),
+      )
+    }
   }
 
   if (extras.jsonToolFallback) {
