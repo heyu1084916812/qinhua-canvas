@@ -33,7 +33,7 @@ import {
   isModelListBody,
   normalizeBaseUrl,
   openAiBaseUrl,
-  GENERATE_TIMEOUT_MS,
+  IMAGE_GENERATE_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
 
@@ -462,7 +462,7 @@ export function createOpenAiImagesAdapter(
           : new Uint8Array(
               await (
                 await deps.network.request(
-                  { url: item.url, method: 'GET', headers: {}, timeoutMs: GENERATE_TIMEOUT_MS },
+                  { url: item.url, method: 'GET', headers: {}, timeoutMs: IMAGE_GENERATE_TIMEOUT_MS },
                   signal,
                 )
               ).arrayBuffer(),
@@ -554,7 +554,7 @@ export function createOpenAiImagesAdapter(
         method: 'POST',
         headers: { ...authHeader(config.apiKey) },
         body: form,
-        timeoutMs: GENERATE_TIMEOUT_MS,
+        timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
       },
       signal,
     )
@@ -583,7 +583,7 @@ export function createOpenAiImagesAdapter(
           ...(background ? { background } : {}),
           response_format: imageResponseFormat,
         },
-        timeoutMs: GENERATE_TIMEOUT_MS,
+        timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
       },
       signal,
     )
@@ -811,7 +811,7 @@ export function createOpenAiImagesAdapter(
            */
           response_format: imageResponseFormat,
         },
-        timeoutMs: GENERATE_TIMEOUT_MS,
+        timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
       },
       signal,
     )
@@ -875,7 +875,7 @@ export function createOpenAiImagesAdapter(
                 : {}),
             },
           },
-          timeoutMs: GENERATE_TIMEOUT_MS,
+          timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
         },
         signal,
       )
@@ -927,7 +927,7 @@ export function createOpenAiImagesAdapter(
             model: request.model,
             messages: [{ role: 'user', content }],
           },
-          timeoutMs: GENERATE_TIMEOUT_MS,
+          timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
         },
         signal,
       )

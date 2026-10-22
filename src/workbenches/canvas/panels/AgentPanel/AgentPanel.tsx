@@ -697,6 +697,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         }
         return { channelId, model }
       },
+      channelIdForModel: (model) => channelIdForLogical(enabled, model),
       /**
        * 模型名 → 类别：给 `applyPlan` 纠正 `mode` 用（见 `alignGenerationMode`）。
        *

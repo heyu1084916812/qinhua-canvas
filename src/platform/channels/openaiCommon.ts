@@ -22,6 +22,8 @@ import { resolveProtocolBaseUrl } from '../../domain/project/protocol'
 
 export const VERIFY_TIMEOUT_MS = 10_000
 export const GENERATE_TIMEOUT_MS = 120_000
+/** 图片生成可能是 4K 长任务；曾实测 123450ms 才完成，120s 会稳定误杀 */
+export const IMAGE_GENERATE_TIMEOUT_MS = 300_000
 /** 聊天比出图快得多，且中转常对长连接掐得更早，单独给一个更短的超时 */
 export const CHAT_TIMEOUT_MS = 60_000
 

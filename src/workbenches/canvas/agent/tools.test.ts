@@ -375,6 +375,57 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(r.ok).toBe(false)
   })
 
+  it('★★ updateNode 只认模型，渠道由系统反查并覆盖模型自己的错误 channelId', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', {
+      mode: 'image',
+      channelId: 'ch-builtin-wrong',
+      model: 'Old',
+    })
+    const routed = {
+      ...ctx,
+      channelIdForModel: vi.fn(() => 'ch-soon'),
+    } satisfies AgentToolContext
+    expect(
+      await executeConfirmedTool(
+        'updateNode',
+        {
+          nodeIds: [id],
+          data: { channelId: 'ch-builtin-wrong', model: 'GPT Image 2' },
+        },
+        routed,
+      ),
+    ).toEqual({ ok: true })
+    expect(store.getSnapshot().nodes.find((n) => n.id === id)!.data).toMatchObject({
+      channelId: 'ch-soon',
+      model: 'GPT Image 2',
+    })
+  })
+
+  it('★★ updateNode 找不到模型渠道时整批不改，不留下空渠道', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', {
+      mode: 'image',
+      channelId: 'ch-old',
+      model: 'Old',
+    })
+    const blocked = {
+      ...ctx,
+      channelIdForModel: vi.fn(() => undefined),
+    } satisfies AgentToolContext
+    expect(
+      await executeConfirmedTool(
+        'updateNode',
+        { nodeIds: [id], data: { channelId: '', model: 'GPT Image 2' } },
+        blocked,
+      ),
+    ).toMatchObject({ ok: false })
+    expect(store.getSnapshot().nodes.find((n) => n.id === id)!.data).toMatchObject({
+      channelId: 'ch-old',
+      model: 'Old',
+    })
+  })
+
   /**
    * ★★ **出过图的节点，正文不许覆盖**（用户 2026-10-05 第五批第 4 条：
    * 「agent 提出的需求应该先新建节点，然后把提示词放在新建节点上，而不是把提示词覆盖原有的节点，
@@ -721,12 +772,19 @@ describe('★★ updateNode 批量改（一次确认改完一批）', () => {
   it('★★ nodeIds 一次改完一批（不再是「一次一个节点」）', async () => {
     const { store, ctx } = setup()
     const ids = ['a', 'b', 'c'].map(() => addNode(store, 'generation', { mode: 'image' }))
-    const r = await executeConfirmedTool('updateNode', { nodeIds: ids, data: { model: 'MJ' } }, ctx)
+    const r = await executeConfirmedTool(
+      'updateNode',
+      { nodeIds: ids, data: { model: 'MJ' } },
+      { ...ctx, channelIdForModel: vi.fn(() => 'ch-mj') },
+    )
     expect(r).toEqual({ ok: true })
     for (const id of ids) {
       expect(
         (store.getSnapshot().nodes.find((n) => n.id === id)!.data as { model?: string }).model,
       ).toBe('MJ')
+      expect(
+        (store.getSnapshot().nodes.find((n) => n.id === id)!.data as { channelId?: string }).channelId,
+      ).toBe('ch-mj')
     }
   })
 

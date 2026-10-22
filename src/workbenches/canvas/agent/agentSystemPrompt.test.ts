@@ -205,6 +205,13 @@ describe('素材段与技能段', () => {
     expect(p).toContain('一次交给 `runNode.nodeIds`')
     expect(p).toContain('部分成功不许说成全部完成')
   })
+
+  it('★★ 生成节点不许自己写 channelId，改模型只传 model', () => {
+    const p = buildAgentSystemPrompt({ nodes: [], edges: [] })
+    expect(p).toContain('生成节点不要自己写 `channelId`')
+    expect(p).toContain('updateNode.data')
+    expect(p).toContain('硬编码渠道会让请求发到错误站点')
+  })
 })
 
 /**

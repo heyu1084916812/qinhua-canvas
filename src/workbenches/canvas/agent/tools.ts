@@ -418,6 +418,11 @@ export interface AgentToolContext {
     type: AgentNodeType,
     node: { data: Record<string, unknown> },
   ) => { channelId: string; model: string } | undefined
+  /**
+   * 逻辑模型 → 能提供它的渠道。`updateNode` 只接受用户点选的模型，
+   * 渠道必须和创建面板一样由系统反查，不能让模型自己填。
+   */
+  channelIdForModel?: (model: string) => string | undefined
 
   /**
    * **当前画布上选中的节点用的是哪个模型**（按类别；没有选中 / 选中项没有模型时返回空串）。
@@ -687,7 +692,31 @@ export async function executeConfirmedTool(
       const graph = ctx.store.getSnapshot()
       const missing = ids.filter((id) => !graph.nodes.some((n) => n.id === id))
       if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
-      const patch = asRecord(a.data)
+      /**
+       * `channelId` 是内部实现，Agent 无权直接指定。先剥掉，再由模型反查补回。
+       * 这样模型即使把某个内置渠道 id 写进 patch，也不会改变真实路由。
+       */
+      const patch = { ...asRecord(a.data) }
+      delete patch.channelId
+      const requestedModel =
+        typeof patch.model === 'string' ? patch.model.trim() : undefined
+      const routedPatch =
+        requestedModel === undefined
+          ? patch
+          : requestedModel
+            ? (() => {
+                const channelId = ctx.channelIdForModel?.(requestedModel)
+                return channelId
+                  ? { ...patch, model: requestedModel, channelId }
+                  : null
+              })()
+            : { ...patch, model: '' }
+      if (routedPatch === null) {
+        return {
+          ok: false,
+          problems: [`没有可用渠道提供模型「${requestedModel}」，请先在后台勾选并配置映射`],
+        }
+      }
       /**
        * ★★ **出过图的节点，正文是历史记录，不许覆盖**（用户 2026-10-05 第五批第 4 条：
        * 「agent 提出的需求应该先新建节点，然后把提示词放在新建节点上，而不是把提示词覆盖
@@ -703,7 +732,7 @@ export async function executeConfirmedTool(
        *
        * 批量时**一个不合格就整批不动**：改一半比不改更难收拾。
        */
-      const touchesText = 'prompt' in patch || 'text' in patch
+      const touchesText = 'prompt' in routedPatch || 'text' in routedPatch
       if (touchesText) {
         const blocked = graph.nodes.filter(
           (n) => ids.includes(n.id) && Boolean((n.data as { assetHash?: unknown }).assetHash),
@@ -720,7 +749,7 @@ export async function executeConfirmedTool(
           }
         }
       }
-      for (const id of ids) ctx.store.dispatch({ kind: 'node.updateData', id, patch })
+      for (const id of ids) ctx.store.dispatch({ kind: 'node.updateData', id, patch: routedPatch })
       return { ok: true }
     }
     case 'runNode': {

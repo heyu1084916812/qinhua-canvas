@@ -17,6 +17,8 @@
 - **Agent 批量生成不要擅自限流**：每条 `runNode` 都是独立 API 请求，渠道本身支持并发；同一依赖波内保持全部同时发起。运行记录查询允许短暂 settle，避免图已出来但步骤卡报“没有留下记录”。用户说“剩下的全部生成”时一次 `runNode` 覆盖全部 nodeId，并逐项汇报成败。
 - **节点渠道是发送硬边界**：生成节点已有 `channelId` 时，执行层必须用 `resolveRouteForChannel()` 只在这条渠道解析模型，不能再用全局优先度重选。共享库实证：soon图节点被改到 `ch_builtin_soonstudio`，服务端报分组错误。渠道不存在 / 停用 / 无令牌 / 未提供模型都要如实报错，不静默改道（对账 #709）。
 - **计划空值不能覆盖默认配方**：`buildLandingCommand` 会忽略计划里的空 `channelId / model`；非空显式值仍按既有契约保留。否则模型写出 `channelId:""` 会把真实默认渠道擦掉，节点变成“没设置渠道”。
+- **Agent 改模型要和手动面板同源**：`updateNode` 收到 `model` 时必须由 `channelIdForModel()` 反查并写入渠道，忽略 Agent 自报的 `channelId`；找不到提供者就整批不改。系统提示也禁止 Agent 自己写渠道 id（对账 #710）。
+- **4K 生图不要 120 秒截断**：共享库同节点同指纹请求，Agent 121 秒超时，手动 36 秒成功。图片生成超时已拆出 `IMAGE_GENERATE_TIMEOUT_MS=300_000`；视频/其它生成仍用各自超时，且不自动重试付费请求。
 - **错误只显示服务端原文**：`AppError.http.verbatim` 让 `describeError()` 直接返回响应体，不加阶段、task_id、轮询次数或解释；只有完全没有响应时才显示传输层原文。
 - **防重复扣费**：创建或轮询超时后不自动重发；保留真实错误让用户手动决定。
 - **4K 已坐实**：文生图发 `size:"3840x2160"` + `quality:"high"` 后，真实产物为 **3840×2160 / 8301589 bytes**；不要再发无效的 `image_size/aspect_ratio`。

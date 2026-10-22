@@ -11,6 +11,7 @@ import { solidPng } from './mockPng'
 import type { ResolvedChannelConfig } from './registry'
 import { ChannelError, type ImageRunRequest } from './types'
 import { CHAT_IMAGE_MAX_BYTES, MODEL_IMAGE_MIME } from './chatImageInput'
+import { IMAGE_GENERATE_TIMEOUT_MS } from './openaiCommon'
 
 /** 测试用的 b64 编码（`btoa` 不接受 Uint8Array，逐字节转字符串） */
 function bytesToB64(bytes: Uint8Array): string {
@@ -182,6 +183,23 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(calls[0]!.url).toBe('https://x/v1/images/generations')
     // 无图像输入时请求体仍是普通 JSON（与 M6-12 前完全一致，零回归）
     expect(calls[0]!.body).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', n: 1 })
+  })
+
+  it('★★ 4K 长任务使用 5 分钟图片超时，不在 120 秒误杀', async () => {
+    let timeoutMs = 0
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        timeoutMs = req.timeoutMs ?? 0
+        return resp(200, { data: [{ b64_json: btoa('fakepng') }] })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+    await a.generateImage(request([], 1, { resolution: '4K' }), signal)
+    expect(timeoutMs).toBe(IMAGE_GENERATE_TIMEOUT_MS)
+    expect(timeoutMs).toBeGreaterThan(120_000)
   })
 
   it('★★ SoonStudio 生图请求 URL 产物并下载原始字节，不等待 4K Base64 JSON', async () => {
