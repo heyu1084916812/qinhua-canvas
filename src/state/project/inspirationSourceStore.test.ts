@@ -56,7 +56,7 @@ describe('灵感来源迁移', () => {
 
     const first = await loadInspirationSources(storage)
     expect(first.some((source) => source.id === 'shuixian-prompts')).toBe(true)
-    expect(row.version).toBe(4)
+    expect(row.version).toBe(5)
 
     row = {
       ...row,

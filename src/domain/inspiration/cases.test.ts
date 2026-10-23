@@ -515,4 +515,24 @@ describe('parseTextCases', () => {
     expect(base[0]!.kind).toBe('video')
     expect(ref[0]!.title).toContain('全参考模式')
   })
+
+  it('官方 SKILL.md 使用一级标题和文件路径生成稳定案例', () => {
+    const out = parseTextCases(
+      '---\nname: product-ad\n---\n\n# 极简产品广告生成器\n\n完整工作流',
+      {
+        ...SOURCE,
+        id: 'h3',
+        name: 'MiniMax H3 官方提示词',
+        format: 'text',
+        kind: 'video',
+        dataUrl: 'https://cdn.example.com/base-en.txt',
+      },
+      'https://cdn.example.com/skills/minimalist-product-ad-generator/SKILL.cn.md',
+    )
+    expect(out[0]).toMatchObject({
+      id: 'h3:minimalist-product-ad-generator/SKILL.cn.md',
+      title: '极简产品广告生成器',
+      kind: 'video',
+    })
+  })
 })

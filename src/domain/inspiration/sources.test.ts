@@ -63,6 +63,10 @@ describe('灵感来源 · GitHub 仓库直解析', () => {
       format: 'text',
     })
     expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'minimax-h3-official')
+        ?.dataUrls,
+    ).toHaveLength(11)
+    expect(
       DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'learnprompt-seedance')?.kind,
     ).toBe('video')
   })

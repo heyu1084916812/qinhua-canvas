@@ -1,17 +1,30 @@
 # CanvasFlow（轻画）项目记忆
 
+### 灵感来源审计与 MiniMax H3 扩容（2026-10-23 → 对账 #721）
+
+- **YouMind 只有一组明显重合**：AI 图片精选 vs Nano Banana Pro 精确提示词重合 72/128（56.3%）；
+  vs GPT Image 2 0/126、vs Seedance 2 0/106。不要按标题去重，标题大多不同。
+- **新老顺序**：Nano Banana Pro（2025-11-23）最旧，Seedance 2（2026-02-11）、AI 图片精选
+  （2026-03-03）、GPT Image 2（2026-04-16）最新；四个仓库 2026-10-23 均有更新。
+- **ZeroLu 报错是 CDN 内容不可解析**：刷新保留旧缓存；主地址改 GitHub raw、jsDelivr 备用，
+  页面恢复 53 条且无报错。
+- **蓝叔 494 条没有媒体字段**：JSON 只有 prompt/model/category/tags/params/source/notes，
+  0/494 有 image/video，所以“没有预览图”是上游事实，不能靠解析修复。
+- **MiniMax H3 从 2 扩到 11**：3 份写作指南 + 8 套中文风格 Skill；来源版本 v5。
+- 真实页面验证 MiniMax 11、ZeroLu 53、无来源错误；定向 34/34；全量 3025 passed / 1 skipped。
+
 ### 灵感库高质量来源与多文件聚合（2026-10-23 → 对账 #720）
 
 - **只收图片 / 视频 prompt 数据**：Sora2、小仓库、项目已有来源不重复；水仙必须有。
-- **新增来源**：ZeroLu GPT Image 53、YouMind AI 图片精选 2,931、水仙 5,430、MiniMax H3 官方 2、
+- **新增来源**：ZeroLu GPT Image 53、YouMind AI 图片精选 2,931、水仙 5,430、MiniMax H3 官方 11、
   LearnPrompt Seedance 903、蓝叔视频工具包 494。
 - **多文件来源**：`dataUrls` 并发拉取；部分分片失败时保留成功分片与旧缓存，并显示部分失败提示，
   不能因为一个分片超时就把整个来源变成 0。
 - **解析口径**：JSON 兼容 `cases / prompts / items`，字段兼容 `promptFull / content / sourceMedia /
   posterUrl / mediaUrl / creator`；README 增加 ZeroLu 版式，官方 TXT 整份作为一条可复制规范。
-- **迁移版本 v4**：更新内置来源地址 / 规则，同时保留用户开关、顺序、自定义源；版本写入后不会反复
+- **迁移版本 v5**：更新内置来源地址 / 规则，同时保留用户开关、顺序、自定义源；版本写入后不会反复
   补回用户删除的内置源。
-- 真实页面共 11,201 条；定向 33/33；全量 3024 passed / 1 skipped；check/build 通过。
+- 真实页面共 11,210 条；定向 34/34；全量 3025 passed / 1 skipped；check/build 通过。
 
 ### Agent 浮球浮窗与小地图迁移（2026-10-23 → 对账 #719）
 

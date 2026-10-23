@@ -424,16 +424,22 @@ export function parseTextCases(
 ): InspirationCase[] {
   const prompt = typeof text === 'string' ? text.trim() : ''
   if (!prompt) return []
-  const mode = sourceUrl.includes('ref-en') ? '全参考模式' : '基础与关键帧模式'
+  const heading = /^#\s+(.+)$/m.exec(prompt)?.[1]?.trim()
+  const mode = sourceUrl.includes('ref-en')
+    ? '全参考模式'
+    : sourceUrl.includes('base-en')
+      ? '基础与关键帧模式'
+      : heading || source.name
+  const slug = sourceUrl.split('/').slice(-2).join('/') || mode
   return [
     {
-      id: `${source.id}:${mode}`,
+      id: `${source.id}:${slug}`,
       sourceId: source.id,
       sourceName: source.name,
-      title: `${source.name} · ${mode}`,
+      title: heading || `${source.name} · ${mode}`,
       prompt,
       imageUrl: '',
-      tags: [mode],
+      tags: [...new Set([mode, '官方'])],
       docUrl: source.repo,
       modelCategory: source.modelCategory,
       kind: source.kind,

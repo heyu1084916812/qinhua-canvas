@@ -8,7 +8,7 @@ import {
 
 /** 来源配置是用户资产：放 `presets`，跟全库备份 / 导入导出一起走。 */
 export const INSPIRATION_SOURCES_KEY = 'inspiration:sources:v1'
-const INSPIRATION_SOURCES_VERSION = 4
+const INSPIRATION_SOURCES_VERSION = 5
 
 export interface StoredInspirationSource extends InspirationSource {
   enabled: boolean
