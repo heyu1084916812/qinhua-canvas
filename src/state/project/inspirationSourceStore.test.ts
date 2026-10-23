@@ -39,6 +39,24 @@ describe('灵感来源迁移', () => {
     expect(upgraded.enabled).toBe(false)
   })
 
+  it('已确认不保留的 ZeroLu 与蓝叔来源会从配置中移除', () => {
+    const retired = {
+      ...stored(DEFAULT_INSPIRATION_SOURCES[0]!),
+      id: 'zerolu-gpt-image',
+      name: 'ZeroLu GPT Image',
+      builtin: true,
+    }
+    const lanshu = {
+      ...stored(DEFAULT_INSPIRATION_SOURCES[0]!),
+      id: 'lanshu-video-kit',
+      name: '蓝叔 AI 视频提示词',
+      builtin: true,
+    }
+    const merged = mergeMissingBuiltinSources([retired, lanshu])
+    expect(merged.some((source) => source.id === retired.id)).toBe(false)
+    expect(merged.some((source) => source.id === lanshu.id)).toBe(false)
+  })
+
   it('旧版本存储只升级一次；版本写入后不会反复补回用户删掉的来源', async () => {
     let row: Record<string, unknown> = {
       id: INSPIRATION_SOURCES_KEY,
@@ -52,11 +70,12 @@ describe('灵感来源迁移', () => {
       async put(_table: string, value: Record<string, unknown>) {
         row = value
       },
+      async delete() {},
     } as unknown as StoragePort
 
     const first = await loadInspirationSources(storage)
     expect(first.some((source) => source.id === 'shuixian-prompts')).toBe(true)
-    expect(row.version).toBe(5)
+    expect(row.version).toBe(8)
 
     row = {
       ...row,

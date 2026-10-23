@@ -67,7 +67,20 @@ describe('灵感来源 · GitHub 仓库直解析', () => {
         ?.dataUrls,
     ).toHaveLength(11)
     expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'minimax-h3-official-cases')
+        ?.dataUrls,
+    ).toHaveLength(3)
+    expect(
       DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'learnprompt-seedance')?.kind,
     ).toBe('video')
+    expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'atlascloud-minimax-h3'),
+    ).toMatchObject({
+      format: 'json',
+      kind: 'video',
+      modelCategory: 'MiniMax H3',
+    })
+    expect(DEFAULT_INSPIRATION_SOURCES.some((source) => source.id === 'zerolu-gpt-image')).toBe(false)
+    expect(DEFAULT_INSPIRATION_SOURCES.some((source) => source.id === 'lanshu-video-kit')).toBe(false)
   })
 })

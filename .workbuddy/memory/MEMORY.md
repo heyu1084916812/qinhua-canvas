@@ -1,5 +1,15 @@
 # CanvasFlow（轻画）项目记忆
 
+### MiniMax H3 官方视频与 AtlasCloud（2026-10-23 → 对账 #722）
+
+- **MiniMax 不是没有官方案例**：8 个风格 Skill 对应 8 个 GIF；T2VA / FL2VA / Ref2VA 有 3 个
+  可复现 shell 请求与官方 MP4。
+- **官方提示词 11 条**：8 条 GIF 预览，2 条 MP4 预览；另有独立「官方视频案例」3 条，卡片直接播放。
+- **AtlasCloud 是精选平台库，不是 MiniMax 官方号**：103 条全部带视频、34 条带参考图、52 条标 official，
+  CC BY 4.0，2026-10-23 活跃；作为独立来源加入，不冒充官方。
+- **已移除 ZeroLu GPT Image 与蓝叔 AI 视频**：前者质量不足，后者 494 条 0 媒体字段；v8 迁移连缓存一起删。
+- 真实页面 12 个实际来源 / 10,769 条；定向 37/37；全量 3028 passed / 1 skipped；check/build 通过。
+
 ### 灵感来源审计与 MiniMax H3 扩容（2026-10-23 → 对账 #721）
 
 - **YouMind 只有一组明显重合**：AI 图片精选 vs Nano Banana Pro 精确提示词重合 72/128（56.3%）；

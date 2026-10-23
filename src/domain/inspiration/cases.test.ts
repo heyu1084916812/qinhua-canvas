@@ -3,6 +3,7 @@ import {
   filterCases,
   parseInspirationCases,
   parseReadmeCases,
+  parseRequestCases,
   parseTextCases,
   tagCounts,
 } from './cases'
@@ -195,6 +196,34 @@ describe('parseInspirationCases', () => {
       'https://cdn.jsdelivr.net/gh/BaYue-SYJ/shuixian-prompts@main/shuixian-unified/images/originals/14347.jpg',
     )
     expect(out[0]!.tags).toEqual(['人像', '胶片'])
+  })
+
+  it('★★ AtlasCloud 结构：video_url / reference_images / official 元数据可解析', () => {
+    const out = parseInspirationCases(
+      [
+        {
+          id: 'mmh3_001',
+          title: 'Telescope Peek',
+          prompt: 'continuous keyframes',
+          category: 'Brand Film & Cinematic',
+          video_url: 'https://static.example.com/video.mp4',
+          reference_images: ['https://static.example.com/ref.jpg'],
+          author_name: 'MiniMax',
+          source_platform: 'official',
+          source_link: 'https://example.com/source',
+        },
+      ],
+      { ...SOURCE, id: 'atlas', kind: 'video' },
+    )
+    expect(out[0]).toMatchObject({
+      id: 'atlas:mmh3_001',
+      imageUrl: 'https://static.example.com/ref.jpg',
+      videoUrl: 'https://static.example.com/video.mp4',
+      credit: 'MiniMax',
+      creditUrl: 'https://example.com/source',
+      tags: ['Brand Film & Cinematic', 'official'],
+      kind: 'video',
+    })
   })
 })
 
@@ -449,43 +478,6 @@ describe('parseReadmeCases · 两段并存（Seedance）', () => {
   })
 })
 
-describe('parseReadmeCases · ZeroLu 版式', () => {
-  const ZERO: InspirationSource = {
-    ...SOURCE,
-    id: 'zero',
-    name: 'ZeroLu',
-    format: 'readme',
-    readmeStyle: 'zerolu',
-    imageBase: 'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main',
-  }
-
-  it('★★ `### 标题` + `**提示词:**` + Markdown 图片可解析，资源段落会跳过', () => {
-    const md = [
-      '## 目录',
-      '',
-      '### 便利店夜景',
-      '![示例](assets/store.jpg)',
-      '',
-      '**提示词:**',
-      '```text',
-      '夏夜便利店门口的街头抓拍',
-      '```',
-      '**来源:** [@author](https://x.com/a/1)',
-      '',
-      '### 资源',
-      '- 只是链接，不是案例',
-    ].join('\n')
-    const out = parseReadmeCases(md, ZERO)
-    expect(out).toHaveLength(1)
-    expect(out[0]!.title).toBe('便利店夜景')
-    expect(out[0]!.prompt).toBe('夏夜便利店门口的街头抓拍')
-    expect(out[0]!.imageUrl).toBe(
-      'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main/assets/store.jpg',
-    )
-    expect(out[0]!.credit).toBe('@author')
-  })
-})
-
 describe('parseTextCases', () => {
   it('官方 TXT 提示词规范作为一条可复制案例，并按文件区分模式', () => {
     const base = parseTextCases(
@@ -532,6 +524,66 @@ describe('parseTextCases', () => {
     expect(out[0]).toMatchObject({
       id: 'h3:minimalist-product-ad-generator/SKILL.cn.md',
       title: '极简产品广告生成器',
+      kind: 'video',
+    })
+  })
+
+  it('官方文档映射 GIF / MP4 后，卡片能拿到预览和视频地址', () => {
+    const source: InspirationSource = {
+      ...SOURCE,
+      id: 'h3',
+      name: 'MiniMax H3 官方提示词',
+      format: 'text',
+      kind: 'video',
+      dataUrl: 'https://cdn.example.com/base-en.txt',
+      mediaByUrl: {
+        'https://cdn.example.com/base-en.txt': {
+          title: 'T2VA 官方视频案例',
+          videoUrl: 'https://cdn.example.com/t2va.mp4',
+        },
+        'https://cdn.example.com/skills/ad/SKILL.cn.md': {
+          imageUrl: 'https://cdn.example.com/ad.gif',
+        },
+      },
+    }
+    const guide = parseTextCases('overall_soundscape...', source)
+    const skill = parseTextCases('# 广告生成器', source, 'https://cdn.example.com/skills/ad/SKILL.cn.md')
+    expect(guide[0]).toMatchObject({
+      title: 'T2VA 官方视频案例',
+      videoUrl: 'https://cdn.example.com/t2va.mp4',
+    })
+    expect(skill[0]!.imageUrl).toBe('https://cdn.example.com/ad.gif')
+  })
+})
+
+describe('parseRequestCases', () => {
+  it('从官方 shell 请求脚本提取 prompt 并映射 MP4', () => {
+    const source: InspirationSource = {
+      ...SOURCE,
+      id: 'h3-cases',
+      name: 'MiniMax H3 官方视频案例',
+      format: 'request',
+      kind: 'video',
+      dataUrl: 'https://cdn.example.com/t2va.sh',
+      mediaByUrl: {
+        'https://cdn.example.com/t2va.sh': {
+          title: 'T2VA 768p 官方可复现案例',
+          videoUrl: 'https://cdn.example.com/t2va.mp4',
+        },
+      },
+    }
+    const out = parseRequestCases(
+      [
+        "curl --data-binary @- <<'JSON'",
+        '{"prompt":"cinematic starship bridge","target":{"short_edge":768}}',
+        'JSON',
+      ].join('\n'),
+      source,
+    )
+    expect(out[0]).toMatchObject({
+      title: 'T2VA 768p 官方可复现案例',
+      prompt: 'cinematic starship bridge',
+      videoUrl: 'https://cdn.example.com/t2va.mp4',
       kind: 'video',
     })
   })

@@ -3,6 +3,7 @@ import {
   dedupeIds,
   parseInspirationCases,
   parseReadmeCases,
+  parseRequestCases,
   parseTextCases,
   type InspirationCase,
 } from '../../domain/inspiration/cases'
@@ -103,6 +104,8 @@ export function createInspirationRepository(
               ? parseReadmeCases(await res.text(), source)
               : source.format === 'text'
                 ? parseTextCases(await res.text(), source, url)
+              : source.format === 'request'
+                ? parseRequestCases(await res.text(), source, url)
                 : parseInspirationCases(await res.json(), source)
           if (cases.length === 0) {
             throw new Error('这个来源这次没解析出任何案例（可能上游改了数据格式）')

@@ -8,7 +8,8 @@ import {
 
 /** 来源配置是用户资产：放 `presets`，跟全库备份 / 导入导出一起走。 */
 export const INSPIRATION_SOURCES_KEY = 'inspiration:sources:v1'
-const INSPIRATION_SOURCES_VERSION = 5
+const INSPIRATION_SOURCES_VERSION = 8
+const RETIRED_INSPIRATION_SOURCE_IDS = new Set(['zerolu-gpt-image', 'lanshu-video-kit'])
 
 export interface StoredInspirationSource extends InspirationSource {
   enabled: boolean
@@ -20,6 +21,21 @@ function defaults(): StoredInspirationSource[] {
   return DEFAULT_INSPIRATION_SOURCES.map((source) => ({ ...source, enabled: true }))
 }
 
+function asMediaByUrl(value: unknown): InspirationSource['mediaByUrl'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const out: NonNullable<InspirationSource['mediaByUrl']> = {}
+  for (const [url, raw] of Object.entries(value)) {
+    if (!raw || typeof raw !== 'object') continue
+    const row = raw as Record<string, unknown>
+    const title = typeof row.title === 'string' ? row.title : undefined
+    const imageUrl = typeof row.imageUrl === 'string' ? row.imageUrl : undefined
+    const videoUrl = typeof row.videoUrl === 'string' ? row.videoUrl : undefined
+    if (!title && !imageUrl && !videoUrl) continue
+    out[url] = { ...(title ? { title } : {}), ...(imageUrl ? { imageUrl } : {}), ...(videoUrl ? { videoUrl } : {}) }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 function asStoredSource(value: unknown): StoredInspirationSource | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
@@ -29,7 +45,13 @@ function asStoredSource(value: unknown): StoredInspirationSource | null {
   const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl.trim() : ''
   if (!id || !name || !repo || !dataUrl) return null
   const format =
-    row.format === 'json' ? 'json' : row.format === 'text' ? 'text' : 'readme'
+    row.format === 'json'
+      ? 'json'
+      : row.format === 'text'
+        ? 'text'
+        : row.format === 'request'
+          ? 'request'
+          : 'readme'
   const readmeStyle =
     row.readmeStyle === 'pico' || row.readmeStyle === 'youmind' || row.readmeStyle === 'youmindAll'
       ? row.readmeStyle
@@ -39,6 +61,7 @@ function asStoredSource(value: unknown): StoredInspirationSource | null {
       ? row.modelCategory.trim()
       : '其他'
   const kind: InspirationMediaKind = row.kind === 'video' ? 'video' : 'image'
+  const mediaByUrl = asMediaByUrl(row.mediaByUrl)
   return {
     id,
     name,
@@ -47,6 +70,7 @@ function asStoredSource(value: unknown): StoredInspirationSource | null {
     ...(Array.isArray(row.dataUrls)
       ? { dataUrls: row.dataUrls.filter((url): url is string => typeof url === 'string' && !!url) }
       : {}),
+    ...(mediaByUrl ? { mediaByUrl } : {}),
     imageBase: typeof row.imageBase === 'string' ? row.imageBase : '',
     note: typeof row.note === 'string' ? row.note : '',
     format,
@@ -77,6 +101,9 @@ export async function loadInspirationSources(
     if (rows[0]?.version !== INSPIRATION_SOURCES_VERSION) {
       const upgraded = mergeMissingBuiltinSources(normalized)
       await saveInspirationSources(storage, upgraded)
+      await Promise.all(
+        [...RETIRED_INSPIRATION_SOURCE_IDS].map((id) => storage.delete('inspirationCache', id)),
+      )
       return upgraded
     }
     return normalized
@@ -105,9 +132,12 @@ export async function saveInspirationSources(
 export function mergeMissingBuiltinSources(
   sources: readonly StoredInspirationSource[],
 ): StoredInspirationSource[] {
-  const ids = new Set(sources.map((source) => source.id))
+  const activeSources = sources.filter(
+    (source) => !RETIRED_INSPIRATION_SOURCE_IDS.has(source.id),
+  )
+  const ids = new Set(activeSources.map((source) => source.id))
   const builtinById = new Map(DEFAULT_INSPIRATION_SOURCES.map((source) => [source.id, source]))
-  const upgraded = sources.map((source) => {
+  const upgraded = activeSources.map((source) => {
     const builtin = builtinById.get(source.id)
     if (!builtin) return source
     return {

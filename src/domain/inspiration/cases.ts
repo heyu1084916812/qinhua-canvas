@@ -131,10 +131,12 @@ export function parseInspirationCases(
       str(r.thumb) ||
       strList(r.sourceMedia)[0] ||
       strList(r.images)[0] ||
+      strList(r.reference_images)[0] ||
       ''
-    const credit = str(r.sourceLabel) || str(r.creator) || str(r.author)
+    const credit =
+      str(r.sourceLabel) || str(r.creator) || str(r.author) || str(r.author_name)
     const sourceRef = (r.source ?? {}) as Record<string, unknown>
-    const creditUrl = str(r.sourceUrl) || str(sourceRef.url)
+    const creditUrl = str(r.sourceUrl) || str(r.source_link) || str(sourceRef.url)
     const docUrl = str(r.githubUrl)
     const videoUrl = videoUrlOf(
       r.video,
@@ -162,6 +164,7 @@ export function parseInspirationCases(
             ...strList(r.themes),
             ...strList(r.tags),
             ...strList(r.models),
+            str(r.source_platform),
           ].filter(Boolean),
         ),
       ],
@@ -196,7 +199,7 @@ function parseFlatJsonCases(
     if (!prompt && !title) continue
 
     /** 预览图优先；没有预览就退回第一张参考图（有图总比空着强） */
-    const refs = strList(r.reference_image_urls)
+    const refs = [...strList(r.reference_image_urls), ...strList(r.reference_images)]
     const image =
       str(r.preview) ||
       str(r.image) ||
@@ -205,7 +208,7 @@ function parseFlatJsonCases(
       strList(r.sourceMedia)[0] ||
       refs[0] ||
       ''
-    const author = str(r.author) || str(r.creator)
+    const author = str(r.author) || str(r.creator) || str(r.author_name)
     const videoUrl = videoUrlOf(
       r.video,
       r.videoUrl,
@@ -232,10 +235,12 @@ function parseFlatJsonCases(
             ...strList(r.themes),
             ...strList(r.tags),
             ...strList(r.models),
+            str(r.source_platform),
           ].filter(Boolean),
         ),
       ],
       ...(author ? { credit: author } : {}),
+      ...(str(r.source_link) ? { creditUrl: str(r.source_link) } : {}),
       docUrl: source.repo,
       modelCategory: source.modelCategory,
       kind: source.kind,
@@ -294,8 +299,6 @@ interface ReadmeRules {
   imageAt?: RegExp
   /** 署名（如 `@someone`） */
   credit?: RegExp
-  /** 没有提示词分区就不算案例（用于资源 / 说明段落较多的 README）。 */
-  promptRequired?: boolean
 }
 
 const README_RULES: Record<ReadmeStyle, ReadmeRules> = {
@@ -337,13 +340,6 @@ const README_RULES: Record<ReadmeStyle, ReadmeRules> = {
     title: /^###\s+(?:No\.\s*\d+\s*[:：]\s*)?(.+)$/m,
     promptAt: /####\s*📝\s*Prompt/,
   },
-  zerolu: {
-    section: /^###\s+(.+)$/m,
-    title: /^###\s+(.+)$/m,
-    promptAt: /\*\*提示词\s*[:：]?\s*\*\*/,
-    credit: /\*\*来源\s*[:：]\s*\*\*\s*\[([^\]]+)\]/,
-    promptRequired: true,
-  },
 }
 
 export function parseReadmeCases(
@@ -378,9 +374,7 @@ export function parseReadmeCases(
     const creditUrl = titleMatch?.[2]
     const credit = rules.credit?.exec(block)?.[1].trim()
 
-    const promptParts = block.split(rules.promptAt)
-    if (rules.promptRequired && promptParts.length < 2) continue
-    const promptSection = promptParts[1] ?? block
+    const promptSection = block.split(rules.promptAt)[1] ?? block
     const prompt = /```[a-zA-Z]*\r?\n([\s\S]*?)```/.exec(promptSection)?.[1]?.trim() ?? ''
 
     const imageSection = rules.imageAt ? (block.split(rules.imageAt)[1] ?? '') : block
@@ -425,6 +419,7 @@ export function parseTextCases(
   const prompt = typeof text === 'string' ? text.trim() : ''
   if (!prompt) return []
   const heading = /^#\s+(.+)$/m.exec(prompt)?.[1]?.trim()
+  const media = source.mediaByUrl?.[sourceUrl]
   const mode = sourceUrl.includes('ref-en')
     ? '全参考模式'
     : sourceUrl.includes('base-en')
@@ -436,11 +431,47 @@ export function parseTextCases(
       id: `${source.id}:${slug}`,
       sourceId: source.id,
       sourceName: source.name,
-      title: heading || `${source.name} · ${mode}`,
+      title: media?.title || heading || `${source.name} · ${mode}`,
       prompt,
-      imageUrl: '',
-      tags: [...new Set([mode, '官方'])],
-      docUrl: source.repo,
+      imageUrl: media?.imageUrl ?? '',
+      tags: [...new Set([mode, '官方', ...(media?.videoUrl ? ['官方视频示例'] : [])])],
+      ...(media?.videoUrl ? { videoUrl: media.videoUrl } : {}),
+      docUrl: sourceUrl,
+      modelCategory: source.modelCategory,
+      kind: source.kind,
+    },
+  ]
+}
+
+/** MiniMax H3 官方请求脚本：从 shell 里的 JSON 块提取真实 prompt，并映射官方结果视频。 */
+export function parseRequestCases(
+  text: string,
+  source: InspirationSource,
+  sourceUrl = source.dataUrl,
+): InspirationCase[] {
+  const block = /<<'JSON'\r?\n([\s\S]*?)\r?\nJSON/.exec(text)?.[1]
+  if (!block) return []
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(block) as Record<string, unknown>
+  } catch {
+    return []
+  }
+  const prompt = str(payload.prompt)
+  if (!prompt) return []
+  const media = source.mediaByUrl?.[sourceUrl]
+  const fallbackTitle = sourceUrl.split('/').pop()?.replace(/\.sh$/, '') || source.name
+  return [
+    {
+      id: `${source.id}:${fallbackTitle}`,
+      sourceId: source.id,
+      sourceName: source.name,
+      title: media?.title || fallbackTitle,
+      prompt,
+      imageUrl: media?.imageUrl ?? '',
+      tags: ['官方', '视频请求', 'H3'],
+      ...(media?.videoUrl ? { videoUrl: media.videoUrl } : {}),
+      docUrl: sourceUrl,
       modelCategory: source.modelCategory,
       kind: source.kind,
     },

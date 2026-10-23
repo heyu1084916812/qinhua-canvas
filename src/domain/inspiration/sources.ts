@@ -12,7 +12,7 @@
  * 加新来源时先看它属于哪种；不符合任何一种就再加一种规则 ——
  * **不要复制一份解析函数**：三份几乎一样的正则，改一处忘两处是迟早的事。
  */
-export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll' | 'zerolu'
+export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll'
 
 /** 灵感来源的媒体类型：视频来源要在卡片和详情里真的能播放。 */
 export type InspirationMediaKind = 'image' | 'video'
@@ -27,6 +27,15 @@ export interface InspirationSource {
   dataUrl: string
   /** 同一来源拆成多个数据文件时按顺序聚合；有它时不再使用 dataUrl 的备用分支。 */
   dataUrls?: string[]
+  /** 文档型来源的官方预览：按数据文件 URL 精确映射标题 / GIF / MP4。 */
+  mediaByUrl?: Record<
+    string,
+    {
+      title?: string
+      imageUrl?: string
+      videoUrl?: string
+    }
+  >
   /**
    * 预览图基址：案例里的相对路径拼在它后面。
    *
@@ -45,7 +54,7 @@ export interface InspirationSource {
    *   上游一改版式就解析不出来）。所以 `refresh` 在"解析出 0 条"时**报错而不覆盖旧缓存** ——
    *   版式变了最多是"这次没刷成功"，不会把上一次的好数据洗掉。
    */
-  format: 'json' | 'readme' | 'text'
+  format: 'json' | 'readme' | 'text' | 'request'
   /** README 型的版式（`format: 'readme'` 时用；不填 = `pico`） */
   readmeStyle?: ReadmeStyle
   /** 搜索框旁那一档「模型分类」（如 GPT Image / Nano Banana / Seedance）。 */
@@ -69,6 +78,51 @@ export interface InspirationSource {
  * 而用户在国内 —— 灵感库的刷新成功率直接取决于这条链路的可达性。
  * jsDelivr 是 GitHub 的只读镜像 CDN，路径规则 `gh/OWNER/REPO@BRANCH/PATH`。
  */
+const MINIMAX_H3_BASE = 'https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/main/'
+
+const MINIMAX_H3_SKILLS = [
+  '3d-animation-short-generator',
+  'brand-promo-video-generator',
+  'co-op-game-intro-generator',
+  'handdrawn-live-video-generator',
+  'minimalist-product-ad-generator',
+  'music-video-subtitle-generator',
+  'paper-collage-explainer-generator',
+  'papercraft-stop-motion-explainer',
+] as const
+
+const MINIMAX_H3_MEDIA: NonNullable<InspirationSource['mediaByUrl']> = {
+  ...Object.fromEntries(
+    MINIMAX_H3_SKILLS.map((name) => [
+      `${MINIMAX_H3_BASE}skills/${name}/SKILL.cn.md`,
+      { imageUrl: `${MINIMAX_H3_BASE}assets/${name}.gif` },
+    ]),
+  ),
+  [`${MINIMAX_H3_BASE}skills/h3-prompt-writing/references/base-en.txt`]: {
+    title: 'MiniMax H3 · T2VA 官方视频案例',
+    videoUrl: `${MINIMAX_H3_BASE}assets/t2va.mp4`,
+  },
+  [`${MINIMAX_H3_BASE}skills/h3-prompt-writing/references/ref-en.txt`]: {
+    title: 'MiniMax H3 · Ref2VA 官方视频案例',
+    videoUrl: `${MINIMAX_H3_BASE}assets/ref2va.mp4`,
+  },
+}
+
+const MINIMAX_H3_CASE_MEDIA: NonNullable<InspirationSource['mediaByUrl']> = {
+  [`${MINIMAX_H3_BASE}scripts/readme/reproducible-768p-t2va-request.sh`]: {
+    title: 'T2VA 768p 官方可复现案例',
+    videoUrl: `${MINIMAX_H3_BASE}assets/t2va.mp4`,
+  },
+  [`${MINIMAX_H3_BASE}scripts/readme/reproducible-768p-fl2va-request.sh`]: {
+    title: 'FL2VA 768p 官方可复现案例',
+    videoUrl: `${MINIMAX_H3_BASE}assets/fl2va.mp4`,
+  },
+  [`${MINIMAX_H3_BASE}scripts/readme/reproducible-768p-ref2va-request.sh`]: {
+    title: 'Ref2VA 768p 官方可复现案例',
+    videoUrl: `${MINIMAX_H3_BASE}assets/ref2va.mp4`,
+  },
+}
+
 export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
   {
     id: 'gpt-image-2',
@@ -79,22 +133,6 @@ export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
     imageBase: 'https://cdn.jsdelivr.net/gh/freestylefly/awesome-gpt-image-2@main/data',
     note: '541 条 GPT Image 2 案例，带完整提示词与原作者署名',
     format: 'json',
-    modelCategory: 'GPT Image',
-    kind: 'image',
-    builtin: true,
-  },
-  {
-    id: 'zerolu-gpt-image',
-    name: 'ZeroLu GPT Image',
-    repo: 'https://github.com/ZeroLu/awesome-gpt-image',
-    dataUrl:
-      'https://raw.githubusercontent.com/ZeroLu/awesome-gpt-image/main/README.zh-CN.md',
-    fallbackDataUrl:
-      'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main/README.zh-CN.md',
-    imageBase: 'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main',
-    note: 'GPT Image 2 / 2.5 精选案例，按摄影、游戏、UI、海报等场景分类',
-    format: 'readme',
-    readmeStyle: 'zerolu',
     modelCategory: 'GPT Image',
     kind: 'image',
     builtin: true,
@@ -156,9 +194,39 @@ export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
       'https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/main/skills/paper-collage-explainer-generator/SKILL.cn.md',
       'https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/main/skills/papercraft-stop-motion-explainer/SKILL.cn.md',
     ],
+    mediaByUrl: MINIMAX_H3_MEDIA,
     imageBase: '',
-    note: '官方 11 份提示词资产：写作规范、基础 / 全参考指南，以及 8 套视频风格工作流',
+    note: '官方 11 份提示词资产：写作规范、基础 / 全参考指南，以及 8 套带 GIF 预览的视频风格工作流',
     format: 'text',
+    modelCategory: 'MiniMax H3',
+    kind: 'video',
+    builtin: true,
+  },
+  {
+    id: 'minimax-h3-official-cases',
+    name: 'MiniMax H3 官方视频案例',
+    repo: 'https://github.com/MiniMax-AI/MiniMax-H3/tree/main/scripts/readme',
+    dataUrl: Object.keys(MINIMAX_H3_CASE_MEDIA)[0]!,
+    dataUrls: Object.keys(MINIMAX_H3_CASE_MEDIA),
+    mediaByUrl: MINIMAX_H3_CASE_MEDIA,
+    imageBase: '',
+    note: '3 个官方可复现视频请求：T2VA / FL2VA / Ref2VA 768p，脚本提示词与 MP4 一一对应',
+    format: 'request',
+    modelCategory: 'MiniMax H3',
+    kind: 'video',
+    builtin: true,
+  },
+  {
+    id: 'atlascloud-minimax-h3',
+    name: 'AtlasCloud MiniMax H3',
+    repo: 'https://github.com/AtlasCloudAI/awesome-minimax-h3-prompts',
+    dataUrl:
+      'https://raw.githubusercontent.com/AtlasCloudAI/awesome-minimax-h3-prompts/main/data/prompts.json',
+    fallbackDataUrl:
+      'https://cdn.jsdelivr.net/gh/AtlasCloudAI/awesome-minimax-h3-prompts@main/data/prompts.json',
+    imageBase: '',
+    note: '103 条 MiniMax H3 展示案例，全部带视频，34 条带参考图；CC BY 4.0',
+    format: 'json',
     modelCategory: 'MiniMax H3',
     kind: 'video',
     builtin: true,
@@ -175,21 +243,6 @@ export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
     note: '903 条 Seedance 2.5 / 2.0 视频案例，带作者、来源和复测信息',
     format: 'json',
     modelCategory: 'Seedance',
-    kind: 'video',
-    builtin: true,
-  },
-  {
-    id: 'lanshu-video-kit',
-    name: '蓝叔 AI 视频提示词',
-    repo: 'https://github.com/cclank/lanshu-awesome-ai-video-kit',
-    dataUrl:
-      'https://cdn.jsdelivr.net/gh/cclank/lanshu-awesome-ai-video-kit@main/prompts/data/all-prompts.json',
-    fallbackDataUrl:
-      'https://raw.githubusercontent.com/cclank/lanshu-awesome-ai-video-kit/main/prompts/data/all-prompts.json',
-    imageBase: '',
-    note: '494 条企业视频提示词，覆盖 Veo、Kling、Seedance、MiniMax、Wan 等 15 个模型',
-    format: 'json',
-    modelCategory: '多模型视频',
     kind: 'video',
     builtin: true,
   },
