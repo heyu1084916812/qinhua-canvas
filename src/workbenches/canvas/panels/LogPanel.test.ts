@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatLogTime, statusLabel } from './LogPanel'
+import { formatLogTime, isLogBackdropPointerDown, statusLabel } from './LogPanel'
 
 /**
  * 日志面板的纯展示逻辑（产品文档 §6.18）：
@@ -21,5 +21,13 @@ describe('LogPanel / 展示逻辑', () => {
   it('个位数月 / 日 / 时补零', () => {
     const ts = new Date(2026, 0, 5, 3, 4, 9).getTime()
     expect(formatLogTime(ts)).toBe('2026/01/05 03:04:09')
+  })
+
+  it('只有点到遮罩本身才关闭，面板内部事件不能误关', () => {
+    const backdrop = new EventTarget()
+    const panelChild = new EventTarget()
+    expect(isLogBackdropPointerDown(backdrop, backdrop)).toBe(true)
+    expect(isLogBackdropPointerDown(panelChild, backdrop)).toBe(false)
+    expect(isLogBackdropPointerDown(null, backdrop)).toBe(false)
   })
 })

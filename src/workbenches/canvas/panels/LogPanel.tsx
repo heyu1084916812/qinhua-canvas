@@ -12,6 +12,14 @@ import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
 import styles from './LogPanel.module.css'
 
+/** 只有点在遮罩本身才收起；点在面板内部（事件已冒泡）不能误关。 */
+export function isLogBackdropPointerDown(
+  target: EventTarget | null,
+  currentTarget: EventTarget | null,
+): boolean {
+  return target !== null && target === currentTarget
+}
+
 /**
  * 日志面板（产品文档 §6.18）：顶栏「日志」打开的浮层，按项目倒序列出 RunRecord。
  * 每条：上排胶囊（状态 / 平台 / 模型 / 时长）+ 粗体日期与输出信息 + 提示词小字
@@ -127,7 +135,10 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
     <div
       className={styles.overlay}
       data-log-panel
-      onPointerDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        if (isLogBackdropPointerDown(e.target, e.currentTarget)) onClose()
+      }}
       role="dialog"
       aria-label="日志面板"
     >
@@ -252,7 +263,12 @@ function LogRow({
           </div>
         )}
         {params.prompt && (
-          <div className={styles.promptText} title="点击复制提示词" onClick={onCopy}>
+          <div
+            className={styles.promptText}
+            data-log-prompt
+            title="点击复制提示词"
+            onClick={onCopy}
+          >
             {params.prompt}
           </div>
         )}

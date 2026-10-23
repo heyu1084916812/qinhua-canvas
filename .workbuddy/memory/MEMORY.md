@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 无限画布日志抽屉（2026-10-23 → 对账 #718）
+
+- **点遮罩空白关闭**：只有 `event.target === event.currentTarget` 才收起；不能整个 overlay 都无条件 stop 后不关。
+- **提示词只露两行**：CSS `line-clamp: 2`，完整文本仍留在 DOM；点击仍复制全文。
+- 真实画布验证：`lineClamp=2`、可视 `clientHeight=32`、完整 `scrollHeight=717`；点左侧遮罩后面板关闭。
+- 验证：定向 4/4；全量 3004 passed / 1 skipped；check/build 通过。
+
 ### SoonStudio 已生成但下载超时（2026-10-23 → 对账 #717）
 
 - **339.8s 的真实断点是下载 URL，不是轮询**：轮询上限 8 分钟；生成约 40s 完成后，下载原图继承了 300s 超时，正好凑成约 340s。
