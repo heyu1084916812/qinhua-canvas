@@ -372,7 +372,13 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
      * 既费 token 也可能让它以为有多张。
      */
     const toOpenAiMessage = (
-      m: { role: string; content: string; toolCalls?: { id: string; name: string; args: string }[]; toolCallId?: string },
+      m: {
+        role: string
+        content: string
+        toolCalls?: { id: string; name: string; args: string }[]
+        toolCallId?: string
+        toolName?: string
+      },
       isLastUser: boolean,
     ): Record<string, unknown> => {
       if (m.role === 'tool') {
@@ -383,7 +389,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
          * `name` 在 OpenAI 规范里是可选字段，带上它不改变普通渠道的行为，却能让
          * 这类网关正确回放工具结果。
          */
-        const toolName = toolNameOf(m.toolCallId)
+        const toolName = m.toolName || toolNameOf(m.toolCallId)
         return {
           role: 'tool',
           tool_call_id: m.toolCallId ?? '',

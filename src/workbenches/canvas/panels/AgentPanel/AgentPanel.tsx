@@ -49,6 +49,7 @@ import { useViewportState } from '../../storeContext'
 import type { CanvasStore } from '../../../../state/workbenches/canvas/store'
 import type { TextRunRequest } from '../../../../platform/channels/types'
 import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolRequest } from '../../agent/agentLoop'
+import { trimOrphanToolMessages } from '../../agent/historyWindow'
 import {
   buildAgentSystemPromptWithContext,
   looksLikePreserveRequest,
@@ -975,7 +976,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const windowSize = current.contextWindow ?? AGENT_CONTEXT_WINDOW
     const cut = Math.max(0, history.length - windowSize)
     const hidden = history.slice(0, cut)
-    const visible = history.slice(cut)
+    const visible = trimOrphanToolMessages(history.slice(cut))
     /** 模型窗口版 → 界面 / 落库用的全量版（把窗口外那段补回 system 之后） */
     const withHidden = (list: readonly ChatMessage[]): ChatMessage[] =>
       hidden.length > 0
@@ -1022,6 +1023,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.request.callId,
         done,
         loopDeps(current, toolMode),
+        outcome.request.name,
       )
     }
     await handleOutcome(current, outcome, hidden)
@@ -1078,6 +1080,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       request.callId,
       result,
       loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
+      request.name,
     )
     await handleOutcome(current, outcome)
   }, [status, current, viewport, messages, toolCtx, loopDeps, handleOutcome, setStatusFor])
@@ -1092,6 +1095,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       request.callId,
       { ok: false, error: '用户取消了这次操作' },
       loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
+      request.name,
     )
     await handleOutcome(current, outcome)
   }, [status, current, messages, loopDeps, handleOutcome, setStatusFor])

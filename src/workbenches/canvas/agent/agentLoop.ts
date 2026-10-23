@@ -96,9 +96,10 @@ function parseArgs(raw: string): unknown | typeof PARSE_FAILED {
   }
 }
 
-const toolResult = (callId: string, value: unknown): ChatMessage => ({
+const toolResult = (callId: string, toolName: string, value: unknown): ChatMessage => ({
   role: 'tool',
   toolCallId: callId,
+  toolName,
   content: JSON.stringify(value ?? {}),
 })
 
@@ -184,7 +185,10 @@ export async function runAgentTurn(
       const args = parseArgs(call.args)
       if (args === PARSE_FAILED) {
         messages.push(
-          toolResult(call.id, { ok: false, error: 'arguments 不是合法 JSON，请重新发一次' }),
+          toolResult(call.id, call.name, {
+            ok: false,
+            error: 'arguments 不是合法 JSON，请重新发一次',
+          }),
         )
         continue
       }
@@ -213,7 +217,7 @@ export async function runAgentTurn(
       }
       if (times === 2) {
         messages.push(
-          toolResult(call.id, {
+          toolResult(call.id, call.name, {
             ok: false,
             error: `你刚做过同样的 ${call.name}，换个做法或直接给结论`,
           }),
@@ -228,7 +232,7 @@ export async function runAgentTurn(
          */
         const pre = deps.precheck?.(call.name, args)
         if (pre && pre.ok === false) {
-          messages.push(toolResult(call.id, pre.result))
+          messages.push(toolResult(call.id, call.name, pre.result))
           continue
         }
         // 写 / 花钱：跳出循环，交界面等确认（§9）
@@ -245,11 +249,13 @@ export async function runAgentTurn(
         } catch (e) {
           wrote = { ok: false, problems: [e instanceof Error ? e.message : errText(e)] }
         }
-        messages.push(toolResult(call.id, wrote))
+        messages.push(toolResult(call.id, call.name, wrote))
         continue
       }
       if (!READ_TOOLS.has(call.name)) {
-        messages.push(toolResult(call.id, { ok: false, error: `没有这个工具：${call.name}` }))
+        messages.push(
+          toolResult(call.id, call.name, { ok: false, error: `没有这个工具：${call.name}` }),
+        )
         continue
       }
 
@@ -259,7 +265,7 @@ export async function runAgentTurn(
       } catch (e) {
         outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
-      messages.push(toolResult(call.id, outcome))
+      messages.push(toolResult(call.id, call.name, outcome))
     }
   }
 
@@ -284,8 +290,9 @@ export async function resumeAgentTurn(
   callId: string,
   payload: unknown,
   deps: AgentLoopDeps,
+  toolName?: string,
 ): Promise<AgentLoopOutcome> {
-  return runAgentTurn([...history, toolResult(callId, payload)], deps)
+  return runAgentTurn([...history, toolResult(callId, toolName ?? '', payload)], deps)
 }
 
 /**

@@ -122,6 +122,14 @@ export interface ChatMessage {
   toolCalls?: { id: string; name: string; args: string }[]
   /** `role:'tool'` 时：这条结果对应哪一次调用 */
   toolCallId?: string
+  /**
+   * `role:'tool'` 时：对应的函数名。
+   *
+   * OpenAI 的 tool 消息只要求 `tool_call_id`，但 Gemini 网关转
+   * `function_response` 时要求 `name` 非空。把名字**存在消息自己身上**，
+   * 这样即使上下文窗口把发起调用的 assistant 消息截掉了，结果仍能自证是谁。
+   */
+  toolName?: string
 }
 
 interface RunRequestBase {

@@ -126,6 +126,7 @@ describe('runAgentTurn · 基本往复', () => {
     if (r.kind === 'message') {
       const toolMsg = r.messages.find((m) => m.role === 'tool')
       expect(toolMsg?.toolCallId).toBe('c1')
+      expect(toolMsg?.toolName).toBe('readGraph')
     }
   })
 

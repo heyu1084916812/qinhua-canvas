@@ -1,5 +1,16 @@
 # CanvasFlow（轻画）项目记忆
 
+### 上下文窗口截断与工具消息配对（2026-10-23 → 对账 #727）
+
+- **`function_response.name` 二次缺失的真根因是窗口从中间截断**：`assistant(tool_calls)`
+  被截掉，只剩 `tool` 结果 ⇒ 回查函数名必然失败；报错里的 `contents[0]` 就是孤儿结果。
+- **两层修法缺一不可**：工具结果消息自己存 `toolName`；模型窗口先
+  `trimOrphanToolMessages()` 丢掉没有对应 assistant call 的孤儿结果。
+- **只裁发给模型的窗口**：全量 `messages`、界面、落库都不动；别为了发请求删用户历史。
+- **旧会话也要能救**：历史里没有 `toolName` 时，孤儿结果仍会被窗口裁掉，不会继续发非法请求。
+- 验证：historyWindow 3 条 + agentLoop toolName 断言 + openaiChat 回归；全量
+  3046 passed / 1 skipped；check/build 通过。
+
 ### 65535 分组边界与 Key 选择（2026-10-23 → 对账 #726）
 
 - **分组 = 模型池授权**：一把 Key 只能绑一个分组，不能同时访问 Gemini / OpenAI / Grok。
