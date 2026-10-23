@@ -60,6 +60,14 @@ function videoUrlOf(...values: unknown[]): string {
   return ''
 }
 
+function mediaUrlOf(value: unknown, base: string): string {
+  const media = str(value)
+  if (!media) return ''
+  if (/^https?:\/\//i.test(media)) return media
+  if (!base) return ''
+  return `${base.replace(/\/+$/, '')}/${media.replace(/^\.?\//, '')}`
+}
+
 /**
  * **保证 id 唯一**（对账 #508 的真 bug）。
  *
@@ -102,38 +110,60 @@ export function parseInspirationCases(
    */
   if (Array.isArray(raw)) return dedupeIds(parseFlatJsonCases(raw, source))
 
-  const rows = (raw as { cases?: unknown } | null)?.cases
+  const body = (raw ?? {}) as { cases?: unknown; prompts?: unknown; items?: unknown }
+  const rows = body.cases ?? body.prompts ?? body.items
   if (!Array.isArray(rows)) return []
 
   const out: InspirationCase[] = []
   for (const row of rows) {
     const r = (row ?? {}) as Record<string, unknown>
     /** 提示词优先取原文，老数据只有 preview 时退回它 */
-    const prompt = str(r.prompt) || str(r.promptPreview)
-    const title = str(r.title) || prompt.slice(0, 40)
+    const prompt =
+      str(r.prompt) || str(r.promptFull) || str(r.content) || str(r.promptPreview)
+    const title = str(r.title) || str(r.titleEn) || prompt.slice(0, 40)
     /** 两样都没有的行是脏数据，跳过（不占位、不报错） */
     if (!prompt && !title) continue
 
-    const image = str(r.image)
-    const credit = str(r.sourceLabel)
-    const creditUrl = str(r.sourceUrl)
+    const image =
+      str(r.image) ||
+      str(r.preview) ||
+      str(r.posterUrl) ||
+      str(r.thumb) ||
+      strList(r.sourceMedia)[0] ||
+      strList(r.images)[0] ||
+      ''
+    const credit = str(r.sourceLabel) || str(r.creator) || str(r.author)
+    const sourceRef = (r.source ?? {}) as Record<string, unknown>
+    const creditUrl = str(r.sourceUrl) || str(sourceRef.url)
     const docUrl = str(r.githubUrl)
-    const videoUrl = videoUrlOf(r.video, r.videoUrl, r.video_url, r.previewVideo)
+    const videoUrl = videoUrlOf(
+      r.video,
+      r.videoUrl,
+      r.video_url,
+      r.previewVideo,
+      r.mediaUrl,
+      r.sourceMedia,
+    )
     out.push({
-      id: `${source.id}:${str(r.id) || out.length}`,
+      id: `${source.id}:${str(r.id) || str(r.slug) || out.length}`,
       sourceId: source.id,
       sourceName: source.name,
       title,
       prompt,
-      /** 相对路径拼来源的图片基址；已经是完整地址就原样用 */
-      imageUrl: image
-        ? image.startsWith('http')
-          ? image
-          : `${source.imageBase}${image.startsWith('/') ? '' : '/'}${image}`
-        : '',
+      imageUrl: mediaUrlOf(image, source.imageBase),
       /** 分类 + 风格 + 场景合成一列标签，去重保序 */
       tags: [
-        ...new Set([str(r.category), ...strList(r.styles), ...strList(r.scenes)].filter(Boolean)),
+        ...new Set(
+          [
+            str(r.category),
+            str(r.sub_category),
+            ...strList(r.styles),
+            ...strList(r.scenes),
+            ...strList(r.themes),
+            ...strList(r.tags),
+            ...strList(r.models),
+          ].filter(Boolean),
+        ),
       ],
       ...(credit ? { credit } : {}),
       ...(creditUrl ? { creditUrl } : {}),
@@ -160,24 +190,51 @@ function parseFlatJsonCases(
   const out: InspirationCase[] = []
   for (const row of rows) {
     const r = (row ?? {}) as Record<string, unknown>
-    const prompt = str(r.prompt)
-    const title = str(r.title) || prompt.slice(0, 40)
+    const prompt =
+      str(r.prompt) || str(r.promptFull) || str(r.content) || str(r.promptPreview)
+    const title = str(r.title) || str(r.titleEn) || prompt.slice(0, 40)
     if (!prompt && !title) continue
 
     /** 预览图优先；没有预览就退回第一张参考图（有图总比空着强） */
     const refs = strList(r.reference_image_urls)
-    const image = str(r.preview) || refs[0] || ''
-    const author = str(r.author)
-    const videoUrl = videoUrlOf(r.video, r.videoUrl, r.video_url, r.previewVideo)
+    const image =
+      str(r.preview) ||
+      str(r.image) ||
+      str(r.posterUrl) ||
+      str(r.thumb) ||
+      strList(r.sourceMedia)[0] ||
+      refs[0] ||
+      ''
+    const author = str(r.author) || str(r.creator)
+    const videoUrl = videoUrlOf(
+      r.video,
+      r.videoUrl,
+      r.video_url,
+      r.previewVideo,
+      r.mediaUrl,
+      r.sourceMedia,
+    )
 
     out.push({
-      id: `${source.id}:${str(r.id) || out.length + 1}`,
+      id: `${source.id}:${str(r.id) || str(r.slug) || out.length + 1}`,
       sourceId: source.id,
       sourceName: source.name,
       title,
       prompt,
-      imageUrl: image,
-      tags: [...new Set([str(r.category), str(r.sub_category)].filter(Boolean))],
+      imageUrl: mediaUrlOf(image, source.imageBase),
+      tags: [
+        ...new Set(
+          [
+            str(r.category),
+            str(r.sub_category),
+            ...strList(r.styles),
+            ...strList(r.scenes),
+            ...strList(r.themes),
+            ...strList(r.tags),
+            ...strList(r.models),
+          ].filter(Boolean),
+        ),
+      ],
       ...(author ? { credit: author } : {}),
       docUrl: source.repo,
       modelCategory: source.modelCategory,
@@ -237,6 +294,8 @@ interface ReadmeRules {
   imageAt?: RegExp
   /** 署名（如 `@someone`） */
   credit?: RegExp
+  /** 没有提示词分区就不算案例（用于资源 / 说明段落较多的 README）。 */
+  promptRequired?: boolean
 }
 
 const README_RULES: Record<ReadmeStyle, ReadmeRules> = {
@@ -278,6 +337,13 @@ const README_RULES: Record<ReadmeStyle, ReadmeRules> = {
     title: /^###\s+(?:No\.\s*\d+\s*[:：]\s*)?(.+)$/m,
     promptAt: /####\s*📝\s*Prompt/,
   },
+  zerolu: {
+    section: /^###\s+(.+)$/m,
+    title: /^###\s+(.+)$/m,
+    promptAt: /\*\*提示词\s*[:：]?\s*\*\*/,
+    credit: /\*\*来源\s*[:：]\s*\*\*\s*\[([^\]]+)\]/,
+    promptRequired: true,
+  },
 }
 
 export function parseReadmeCases(
@@ -312,12 +378,20 @@ export function parseReadmeCases(
     const creditUrl = titleMatch?.[2]
     const credit = rules.credit?.exec(block)?.[1].trim()
 
-    const promptSection = block.split(rules.promptAt)[1] ?? block
+    const promptParts = block.split(rules.promptAt)
+    if (rules.promptRequired && promptParts.length < 2) continue
+    const promptSection = promptParts[1] ?? block
     const prompt = /```[a-zA-Z]*\r?\n([\s\S]*?)```/.exec(promptSection)?.[1]?.trim() ?? ''
 
     const imageSection = rules.imageAt ? (block.split(rules.imageAt)[1] ?? '') : block
-    const image = /<img\s+[^>]*src="([^"]+)"/i.exec(imageSection)?.[1] ?? ''
-    const videoHref = /href=["']([^"']+\.(?:mp4|webm|mov)(?:\?[^"']*)?)["']/i.exec(block)?.[1] ?? ''
+    const image =
+      /<img\s+[^>]*src=["']([^"']+)["']/i.exec(imageSection)?.[1] ??
+      /!\[[^\]]*\]\(([^)\s]+)/.exec(imageSection)?.[1] ??
+      ''
+    const videoHref =
+      /(?:href|src)=["']([^"']+\.(?:mp4|webm|mov)(?:\?[^"']*)?)["']/i.exec(block)?.[1] ??
+      /https?:\/\/[^\s"')]+\.(?:mp4|webm|mov)(?:\?[^\s"')]*)?/i.exec(block)?.[0] ??
+      ''
 
     if (!title && !prompt) continue
 
@@ -327,14 +401,7 @@ export function parseReadmeCases(
       sourceName: source.name,
       title,
       prompt,
-      imageUrl: !image
-        ? ''
-        : image.startsWith('http')
-          ? image
-          : /** 没有基址就**别拼**：拼出来是一条死链（YouMind 的图全在自家 CMS 上，走绝对地址） */
-            source.imageBase
-            ? `${source.imageBase}/${image.replace(/^\.?\//, '')}`
-            : '',
+      imageUrl: mediaUrlOf(image, source.imageBase),
       /** README 型来源没有结构化的标签，如实留空（不拿标题硬凑几个） */
       tags: [],
       ...(credit ? { credit } : {}),
@@ -347,6 +414,31 @@ export function parseReadmeCases(
     })
   }
   return dedupeIds(out)
+}
+
+/** TXT 型官方提示词指南：整份文件就是一条可复制的提示词规范。 */
+export function parseTextCases(
+  text: string,
+  source: InspirationSource,
+  sourceUrl = source.dataUrl,
+): InspirationCase[] {
+  const prompt = typeof text === 'string' ? text.trim() : ''
+  if (!prompt) return []
+  const mode = sourceUrl.includes('ref-en') ? '全参考模式' : '基础与关键帧模式'
+  return [
+    {
+      id: `${source.id}:${mode}`,
+      sourceId: source.id,
+      sourceName: source.name,
+      title: `${source.name} · ${mode}`,
+      prompt,
+      imageUrl: '',
+      tags: [mode],
+      docUrl: source.repo,
+      modelCategory: source.modelCategory,
+      kind: source.kind,
+    },
+  ]
 }
 
 /**

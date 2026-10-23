@@ -3,6 +3,7 @@ import {
   dedupeIds,
   parseInspirationCases,
   parseReadmeCases,
+  parseTextCases,
   type InspirationCase,
 } from '../../domain/inspiration/cases'
 import type { InspirationSource } from '../../domain/inspiration/sources'
@@ -85,37 +86,74 @@ export function createInspirationRepository(
     async refresh(source, signal) {
       const previous = await repo.read(source.id)
       try {
-        const urls = [source.dataUrl, source.fallbackDataUrl].filter(
-          (url): url is string => typeof url === 'string' && url.length > 0,
-        )
-        let lastStatus = 0
-        let text = ''
-        let json: unknown = null
-        for (const url of urls) {
+        const multiUrls = source.dataUrls?.length ? source.dataUrls : null
+        const multi = !!multiUrls
+        const urls =
+          multiUrls ??
+          [source.dataUrl, source.fallbackDataUrl].filter(
+            (url): url is string => typeof url === 'string' && url.length > 0,
+          )
+        const allCases: InspirationCase[] = []
+        let partialError: string | undefined
+        const readOne = async (url: string): Promise<InspirationCase[]> => {
           const res = await network.request({ url, method: 'GET', timeoutMs: 60_000 }, signal)
-          lastStatus = res.status
-          if (res.status < 200 || res.status >= 300) continue
-          if (source.format === 'readme') text = await res.text()
-          else json = await res.json()
-          lastStatus = 0
-          break
+          if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`)
+          const cases =
+            source.format === 'readme'
+              ? parseReadmeCases(await res.text(), source)
+              : source.format === 'text'
+                ? parseTextCases(await res.text(), source, url)
+                : parseInspirationCases(await res.json(), source)
+          if (cases.length === 0) {
+            throw new Error('这个来源这次没解析出任何案例（可能上游改了数据格式）')
+          }
+          return cases
         }
-        if (lastStatus !== 0) throw new Error(`HTTP ${lastStatus}`)
-        /**
-         * 按来源形态分派解析器：`json` 直读结构化数据，`readme` 从 markdown 提
-         * （版式变了就解析出 0 条，下一行会如实报错、不动旧缓存）。
-         */
+
+        if (multi) {
+          const results = await Promise.allSettled(urls.map(readOne))
+          const failed = results.filter(
+            (result): result is PromiseRejectedResult => result.status === 'rejected',
+          )
+          for (const result of results) {
+            if (result.status === 'fulfilled') allCases.push(...result.value)
+          }
+          if (allCases.length === 0 && failed[0]) throw failed[0].reason
+          if (failed.length > 0) {
+            partialError = `部分分片加载失败：${errorTextOf(failed[0]!.reason)}`
+          }
+        } else {
+          let lastError: Error | null = null
+          for (const url of urls) {
+            try {
+              allCases.push(...(await readOne(url)))
+              break
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error))
+            }
+          }
+          if (allCases.length === 0 && lastError) throw lastError
+        }
+        if (allCases.length === 0) {
+          throw new Error('这个来源没有可用数据文件')
+        }
+        const fresh = dedupeIds(allCases)
+        const freshIds = new Set(fresh.map((item) => item.id))
         const cases =
-          source.format === 'readme'
-            ? parseReadmeCases(text, source)
-            : parseInspirationCases(json, source)
-        if (cases.length === 0) {
-          /** 解析出 0 条多半是上游改了结构 —— 如实报，别把旧数据盖成空的 */
-          throw new Error('这个来源这次没解析出任何案例（可能上游改了数据格式）')
-        }
+          partialError && previous?.cases.length
+            ? dedupeIds([
+                ...previous.cases.filter((item) => !freshIds.has(item.id)),
+                ...fresh,
+              ])
+            : fresh
         const fetchedAt = Date.now()
         await write(storage, source.id, cases, fetchedAt)
-        return { sourceId: source.id, cases, fetchedAt }
+        return {
+          sourceId: source.id,
+          cases,
+          fetchedAt,
+          ...(partialError ? { error: partialError } : {}),
+        }
       } catch (e) {
         return {
           sourceId: source.id,

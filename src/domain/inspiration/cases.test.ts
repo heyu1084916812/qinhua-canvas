@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { filterCases, parseInspirationCases, parseReadmeCases, tagCounts } from './cases'
+import {
+  filterCases,
+  parseInspirationCases,
+  parseReadmeCases,
+  parseTextCases,
+  tagCounts,
+} from './cases'
 import type { InspirationSource } from './sources'
 
 const SOURCE: InspirationSource = {
@@ -111,6 +117,84 @@ describe('parseInspirationCases', () => {
       SOURCE,
     )
     expect(out.map((c) => c.id)).toEqual(['demo:7', 'demo:7-2', 'demo:7-3'])
+  })
+
+  it('★★ LearnPrompt 结构：promptFull / posterUrl / mediaUrl / creator 都能落到统一模型', () => {
+    const out = parseInspirationCases(
+      {
+        cases: [
+          {
+            slug: 'diner-rewind',
+            title: '餐厅倒放',
+            promptFull: 'A cinematic diner scene',
+            posterUrl: 'https://cdn.example.com/poster.jpg',
+            mediaUrl: 'https://cdn.example.com/video.mp4',
+            creator: '@techhalla',
+            sourceUrl: 'https://x.com/a/1',
+            tags: ['Diner'],
+            models: ['Seedance 2.5'],
+          },
+        ],
+      },
+      { ...SOURCE, id: 'seed', kind: 'video' },
+    )
+    expect(out[0]).toMatchObject({
+      id: 'seed:diner-rewind',
+      prompt: 'A cinematic diner scene',
+      imageUrl: 'https://cdn.example.com/poster.jpg',
+      videoUrl: 'https://cdn.example.com/video.mp4',
+      credit: '@techhalla',
+      creditUrl: 'https://x.com/a/1',
+      tags: ['Diner', 'Seedance 2.5'],
+      kind: 'video',
+    })
+  })
+
+  it('★ 顶层 prompts 数组也认（蓝叔视频工具包的字段口径）', () => {
+    const out = parseInspirationCases(
+      {
+        prompts: [
+          {
+            id: 'kv-001',
+            title: '霓虹雨夜',
+            prompt: 'A woman walks through neon rain',
+            tags: ['portrait', 'kling'],
+            source: { url: 'https://example.com/kling' },
+          },
+        ],
+      },
+      { ...SOURCE, id: 'lanshu', kind: 'video' },
+    )
+    expect(out[0]).toMatchObject({
+      id: 'lanshu:kv-001',
+      title: '霓虹雨夜',
+      creditUrl: 'https://example.com/kling',
+      tags: ['portrait', 'kling'],
+    })
+  })
+
+  it('★ 水仙分片：相对图片路径按 shuixian-unified 基址解析', () => {
+    const out = parseInspirationCases(
+      [
+        {
+          id: 14347,
+          title: '镜头人像',
+          prompt: '一张人像',
+          image: 'images/originals/14347.jpg',
+          category: '人像',
+          styles: ['胶片'],
+        },
+      ],
+      {
+        ...SOURCE,
+        id: 'shuixian',
+        imageBase: 'https://cdn.jsdelivr.net/gh/BaYue-SYJ/shuixian-prompts@main/shuixian-unified/',
+      },
+    )
+    expect(out[0]!.imageUrl).toBe(
+      'https://cdn.jsdelivr.net/gh/BaYue-SYJ/shuixian-prompts@main/shuixian-unified/images/originals/14347.jpg',
+    )
+    expect(out[0]!.tags).toEqual(['人像', '胶片'])
   })
 })
 
@@ -362,5 +446,73 @@ describe('parseReadmeCases · 两段并存（Seedance）', () => {
     expect(out[1]!.prompt).toContain('archer riding')
     expect(out[1]!.videoUrl).toBe('https://cdn.example.com/videos/forest.mp4')
     expect(out[1]!.kind).toBe('video')
+  })
+})
+
+describe('parseReadmeCases · ZeroLu 版式', () => {
+  const ZERO: InspirationSource = {
+    ...SOURCE,
+    id: 'zero',
+    name: 'ZeroLu',
+    format: 'readme',
+    readmeStyle: 'zerolu',
+    imageBase: 'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main',
+  }
+
+  it('★★ `### 标题` + `**提示词:**` + Markdown 图片可解析，资源段落会跳过', () => {
+    const md = [
+      '## 目录',
+      '',
+      '### 便利店夜景',
+      '![示例](assets/store.jpg)',
+      '',
+      '**提示词:**',
+      '```text',
+      '夏夜便利店门口的街头抓拍',
+      '```',
+      '**来源:** [@author](https://x.com/a/1)',
+      '',
+      '### 资源',
+      '- 只是链接，不是案例',
+    ].join('\n')
+    const out = parseReadmeCases(md, ZERO)
+    expect(out).toHaveLength(1)
+    expect(out[0]!.title).toBe('便利店夜景')
+    expect(out[0]!.prompt).toBe('夏夜便利店门口的街头抓拍')
+    expect(out[0]!.imageUrl).toBe(
+      'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main/assets/store.jpg',
+    )
+    expect(out[0]!.credit).toBe('@author')
+  })
+})
+
+describe('parseTextCases', () => {
+  it('官方 TXT 提示词规范作为一条可复制案例，并按文件区分模式', () => {
+    const base = parseTextCases(
+      'integrated_multimodal_description: ...\noverall_soundscape: ...',
+      {
+        ...SOURCE,
+        id: 'h3',
+        name: 'MiniMax H3 官方提示词',
+        format: 'text',
+        kind: 'video',
+        dataUrl: 'https://cdn.example.com/references/base-en.txt',
+      },
+    )
+    const ref = parseTextCases(
+      'subject_definitions: ...',
+      {
+        ...SOURCE,
+        id: 'h3',
+        name: 'MiniMax H3 官方提示词',
+        format: 'text',
+        kind: 'video',
+        dataUrl: 'https://cdn.example.com/references/base-en.txt',
+      },
+      'https://cdn.example.com/references/ref-en.txt',
+    )
+    expect(base[0]!.title).toContain('基础与关键帧模式')
+    expect(base[0]!.kind).toBe('video')
+    expect(ref[0]!.title).toContain('全参考模式')
   })
 })

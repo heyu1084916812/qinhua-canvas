@@ -12,7 +12,7 @@
  * 加新来源时先看它属于哪种；不符合任何一种就再加一种规则 ——
  * **不要复制一份解析函数**：三份几乎一样的正则，改一处忘两处是迟早的事。
  */
-export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll'
+export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll' | 'zerolu'
 
 /** 灵感来源的媒体类型：视频来源要在卡片和详情里真的能播放。 */
 export type InspirationMediaKind = 'image' | 'video'
@@ -25,6 +25,8 @@ export interface InspirationSource {
   repo: string
   /** 数据文件的 raw 地址（唯一要联网取的东西） */
   dataUrl: string
+  /** 同一来源拆成多个数据文件时按顺序聚合；有它时不再使用 dataUrl 的备用分支。 */
+  dataUrls?: string[]
   /**
    * 预览图基址：案例里的相对路径拼在它后面。
    *
@@ -43,7 +45,7 @@ export interface InspirationSource {
    *   上游一改版式就解析不出来）。所以 `refresh` 在"解析出 0 条"时**报错而不覆盖旧缓存** ——
    *   版式变了最多是"这次没刷成功"，不会把上一次的好数据洗掉。
    */
-  format: 'json' | 'readme'
+  format: 'json' | 'readme' | 'text'
   /** README 型的版式（`format: 'readme'` 时用；不填 = `pico`） */
   readmeStyle?: ReadmeStyle
   /** 搜索框旁那一档「模型分类」（如 GPT Image / Nano Banana / Seedance）。 */
@@ -57,10 +59,10 @@ export interface InspirationSource {
 }
 
 /**
- * 预置来源（2026-10-14 实查：星数高、仓库真实存在、数据文件可直取）。
+ * 预置来源（2026-10-23 实查：星数高、仍在维护、数据文件可直取）。
  *
- * ⚠️ 这里**只放有结构化数据文件**的仓库。README 型（内容写在 markdown 表格 / 列表里）
- * 要另写解析器，那些留到后面按需接 —— 不在这里假装能读。
+ * 优先结构化 JSON；README 和官方 TXT 规范走各自的专用解析器。
+ * 解析出 0 条时刷新会报错并保留旧缓存，不会把来源伪装成“空库”。
  *
  * ⚠️ **地址一律走 jsDelivr（`cdn.jsdelivr.net/gh/...`）而不是 raw.githubusercontent.com**：
  * 2026-10-14 实测本机访问 raw 多次 **连接超时**（同一时刻 jsDelivr 1.7 秒返回），
@@ -79,6 +81,106 @@ export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
     format: 'json',
     modelCategory: 'GPT Image',
     kind: 'image',
+    builtin: true,
+  },
+  {
+    id: 'zerolu-gpt-image',
+    name: 'ZeroLu GPT Image',
+    repo: 'https://github.com/ZeroLu/awesome-gpt-image',
+    dataUrl: 'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main/README.zh-CN.md',
+    fallbackDataUrl:
+      'https://raw.githubusercontent.com/ZeroLu/awesome-gpt-image/main/README.zh-CN.md',
+    imageBase: 'https://cdn.jsdelivr.net/gh/ZeroLu/awesome-gpt-image@main',
+    note: 'GPT Image 2 / 2.5 精选案例，按摄影、游戏、UI、海报等场景分类',
+    format: 'readme',
+    readmeStyle: 'zerolu',
+    modelCategory: 'GPT Image',
+    kind: 'image',
+    builtin: true,
+  },
+  {
+    id: 'youmind-ai-image-selected',
+    name: 'YouMind AI 图片精选',
+    repo: 'https://github.com/YouMind-OpenLab/ai-image-prompts-skill',
+    dataUrl:
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/ai-image-prompts-skill@main/references/ecommerce-main-image.json',
+    dataUrls: [
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/ai-image-prompts-skill@main/references/ecommerce-main-image.json',
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/ai-image-prompts-skill@main/references/comic-storyboard.json',
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/ai-image-prompts-skill@main/references/poster-flyer.json',
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/ai-image-prompts-skill@main/references/infographic-edu-visual.json',
+    ],
+    imageBase: '',
+    note: '电商主图、漫画分镜、海报与信息图 4 个分类，约 2,900 条精选提示词',
+    format: 'json',
+    modelCategory: 'AI 图片',
+    kind: 'image',
+    builtin: true,
+  },
+  {
+    id: 'shuixian-prompts',
+    name: '水仙 AI 提示词',
+    repo: 'https://github.com/BaYue-SYJ/shuixian-prompts',
+    dataUrl:
+      'https://raw.githubusercontent.com/BaYue-SYJ/shuixian-prompts/main/shuixian-unified/data/prompts.part1.json',
+    dataUrls: [
+      'https://raw.githubusercontent.com/BaYue-SYJ/shuixian-prompts/main/shuixian-unified/data/prompts.part1.json',
+      'https://raw.githubusercontent.com/BaYue-SYJ/shuixian-prompts/main/shuixian-unified/data/prompts.part2.json',
+      'https://raw.githubusercontent.com/BaYue-SYJ/shuixian-prompts/main/shuixian-unified/data/prompts.part3.json',
+    ],
+    imageBase:
+      'https://cdn.jsdelivr.net/gh/BaYue-SYJ/shuixian-prompts@main/shuixian-unified/',
+    note: '5,000+ 中文图片提示词，覆盖即梦、可灵、Seedream、Midjourney 等模型',
+    format: 'json',
+    modelCategory: '即梦',
+    kind: 'image',
+    builtin: true,
+  },
+  {
+    id: 'minimax-h3-official',
+    name: 'MiniMax H3 官方提示词',
+    repo: 'https://github.com/MiniMax-AI/MiniMax-H3',
+    dataUrl:
+      'https://cdn.jsdelivr.net/gh/MiniMax-AI/MiniMax-H3@main/skills/h3-prompt-writing/references/base-en.txt',
+    dataUrls: [
+      'https://cdn.jsdelivr.net/gh/MiniMax-AI/MiniMax-H3@main/skills/h3-prompt-writing/references/base-en.txt',
+      'https://cdn.jsdelivr.net/gh/MiniMax-AI/MiniMax-H3@main/skills/h3-prompt-writing/references/ref-en.txt',
+    ],
+    imageBase: '',
+    note: '官方 H3 提示词写作规范：基础文生视频、首尾帧与 Ref2VA 全参考模式',
+    format: 'text',
+    modelCategory: 'MiniMax H3',
+    kind: 'video',
+    builtin: true,
+  },
+  {
+    id: 'learnprompt-seedance',
+    name: 'LearnPrompt Seedance',
+    repo: 'https://github.com/LearnPrompt/awesome-seedance',
+    dataUrl:
+      'https://raw.githubusercontent.com/LearnPrompt/awesome-seedance/main/data/cases.json',
+    fallbackDataUrl:
+      'https://cdn.jsdelivr.net/gh/LearnPrompt/awesome-seedance@main/data/cases.json',
+    imageBase: '',
+    note: '903 条 Seedance 2.5 / 2.0 视频案例，带作者、来源和复测信息',
+    format: 'json',
+    modelCategory: 'Seedance',
+    kind: 'video',
+    builtin: true,
+  },
+  {
+    id: 'lanshu-video-kit',
+    name: '蓝叔 AI 视频提示词',
+    repo: 'https://github.com/cclank/lanshu-awesome-ai-video-kit',
+    dataUrl:
+      'https://cdn.jsdelivr.net/gh/cclank/lanshu-awesome-ai-video-kit@main/prompts/data/all-prompts.json',
+    fallbackDataUrl:
+      'https://raw.githubusercontent.com/cclank/lanshu-awesome-ai-video-kit/main/prompts/data/all-prompts.json',
+    imageBase: '',
+    note: '494 条企业视频提示词，覆盖 Veo、Kling、Seedance、MiniMax、Wan 等 15 个模型',
+    format: 'json',
+    modelCategory: '多模型视频',
+    kind: 'video',
     builtin: true,
   },
   {

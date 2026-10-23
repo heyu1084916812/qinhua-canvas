@@ -8,6 +8,7 @@ import {
 
 /** 来源配置是用户资产：放 `presets`，跟全库备份 / 导入导出一起走。 */
 export const INSPIRATION_SOURCES_KEY = 'inspiration:sources:v1'
+const INSPIRATION_SOURCES_VERSION = 4
 
 export interface StoredInspirationSource extends InspirationSource {
   enabled: boolean
@@ -27,7 +28,8 @@ function asStoredSource(value: unknown): StoredInspirationSource | null {
   const repo = typeof row.repo === 'string' ? row.repo.trim() : ''
   const dataUrl = typeof row.dataUrl === 'string' ? row.dataUrl.trim() : ''
   if (!id || !name || !repo || !dataUrl) return null
-  const format = row.format === 'json' ? 'json' : 'readme'
+  const format =
+    row.format === 'json' ? 'json' : row.format === 'text' ? 'text' : 'readme'
   const readmeStyle =
     row.readmeStyle === 'pico' || row.readmeStyle === 'youmind' || row.readmeStyle === 'youmindAll'
       ? row.readmeStyle
@@ -42,6 +44,9 @@ function asStoredSource(value: unknown): StoredInspirationSource | null {
     name,
     repo,
     dataUrl,
+    ...(Array.isArray(row.dataUrls)
+      ? { dataUrls: row.dataUrls.filter((url): url is string => typeof url === 'string' && !!url) }
+      : {}),
     imageBase: typeof row.imageBase === 'string' ? row.imageBase : '',
     note: typeof row.note === 'string' ? row.note : '',
     format,
@@ -64,10 +69,16 @@ export async function loadInspirationSources(
 ): Promise<StoredInspirationSource[]> {
   const rows = (await storage.query('presets', { id: INSPIRATION_SOURCES_KEY })) as unknown as {
     sources?: unknown
+    version?: unknown
   }[]
   const stored = rows[0]?.sources
   if (Array.isArray(stored)) {
     const normalized = stored.map(asStoredSource).filter((x): x is StoredInspirationSource => !!x)
+    if (rows[0]?.version !== INSPIRATION_SOURCES_VERSION) {
+      const upgraded = mergeMissingBuiltinSources(normalized)
+      await saveInspirationSources(storage, upgraded)
+      return upgraded
+    }
     return normalized
   }
   const seeded = defaults()
@@ -82,8 +93,31 @@ export async function saveInspirationSources(
   await storage.put('presets', {
     id: INSPIRATION_SOURCES_KEY,
     sources: [...sources],
+    version: INSPIRATION_SOURCES_VERSION,
     updatedAt: Date.now(),
   })
+}
+
+/**
+ * 旧版本只保存用户已有来源；新增内置来源不会自动出现。
+ * 版本升级时补一次缺失项，保存新版本后用户以后手动删除的项就不会被反复塞回来。
+ */
+export function mergeMissingBuiltinSources(
+  sources: readonly StoredInspirationSource[],
+): StoredInspirationSource[] {
+  const ids = new Set(sources.map((source) => source.id))
+  const builtinById = new Map(DEFAULT_INSPIRATION_SOURCES.map((source) => [source.id, source]))
+  const upgraded = sources.map((source) => {
+    const builtin = builtinById.get(source.id)
+    if (!builtin) return source
+    return {
+      ...builtin,
+      enabled: source.enabled,
+      ...(source.syncedAt ? { syncedAt: source.syncedAt } : {}),
+    }
+  })
+  const missing = defaults().filter((source) => !ids.has(source.id))
+  return [...upgraded, ...missing]
 }
 
 export function addCustomInspirationSource(

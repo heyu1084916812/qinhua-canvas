@@ -1,5 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### 灵感库高质量来源与多文件聚合（2026-10-23 → 对账 #720）
+
+- **只收图片 / 视频 prompt 数据**：Sora2、小仓库、项目已有来源不重复；水仙必须有。
+- **新增来源**：ZeroLu GPT Image 53、YouMind AI 图片精选 2,931、水仙 5,430、MiniMax H3 官方 2、
+  LearnPrompt Seedance 903、蓝叔视频工具包 494。
+- **多文件来源**：`dataUrls` 并发拉取；部分分片失败时保留成功分片与旧缓存，并显示部分失败提示，
+  不能因为一个分片超时就把整个来源变成 0。
+- **解析口径**：JSON 兼容 `cases / prompts / items`，字段兼容 `promptFull / content / sourceMedia /
+  posterUrl / mediaUrl / creator`；README 增加 ZeroLu 版式，官方 TXT 整份作为一条可复制规范。
+- **迁移版本 v4**：更新内置来源地址 / 规则，同时保留用户开关、顺序、自定义源；版本写入后不会反复
+  补回用户删除的内置源。
+- 真实页面共 11,201 条；定向 33/33；全量 3024 passed / 1 skipped；check/build 通过。
+
 ### Agent 浮球浮窗与小地图迁移（2026-10-23 → 对账 #719）
 
 - **Agent 只换外层**：`AgentDock` 包住现有 `AgentPanel`，不改会话、技能、生成和渠道路由。

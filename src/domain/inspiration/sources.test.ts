@@ -44,4 +44,26 @@ describe('灵感来源 · GitHub 仓库直解析', () => {
       'video',
     )
   })
+
+  it('新增图片 / 视频仓库不重复，水仙与多分片来源配置完整', () => {
+    const ids = DEFAULT_INSPIRATION_SOURCES.map((source) => source.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'shuixian-prompts')).toMatchObject({
+      kind: 'image',
+      format: 'json',
+      modelCategory: '即梦',
+    })
+    expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'shuixian-prompts')?.dataUrls,
+    ).toHaveLength(3)
+    expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'minimax-h3-official'),
+    ).toMatchObject({
+      kind: 'video',
+      format: 'text',
+    })
+    expect(
+      DEFAULT_INSPIRATION_SOURCES.find((source) => source.id === 'learnprompt-seedance')?.kind,
+    ).toBe('video')
+  })
 })
