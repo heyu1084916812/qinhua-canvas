@@ -129,16 +129,14 @@ export function PanelLayer({
     onResult: (text) => {
       if (!selectedNode || selectedNode.type !== 'prompt') return
       /*
-       * 优化 / 翻译 / 反推的结果**直接写正文**（用户 2026-09-24 删掉「写入节点」）。
-       *
-       * 面板与正文不再是两份内容，所以结果落在哪只有一处：`text`。
-       * 进撤销栈（`transient:false`）——「一键改了整段提示词」必须能反悔。
-       * `draft` 一起写，避免老字段残留出不一致。
+       * 优化 / 翻译 / 反推的结果写**节点结果正文**（`text`），不覆盖面板里的输入草稿。
+       * 用户 2026-10-23：下面写提示词，上面显示结果，两者隔开。
+       * 进撤销栈（`transient:false`）——「一键改了整段结果」必须能反悔。
        */
       store.dispatch({
         kind: 'node.updateData',
         id: selectedNode.id,
-        patch: { text, draft: text },
+        patch: { text },
         transient: false,
       })
       /**
@@ -453,15 +451,17 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
     thumbs,
     collections,
     emptyHint: '连线上游节点，或拖入素材',
-    // 提示词节点的面板绑定**草稿**（§6.7「面板 = 工作区」），生成类节点仍是 prompt
     /**
-     * 提示词节点的面板现在绑定**正文**（用户 2026-09-24 删掉「写入节点」）。
-     *
-     * 面板与正文从此是同一份内容 —— 面板里打的字直接就是下游读到的东西。
-     * 老数据里 `draft` 可能还残留着旧的工作区文本，**不再展示**它：
-     * 展示一个不生效的字段会让用户以为写了却没反应（正是删按钮要避免的事）。
+     * 提示词节点：面板绑定**输入草稿**（`draft`），节点正文是结果（`text`）。
+     * 旧节点没有 `draft` 时用正文作起点，用户一编辑就会生成新的草稿。
      */
-    prompt: node.type === 'prompt' ? ((node.data as PromptData).text ?? '') : data.prompt,
+    prompt:
+      node.type === 'prompt'
+        ? ((node.data as PromptData).draft ?? (node.data as PromptData).text ?? '')
+        : data.prompt,
+    ...(node.type === 'prompt'
+      ? { promptResult: (node.data as PromptData).text ?? '' }
+      : {}),
     linkedPromptCount,
     promptToggle: null,
     /**
@@ -582,6 +582,11 @@ async function detectFaceInBackground(
 }
 
 /** 面板事件 → 命令 / 执行（架构 §4.7 ①：面板只能 emit，由这里翻译） */
+/** 面板输入源：新口径读草稿，旧节点没有草稿时回落到结果正文。 */
+function promptSourceOf(data: PromptData): string {
+  return data.draft ?? data.text ?? ''
+}
+
 function handlePanelEvent(
   event: PanelEvent,
   node: NodeSnapshot,
@@ -637,19 +642,17 @@ function handlePanelEvent(
   switch (event.type) {
     case 'setPrompt':
       /*
-       * 提示词节点的面板**直接写正文**（用户 2026-09-24 删掉「写入节点」）。
-       *
-       * 此前面板写 `draft`、正文是 `text`，两者之间唯一的桥是「写入节点」按钮。
-       * 用户把这个按钮删了，那条桥也就没了 —— 若这里仍写 `draft`，
-       * 面板里打的字**永远不会到达下游**（下游读的是 `text`）。
-       * 这正是「点了没反应」那一类静默失效，必须一并改掉。
-       *
-       * `draft` 仍一起写：它是老数据里存在的字段，留着保持同值，
-       * 免得「面板显示 draft、节点显示 text」两处再次分叉。
+       * 用户 2026-10-23 改回「面板 = 输入草稿、上方节点 = 结果」：
+       * 输入只写 `draft`，不碰 `text`。要更新结果正文走 `applyPrompt`。
        */
       if (node.type === 'prompt') {
-        patch({ text: event.text, draft: event.text } as Partial<GenerationData>)
+        patch({ draft: event.text } as Partial<GenerationData>)
       } else patch({ prompt: event.text })
+      break
+    case 'applyPrompt':
+      if (node.type === 'prompt') {
+        patch({ draft: event.text, text: event.text } as Partial<GenerationData>)
+      }
       break
     case 'setChannel':
       // 换渠道后模型缓存变了，清空模型避免脏值
@@ -779,11 +782,11 @@ function handlePanelEvent(
       reorderThumbs(event.owner, event.order, node, store)
       break
     case 'optimize':
-      // 面板的工具只作用于草稿（§6.7），结果经 onResult 写回 draft
-      promptTools.run((node.data as PromptData).draft ?? '', 'optimize')
+      // 输入取面板草稿；结果经 onResult 写节点正文
+      promptTools.run(promptSourceOf(node.data as PromptData), 'optimize')
       break
     case 'translate':
-      promptTools.run((node.data as PromptData).draft ?? '', 'translate')
+      promptTools.run(promptSourceOf(node.data as PromptData), 'translate')
       break
     case 'run':
       void exec.runNode(node.id)

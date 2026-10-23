@@ -76,6 +76,19 @@ describe('提示词节点规格 / 输入收集（§6.7 反推）', () => {
     expect(inputs.filter((i) => i.kind === 'asset')).toEqual([])
   })
 
+  it('面板草稿不覆盖节点结果：下游读的是手写 / 写入后的 text', () => {
+    const g = graph([
+      node({
+        id: 'p',
+        type: 'prompt',
+        data: { text: '节点里的结果', draft: '面板里的草稿' } as never,
+      }),
+    ])
+    expect(
+      promptSpec.collectInputs({ node: g.nodes[0]! as NodeSnapshot<PromptData>, graph: g }),
+    ).toEqual([{ kind: 'text', nodeId: 'p', text: '节点里的结果' }])
+  })
+
   it('imageAssetInputsOf 从收集结果里挑出图（视图与请求取同一份数据）', () => {
     const g = graph(
       [

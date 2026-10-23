@@ -1,5 +1,16 @@
 # CanvasFlow（轻画）项目记忆
 
+### 提示词面板草稿与节点结果分离（2026-10-23 → 对账 #728）
+
+- **下面 = 输入草稿，上面 = 结果**：`setPrompt` 只写 `PromptData.draft`，不再实时写 `text`。
+- **节点正文仍可手写，也仍是下游上游**：`PromptNodeView` 与 `promptSpec.collectInputs()`
+  都继续认 `text`，不要为了分离把下游改成读草稿。
+- **显式桥**：面板「写入节点」发 `applyPrompt`，一次写 `draft + text`。
+- **优化 / 翻译 / 反推 / 技能结果只写 `text`**，不覆盖草稿。
+- **首次生成兜底**：`text` 为空且草稿非空时自动提交草稿；已有结果不覆盖。
+- 真实页面验证：输入草稿节点仍 0 字；写入节点后同步；双击手写仍成功。
+- 全量 3047 passed / 1 skipped；check/build 通过。
+
 ### 上下文窗口截断与工具消息配对（2026-10-23 → 对账 #727）
 
 - **`function_response.name` 二次缺失的真根因是窗口从中间截断**：`assistant(tool_calls)`

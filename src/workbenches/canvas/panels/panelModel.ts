@@ -55,8 +55,14 @@ export interface PanelModel {
   collections: PanelCollection[]
   /** 第一部分为空时的占位提示 */
   emptyHint: string
-  /** 第二部分：提示词文本 */
+  /** 第二部分：面板输入文本（提示词节点读 `draft`，其他节点读 `prompt`） */
   prompt: string
+  /**
+   * 提示词节点的**结果正文**（`text`）。
+   *
+   * 仅 prompt 模式有值；用于「写入节点」按钮判断草稿是否已同步到结果。
+   */
+  promptResult?: string
   /** 提示词下方的上游提示词胶囊（§6.7「上游已链接提示词节点 {n}」） */
   linkedPromptCount: number
   /** 提示词容器右侧的小眼睛（§6.11「组内若有提示词节点…提供小眼睛」） */
@@ -118,6 +124,8 @@ export interface RecipeSnapshot {
 /** 面板事件：全部是语义事件，由页面装配层翻译成命令（架构 §4.7） */
 export type PanelEvent =
   | { type: 'setPrompt'; text: string }
+  /** 把面板草稿显式写成提示词节点的结果正文（只作用于 prompt 节点） */
+  | { type: 'applyPrompt'; text: string }
   | { type: 'setChannel'; channelId: string }
   | {
       type: 'setModel'

@@ -2019,6 +2019,25 @@ export function CreationPanel(props: CreationPanelProps) {
             <button
               type="button"
               className={styles.toolBtn}
+              data-panel-prompt-apply
+              disabled={
+                promptDraft.trim().length === 0 ||
+                promptDraft === (model.promptResult ?? '')
+              }
+              title="把下方输入写入上方提示词节点；节点正文仍可直接手写，并作为下游上游"
+              onClick={() => {
+                if (promptTimer.current) {
+                  clearTimeout(promptTimer.current)
+                  promptTimer.current = null
+                }
+                onEvent({ type: 'applyPrompt', text: promptDraft })
+              }}
+            >
+              写入节点
+            </button>
+            <button
+              type="button"
+              className={styles.toolBtn}
               disabled={tools.status === 'running' || model.prompt.trim().length === 0}
               title={tools.error ?? '用文本模型优化此提示词'}
               onClick={() => tools.run(model.prompt, 'optimize')}

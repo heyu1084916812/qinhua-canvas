@@ -640,6 +640,13 @@ describe('CreationPanel · 提示词节点「反推」（§6.7）', () => {
     expect(html).toContain('反推需要上游图片')
   })
 
+  it('面板草稿写节点结果有独立按钮（不再随输入自动覆盖节点）', async () => {
+    const html = await renderWithImages(0)
+    expect(html).toContain('data-panel-prompt-apply')
+    expect(html).toMatch(/data-panel-prompt-apply[^>]*disabled=/)
+    expect(html).toContain('写入节点')
+  })
+
   it('有上游图片 → 反推可点，title 说清会覆盖当前文本', async () => {
     const html = await renderWithImages(2)
     expect(html).toContain('data-panel-prompt-tool="describe"')
