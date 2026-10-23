@@ -1,5 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### 提示词节点滚轮与滚动条贴边（2026-10-24 → 对账 #733）
+
+- **滚轮不能让给画布**：React Flow 会接管滚轮缩放，React `onWheel` 是 passive；
+  在提示词节点根节点挂原生 `wheel` capture + `{ passive:false }`，只在正文/编辑框
+  真的溢出时 `preventDefault + stopPropagation`，再手动改 `scrollTop`。
+- **滚动不是编辑手势**：这条路径禁止 `focus / select / setEditing`；实测滚轮前后
+  selected 与 editing 都不变。滚到顶/底仍拦在正文内，避免半路突然缩放画布。
+- **滚动条贴边靠容器几何**：外层 `padding` 会把滚动条一起推离右沿。提示词节点外层
+  只留纵向内距，`.text` / `.editArea` 铺到节点右沿，横向内距下沉到滚动容器自身；
+  实测滚动条右沿差 1px。不要用负 margin 或滚动条轨道样式伪造位置。
+- **验证基线**：G64 **30/30**（`scrollTop 0→787`、viewport 不变）；
+  全量 **3059 passed / 1 skipped**；`npm run check`、`npm run build`、Impeccable detector 通过。
+
 ### v0.1.5 桌面封包（2026-10-23 → 对账 #732）
 
 - **版本五处对齐**：`package.json` / `package-lock.json` / `src-tauri/tauri.conf.json` /

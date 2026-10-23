@@ -26,6 +26,7 @@ import styles from './PromptNodeView.module.css'
  */
 export function PromptNodeView(props: NodeViewProps) {
   const data = props.node.data as PromptData
+  const bodyRootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const editRef = useRef<HTMLTextAreaElement>(null)
   /** 是否处于**节点内编辑态**（双击进入；Esc / 失焦退出） */
@@ -41,6 +42,41 @@ export function PromptNodeView(props: NodeViewProps) {
     if (!ta) return
     ta.focus()
     ta.setSelectionRange(ta.value.length, ta.value.length)
+  }, [editing])
+
+  /**
+   * 提示词节点范围内的滚轮优先滚正文。
+   *
+   * React Flow 会在画布层吃掉滚轮并缩放视口；React 的 `onWheel` 又是 passive，
+   * 无法取消默认行为。因此这里在节点根节点用原生 capture 监听，只有正文/编辑框
+   * 确实溢出时才接收滚轮，手动滚动并阻止继续传向画布。
+   *
+   * 不调用 focus / select / setEditing：滚动不是单击，也不是双击，
+   * 不应改变选中态或把节点带进编辑态。
+   */
+  useEffect(() => {
+    const root = bodyRootRef.current
+    if (!root) return
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) return
+      const scroller = editing ? editRef.current : bodyRef.current
+      if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 1) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const lineHeight = Number.parseFloat(getComputedStyle(scroller).lineHeight) || 16
+      const delta =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? event.deltaY * lineHeight
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * scroller.clientHeight
+            : event.deltaY
+      const maxScrollTop = scroller.scrollHeight - scroller.clientHeight
+      scroller.scrollTop = Math.max(0, Math.min(maxScrollTop, scroller.scrollTop + delta))
+    }
+    root.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => root.removeEventListener('wheel', onWheel, true)
   }, [editing])
 
   /**
@@ -122,7 +158,7 @@ export function PromptNodeView(props: NodeViewProps) {
   }
 
   return (
-    <div className={styles.body} data-prompt-body>
+    <div ref={bodyRootRef} className={styles.body} data-prompt-body>
       {/* §6.7：上游连了提示词节点时，文本区上方出现胶囊——它是「上游文本不会自动带进来」
           这件事唯一的界面说明（数量由 画布表面 注入，视图层不读图，架构 §4.7） */}
       {(props.upstreamPromptCount ?? 0) > 0 && (
@@ -135,6 +171,7 @@ export function PromptNodeView(props: NodeViewProps) {
           ref={editRef}
           className={styles.editArea}
           data-prompt-inline-input
+          data-prompt-scroll
           value={data.text}
           placeholder="输入提示词…"
           onChange={(e) => props.emit({ type: 'updateData', patch: { text: e.target.value } })}
@@ -151,7 +188,12 @@ export function PromptNodeView(props: NodeViewProps) {
           }}
         />
       ) : (
-        <div className={styles.text} ref={bodyRef} onDoubleClick={onBodyDoubleClick}>
+        <div
+          className={styles.text}
+          ref={bodyRef}
+          data-prompt-scroll
+          onDoubleClick={onBodyDoubleClick}
+        >
           {data.text ? (
             <MarkdownBlocks source={data.text} />
           ) : (

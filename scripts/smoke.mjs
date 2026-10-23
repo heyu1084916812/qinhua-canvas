@@ -10673,6 +10673,71 @@ async function g64(browser) {
       !!sb && sb.trackBg === 'rgb(255, 255, 255)',
       `track=${sb?.trackBg}`,
     )
+
+    /**
+     * 提示词节点滚轮与贴边：
+     * - 指针在正文范围滚轮时，滚正文而不是缩放画布；
+     * - 滚动不改变选中态，也不进入行内编辑；
+     * - 滚动容器铺到节点内侧右沿，滚动条不再被 12px 内距推离边缘。
+     */
+    await clickBlankCanvas(page)
+    await sleep(250)
+    const wheelBefore = await prompt.evaluate((el) => {
+      const scroller = el.querySelector('[data-prompt-scroll]')
+      const frame = el.getBoundingClientRect()
+      const box = scroller?.getBoundingClientRect()
+      return {
+        selected: el.hasAttribute('data-node-selected'),
+        editing: el.querySelectorAll('[data-prompt-inline-input]').length,
+        scrollTop: scroller?.scrollTop ?? -1,
+        rightGap: box ? frame.right - box.right : Number.POSITIVE_INFINITY,
+      }
+    })
+    const viewportBeforeWheel = await page
+      .locator('[data-flow-hud]')
+      .getAttribute('data-flow-rf-vp')
+    const wheelBox = await prompt.locator('[data-prompt-scroll]').boundingBox()
+    if (wheelBox) {
+      await page.mouse.move(wheelBox.x + wheelBox.width / 2, wheelBox.y + wheelBox.height / 2)
+      await page.mouse.wheel(0, 240)
+      await sleep(350)
+      await page.mouse.wheel(0, 5000)
+      await sleep(250)
+    }
+    const wheelAfter = await prompt.evaluate((el) => {
+      const scroller = el.querySelector('[data-prompt-scroll]')
+      return {
+        selected: el.hasAttribute('data-node-selected'),
+        editing: el.querySelectorAll('[data-prompt-inline-input]').length,
+        scrollTop: scroller?.scrollTop ?? -1,
+      }
+    })
+    const viewportAfterWheel = await page
+      .locator('[data-flow-hud]')
+      .getAttribute('data-flow-rf-vp')
+    rec(
+      g,
+      '★★ 滚轮滚动提示词正文（不缩放画布）',
+      !!wheelBox &&
+        wheelAfter.scrollTop > wheelBefore.scrollTop &&
+        viewportAfterWheel === viewportBeforeWheel,
+      `scrollTop ${wheelBefore.scrollTop} → ${wheelAfter.scrollTop}, viewport ${viewportBeforeWheel} → ${viewportAfterWheel}`,
+    )
+    rec(
+      g,
+      '★★ 滚轮不改变选中态、不进入编辑态',
+      wheelBefore.selected === wheelAfter.selected &&
+        wheelBefore.editing === 0 &&
+        wheelAfter.editing === 0 &&
+        wheelAfter.selected === false,
+      `selected ${wheelBefore.selected} → ${wheelAfter.selected}, editing ${wheelBefore.editing} → ${wheelAfter.editing}`,
+    )
+    rec(
+      g,
+      '★★ 滚动条贴近节点右沿',
+      wheelBefore.rightGap <= 1,
+      `rightGap=${wheelBefore.rightGap}px`,
+    )
   }
 
   await page.screenshot({ path: `${OUT}/80-g64-format.png` })
