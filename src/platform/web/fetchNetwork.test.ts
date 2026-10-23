@@ -134,6 +134,43 @@ describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
     }
   })
 
+  it('★★ GET 产物下载超时可走壳回落，POST 超时绝不重发', async () => {
+    let shellCalls = 0
+    const network = createFetchNetwork({
+      request: async () => {
+        shellCalls += 1
+        return {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+          text: '',
+          bodyBase64: btoa('png'),
+        }
+      },
+    })
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => {
+      throw new DOMException('timed out', 'TimeoutError')
+    }) as typeof fetch
+    try {
+      const response = await network.request(
+        { url: 'https://cdn.example/result.png', method: 'GET', timeoutMs: 10 },
+        abort(),
+      )
+      expect(response.status).toBe(200)
+      expect(shellCalls).toBe(1)
+
+      await expect(
+        network.request(
+          { url: 'https://soonstudio.ai/v1/images/generations', method: 'POST', body: {}, timeoutMs: 10 },
+          abort(),
+        ),
+      ).rejects.toMatchObject({ kind: 'network', detail: 'timeout' })
+      expect(shellCalls).toBe(1)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('★★ multipart 跨域回落保留 model / prompt / 文件名 / MIME / 图片字节', async () => {
     const seen: {
       body?: string

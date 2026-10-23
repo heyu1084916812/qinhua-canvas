@@ -315,6 +315,69 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('★★ SoonStudio 结果 URL 下载卡住时，优先用同一任务里的 Base64 备用产物', async () => {
+    const fallback = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+    const fallbackB64 = btoa(String.fromCharCode(...fallback))
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, { task_id: 'task_fallback' })
+          }
+          if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_fallback') {
+            return resp(200, {
+              data: {
+                status: 'SUCCESS',
+                data: {
+                  url: [
+                    'https://cdn.example/hangs.png',
+                    `data:image/png;base64,${fallbackB64}`,
+                  ],
+                },
+              },
+            })
+          }
+          if (req.url === 'https://cdn.example/hangs.png') {
+            throw { kind: 'network', detail: 'timeout' }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+    const assets = await a.generateImage(request([], 1, { resolution: '4K' }), signal)
+    expect(assets).toHaveLength(1)
+    expect(assets[0]!.bytes).toEqual(fallback)
+  })
+
+  it('★★ 生成成功但所有产物地址都取不到时，错误里保留真实 URL 与阶段', async () => {
+    const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, { task_id: 'task_no_fallback' })
+          }
+          if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_no_fallback') {
+            return resp(200, {
+              data: { status: 'SUCCESS', data: { url: ['https://cdn.example/unreachable.png'] } },
+            })
+          }
+          if (req.url === 'https://cdn.example/unreachable.png') {
+            throw { kind: 'network', detail: 'timeout' }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+    const failure = await a.generateImage(request([], 1), signal).catch((e: unknown) => e)
+    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
+    expect(body).toContain('图片已生成，但产物下载失败')
+    expect(body).toContain('https://cdn.example/unreachable.png')
+  })
+
   it('★★ SoonStudio 任务 FAILURE 时直接返回服务端原始响应', async () => {
     const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
     const a = createOpenAiImagesAdapter(soonCfg, {

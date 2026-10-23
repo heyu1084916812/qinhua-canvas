@@ -112,6 +112,22 @@ function isCorsLikeNetworkError(err: unknown): boolean {
   return e.detail === 'dns' || e.detail === 'cors' || e.detail === 'tls'
 }
 
+/**
+ * 只有 **GET** 允许在超时后走壳回落。
+ *
+ * POST 可能是已经受理并扣费的生成请求；网页层超时后再由壳重发会重复下单。
+ * GET 产物下载没有这个副作用，浏览器直连卡住时值得换原生 HTTP 再取一次。
+ */
+function canFallbackToShell(req: NetworkRequest, err: unknown): boolean {
+  if (isCorsLikeNetworkError(err)) return true
+  const e = err as { kind?: string; detail?: string } | null
+  return (
+    (req.method ?? 'GET').toUpperCase() === 'GET' &&
+    e?.kind === 'network' &&
+    e.detail === 'timeout'
+  )
+}
+
 async function shellMultipartOf(form: FormData): Promise<RemoteMultipartPart[]> {
   const parts: RemoteMultipartPart[] = []
   for (const [name, value] of form.entries()) {
@@ -217,7 +233,7 @@ export function createFetchNetwork(remote?: {
         return toResponse(res.status, responseHeaders, buffer)
       } catch (e) {
         /** 浏览器这一层过不去（多为 CORS）且壳有原生 HTTP ⇒ 换一条路再试一次 */
-        if (shellRequest && !signal.aborted && isCorsLikeNetworkError(toAppError(e, signal))) {
+        if (shellRequest && !signal.aborted && canFallbackToShell(req, toAppError(e, signal))) {
           return await viaShell(req)
         }
         throw toAppError(e, signal)

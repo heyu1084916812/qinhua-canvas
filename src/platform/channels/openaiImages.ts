@@ -33,6 +33,7 @@ import {
   isModelListBody,
   normalizeBaseUrl,
   openAiBaseUrl,
+  IMAGE_ASSET_DOWNLOAD_TIMEOUT_MS,
   IMAGE_GENERATE_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
@@ -261,6 +262,8 @@ function toAsset(
 interface ImageItem {
   b64_json?: string
   url?: string
+  fallbackUrls?: readonly string[]
+  fallbackB64?: string
 }
 
 function imageItemsIn(value: unknown): ImageItem[] {
@@ -297,12 +300,18 @@ function imageItemsIn(value: unknown): ImageItem[] {
     const preferredUrl =
       urls.find((item) => /^https?:\/\//i.test(item)) ??
       urls.find((item) => /^data:image\//i.test(item))
-    if (preferredUrl) push({ url: preferredUrl })
     const b64Values = Array.isArray(row.b64_json)
       ? row.b64_json.filter((item): item is string => typeof item === 'string')
       : typeof row.b64_json === 'string'
         ? [row.b64_json]
         : []
+    if (preferredUrl) {
+      push({
+        url: preferredUrl,
+        fallbackUrls: urls.filter((item) => item !== preferredUrl),
+        ...(b64Values[0] ? { fallbackB64: b64Values[0] } : {}),
+      })
+    }
     if (!preferredUrl && b64Values[0]) push({ b64_json: b64Values[0] })
     for (const key of ['data', 'output', 'outputs', 'images', 'result', 'results', 'image']) {
       if (key in row) visit(row[key], depth + 1)
@@ -448,28 +457,57 @@ export function createOpenAiImagesAdapter(
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
     const assets: GeneratedAsset[] = []
+    const failures: string[] = []
     for (const item of items) {
-      if (item.b64_json) {
-        const bytes = Uint8Array.from(atob(item.b64_json.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
-        // hash 取**产物字节**指纹（内容寻址）：旧的 model|prompt|index 在两次
-        // 生成同 model + prompt 时 index 碰撞 ⇒ 不同的图共用一个 hash（用户报）
-        const hash = await fingerprintBytes(bytes)
-        assets.push(toAsset(hash, 'image/png', bytes, requested))
-      } else if (item.url) {
-        const dataUri = /^data:([^;,]+);base64,(.*)$/is.exec(item.url)
-        const bytes = dataUri
-          ? Uint8Array.from(atob(dataUri[2]!.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
-          : new Uint8Array(
-              await (
-                await deps.network.request(
-                  { url: item.url, method: 'GET', headers: {}, timeoutMs: IMAGE_GENERATE_TIMEOUT_MS },
-                  signal,
-                )
-              ).arrayBuffer(),
-            )
-        const hash = await fingerprintBytes(bytes)
-        assets.push(toAsset(hash, dataUri?.[1] ?? 'image/png', bytes, requested))
+      const inlineB64 = item.b64_json ?? item.fallbackB64
+      const candidates = [item.url, ...(item.fallbackUrls ?? [])].filter(
+        (url): url is string => typeof url === 'string' && url.length > 0,
+      )
+      let bytes: Uint8Array | null = null
+      let mime = 'image/png'
+      for (const url of candidates) {
+        try {
+          const dataUri = /^data:([^;,]+);base64,(.*)$/is.exec(url)
+          if (dataUri) {
+            bytes = Uint8Array.from(atob(dataUri[2]!.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
+            mime = dataUri[1] ?? mime
+            break
+          }
+          const response = await deps.network.request(
+            {
+              url,
+              method: 'GET',
+              headers: {},
+              timeoutMs: IMAGE_ASSET_DOWNLOAD_TIMEOUT_MS,
+            },
+            signal,
+          )
+          bytes = new Uint8Array(await response.arrayBuffer())
+          mime = response.headers['content-type']?.split(';')[0]?.trim() || mime
+          break
+        } catch (error) {
+          if (signal.aborted) throw error
+          failures.push(
+            `${/^data:image\//i.test(url) ? 'data URI' : url.slice(0, 180)}：${transportTextOf(error)}`,
+          )
+        }
       }
+      if (!bytes && inlineB64) {
+        bytes = Uint8Array.from(atob(inlineB64.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
+        mime = 'image/png'
+      }
+      if (bytes) {
+        const hash = await fingerprintBytes(bytes)
+        assets.push(toAsset(hash, mime, bytes, requested))
+      }
+    }
+    if (assets.length === 0 && failures.length > 0) {
+      throw new ChannelError({
+        kind: 'http',
+        status: 504,
+        body: `图片已生成，但产物下载失败：${failures.slice(0, 3).join('；')}`,
+        verbatim: true,
+      })
     }
     return assets
   }
