@@ -184,9 +184,8 @@ export function classifyError(
 /**
  * `/v1/models` 里的一个 id → 能力表（生图与聊天协议共用同一套判据）。
  *
- * 按 id 里的关键词猜类别是**退而求其次**：中转站的 `/v1/models` 基本不带类别字段，
- * 而面板要按类别筛模型（提示词节点只列 `chat`、生成节点只列 `image` / `video`）。
- * 猜错的代价是「这个模型没出现在该出现的位置」，比「把所有模型都塞给用户」小。
+ * 关键词只能作为**最后兜底**；中转站目录带真实分类时必须由调用方传 `categoryHint`。
+ * 没有任何可靠依据时返回 `unknown`，由设置页让用户手动改，不能默认塞进 `chat`。
  */
 export function toModelCapability(
   modelId: string,
@@ -197,11 +196,41 @@ export function toModelCapability(
     categoryHint ??
     (id.includes('tts') || id.includes('speech') || id.includes('voice')
       ? 'audio'
-      : id.includes('video')
+      : id.includes('video') ||
+          ['seedance', 'kling', 'veo', 'sora', 'hailuo', 'pika', 'runway', 'luma', 'wan'].some(
+            (mark) => id.includes(mark),
+          )
         ? 'video'
-        : id.includes('image')
+        : id.includes('image') ||
+            [
+              'banana',
+              'nano',
+              'flux',
+              'midjourney',
+              'dall-e',
+              'stable-diffusion',
+              'sdxl',
+              'imagen',
+              'seedream',
+              'recraft',
+              'ideogram',
+              'gpt-image',
+            ].some((mark) => id.includes(mark))
           ? 'image'
-          : 'chat')
+              : [
+                'chat',
+                'gpt-',
+                'claude',
+                'gemini',
+                'deepseek',
+                'glm',
+                'qwen',
+                'grok',
+                'llama',
+                'mistral',
+              ].some((mark) => id.includes(mark))
+            ? 'chat'
+            : 'unknown')
   return {
     id: modelId,
     category,
@@ -254,6 +283,25 @@ export function toModelCapability(
     qualities: ['auto', 'low', 'medium', 'high'],
     maxCount: 4,
   }
+}
+
+/** 站点目录的 tags / primaryType → 内部类别；只认明确值，不拿名称补猜。 */
+export function categoryFromSiteTags(
+  tags: unknown,
+): ModelCapability['category'] | undefined {
+  const values = Array.isArray(tags)
+    ? tags.filter((value): value is string => typeof value === 'string')
+    : typeof tags === 'string'
+      ? tags.split(/[,，|]/)
+      : []
+  for (const raw of values) {
+    const value = raw.trim().toLowerCase()
+    if (value === 'chat' || value === 'text' || value === '对话' || value === '文本') return 'chat'
+    if (value === 'image' || value === '图片' || value === '图像') return 'image'
+    if (value === 'video' || value === '视频') return 'video'
+    if (value === 'audio' || value === '音频' || value === '文本转语音') return 'audio'
+  }
+  return undefined
 }
 
 /**

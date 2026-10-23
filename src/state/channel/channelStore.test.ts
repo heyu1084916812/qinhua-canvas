@@ -421,6 +421,79 @@ describe('channelStore', () => {
     expect(store.getState().channels.find((c) => c.id === ch.id)!.hasAltToken).toBe(false)
   })
 
+  it('★ 一个渠道可新增多个 Key 分组；各组独立保存、改名、调优先级并级联删除', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: '分组站', protocol: 'mock', baseUrl: '' })
+    const second = await store.addCredentialGroup(ch.id, 'OpenAi - Pro')
+    const third = await store.addCredentialGroup(ch.id, '任务专用分组')
+
+    await store.saveCredentialGroupToken(ch.id, second.id, 'sk-second-123456')
+    await store.saveCredentialGroupToken(ch.id, third.id, 'sk-third-abcdef')
+    await store.renameCredentialGroup(ch.id, second.id, '对话主分组')
+    await store.setCredentialGroupPriority(ch.id, second.id, 20)
+
+    const saved = store.getState().channels.find((item) => item.id === ch.id)!
+    const savedSecond = saved.credentialGroups.find((group) => group.id === second.id)!
+    expect(savedSecond.name).toBe('对话主分组')
+    expect(savedSecond.priority).toBe(20)
+    expect(savedSecond.tokenTail).toBe('3456')
+    expect(await store.loadCredentialGroupToken(ch.id, third.id)).toBe('sk-third-abcdef')
+
+    await store.removeCredentialGroup(ch.id, third.id)
+    expect(await store.loadCredentialGroupToken(ch.id, third.id)).toBeNull()
+    expect(
+      store.getState().channels.find((item) => item.id === ch.id)!.credentialGroups,
+    ).toHaveLength(2)
+  })
+
+  it('★ 全局前端模型可新增、持久化、按分类读取并删除；内置模型不可删', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    await store.load()
+    await store.addGlobalModel({
+      name: 'My Image Pro',
+      category: 'image',
+      vendor: 'openai',
+    })
+
+    const reloaded = createChannelStore(p, { seedBuiltins: false })
+    await reloaded.load()
+    expect(reloaded.globalModelsOf('image').map((model) => model.id)).toContain(
+      'My Image Pro',
+    )
+    expect(reloaded.globalModelOf('My Image Pro')?.vendor).toBe('openai')
+
+    await reloaded.removeGlobalModel('My Image Pro')
+    expect(reloaded.globalModelOf('My Image Pro')).toBeUndefined()
+    await expect(reloaded.removeGlobalModel('GPT Image 2')).rejects.toThrow()
+  })
+
+  it('★ 手动改模型分类会保留站点原始分类，重新覆盖后仍可由设置页读取', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: '分类站', protocol: 'mock', baseUrl: '' })
+    const group = ch.credentialGroups[0]!
+    await store.update(ch.id, {
+      credentialGroups: [
+        {
+          ...group,
+          modelCache: [
+            { id: 'nano-banana-pro', category: 'unknown', inputTypes: ['text', 'image'] },
+          ],
+        },
+      ],
+    })
+    await store.setModelCategory(ch.id, 'nano-banana-pro', 'image', group.id)
+    const model = store
+      .getState()
+      .channels.find((item) => item.id === ch.id)!
+      .credentialGroups[0]!.modelCache.find((item) => item.id === 'nano-banana-pro')!
+    expect(model.category).toBe('image')
+    expect(model.upstreamCategory).toBeUndefined()
+    expect(model.categoryManual).toBe(true)
+  })
+
   it('setModels 落库并更新列表；reorder 重编号', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)

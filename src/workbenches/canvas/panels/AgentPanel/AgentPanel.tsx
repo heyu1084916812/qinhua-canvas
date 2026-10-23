@@ -25,7 +25,7 @@ import {
   resolveRoutedChatTarget,
   type RoutedChatTarget,
 } from '../../../../domain/shared/chatTarget'
-import { presetModelsOf } from '../../../../domain/project/modelPresets'
+import type { PresetVendor } from '../../../../domain/project/modelPresets'
 import { generationAvailabilityOf } from '../../../../domain/project/generationRouting'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
@@ -232,6 +232,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     channels.subscribe,
     () => channels.getState().routeStrategy,
     () => channels.getState().routeStrategy,
+  )
+  const customModels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customModels,
+    () => [],
+  )
+  const globalImageModels = useMemo(
+    () => channels.globalModelsOf('image').map((model) => model.id),
+    [channels, customModels],
+  )
+  const globalVideoModels = useMemo(
+    () => channels.globalModelsOf('video').map((model) => model.id),
+    [channels, customModels],
   )
   /** 会话改名：就地编辑，Enter 提交 / Esc 取消（不弹原生 prompt —— 那会打断画布操作） */
   const [renaming, setRenaming] = useState(false)
@@ -684,7 +697,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       categoryOfModel: (model) => {
         const category = capabilityOfLogical(allChannels, model)?.category
-        return category === 'audio' ? undefined : category
+        return category === 'audio' || category === 'unknown' ? undefined : category
       },
     }),
     [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf, sessions],
@@ -879,7 +892,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      */
     const toolMode = decision.mode
     toolModeRef.current.set(current.id, toolMode)
+    const sentAssetIds = current.pendingAssetIds ?? []
     setDraft('')
+    if (sentAssetIds.length > 0) {
+      await patchSession({ pendingAssetIds: [] })
+    }
 
     const summary = readGraphSummary(store, 'all', selection)
     /**
@@ -954,7 +971,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(looksLikeStyleOnlyRequest(plainText) ? { styleOnly: true } : {}),
         /** 多张图且没说合成 → 每张各自一条流程（第七批 #183） */
         ...(perImage ? { perImage: true } : {}),
-        assetIds: current.pendingAssetIds ?? [],
+        assetIds: sentAssetIds,
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
@@ -2207,7 +2224,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   variant: 'list',
                   /** 一屏 5 条，多的在里面滚（与模型面板同一口径） */
                   maxRows: 5,
-                  options: withModelIcons(presetModelsOf('image').map((m) => m.id)),
+                  options: withModelIcons(
+                    globalImageModels,
+                    undefined,
+                    channels.globalModelOf,
+                  ),
                   value: '',
                   emptyHint: '还没有图片模型',
                   onSelect: (v) => insertMention('model', v, v),
@@ -2217,7 +2238,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   label: '视频',
                   variant: 'list',
                   maxRows: 5,
-                  options: withModelIcons(presetModelsOf('video').map((m) => m.id)),
+                  options: withModelIcons(
+                    globalVideoModels,
+                    undefined,
+                    channels.globalModelOf,
+                  ),
                   value: '',
                   emptyHint: '还没有视频模型',
                   onSelect: (v) => insertMention('model', v, v),
@@ -2249,6 +2274,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               triggerIcon={<IconModelCube size={16} />}
               size="compact"
               closeOnSelect
+              jumpMode="filter"
               /**
                * 顶部两枚跳转（用户 2026-10-02：「上方需要有两个选项，分别是图片、视频，
                * 点击按钮可以进行跳转到下面的选项，例如选图片就从图片的开头开始」）。
@@ -2503,9 +2529,13 @@ function LibraryThumb({ hash }: { hash: string }) {
  * 「这枚模型是否已经在正文里」勾选（用户 2026-10-04 第 3 条），
  * 而 @ 面板那两段不需要高亮 —— 插进去就成了正文里的 chip，正文自己就是反馈。
  */
-function withModelIcons(names: readonly string[], selected?: ReadonlySet<string>) {
+function withModelIcons(
+  names: readonly string[],
+  selected?: ReadonlySet<string>,
+  modelOf: (name: string) => { vendor: PresetVendor } | undefined = presetOf,
+) {
   return names.map((n) => {
-    const preset = presetOf(n)
+    const preset = modelOf(n)
     return {
       value: n,
       label: n,

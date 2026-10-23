@@ -133,6 +133,7 @@ describe('channelIsRoutable - automatic routing only uses channels that can send
     enabled: true,
     hasToken: false,
     hasAltToken: false,
+    credentialGroups: [],
     ...patch,
   })
 

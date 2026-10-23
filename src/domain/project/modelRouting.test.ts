@@ -396,6 +396,53 @@ describe('routeCandidatesFor', () => {
     )
     expect(out).toEqual([])
   })
+
+  it('★ 多 Key 分组按真实模型归属选组，并返回同模型的分组优先级列表', () => {
+    const out = routeCandidatesFor(
+      [
+        ch({
+          id: 'A',
+          modelIds: ['gpt-image-2', 'gemini-3.8-flash'],
+          credentialGroups: [
+            { id: 'chat-std', hasToken: true, priority: 30, modelIds: ['gemini-3.8-flash'] },
+            { id: 'image-pro', hasToken: true, priority: 10, modelIds: ['gpt-image-2'] },
+            { id: 'image-std', hasToken: true, priority: 5, modelIds: ['other', 'gpt-image-2'] },
+          ],
+        }),
+      ],
+      'gpt-image-2',
+      resolveUpstreamModel,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      channelId: 'A',
+      credentialGroupId: 'image-pro',
+      credentialGroupIds: ['image-pro', 'image-std'],
+    })
+    expect(selectRoute(out, 'priority')).toMatchObject({
+      channelId: 'A',
+      credentialGroupId: 'image-pro',
+      credentialGroupIds: ['image-pro', 'image-std'],
+    })
+  })
+
+  it('★ 有分组但所有分组都没有该模型时不回退渠道级旧列表', () => {
+    expect(
+      routeCandidatesFor(
+        [
+          ch({
+            id: 'A',
+            modelIds: ['gpt-image-2'],
+            credentialGroups: [
+              { id: 'chat', hasToken: true, priority: 10, modelIds: ['gemini-3.8-flash'] },
+            ],
+          }),
+        ],
+        'gpt-image-2',
+        resolveUpstreamModel,
+      ),
+    ).toEqual([])
+  })
 })
 
 describe('resolveRouteFor', () => {

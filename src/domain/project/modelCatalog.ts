@@ -263,6 +263,7 @@ export function logicalOptions(
  * 界面只认显示名，上游 ID 是实现细节 —— 这是产品文档 §7.4.1 的分工。
  */
 export function panelModelOptions(category: ModelCapability['category']): string[] {
+  if (category === 'unknown') return []
   return presetModelsOf(category).map((m) => m.id)
 }
 

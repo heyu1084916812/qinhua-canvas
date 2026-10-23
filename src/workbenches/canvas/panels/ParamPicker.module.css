@@ -337,6 +337,12 @@
   background: var(--bg-hover);
 }
 
+.jumpBtnOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
 /* 「加载更多」：列表先折叠，点一下才放全（@ 面板的节点那一段） */
 .more {
   align-self: flex-start;

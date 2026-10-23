@@ -43,7 +43,7 @@ describe('buildProjectTree', () => {
     expect(model.unfiled.flatMap((group) => group.projects)).toHaveLength(0)
   })
 
-  it('文件夹可混放三种工作台，未归档按画布 / 电商 / 漫剧分组', () => {
+  it('文件夹可混放三种工作台，未分组项目按画布 / 电商 / 漫剧分组', () => {
     const model = buildProjectTree(
       [
         project('c', { workbench: 'canvas', folderId: 'mixed' }),
@@ -62,9 +62,9 @@ describe('buildProjectTree', () => {
       'storyboard',
     ])
     expect(model.unfiled.map((group) => group.label)).toEqual([
-      '未归档画布',
-      '未归档电商',
-      '未归档漫剧',
+      '画布',
+      '电商',
+      '漫剧',
     ])
     expect(model.unfiled.map((group) => group.projects[0]?.id)).toEqual([
       'free-c',

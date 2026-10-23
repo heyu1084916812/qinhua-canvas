@@ -97,6 +97,30 @@ export const HOSTING_PROVIDERS: readonly {
   },
 ]
 
+/** 区域选项：值必须是签名/端点真正使用的 ASCII；中文只用于显示。 */
+export const HOSTING_REGIONS: Partial<
+  Record<HostingProviderId, readonly { value: string; label: string }[]>
+> = {
+  qiniu: [
+    { value: 'cn-east-1', label: '华东（cn-east-1）' },
+    { value: 'cn-south-1', label: '华南（cn-south-1）' },
+    { value: 'ap-southeast-1', label: '东南亚（ap-southeast-1）' },
+    { value: 'us-north-1', label: '北美（us-north-1）' },
+  ],
+  'aliyun-oss': [
+    { value: 'cn-hangzhou', label: '杭州（cn-hangzhou）' },
+    { value: 'cn-shanghai', label: '上海（cn-shanghai）' },
+    { value: 'cn-beijing', label: '北京（cn-beijing）' },
+    { value: 'cn-shenzhen', label: '深圳（cn-shenzhen）' },
+    { value: 'ap-southeast-1', label: '新加坡（ap-southeast-1）' },
+  ],
+}
+
+export function qiniuEndpointForRegion(region: string): string {
+  const value = region.trim() || 'cn-east-1'
+  return `https://s3.${value}.qiniucs.com`
+}
+
 /**
  * 密钥字段名。它们**不属于** `HostingConfig`：明文只进凭据层，
  * 配置对象里连字段都不留（留一个 `secretAccessKey?: string` 迟早会被谁顺手存进 `presets` 表）。
@@ -116,7 +140,7 @@ export interface HostingField {
 }
 
 const S3_LIKE_FIELDS: readonly HostingField[] = [
-  { key: 'endpoint', label: 'Endpoint', placeholder: 'https://oss-cn-hangzhou.aliyuncs.com', hint: '不含桶名' },
+  { key: 'endpoint', label: 'API 前缀（Endpoint）', placeholder: 'https://oss-cn-hangzhou.aliyuncs.com', hint: '不含桶名' },
   { key: 'region', label: 'Region', placeholder: 'cn-hangzhou' },
   { key: 'bucket', label: 'Bucket', placeholder: 'my-bucket' },
   { key: 'accessKeyId', label: 'AccessKey ID', placeholder: 'AKIA...' },
@@ -133,7 +157,7 @@ const S3_LIKE_FIELDS: readonly HostingField[] = [
     hint: '选填：留空按默认规则拼直链',
     optional: true,
   },
-  { key: 'pathPrefix', label: '对象名前缀', placeholder: 'qinghua/', hint: '选填', optional: true },
+  { key: 'pathPrefix', label: '素材对象前缀', placeholder: 'qinghua/', hint: '选填', optional: true },
 ]
 
 /**

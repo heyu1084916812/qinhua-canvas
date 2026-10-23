@@ -3,6 +3,7 @@ import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { capabilityOfLogical } from '../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../domain/project/modelPresets'
 import { RATIO_CHOICES } from '../../domain/canvas/layout/ratioChoices'
+import { ChoicePicker } from '../shared/choicePicker/ChoicePicker'
 import styles from './DefaultParamsPanel.module.css'
 
 /**
@@ -36,6 +37,11 @@ export function DefaultParamsPanel() {
     () => channels.getState().recipeMemory,
     () => true,
   )
+  const customModels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customModels,
+    () => [],
+  )
   const [category, setCategory] = useState<DefaultCategory>('generate')
   const [resolved, setResolved] = useState<{
     channelId: string
@@ -53,8 +59,8 @@ export function DefaultParamsPanel() {
     () =>
       category === 'chat'
         ? presetModelsOf('chat')
-        : [...presetModelsOf('image'), ...presetModelsOf('video')],
-    [category],
+        : [...channels.globalModelsOf('image'), ...channels.globalModelsOf('video')],
+    [category, channels, customModels],
   )
 
   /** 读"新节点会用什么" —— 与创建节点同一条解析链 */
@@ -155,13 +161,15 @@ export function DefaultParamsPanel() {
         <div className={styles.grid}>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>默认模型</span>
-            <select
+            <ChoicePicker
+              name="defaults-model"
               className={styles.select}
               value={model}
               disabled={busy || options.length === 0}
-              data-defaults-model
-              onChange={(e) => {
-                const next = e.target.value
+              ariaLabel="默认模型"
+              placeholder="（这个类别还没有模型）"
+              options={options.map((item) => ({ value: item.id, label: item.id }))}
+              onChange={(next) => {
                 setModel(next)
                 setStatus('')
                 /* 换模型时把比例/画质换成新模型的第一档，避免留一个它不支持的档位 */
@@ -174,50 +182,40 @@ export function DefaultParamsPanel() {
                 setQuality(nextCap?.qualities?.[0] ?? '')
                 setCount(1)
               }}
-            >
-              {options.length === 0 ? <option value="">（这个类别还没有模型）</option> : null}
-              {options.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
+            />
           </label>
 
           {category === 'generate' ? (
             <>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>默认比例</span>
-                <select
+                <ChoicePicker
+                  name="defaults-ratio"
                   className={styles.select}
                   value={ratio}
-                  data-defaults-ratio
-                  onChange={(e) => setRatio(e.target.value)}
-                >
-                  <option value="">不指定</option>
-                  {ratios.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="默认比例"
+                  options={[
+                    { value: '', label: '不指定' },
+                    ...ratios.map((item) => ({ value: item, label: item })),
+                  ]}
+                  onChange={setRatio}
+                />
               </label>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>默认画质</span>
-                <select
+                <ChoicePicker
+                  name="defaults-quality"
                   className={styles.select}
                   value={quality}
                   disabled={qualities.length === 0}
-                  data-defaults-quality
-                  onChange={(e) => setQuality(e.target.value)}
-                >
-                  {qualities.length === 0 ? <option value="">模型未声明</option> : null}
-                  {qualities.map((q) => (
-                    <option key={q} value={q}>
-                      {q}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="默认画质"
+                  options={
+                    qualities.length === 0
+                      ? [{ value: '', label: '模型未声明' }]
+                      : qualities.map((item) => ({ value: item, label: item }))
+                  }
+                  onChange={setQuality}
+                />
               </label>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>默认张数</span>

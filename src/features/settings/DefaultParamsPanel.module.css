@@ -102,7 +102,10 @@
   color: var(--text-2);
 }
 
-.select,
+.select {
+  width: 100%;
+}
+
 .input {
   width: 100%;
   box-sizing: border-box;
@@ -116,7 +119,6 @@
   font-size: var(--fs-label);
 }
 
-.select:disabled,
 .input:disabled {
   color: var(--text-3);
   cursor: not-allowed;

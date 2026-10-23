@@ -81,7 +81,7 @@ describe('素材库仓储', () => {
     expect(await storage.query('nodes', {})).toHaveLength(1)
   })
 
-  it('removeMany 隐藏素材页记录并删收藏关系，assets、运行记录与节点原样保留', async () => {
+  it('removeMany 隐藏素材记录、删收藏关系与对应生成历史，assets 与节点保留', async () => {
     const { storage, repo } = seedStorage({
       assets: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4) }],
       assetLibrary: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: 4, savedAt: 1 }],
@@ -92,7 +92,7 @@ describe('素材库仓储', () => {
     expect(await repo.list()).toHaveLength(0)
     expect([...(await repo.listHidden())]).toEqual(['a1'])
     expect(await storage.query('assets', {})).toHaveLength(1)
-    expect(await storage.query('runRecords', {})).toHaveLength(1)
+    expect(await storage.query('runRecords', {})).toHaveLength(0)
     expect(await storage.query('nodes', {})).toHaveLength(1)
   })
 
@@ -224,7 +224,7 @@ describe('素材库 store', () => {
     expect(store.getState().visible).toHaveLength(0)
     expect(store.getState().historyVisible).toHaveLength(0)
     expect(await storage.query('assets', {})).toHaveLength(2)
-    expect(await storage.query('runRecords', {})).toHaveLength(2)
+    expect(await storage.query('runRecords', {})).toHaveLength(0)
   })
 })
 

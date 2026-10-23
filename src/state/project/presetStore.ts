@@ -18,6 +18,7 @@ import {
   type GenerationRecipe,
 } from '../../domain/project/generationPreset'
 import { ROUTE_STRATEGIES, type RouteStrategy } from '../../domain/project/modelRouting'
+import type { PresetModel } from '../../domain/project/modelPresets'
 
 /**
  * 全局选路策略的保留行 id。
@@ -59,6 +60,7 @@ const SKILL_FAVORITES_ROW_ID = 'skill:favorites'
  * 这正是"我要一套固定默认，别被随手一改带走"的场景。
  */
 const RECIPE_MEMORY_ROW_ID = 'ui:recipeMemory'
+const CUSTOM_MODELS_ROW_ID = 'models:custom'
 
 export interface AgentDefaultModel {
   channelId: string
@@ -98,6 +100,8 @@ export interface PresetStore {
   loadSkillFavorites(): Promise<string[]>
   /** 写技能收藏（整份覆盖） */
   saveSkillFavorites(ids: readonly string[]): Promise<void>
+  loadCustomModels(): Promise<PresetModel[]>
+  saveCustomModels(models: readonly PresetModel[]): Promise<void>
 }
 
 export function createPresetStore(storage: StoragePort): PresetStore {
@@ -229,6 +233,40 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         await storage.put('presets', { id: SKILL_FAVORITES_ROW_ID, skillIds: clean } as never)
       } catch {
         // 同上：收藏写不进去不该打断使用
+      }
+    },
+    async loadCustomModels() {
+      try {
+        const rows = await storage.query('presets', { id: CUSTOM_MODELS_ROW_ID })
+        const raw = (rows[0] as { models?: unknown } | undefined)?.models
+        if (!Array.isArray(raw)) return []
+        const categories = new Set(['image', 'chat', 'video', 'audio'])
+        return raw.filter((item): item is PresetModel => {
+          if (!item || typeof item !== 'object') return false
+          const row = item as Record<string, unknown>
+          return (
+            typeof row.id === 'string' &&
+            row.id.trim() !== '' &&
+            typeof row.vendor === 'string' &&
+            typeof row.category === 'string' &&
+            categories.has(row.category)
+          )
+        })
+      } catch {
+        return []
+      }
+    },
+    async saveCustomModels(models) {
+      try {
+        const clean = models.filter(
+          (model) => model.id.trim() && model.vendor && model.category,
+        )
+        await storage.put(
+          'presets',
+          { id: CUSTOM_MODELS_ROW_ID, models: clean } as never,
+        )
+      } catch {
+        // 偏好写不进去只影响下次启动；当前内存列表仍可继续使用
       }
     },
   }

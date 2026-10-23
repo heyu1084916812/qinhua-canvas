@@ -901,7 +901,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
               </h2>
               <p>
                 {confirmTarget.kind === 'folder'
-                  ? `「${confirmTarget.name}」里的项目会移到未归档，不会被删除。`
+                  ? `「${confirmTarget.name}」里的项目会移到未分组，不会被删除。`
                   : `「${confirmTarget.name}」会移到回收站，可在项目页恢复。`}
               </p>
               <div className={styles.dialogActions}>
@@ -954,13 +954,13 @@ function GroupRow({
         aria-expanded={!collapsed}
         onClick={onToggle}
       >
-        <span className={collapsed ? styles.chevron : `${styles.chevron} ${styles.chevronOpen}`}>
-          <IconChevron size={13} />
-        </span>
         <span className={styles.groupIcon}>
           <IconFolder size={16} />
         </span>
         <span className={styles.groupLabel}>{label}</span>
+        <span className={collapsed ? styles.chevron : `${styles.chevron} ${styles.chevronOpen}`}>
+          <IconChevron size={13} />
+        </span>
         <span className={styles.groupCount}>{count}</span>
       </button>
       {(onTogglePin || onMore) && (

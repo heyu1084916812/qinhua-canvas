@@ -180,13 +180,74 @@
 }
 
 .docLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: 999px;
+  background: var(--bg-app);
   color: var(--accent);
   font-size: var(--fs-label);
   text-decoration: none;
 }
 
 .docLink:hover {
+  background: var(--bg-hover);
   text-decoration: underline;
+}
+
+.keyGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.keyGroupsHead,
+.keyGroupFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.keyGroupTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.keyGroupTab {
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: 999px;
+  background: var(--bg-app);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.keyGroupTab:hover {
+  background: var(--bg-hover);
+}
+
+.keyGroupTabOn {
+  border-color: var(--stroke-focus);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.keyGroupEditor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
 }
 
 /* 图标上传：真文件选择器藏起来，点外面那个 label 按钮 */
@@ -404,6 +465,24 @@
 /** 内置渠道固定：不给「抓」的手型（它们拖不动，手型别骗人） */
 .item[data-channel-fixed] {
   cursor: default;
+}
+
+.itemSelect {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.itemSelect input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 /**
@@ -1106,6 +1185,10 @@
   font-size: var(--fs-chip);
   color: var(--text-3);
 }
+
+.categorySelect {
+  flex: 0 0 108px;
+}
 .optionEmpty {
   padding: var(--space-3);
   font-size: var(--fs-chip);
@@ -1119,8 +1202,63 @@
 
 .mapHead {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   gap: 2px;
+}
+
+.modelAddForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: 6px;
+  background: var(--bg-app);
+}
+
+.modelAddRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.vendorGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.vendorOption {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.vendorOption:hover {
+  background: var(--bg-hover);
+}
+
+.vendorOptionOn {
+  border-color: var(--stroke-focus);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.modelAddActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .mapList {
@@ -1206,6 +1344,21 @@
 .mapInput {
   flex: 1;
   min-width: 0;
+}
+
+.mapSaveState {
+  flex: 0 0 72px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--success);
+  font-size: var(--fs-chip);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapSaveError {
+  color: var(--danger);
 }
 
 .panelFoot {

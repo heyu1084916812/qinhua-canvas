@@ -30,6 +30,10 @@ export interface InspirationCase {
   kind?: InspirationMediaKind
   /** 视频外链；有它时详情页用 `<video>` 播放，封面仍用 `imageUrl`。 */
   videoUrl?: string
+  /** 已缓存到本地 assets 表的预览图 hash；有它时优先离线显示。 */
+  imageHash?: string
+  /** 已缓存的视频封面 hash（视频本体仍保留外链）。 */
+  posterHash?: string
 }
 
 /**

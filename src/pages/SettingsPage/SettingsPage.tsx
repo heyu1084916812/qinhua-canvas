@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore, useState } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import {
@@ -30,7 +30,8 @@ import {
   ROUTE_STRATEGIES,
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
-import { PRESET_MODELS } from '../../domain/project/modelPresets'
+import type { PresetModel, PresetVendor } from '../../domain/project/modelPresets'
+import type { ModelCapability } from '../../domain/shared/capability'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
 import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
@@ -41,6 +42,7 @@ import {
 import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 
 /**
  * 模型映射区的**五个筛选**（用户 2026-10-08 第 1 条：「图一这个模型映射的地方换成五个筛选吧，
@@ -55,14 +57,28 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
  * 扩那个联合要动渠道拉取 / 选路 / 画布面板一整条链，而清单里现在并没有那两类模型。
  */
 const MAP_FILTERS = [
+  { key: 'unknown', title: '未分类' },
   { key: 'image', title: '生图' },
   { key: 'chat', title: '对话' },
   { key: 'video', title: '视频' },
   { key: 'audio', title: '音频' },
-  { key: '3d', title: '3D' },
 ] as const
 
 type MapFilterKey = (typeof MAP_FILTERS)[number]['key']
+
+const GLOBAL_MODEL_VENDORS: { value: PresetVendor; label: string }[] = [
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'google', label: 'Google' },
+  { value: 'midjourney', label: 'Midjourney' },
+  { value: 'bytedance', label: '字节跳动' },
+  { value: 'minimax', label: 'MiniMax' },
+  { value: 'fal', label: 'fal' },
+  { value: 'alibaba', label: '阿里' },
+  { value: 'agnes', label: 'Agnes' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'zhipu', label: '智谱' },
+  { value: 'tencent', label: '腾讯' },
+]
 
 
 /**
@@ -75,12 +91,6 @@ type MapFilterKey = (typeof MAP_FILTERS)[number]['key']
 const PROTOCOL_GROUPS: { kind: ProtocolKind; label: string }[] = [
   { kind: 'offline', label: '离线 / 测试' },
   { kind: 'station', label: '站点' },
-  /*
-   * 「本机 CLI」（对账 #308）：四条 CLI 协议**真的能跑**了 —— 桌面壳里直接起本机命令
-   * （浏览器里回落自建网关）。所以它们从"待支持"那一堆里挪出来，单独一组排在最前，
-   * 用户一眼能看到"我本机的 Codex / 即梦可以接进来"。命令与参数在「全局设置 → CLI」里配。
-   */
-  { kind: 'cli', label: '本机 CLI' },
   { kind: 'public', label: '公开协议' },
   { kind: 'legacy', label: '旧协议' },
   { kind: 'custom', label: '自定义协议' },
@@ -106,6 +116,7 @@ function ChannelTokenField({
   channels,
   channelId,
   slot,
+  groupId,
   label,
   hint,
   required,
@@ -116,6 +127,8 @@ function ChannelTokenField({
   channels: ReturnType<typeof useChannels>
   channelId: string
   slot: 'primary' | 'alt'
+  /** 有值时走渠道内 Key 分组；slot 只作为老双槽的兼容身份。 */
+  groupId?: string
   label: string
   hint?: string
   required?: boolean
@@ -148,7 +161,7 @@ function ChannelTokenField({
   useEffect(() => {
     setShow(false)
     setRevealed(null)
-  }, [channelId, slot])
+  }, [channelId, slot, groupId])
 
   /**
    * 「显示 / 隐藏」（用户 2026-10-08 第 5 条：「渠道的令牌显示功能是不生效的」）。
@@ -166,7 +179,10 @@ function ChannelTokenField({
     }
     setBusy(true)
     try {
-      setRevealed(token ? token : saved ? await channels.loadToken(channelId, slot) : null)
+      const plain = groupId
+        ? await channels.loadCredentialGroupToken(channelId, groupId)
+        : await channels.loadToken(channelId, slot)
+      setRevealed(token ? token : saved ? plain : null)
       setShow(true)
     } finally {
       setBusy(false)
@@ -184,7 +200,8 @@ function ChannelTokenField({
     if (!token) return
     setBusy(true)
     try {
-      await channels.saveToken(channelId, token, slot)
+      if (groupId) await channels.saveCredentialGroupToken(channelId, groupId, token)
+      else await channels.saveToken(channelId, token, slot)
       setToken('')
       /* 存完回到"打码占位"的常态：明文不再留在界面上 */
       setShow(false)
@@ -196,7 +213,8 @@ function ChannelTokenField({
   const remove = async () => {
     setBusy(true)
     try {
-      await channels.removeToken(channelId, slot)
+      if (groupId) await channels.removeCredentialGroupToken(channelId, groupId)
+      else await channels.removeToken(channelId, slot)
       setToken('')
       setShow(false)
       setRevealed(null)
@@ -206,7 +224,7 @@ function ChannelTokenField({
   }
 
   return (
-    <div className={styles.field} data-settings-token-row={slot}>
+    <div className={styles.field} data-settings-token-row={groupId ?? slot}>
       <span className={styles.labelRow}>
         <span className={styles.label}>
           {label}
@@ -215,7 +233,7 @@ function ChannelTokenField({
         {docUrl && (
           <a
             className={styles.docLink}
-            data-settings-doc-link={slot}
+            data-settings-doc-link={groupId ?? slot}
             href={docUrl}
             target="_blank"
             rel="noreferrer"
@@ -227,7 +245,7 @@ function ChannelTokenField({
       <div className={styles.tokenRow}>
         <input
           className={styles.input}
-          data-settings-token-tail={slot}
+          data-settings-token-tail={groupId ?? slot}
           type={show ? 'text' : 'password'}
           /**
            * 已存过时，输入框**直接显示存好的那一把（中间打码）**（用户第 19 批 #3、
@@ -240,7 +258,7 @@ function ChannelTokenField({
         />
         <button
           className={styles.ghostBtn}
-          data-settings-token-reveal={slot}
+          data-settings-token-reveal={groupId ?? slot}
           /* 既没存过、输入框也是空的 ⇒ 没有东西可显示（不给"按下去没反应"的按钮） */
           disabled={busy || (!saved && !token)}
           onClick={() => void toggleShow()}
@@ -249,7 +267,7 @@ function ChannelTokenField({
         </button>
         <button
           className={styles.ghostBtn}
-          data-settings-token-save={slot}
+          data-settings-token-save={groupId ?? slot}
           disabled={!token || busy}
           onClick={() => void save()}
         >
@@ -257,7 +275,7 @@ function ChannelTokenField({
         </button>
         <button
           className={styles.ghostBtn}
-          data-settings-token-remove={slot}
+          data-settings-token-remove={groupId ?? slot}
           disabled={!saved || busy}
           onClick={() => void remove()}
         >
@@ -275,6 +293,18 @@ export function SettingsPage() {
     channels.subscribe,
     () => channels.getState().channels,
     () => channels.getState().channels,
+  )
+  const customModels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customModels,
+    () => channels.getState().customModels,
+  )
+  const allGlobalModels = useMemo(
+    () =>
+      (['image', 'chat', 'video', 'audio'] as const).flatMap((category) =>
+        channels.globalModelsOf(category),
+      ),
+    [channels, customModels],
   )
   const verify = useSyncExternalStore(
     channels.subscribe,
@@ -304,6 +334,8 @@ export function SettingsPage() {
   )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [selectedDeleteIds, setSelectedDeleteIds] = useState<Set<string>>(() => new Set())
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState('mock')
   const [baseUrl, setBaseUrl] = useState('')
@@ -347,6 +379,17 @@ export function SettingsPage() {
    * 切渠道时清空，避免把 A 站的上游 ID 带到 B 站。
    */
   const [mapDrafts, setMapDrafts] = useState<Record<string, string>>({})
+  const mapSaveTimersRef = useRef(new Map<string, number>())
+  const [mapSaveNotice, setMapSaveNotice] = useState<{
+    id: string
+    tone: 'ok' | 'error'
+    text: string
+  } | null>(null)
+  const [modelAddOpen, setModelAddOpen] = useState(false)
+  const [newModelName, setNewModelName] = useState('')
+  const [newModelCategory, setNewModelCategory] =
+    useState<PresetModel['category']>('image')
+  const [newModelVendor, setNewModelVendor] = useState<PresetVendor>('openai')
 
   /**
    * 映射区当前看的**哪一类**（用户 2026-10-08 第 1 条：五个筛选）。
@@ -394,20 +437,6 @@ export function SettingsPage() {
     (p) => p.status === 'pending' && p.kind !== 'hidden',
   )
 
-  /**
-   * 下拉里的分组。正常就是 `PROTOCOL_GROUPS` 那五组；
-   * 例外：当前渠道用的是一条**已隐藏**的协议（老渠道）—— 那种 kind 不在分组表里，
-   * 需要临时补一组，否则那个 option 根本渲染不出来，下拉会显示空白。
-   */
-  const protocolGroups = useMemo(() => {
-    const groups: { kind: ProtocolKind; label: string }[] = [...PROTOCOL_GROUPS]
-    const current = protocolOptions.find((p) => p.id === protocol)
-    if (current && !groups.some((gr) => gr.kind === current.kind)) {
-      groups.push({ kind: current.kind, label: '当前协议（已移到全局设置 → CLI）' })
-    }
-    return groups
-  }, [protocol, protocolOptions])
-
   // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
   const [newProtoOpen, setNewProtoOpen] = useState(false)
   const [npName, setNpName] = useState('')
@@ -425,10 +454,33 @@ export function SettingsPage() {
     void channels.load()
   }, [channels])
 
+  useEffect(() => {
+    const deletable = new Set(
+      channelsList.filter((channel) => !isBuiltinChannelId(channel.id)).map((channel) => channel.id),
+    )
+    setSelectedDeleteIds((prev) => {
+      const next = new Set([...prev].filter((id) => deletable.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [channelsList])
+
   const selected = useMemo(
     () => channelsList.find((c) => c.id === selectedId) ?? null,
     [channelsList, selectedId],
   )
+  const selectedKeyGroups = useMemo(
+    () =>
+      [...(selected?.credentialGroups ?? [])].sort(
+        (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+      ),
+    [selected],
+  )
+  const activeGroup =
+    selectedKeyGroups.find((group) => group.id === activeGroupId) ??
+    selectedKeyGroups[0] ??
+    null
+  const activeModels = activeGroup?.models ?? selected?.models ?? []
+  const activeModelCache = activeGroup?.modelCache ?? selected?.modelCache ?? []
 
   // 选中变化 → 同步表单。
   //
@@ -442,12 +494,33 @@ export function SettingsPage() {
     // 换一条渠道 → 撤掉上一条残留的删除确认态，否则「删除 A？」会跟着光标挂到 B 头上。
     setConfirmDelete(false)
     setMapDrafts({})
+    setMapSaveNotice(null)
+    for (const timer of mapSaveTimersRef.current.values()) window.clearTimeout(timer)
+    mapSaveTimersRef.current.clear()
     if (!ch) return
+    const groups = [...ch.credentialGroups].sort(
+      (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+    )
+    setActiveGroupId(groups[0]?.id ?? null)
     setName(ch.name)
     setProtocol(ch.protocol)
     setBaseUrl(ch.baseUrl)
     setEnabled(ch.enabled)
   }, [selectedId, channels])
+
+  useEffect(() => {
+    if (mapSaveNotice?.tone !== 'ok') return
+    const timer = window.setTimeout(() => setMapSaveNotice(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [mapSaveNotice])
+
+  useEffect(
+    () => () => {
+      for (const timer of mapSaveTimersRef.current.values()) window.clearTimeout(timer)
+      mapSaveTimersRef.current.clear()
+    },
+    [],
+  )
 
   const handleCreate = async () => {
     const ch = await channels.create({ name: '新建渠道', protocol: 'mock', baseUrl: '' })
@@ -528,16 +601,6 @@ export function SettingsPage() {
     return saved
   }
 
-  const handleSaveConfig = async () => {
-    if (!selectedId) return
-    setBusy(true)
-    try {
-      await persistForm()
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const handleVerify = async () => {
     if (!selectedId) return
     setBusy(true)
@@ -547,7 +610,7 @@ export function SettingsPage() {
       // 表现为「秒过」却完全没出网，地址填了也白填。
       await persistForm()
       setVerifiedFor({ channelId: selectedId, protocol, source: 'verify' })
-      await channels.verify(selectedId)
+      await channels.verify(selectedId, activeGroup?.id)
     } finally {
       setBusy(false)
     }
@@ -566,7 +629,7 @@ export function SettingsPage() {
       // 与「验证地址」同一口径：先落库，探测打的是库里的 baseUrl。
       await persistForm()
       setVerifiedFor({ channelId: selectedId, protocol, source: 'detect' })
-      const hit = await channels.detectProtocol(selectedId)
+      const hit = await channels.detectProtocol(selectedId, activeGroup?.id)
       // 同步回表单。探测的全部意义就是替用户把「协议」这一格填对；
       // 只在库里写、表单不动，用户看到的下拉还是旧值，等于没自动选。
       if (hit) setProtocol(hit)
@@ -581,7 +644,7 @@ export function SettingsPage() {
     try {
       await persistForm()
       setVerifiedFor({ channelId: selectedId, protocol, source: 'models' })
-      await channels.refreshModels(selectedId)
+      await channels.refreshModels(selectedId, activeGroup?.id)
     } finally {
       setBusy(false)
     }
@@ -589,11 +652,19 @@ export function SettingsPage() {
 
   /** 二次确认后才真正删除（按钮在左栏「+ 新增渠道」下方） */
   const handleRemove = async () => {
-    if (!selectedId) return
+    const targets = (
+      selectedDeleteIds.size > 0
+        ? [...selectedDeleteIds]
+        : selectedId
+          ? [selectedId]
+          : []
+    ).filter((id) => !isBuiltinChannelId(id))
+    if (targets.length === 0) return
     setBusy(true)
     try {
-      await channels.remove(selectedId)
-      setSelectedId(null)
+      for (const id of targets) await channels.remove(id)
+      if (selectedId && targets.includes(selectedId)) setSelectedId(null)
+      setSelectedDeleteIds(new Set())
       setConfirmDelete(false)
     } catch (err) {
       /** 内置渠道会被命令层拒绝（界面也已禁用）—— 如实说一句，别静默失败 */
@@ -604,12 +675,97 @@ export function SettingsPage() {
     }
   }
 
+  const handleAddKeyGroup = async () => {
+    if (!selectedId) return
+    setBusy(true)
+    try {
+      const group = await channels.addCredentialGroup(selectedId)
+      setActiveGroupId(group.id)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveKeyGroup = async () => {
+    if (!selectedId || !activeGroup) return
+    if (!window.confirm(`删除 Key 分组「${activeGroup.name}」？这会同时删除该组 Key。`)) {
+      return
+    }
+    setBusy(true)
+    try {
+      await channels.removeCredentialGroup(selectedId, activeGroup.id)
+      const rest = selectedKeyGroups.filter((group) => group.id !== activeGroup.id)
+      setActiveGroupId(rest[0]?.id ?? null)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const flushModelMapping = async (logicalName: string, upstreamId: string) => {
+    if (!selectedId) return
+    const timer = mapSaveTimersRef.current.get(logicalName)
+    if (timer !== undefined) window.clearTimeout(timer)
+    mapSaveTimersRef.current.delete(logicalName)
+    try {
+      await channels.setModelMapping(selectedId, logicalName, upstreamId)
+      setMapDrafts((prev) => {
+        if (prev[logicalName] !== upstreamId) return prev
+        const next = { ...prev }
+        delete next[logicalName]
+        return next
+      })
+      setMapSaveNotice({ id: logicalName, tone: 'ok', text: '已保存' })
+    } catch (error) {
+      setMapSaveNotice({
+        id: logicalName,
+        tone: 'error',
+        text: error instanceof Error ? error.message : '保存失败',
+      })
+    }
+  }
+
+  const scheduleModelMapping = (logicalName: string, upstreamId: string) => {
+    const previous = mapSaveTimersRef.current.get(logicalName)
+    if (previous !== undefined) window.clearTimeout(previous)
+    setMapSaveNotice(null)
+    const timer = window.setTimeout(() => {
+      void flushModelMapping(logicalName, upstreamId)
+    }, 600)
+    mapSaveTimersRef.current.set(logicalName, timer)
+  }
+
+  const handleAddGlobalModel = async () => {
+    try {
+      const model = await channels.addGlobalModel({
+        name: newModelName,
+        category: newModelCategory,
+        vendor: newModelVendor,
+      })
+      setNewModelName('')
+      setModelAddOpen(false)
+      setMapCategory(model.category as MapFilterKey)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const handleRemoveGlobalModel = async (name: string) => {
+    if (!window.confirm(`删除前端模型「${name}」？各渠道里的同名映射会保留。`)) return
+    try {
+      await channels.removeGlobalModel(name)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   // —— 模型管理（§7.4）——
 
   const openPanel = () => {
     if (!selected) return
     // 打开时此前已选的保持勾上（§7.4「可再次打开面板勾选此前未选中的模型」）
-    setDraftChecked(initialChecked(selected.models))
+    setDraftChecked(initialChecked(activeModels))
     setDraftCategory('all')
     setDraftKeyword('')
     setPanelOpen(true)
@@ -628,7 +784,11 @@ export function SettingsPage() {
     if (!selectedId || !selected) return
     setBusy(true)
     try {
-      await channels.setModels(selectedId, applySelection(selected.models, selected.modelCache, draftChecked))
+      await channels.setModels(
+        selectedId,
+        applySelection(activeModels, activeModelCache, draftChecked),
+        activeGroup?.id,
+      )
       setPanelOpen(false)
     } finally {
       setBusy(false)
@@ -637,7 +797,11 @@ export function SettingsPage() {
 
   const dropSelectedModel = async (modelId: string) => {
     if (!selectedId || !selected) return
-    await channels.setModels(selectedId, removeModel(selected.models, modelId))
+    await channels.setModels(
+      selectedId,
+      removeModel(activeModels, modelId),
+      activeGroup?.id,
+    )
   }
 
   /** 拖动排序（§7.2）：把 dragId 挪到 targetId 的位置，整表重编号 */
@@ -654,12 +818,12 @@ export function SettingsPage() {
   }
 
   const draftList = useMemo(
-    () => (selected ? filterModels(selected.modelCache, draftCategory, draftKeyword) : []),
-    [selected, draftCategory, draftKeyword],
+    () => (selected ? filterModels(activeModelCache, draftCategory, draftKeyword) : []),
+    [activeModelCache, selected, draftCategory, draftKeyword],
   )
   const selectedGroups = useMemo(
-    () => groupModelsByCategory(selected?.models ?? []).filter((g) => g.models.length > 0),
-    [selected],
+    () => groupModelsByCategory(activeModels).filter((g) => g.models.length > 0),
+    [activeModels],
   )
 
   /** 勾选 / 取消一项能力（视频无适配器，界面不提供该开关） */
@@ -682,7 +846,15 @@ export function SettingsPage() {
     const nextDefault = protocolById(id, catalog)?.defaultBaseUrl ?? ''
     setProtocol(id)
     const current = baseUrl.trim()
-    if (nextDefault && (!current || current === prevDefault)) setBaseUrl(nextDefault)
+    const nextBaseUrl =
+      nextDefault && (!current || current === prevDefault) ? nextDefault : baseUrl
+    if (nextBaseUrl !== baseUrl) setBaseUrl(nextBaseUrl)
+    if (selectedId) {
+      void channels.update(selectedId, {
+        protocol: id,
+        baseUrl: nextBaseUrl.trim(),
+      })
+    }
   }
 
   /**
@@ -806,6 +978,16 @@ export function SettingsPage() {
    * 所以"禁不掉"这件事不靠界面自觉。
    */
   const builtinSelected = !!selectedId && isBuiltinChannelId(selectedId)
+  const deleteTargetIds = (
+    selectedDeleteIds.size > 0
+      ? [...selectedDeleteIds]
+      : selectedId && !builtinSelected
+        ? [selectedId]
+        : []
+  ).filter((id) => !isBuiltinChannelId(id))
+  const deleteTargetNames = deleteTargetIds.map(
+    (id) => channelsList.find((channel) => channel.id === id)?.name ?? id,
+  )
 
   return (
     <div className={styles.page}>
@@ -928,6 +1110,29 @@ export function SettingsPage() {
                     setSelectedId(ch.id)
                   }}
                 >
+                  {!isBuiltinChannelId(ch.id) && (
+                    <span
+                      className={styles.itemSelect}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onDragStart={(e) => e.preventDefault()}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`选择删除 ${ch.name}`}
+                        data-channel-delete-select={ch.id}
+                        checked={selectedDeleteIds.has(ch.id)}
+                        onChange={(event) => {
+                          setSelectedDeleteIds((prev) => {
+                            const next = new Set(prev)
+                            if (event.target.checked) next.add(ch.id)
+                            else next.delete(ch.id)
+                            return next
+                          })
+                        }}
+                      />
+                    </span>
+                  )}
                   {/* 左：渠道图标（品牌矢量标记 / 用户上传的图，见 `ChannelIcon`）。
                       固定大小，方块与右侧两排等高 —— 几何规则写在 CSS 的 `.itemIcon` 上。 */}
                   <span className={styles.itemIcon} data-channel-icon-box>
@@ -1006,15 +1211,20 @@ export function SettingsPage() {
                   <button
                     className={styles.dangerBtn}
                     data-channel-remove
-                    disabled={!selectedId || busy || builtinSelected}
-                    title={builtinSelected ? '内置渠道不能删除' : undefined}
+                    disabled={deleteTargetIds.length === 0 || busy}
                     onClick={() => setConfirmDelete(true)}
                   >
-                    删除渠道
+                    {deleteTargetIds.length > 1
+                      ? `删除所选渠道（${deleteTargetIds.length}）`
+                      : '删除渠道'}
                   </button>
                 ) : (
                   <div className={styles.confirmBox} data-channel-remove-confirm>
-                    <span className={styles.confirmText}>删除「{selected?.name ?? ''}」？不可撤销</span>
+                    <span className={styles.confirmText}>
+                      {deleteTargetNames.length > 1
+                        ? `删除所选的 ${deleteTargetNames.length} 条渠道？不可撤销`
+                        : `删除「${deleteTargetNames[0] ?? selected?.name ?? ''}」？不可撤销`}
+                    </span>
                     <div className={styles.confirmRow}>
                       <button
                         className={styles.dangerSolid}
@@ -1064,16 +1274,9 @@ export function SettingsPage() {
                       disabled={builtinSelected}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
+                      onBlur={() => void persistForm()}
                     />
                   </label>
-                  <button
-                    className={styles.primary}
-                    data-settings-save
-                    disabled={busy}
-                    onClick={handleSaveConfig}
-                  >
-                    保存配置
-                  </button>
                 </div>
 
                 {/*
@@ -1169,35 +1372,131 @@ export function SettingsPage() {
                     placeholder="https://your-relay.example.com（含 /v1 或不含都可以）"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
+                    onBlur={() => void persistForm()}
                   />
                 </label>
 
-                {/*
-                  **令牌行按协议声明渲染**（用户第 22 批 #358）：声明一把就一行（绝大多数协议），
-                  声明两把就两行（RunningHub = 账户余额 Key「金额」+ RH 币 Key），
-                  每行各自 显示 / 保存 / 删除 —— 一把钥匙一套动作，互不干扰。
-                  没声明的协议仍按老样子渲染一行「令牌（API Key）」（零迁移）。
-                */}
-                {(credentialSlots.length > 0
-                  ? credentialSlots
-                  : [{ id: 'primary', label: '令牌（API Key）' }]
-                ).map((cred, i) => (
-                  <ChannelTokenField
-                    key={cred.id}
-                    channels={channels}
-                    /* 用 `selected.id` 而不是 `selectedId`：这一段只在"选中了渠道"时渲染，
-                       前者是同一个东西且类型非空（`selectedId` 是 `string | null`） */
-                    channelId={selected.id}
-                    /* 第一把 = 主槽（老数据那个 credentialRef），第二把 = 备用槽 */
-                    slot={i === 0 ? 'primary' : 'alt'}
-                    label={cred.label}
-                    hint={cred.hint}
-                    required={cred.required}
-                    docUrl={docUrl}
-                    savedTail={i === 0 ? selected.tokenTail : selected.altTokenTail}
-                    saved={i === 0 ? selected.hasToken : selected.hasAltToken}
-                  />
-                ))}
+                {activeGroup ? (
+                  <div className={styles.keyGroups} data-key-groups>
+                    <div className={styles.keyGroupsHead}>
+                      <span className={styles.label}>Key 分组</span>
+                      <button
+                        className={styles.ghostBtn}
+                        data-key-group-add
+                        disabled={busy}
+                        onClick={() => void handleAddKeyGroup()}
+                      >
+                        + 添加分组
+                      </button>
+                    </div>
+                    <div className={styles.keyGroupTabs} role="tablist" aria-label="Key 分组">
+                      {selectedKeyGroups.map((group) => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={group.id === activeGroup.id}
+                          className={
+                            group.id === activeGroup.id
+                              ? `${styles.keyGroupTab} ${styles.keyGroupTabOn}`
+                              : styles.keyGroupTab
+                          }
+                          data-key-group-tab={group.id}
+                          onClick={() => setActiveGroupId(group.id)}
+                        >
+                          {group.name}
+                          {group.hasToken ? '' : ' · 未填 Key'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className={styles.keyGroupEditor} data-key-group-editor={activeGroup.id}>
+                      <div className={styles.fieldRow}>
+                        <label className={`${styles.field} ${styles.grow}`}>
+                          <span className={styles.label}>分组名称</span>
+                          <input
+                            key={`${activeGroup.id}-name`}
+                            className={styles.input}
+                            data-key-group-name
+                            defaultValue={activeGroup.name}
+                            onBlur={(event) => {
+                              const value = event.target.value.trim()
+                              if (value && value !== activeGroup.name) {
+                                void channels.renameCredentialGroup(
+                                  selected.id,
+                                  activeGroup.id,
+                                  value,
+                                )
+                              }
+                            }}
+                          />
+                        </label>
+                        <label className={styles.field}>
+                          <span className={styles.label}>分组优先级</span>
+                          <input
+                            key={`${activeGroup.id}-priority`}
+                            className={`${styles.input} ${styles.numInput}`}
+                            type="number"
+                            data-key-group-priority
+                            defaultValue={activeGroup.priority}
+                            onBlur={(event) => {
+                              const value = Number(event.target.value)
+                              if (Number.isFinite(value) && value !== activeGroup.priority) {
+                                void channels.setCredentialGroupPriority(
+                                  selected.id,
+                                  activeGroup.id,
+                                  value,
+                                )
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <ChannelTokenField
+                        key={activeGroup.id}
+                        channels={channels}
+                        channelId={selected.id}
+                        slot={selectedKeyGroups[0]?.id === activeGroup.id ? 'primary' : 'alt'}
+                        groupId={activeGroup.id}
+                        label="API Key"
+                        docUrl={docUrl}
+                        savedTail={activeGroup.tokenTail}
+                        saved={activeGroup.hasToken}
+                      />
+                      <div className={styles.keyGroupFoot}>
+                        <span className={styles.cardSub}>
+                          这个分组独立保存 Key 和模型；优先级高的先请求。
+                        </span>
+                        <button
+                          className={styles.ghostBtn}
+                          data-key-group-remove
+                          disabled={busy || selectedKeyGroups.length <= 1}
+                          onClick={() => void handleRemoveKeyGroup()}
+                        >
+                          删除分组
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  (credentialSlots.length > 0
+                    ? credentialSlots
+                    : [{ id: 'primary', label: '令牌（API Key）' }]
+                  ).map((cred, i) => (
+                    <ChannelTokenField
+                      key={cred.id}
+                      channels={channels}
+                      channelId={selected.id}
+                      slot={i === 0 ? 'primary' : 'alt'}
+                      label={cred.label}
+                      hint={cred.hint}
+                      required={cred.required}
+                      docUrl={docUrl}
+                      savedTail={i === 0 ? selected.tokenTail : selected.altTokenTail}
+                      saved={i === 0 ? selected.hasToken : selected.hasAltToken}
+                    />
+                  ))
+                )}
 
                 {/* 协议区（§7.3）：协议下拉 + 三个动作按钮。
                     「验证地址」只回答地址通不通；「验证协议」按候选表试打并把命中的协议填进下拉；
@@ -1205,32 +1504,34 @@ export function SettingsPage() {
                 <div className={styles.protocolRow}>
                   <label className={`${styles.field} ${styles.grow}`}>
                     <span className={styles.label}>协议</span>
-                    <select
-                      className={styles.input}
-                      data-settings-protocol
-                      /* 内置渠道：协议固定（同上）；**地址不锁**（用户：「站点地址留口子」） */
-                      disabled={builtinSelected}
+                    <ChoicePicker
+                      name="settings-protocol"
                       value={protocol}
-                      onChange={(e) => handleProtocolChange(e.target.value)}
-                    >
-                      {!visibleProtocolOptions.some((p) => p.id === protocol) && (
-                        <option value={protocol}>未知协议（{protocol}）</option>
-                      )}
-                      {protocolGroups.map(({ kind, label }) => {
-                        const items = visibleProtocolOptions.filter((p) => p.kind === kind)
-                        if (items.length === 0) return null
-                        return (
-                          <optgroup key={kind} label={label}>
-                            {items.map((p) => (
-                              <option key={p.id} value={p.id} disabled={p.status !== 'ready'}>
-                                {p.name}
-                                {p.status !== 'ready' ? '（待支持）' : ''}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )
-                      })}
-                    </select>
+                      ariaLabel="渠道协议"
+                      disabled={builtinSelected}
+                      onChange={handleProtocolChange}
+                      options={[
+                        ...(!visibleProtocolOptions.some((item) => item.id === protocol)
+                          ? [
+                              {
+                                value: protocol,
+                                label: `未知协议（${protocol}）`,
+                                group: '当前协议',
+                              },
+                            ]
+                          : []),
+                        ...PROTOCOL_GROUPS.flatMap(({ kind, label }) =>
+                          visibleProtocolOptions
+                            .filter((item) => item.kind === kind)
+                            .map((item) => ({
+                              value: item.id,
+                              label: `${item.name}${item.status !== 'ready' ? '（待支持）' : ''}`,
+                              group: label,
+                              disabled: item.status !== 'ready',
+                            })),
+                        ),
+                      ]}
+                    />
                   </label>
                   <button
                     className={styles.ghostBtn}
@@ -1475,21 +1776,23 @@ export function SettingsPage() {
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
                     <span className={styles.cardTitle}>模型列表</span>
-                    <span className={styles.cardSub}>从上游 api 自动拉取所有可用模型</span>
+                    <span className={styles.cardSub}>
+                      {activeGroup ? `当前分组：${activeGroup.name}` : '从上游 api 自动拉取所有可用模型'}
+                    </span>
                   </div>
                   <button className={styles.ghostBtn} disabled={busy} onClick={handleRefresh}>
                     拉取模型
                   </button>
                   <button
                     className={styles.ghostBtn}
-                    disabled={busy || selected.modelCache.length === 0}
+                    disabled={busy || activeModelCache.length === 0}
                     onClick={openPanel}
                   >
                     选择模型
                   </button>
                 </div>
 
-                {selected.modelCache.length === 0 ? (
+                {activeModelCache.length === 0 ? (
                   <p className={styles.modelsEmpty} data-models-empty>
                     还没有拉取过模型。点「拉取模型」从上游取回全部可用模型，再点「选择模型」勾选要用的。
                   </p>
@@ -1497,7 +1800,7 @@ export function SettingsPage() {
                   <p className={styles.modelsEmpty} data-models-none>
                     {/* ⚠️ 2026-10-08：删掉"与漫画"——漫画剧工作台 2026-09-25 已整体移除，
                         这句是漏网的旧文案（用户第 3 条一眼看到：「怎么会有个漫画的东西」）。 */}
-                    上游有 {selected.modelCache.length} 个模型，但还没勾选任何一个——画布的模型下拉只列这里选中的。
+                    上游有 {activeModelCache.length} 个模型，但还没勾选任何一个——画布的模型下拉只列这里选中的。
                     点「选择模型」去挑。
                   </p>
                 ) : (
@@ -1565,13 +1868,33 @@ export function SettingsPage() {
                               onChange={(e) => toggleDraft(m.id, e.target.checked)}
                             />
                             <span className={styles.optionName}>{m.id}</span>
-                            <span className={styles.optionCat}>{categoryLabel(m.category)}</span>
+                            <ChoicePicker
+                              name={`model-category-${m.id}`}
+                              value={m.category}
+                              ariaLabel={`${m.id} 的模型分类`}
+                              compact
+                              className={styles.categorySelect}
+                              options={CATEGORY_FILTERS.filter(
+                                (item) => item.value !== 'all',
+                              ).map((item) => ({
+                                value: item.value,
+                                label: item.label,
+                              }))}
+                              onChange={(next) =>
+                                void channels.setModelCategory(
+                                  selected.id,
+                                  m.id,
+                                  next as ModelCapability['category'],
+                                  activeGroup?.id,
+                                )
+                              }
+                            />
                           </label>
                         </li>
                       ))}
                       {draftList.length === 0 && (
                         <li className={styles.optionEmpty}>
-                          {selected.modelCache.length === 0 ? '没有可选的模型，先「拉取模型」' : '没有匹配的模型'}
+                          {activeModelCache.length === 0 ? '没有可选的模型，先「拉取模型」' : '没有匹配的模型'}
                         </li>
                       )}
                     </ul>
@@ -1635,7 +1958,86 @@ export function SettingsPage() {
 
                 <div className={styles.mapHead}>
                   <span className={styles.label}>模型映射（前端显示名 → 本站点真实 ID）</span>
+                  <button
+                    className={styles.ghostBtn}
+                    data-global-model-add-toggle
+                    onClick={() => setModelAddOpen((open) => !open)}
+                  >
+                    {modelAddOpen ? '收起' : '+ 添加前端模型'}
+                  </button>
                 </div>
+
+                {modelAddOpen && (
+                  <div className={styles.modelAddForm} data-global-model-form>
+                    <label className={styles.field}>
+                      <span className={styles.label}>前端显示名</span>
+                      <input
+                        className={styles.input}
+                        data-global-model-name
+                        value={newModelName}
+                        placeholder="例如：My Image Pro"
+                        onChange={(event) => setNewModelName(event.target.value)}
+                      />
+                    </label>
+                    <div className={styles.modelAddRow}>
+                      <span className={styles.label}>分类</span>
+                      <div className={styles.mapFilters}>
+                        {(['image', 'video', 'audio'] as const).map((category) => (
+                          <button
+                            key={category}
+                            type="button"
+                            className={
+                              newModelCategory === category
+                                ? `${styles.mapFilter} ${styles.mapFilterOn}`
+                                : styles.mapFilter
+                            }
+                            data-global-model-category={category}
+                            onClick={() => setNewModelCategory(category)}
+                          >
+                            {categoryLabel(category)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.modelAddRow}>
+                      <span className={styles.label}>图标</span>
+                      <div className={styles.vendorGrid}>
+                        {GLOBAL_MODEL_VENDORS.map((vendor) => (
+                          <button
+                            key={vendor.value}
+                            type="button"
+                            className={
+                              newModelVendor === vendor.value
+                                ? `${styles.vendorOption} ${styles.vendorOptionOn}`
+                                : styles.vendorOption
+                            }
+                            data-global-model-vendor={vendor.value}
+                            onClick={() => setNewModelVendor(vendor.value)}
+                          >
+                            <ModelIcon vendor={vendor.value} size={18} />
+                            <span>{vendor.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.modelAddActions}>
+                      <button
+                        className={styles.ghostBtn}
+                        onClick={() => setModelAddOpen(false)}
+                      >
+                        取消
+                      </button>
+                      <button
+                        className={styles.primary}
+                        data-global-model-add
+                        disabled={!newModelName.trim()}
+                        onClick={() => void handleAddGlobalModel()}
+                      >
+                        添加
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/*
                   映射列表 = **前端固定显示名**。
@@ -1650,13 +2052,13 @@ export function SettingsPage() {
                   不再额外生成映射行；否则站点一拉模型，映射区就会越积越多。
                 */}
                 {(() => {
-                  const presetIds = PRESET_MODELS.map((m) => m.id)
+                  const presetIds = allGlobalModels.map((model) => model.id)
                   /**
                    * 一行的 `key` 固定取预设显示名，标签与它一致。
                    *
                    * 映射保存的就是「显示名 → 本站真实 ID」，上游 ID 不占一个显示槽位。
                    */
-                  const rows = PRESET_MODELS.map((m) => ({
+                  const rows = allGlobalModels.map((m) => ({
                     key: m.id,
                     label: m.id,
                     category: m.category,
@@ -1726,8 +2128,8 @@ export function SettingsPage() {
                            联合扩到音频 / 3D（那要动渠道拉取 / 选路 / 画布面板一整条链）。 */
                         const options = routeMapOptions(
                           mapCategory as 'image' | 'chat' | 'video' | 'audio',
-                          selected.models,
-                          selected.modelCache,
+                          activeModels,
+                          activeModelCache,
                         )
                         return (
                           /* 组标题已撤：筛选项本身就是那一类的名字，再写一行是重复 */
@@ -1757,25 +2159,35 @@ export function SettingsPage() {
                                       placeholder="留空 = 按原名发送"
                                       emptyHint="该渠道还没勾选同类模型"
                                       ariaLabel={`${MAP_FILTERS.find((f) => f.key === mapCategory)?.title ?? ''} ${label} 对应的本站模型 ID`}
-                                      onChange={(next) =>
+                                      onChange={(next) => {
                                         setMapDrafts((prev) => ({ ...prev, [id]: next }))
-                                      }
-                                    />
-                                    <button
-                                      className={styles.ghostBtn}
-                                      data-route-map-save={id}
-                                      disabled={value === saved}
-                                      onClick={async () => {
-                                        await channels.setModelMapping(selectedId!, id, value)
-                                        setMapDrafts((prev) => {
-                                          const next = { ...prev }
-                                          delete next[id]
-                                          return next
-                                        })
+                                        scheduleModelMapping(id, next)
                                       }}
+                                      onBlur={() => void flushModelMapping(id, value)}
+                                    />
+                                    <span
+                                      className={
+                                        mapSaveNotice?.tone === 'error'
+                                          ? `${styles.mapSaveState} ${styles.mapSaveError}`
+                                          : styles.mapSaveState
+                                      }
+                                      data-route-map-save-state={
+                                        mapSaveNotice?.id === id ? mapSaveNotice.tone : undefined
+                                      }
+                                      aria-live="polite"
                                     >
-                                      保存
-                                    </button>
+                                      {mapSaveNotice?.id === id ? mapSaveNotice.text : ''}
+                                    </span>
+                                    {customModels.some((model) => model.id === id) && (
+                                      <button
+                                        className={styles.chipX}
+                                        aria-label={`删除前端模型 ${id}`}
+                                        data-global-model-remove={id}
+                                        onClick={() => void handleRemoveGlobalModel(id)}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
                                   </div>
                                 )
                               })}

@@ -35,12 +35,10 @@ import {
   capabilityOfLogical,
   categoryOfLogical,
   channelIdForLogical,
-  panelModelOptions,
   toLogicalName,
 } from '../../../domain/project/modelCatalog'
-import { presetOf } from '../../../domain/project/modelCatalog'
-import { presetModelsOf } from '../../../domain/project/modelPresets'
 import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
+import { presetModelsOf } from '../../../domain/project/modelPresets'
 import {
   IconClose,
   IconPreset,
@@ -329,6 +327,11 @@ export function CreationPanel(props: CreationPanelProps) {
     channels.subscribe,
     () => channels.getState().channels,
     () => channels.getState().channels,
+  )
+  const customModels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customModels,
+    () => [],
   )
   /** 面板形态判定要先于兜底：解析链按它决定模型类别（chat / video / image） */
   const promptMode = props.mode === 'prompt'
@@ -799,10 +802,16 @@ export function CreationPanel(props: CreationPanelProps) {
    * 渠道模型不在这儿，但**渠道照样能跑**：选路认两种提供方式 ——
    * 渠道勾选列表里有这个显示名，或它的映射表里有一行（`routeCandidatesFor`）。
    */
-  const logicalModelNames: string[] = panelModelOptions(wantedCategory)
+  const logicalModelNames: string[] = useMemo(
+    () =>
+      wantedCategory === 'chat'
+        ? presetModelsOf('chat').map((model) => model.id)
+        : channels.globalModelsOf(wantedCategory).map((model) => model.id),
+    [channels, customModels, wantedCategory],
+  )
   /** 固定清单条目（有则模型行带厂商图标）；渠道模型没有图标，只出名字 */
   const modelOptions = logicalModelNames.map((n) => {
-    const preset = presetOf(n)
+    const preset = channels.globalModelOf(n)
     return {
       value: n,
       label: n,
@@ -819,7 +828,9 @@ export function CreationPanel(props: CreationPanelProps) {
    * 用户一眼就知道「这里点了会先给什么」。
    */
   const defaultModelLabel =
-    presetModelsOf(wantedCategory)[0]?.id ??
+    (wantedCategory === 'chat'
+      ? presetModelsOf('chat')[0]?.id
+      : channels.globalModelsOf(wantedCategory)[0]?.id) ??
     (promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型')
   /**
    * 能力（分类 / 张数上限 / 时长区间 / 参考图数）仍按**站点 ID**取（与 M7-4 之前一致）。

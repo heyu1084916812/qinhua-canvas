@@ -40,6 +40,10 @@ export const ROUTE_STRATEGIES: { value: RouteStrategy; label: string; hint: stri
  */
 export interface RouteCandidate {
   channelId: string
+  credentialGroupId?: string
+  /** 同一渠道内可继续尝试的分组，已按优先级排序。 */
+  credentialGroupIds?: string[]
+  groupPriority?: number
   enabled: boolean
   /**
    * 该渠道**此刻能不能真发请求**：令牌是否已存（离线协议由调用方传 true）。
@@ -62,6 +66,8 @@ export interface RouteCandidate {
 export interface RouteSelection {
   channelId: string
   upstreamModel: string
+  credentialGroupId?: string
+  credentialGroupIds?: string[]
 }
 
 export type ChannelRouteResult =
@@ -195,7 +201,16 @@ export function selectRoute(
   const pool = tiersList[Math.min(attempt, tiersList.length - 1)]!
   const picked = weightedPick(pool, random)
   if (!picked) return null
-  return { channelId: picked.channelId, upstreamModel: picked.upstreamModel as string }
+  return {
+    channelId: picked.channelId,
+    upstreamModel: picked.upstreamModel as string,
+    ...(picked.credentialGroupId
+      ? {
+          credentialGroupId: picked.credentialGroupId,
+          credentialGroupIds: picked.credentialGroupIds,
+        }
+      : {}),
+  }
 }
 
 /**
@@ -215,6 +230,13 @@ export interface RouteChannelSource {
   /** 该渠道提供的模型（已选 `models` 即画布可见的那些） */
   modelIds: readonly string[]
   modelMap: Readonly<Record<string, string>> | null | undefined
+  /** 多 Key 分组；为空时沿用渠道级 `modelIds / hasToken` 的老路径。 */
+  credentialGroups?: readonly {
+    id: string
+    hasToken: boolean
+    priority: number
+    modelIds: readonly string[]
+  }[]
 }
 
 /**
@@ -236,46 +258,55 @@ export function routeCandidatesFor(
   const name = logicalName.trim()
   if (!name) return []
   return channels
-    /**
-     * 「该渠道提供这个逻辑模型」有**两种**成立方式（用户 2026-09-27 第 7 轮）：
-     *  ① 勾选列表里有同名模型（老路，逻辑名 = 上游 ID 时）；
-     *  ② 该渠道的 `modelMap` 里有这个**逻辑名**的条目（新路）。
-     *
-     * ② 是固定显示名能跑起来的关键：前端显示 `GPT Image 2.5 Flare`，
-     * 而站点的模型列表里叫 `gpt-image-2.5-flare` —— ② 没接上时，
-     * 用户配好了映射，选路却找不到任何候选，请求发不出去。
-     */
-    .filter(
-      (c) =>
-        c.modelIds.includes(name) ||
+    .flatMap((c) => {
+      const supports = (modelIds: readonly string[]) =>
+        modelIds.includes(name) ||
         Boolean((c.modelMap ?? {})[name]?.trim()) ||
-        /**
-         * 上游 ID 本来就等于显示名登记的别名时也算提供（用户 2026-09-27 第 8 轮）。
-         *
-         * 例：渠道勾了 `gpt-image-2`、用户在后台把它填成 `GPT Image 2` 的映射 ——
-         * 两种写法都是「这条渠道有 GPT Image 2」，任一命中即可。只认映射键的话，
-         * 用户明明配好了、选路却说「没有渠道提供模型」。
-         */
-        upstreamAliasesOf(name).some((alias) => c.modelIds.includes(alias)),
-    )
-    .map((c) => {
-      const mapped = (c.modelMap ?? {})[name]?.trim()
-      const direct = c.modelIds.includes(name) ? name : undefined
-      const alias = upstreamAliasesOf(name).find((item) => c.modelIds.includes(item))
-      return {
-        channelId: c.id,
-        enabled: c.enabled,
-        hasToken: c.hasToken,
-        priority: c.priority,
-        weight: c.weight,
-        latencyMs: c.lastTestLatency,
-        /**
-         * 固定显示名通过别名命中时，请求必须发别名对应的真实上游 ID。
-         * 没有显式映射时若直接返回逻辑名，会出现「选路成功，但站点收到
-         * `GPT-6 Astra` 这种不存在的模型名」——前端显示名反而把请求弄坏。
-         */
-        upstreamModel: mapped || direct || alias || resolve(c.modelMap, name),
+        upstreamAliasesOf(name).some((alias) => modelIds.includes(alias))
+      const groups = [...(c.credentialGroups ?? [])]
+        .filter((group) => supports(group.modelIds))
+        .sort((a, b) => b.priority - a.priority)
+
+      if (groups.length > 0) {
+        const group = groups[0]!
+        const mapped = (c.modelMap ?? {})[name]?.trim()
+        const direct = group.modelIds.includes(name) ? name : undefined
+        const alias = upstreamAliasesOf(name).find((item) => group.modelIds.includes(item))
+        return [
+          {
+            channelId: c.id,
+            credentialGroupId: group.id,
+            credentialGroupIds: groups.map((item) => item.id),
+            groupPriority: group.priority,
+            enabled: c.enabled,
+            hasToken: group.hasToken,
+            priority: c.priority,
+            weight: c.weight,
+            latencyMs: c.lastTestLatency,
+            upstreamModel: mapped || direct || alias || resolve(c.modelMap, name),
+          },
+        ]
       }
+
+      if ((c.credentialGroups?.length ?? 0) > 0) return []
+      if (!supports(c.modelIds)) return []
+
+      return [
+        {
+          channelId: c.id,
+          enabled: c.enabled,
+          hasToken: c.hasToken,
+          priority: c.priority,
+          weight: c.weight,
+          latencyMs: c.lastTestLatency,
+          upstreamModel: (() => {
+            const mapped = (c.modelMap ?? {})[name]?.trim()
+            const direct = c.modelIds.includes(name) ? name : undefined
+            const alias = upstreamAliasesOf(name).find((item) => c.modelIds.includes(item))
+            return mapped || direct || alias || resolve(c.modelMap, name)
+          })(),
+        },
+      ]
     })
 }
 
@@ -344,7 +375,16 @@ export function resolveRouteForChannel(
   if (!candidate?.upstreamModel) return { ok: false, reason: 'model_missing' }
   return {
     ok: true,
-    selection: { channelId: source.id, upstreamModel: candidate.upstreamModel },
+    selection: {
+      channelId: source.id,
+      upstreamModel: candidate.upstreamModel,
+      ...(candidate.credentialGroupId
+        ? {
+            credentialGroupId: candidate.credentialGroupId,
+            credentialGroupIds: candidate.credentialGroupIds,
+          }
+        : {}),
+    },
   }
 }
 

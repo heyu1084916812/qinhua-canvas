@@ -134,6 +134,12 @@ export interface ChatMessage {
 
 interface RunRequestBase {
   channelId: string
+  /** 实际命中的渠道内 Key 分组；老数据没有分组时为空。 */
+  credentialGroupId?: string
+  /** 同一模型在该渠道内可尝试的分组，按优先级排序。 */
+  credentialGroupIds?: string[]
+  /** 执行引擎内部使用：本次是分组降级链里的第几次尝试。 */
+  routingAttempt?: number
   model: string
   prompt: string
   inputs: NodeInput[]

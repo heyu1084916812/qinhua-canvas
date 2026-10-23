@@ -1,5 +1,24 @@
 # CanvasFlow（轻画）项目记忆
 
+### 渠道多 Key 分组与全局模型（2026-10-24 → 对账 #734b）
+
+- **分组是持久化单位，不是切换器**：`ChannelCredentialGroup` 各自保存 `credentialRef / models /
+  modelCache / priority`；渠道级模型只是各组去重后的聚合。老主 / 备用槽读回时自动派生为分组。
+- **执行缓存键必须带分组**：同一个 `channelId` 下不同 Key 是不同适配器，键为
+  `channelId + credentialGroupId + kind`。只按渠道缓存会让后一个分组覆盖前一个。
+- **只有可恢复错误才能换组**：401 / 403 / 429 / 5xx 与 DNS / TLS / CORS 允许试下一分组；
+  **timeout / aborted / 响应丢失不能换组重发**，上游可能已计费。任务请求保存按优先级排序的
+  `credentialGroupIds`，`routingAttempt` 只在本机选择对应分组。
+- **分类要有未知档**：`unknown` 不默认塞进 chat；站点原值存 `upstreamCategory`，手动覆盖存
+  `categoryManual`，重新拉取保留用户选择。
+- **选择器只有一套**：设置、技能、漫剧、素材传输等用户可见下拉全用 `ChoicePicker`；
+  原生 `<select>` 为 0。
+- **映射自动保存**：失焦或停止输入 600ms 后落库，冒烟不能再等已删除的 `data-route-map-save`
+  按钮；否则 `locator.isEnabled()` 会在空 locator 上等满 30 秒，表现为整组假死。
+- **验证基线**：全量 **3071 passed / 1 skipped**；`npm run check`、`npm run build`、
+  `node --check scripts/smoke.mjs` 通过；G74 **23/23**；真实设置页原生 select=0、多选删除与
+  65535 双分组正常、无页面异常。
+
 ### 渠道删除与节点执行硬边界（2026-10-24 → 对账 #734a）
 
 - **删除顺序先失效再清密文**：`channelRepository.remove()` 先把渠道 `enabled=false` 落库，
@@ -13,7 +32,7 @@
   不进入 `queued / running`、不发网络请求；不能只弹一条 toast 后留下节点空状态。
 - **运行中删除按真实 channelId 止损**：计划保存 `taskId → channelId`，渠道从 store 消失后
   只 abort 实际使用它的计划；abort 只停本机等待，上游可能已扣费，绝不自动重发。
-- **验证基线**：定向 **61/61**；全量 **3062 passed / 1 skipped**；`npm run check`、
+- **验证基线**：定向 **61/61**；全量 **3071 passed / 1 skipped**；`npm run check`、
   `npm run build` 通过。
 
 ### 提示词节点滚轮与滚动条贴边（2026-10-24 → 对账 #733）

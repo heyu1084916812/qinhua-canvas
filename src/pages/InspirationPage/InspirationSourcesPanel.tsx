@@ -4,6 +4,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import type { InspirationMediaKind } from '../../domain/inspiration/sources'
 import type { StoredInspirationSource } from '../../state/project/inspirationSourceStore'
 import styles from './InspirationPage.module.css'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 
 export interface NewInspirationSourceInput {
   name: string
@@ -149,14 +150,16 @@ export function InspirationSourcesPanel({
             </label>
             <label>
               <span>类型</span>
-              <select
+              <ChoicePicker
+                name="inspiration-source-kind"
                 value={kind}
-                data-inspiration-source-form-kind
-                onChange={(event) => setKind(event.target.value === 'video' ? 'video' : 'image')}
-              >
-                <option value="image">图片</option>
-                <option value="video">视频</option>
-              </select>
+                ariaLabel="来源类型"
+                options={[
+                  { value: 'image', label: '图片' },
+                  { value: 'video', label: '视频' },
+                ]}
+                onChange={(next) => setKind(next === 'video' ? 'video' : 'image')}
+              />
             </label>
             <div className={styles.sourceFormFoot}>
               <p className={styles.sourceFormHint}>自定义仓库支持 README 中以三级标题和代码块组织的提示词。</p>

@@ -24,9 +24,9 @@ export interface ProjectTreeModel {
 export const PROJECT_GROUP_LIMIT = 5
 
 const UNFILED_LABEL: Record<WorkbenchId, string> = {
-  canvas: '未归档画布',
-  ecommerce: '未归档电商',
-  storyboard: '未归档漫剧',
+  canvas: '画布',
+  ecommerce: '电商',
+  storyboard: '漫剧',
 }
 
 function byPinnedThenUpdated(a: ProjectListItem, b: ProjectListItem): number {
@@ -43,7 +43,7 @@ function byPinnedThenUpdated(a: ProjectListItem, b: ProjectListItem): number {
  * 规则：
  * - 置顶项目单列在最上方，不再在文件夹 / 未归档里重复出现；
  * - 文件夹本身按置顶、更新时间排序，内部允许混放三种工作台；
- * - 没有 folderId（或 folderId 已失效）的项目按工作台进入三个未归档组；
+ * - 没有 folderId（或 folderId 已失效）的项目按工作台进入三个分组；
  * - 空文件夹仍保留，否则用户刚创建就看不到入口。
  */
 export function buildProjectTree(

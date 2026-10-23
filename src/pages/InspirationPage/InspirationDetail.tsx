@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { InspirationCase } from '../../domain/inspiration/cases'
+import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import styles from './InspirationPage.module.css'
 
 /**
@@ -40,6 +41,8 @@ export function InspirationDetail({
   positionLabel?: string
 }) {
   const platform = usePlatform()
+  const cachedPoster = useAsset(item.imageHash ?? '')
+  const imageSrc = cachedPoster || item.imageUrl
   const [copied, setCopied] = useState(false)
   const [downloadState, setDownloadState] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -126,15 +129,15 @@ export function InspirationDetail({
             <video
               className={styles.detailVideo}
               src={item.videoUrl}
-              poster={item.imageUrl || undefined}
+              poster={imageSrc || undefined}
               controls
               autoPlay
               loop
               playsInline
               data-inspiration-detail-video
             />
-          ) : item.imageUrl ? (
-            <img src={item.imageUrl} alt={item.title} data-inspiration-detail-image />
+          ) : imageSrc ? (
+            <img src={imageSrc} alt={item.title} data-inspiration-detail-image />
           ) : (
             <span className={styles.shotEmpty}>这个案例没有预览图</span>
           )}

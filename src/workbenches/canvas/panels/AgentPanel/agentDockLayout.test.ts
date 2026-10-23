@@ -41,10 +41,17 @@ describe('Agent floating dock layout', () => {
     expect(layout.orb.y).toBe(AREA.y + AGENT_DOCK_GAP)
   })
 
-  it('opens the panel at its stable position and stays inside the work area', () => {
+  it('opens toward the inside of the canvas when the orb is near the right edge', () => {
     const base = defaultAgentDockLayout(AREA)
     const next = openAgentPanel(base, AREA)
-    expect(next.panel).toEqual(base.panel)
+    expect(next.panel.x + next.panel.width).toBeLessThanOrEqual(base.orb.x - AGENT_DOCK_GAP)
+    expect(next.panel.x).toBeGreaterThanOrEqual(AREA.x + AGENT_DOCK_GAP)
+  })
+
+  it('opens to the right when the orb has room there', () => {
+    const base = defaultAgentDockLayout(AREA)
+    const next = openAgentPanel({ ...base, orb: { x: AREA.x + 20, y: AREA.y + 100 } }, AREA)
+    expect(next.panel.x).toBe(AREA.x + 20 + AGENT_ORB_SIZE + AGENT_DOCK_GAP)
   })
 
   it('collapses the panel back to a visible orb', () => {

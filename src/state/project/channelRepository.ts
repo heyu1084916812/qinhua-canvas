@@ -1,5 +1,9 @@
 import type { StoragePort, CredentialPort, RowOf, TableName } from '../../platform/ports'
-import type { Channel, CreateChannelInput } from '../../domain/project/channel'
+import type {
+  Channel,
+  ChannelCredentialGroup,
+  CreateChannelInput,
+} from '../../domain/project/channel'
 import { createChannel } from '../../domain/project/channel'
 import {
   BUILTIN_CHANNEL_IDS,
@@ -40,26 +44,94 @@ const toChannel = (row: Record<string, unknown>): Channel => {
   const cacheById = new Map(modelCache.map((model) => [model.id, model]))
   const storedModels =
     row.models === undefined ? modelCache : ((row.models as Channel['models']) ?? [])
+  const protocol = (row.protocol as string) ?? 'mock'
+  const credentialRef = (row.credentialRef as string | null) ?? null
+  const altCredentialRef = (row.altCredentialRef as string | null) ?? null
+  const tokenTail = (row.tokenTail as string | null) ?? null
+  const altTokenTail = (row.altTokenTail as string | null) ?? null
+  const hasToken =
+    (row.hasToken as boolean | undefined) ?? tokenTail !== null
+  const hasAltToken =
+    (row.hasAltToken as boolean | undefined) ?? altTokenTail !== null
+  const models = storedModels.map((selected) => cacheById.get(selected.id) ?? selected)
+  const rawGroups = Array.isArray(row.credentialGroups)
+    ? (row.credentialGroups as ChannelCredentialGroup[])
+    : []
+  const credentialGroups =
+    rawGroups.length > 0
+      ? rawGroups.map((group) => ({
+          ...group,
+          tokenTail: group.tokenTail ?? null,
+          hasToken: group.hasToken ?? group.tokenTail !== null,
+          priority: Number.isFinite(group.priority) ? Math.trunc(group.priority) : 0,
+          models: (group.models ?? []).map(
+            (selected) => cacheById.get(selected.id) ?? selected,
+          ),
+          modelCache: group.modelCache ?? [],
+          createdAt: group.createdAt ?? 0,
+        }))
+      : credentialRef
+        ? [
+            {
+              id: `legacy-primary-${String(row.id)}`,
+              name: protocol === '65535' ? '对话分组' : '默认分组',
+              credentialRef,
+              tokenTail,
+              hasToken,
+              priority: 0,
+              models:
+                protocol === '65535'
+                  ? models.filter((model) => model.category === 'chat')
+                  : models,
+              modelCache:
+                protocol === '65535'
+                  ? modelCache.filter((model) => model.category === 'chat')
+                  : modelCache,
+              createdAt: (row.createdAt as number) ?? 0,
+            },
+            ...(altCredentialRef
+              ? [
+                  {
+                    id: `legacy-alt-${String(row.id)}`,
+                    name: protocol === '65535' ? '生图分组' : '备用 Key',
+                    credentialRef: altCredentialRef,
+                    tokenTail: altTokenTail,
+                    hasToken: hasAltToken,
+                    priority: -1,
+                    models:
+                      protocol === '65535'
+                        ? models.filter((model) => model.category !== 'chat')
+                        : [],
+                    modelCache:
+                      protocol === '65535'
+                        ? modelCache.filter((model) => model.category !== 'chat')
+                        : [],
+                    createdAt: (row.createdAt as number) ?? 0,
+                  },
+                ]
+              : []),
+          ]
+        : []
   return {
     id: String(row.id),
     name: (row.name as string) || '新建渠道',
     /** 图标（用户第 19 批 #4/#5）：老行没有这一键 → null = 用内置矢量图标 */
     icon: (row.icon as string | null) ?? null,
-    protocol: (row.protocol as string) ?? 'mock',
+    protocol,
     baseUrl: (row.baseUrl as string) ?? '',
-    credentialRef: (row.credentialRef as string | null) ?? null,
-    tokenTail: (row.tokenTail as string | null) ?? null,
+    credentialRef,
+    tokenTail,
     /**
      * 「存过没有」（对账 #517）：老行没有这一键，但**有尾号 ⇒ 一定存过**，
      * 于是缺省回落到 `tokenTail !== null` 就是零迁移；短令牌那种"存过但没尾号"
      * 由新写入的这一列补上。
      */
-    hasToken: (row.hasToken as boolean | undefined) ?? ((row.tokenTail as string | null) ?? null) !== null,
+    hasToken,
     /** 第二把钥匙（第 22 批 #358）：老行没有这两键 → null（= 只用主槽） */
-    altCredentialRef: (row.altCredentialRef as string | null) ?? null,
-    altTokenTail: (row.altTokenTail as string | null) ?? null,
-    hasAltToken:
-      (row.hasAltToken as boolean | undefined) ?? ((row.altTokenTail as string | null) ?? null) !== null,
+    altCredentialRef,
+    altTokenTail,
+    hasAltToken,
+    credentialGroups,
     enabled: (row.enabled as boolean) ?? false,
     // `models` 引入前写下的行没有这个键 → 读回**回落为全部缓存**，即「沿用旧行为」：
     // 加本字段之前，画布 / 漫画的模型下拉列的就是 modelCache 全集。
@@ -70,7 +142,7 @@ const toChannel = (row: Record<string, unknown>): Channel => {
      * 否则上游模型分类修正后，已勾选行仍会带着旧 category，
      * 典型现象是生图模型继续出现在“对话模型”下拉里。
      */
-    models: storedModels.map((selected) => cacheById.get(selected.id) ?? selected),
+    models,
     modelCache,
     /**
      * M7 三项（映射 / 优先度 / 权重）：老行没有这些键 → 补**缺省值**。
@@ -93,6 +165,55 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     lastTestAt: (row.lastTestAt as number | null) ?? null,
     lastTestLatency: (row.lastTestLatency as number | null) ?? null,
     createdAt: (row.createdAt as number) ?? 0,
+  }
+}
+
+function initialCredentialGroup(
+  channel: Channel,
+  credentialRef: string,
+  createdAt = channel.createdAt,
+): ChannelCredentialGroup {
+  return {
+    id: createId('credgroup'),
+    name: channel.protocol === '65535' ? '对话分组' : '默认分组',
+    credentialRef,
+    tokenTail: null,
+    hasToken: false,
+    priority: 0,
+    models: channel.models,
+    modelCache: channel.modelCache,
+    createdAt,
+  }
+}
+
+function withGroupAggregates(channel: Channel): Channel {
+  const groups = [...channel.credentialGroups].sort(
+    (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+  )
+  if (groups.length === 0) return { ...channel, credentialGroups: groups }
+
+  const merge = (key: 'models' | 'modelCache') => {
+    const byId = new Map<string, Channel['models'][number]>()
+    for (const group of groups) {
+      for (const model of group[key]) if (!byId.has(model.id)) byId.set(model.id, model)
+    }
+    return [...byId.values()]
+  }
+  const [primary, alt] = groups
+  const syncAltSlot = channel.protocol === '65535' || channel.protocol === 'runninghub-api'
+  return {
+    ...channel,
+    credentialGroups: groups,
+    credentialRef: primary?.credentialRef ?? channel.credentialRef,
+    tokenTail: primary?.tokenTail ?? null,
+    hasToken: primary?.hasToken ?? false,
+    altCredentialRef: syncAltSlot
+      ? (alt?.credentialRef ?? channel.altCredentialRef)
+      : channel.altCredentialRef,
+    altTokenTail: syncAltSlot ? (alt?.tokenTail ?? null) : channel.altTokenTail,
+    hasAltToken: syncAltSlot ? (alt?.hasToken ?? false) : channel.hasAltToken,
+    models: merge('models'),
+    modelCache: merge('modelCache'),
   }
 }
 
@@ -171,6 +292,18 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
       /** 凭据引用走与普通渠道同一条路（不然"存令牌"没有落点） */
       ch.credentialRef = createId('cred')
       ch.altCredentialRef = createId('cred')
+      ch.credentialGroups = [
+        initialCredentialGroup(ch, ch.credentialRef),
+        ...(ch.protocol === '65535' || ch.protocol === 'runninghub-api'
+          ? [
+              {
+                ...initialCredentialGroup(ch, ch.altCredentialRef),
+                name: ch.protocol === '65535' ? '生图分组' : '备用 Key',
+                priority: -1,
+              },
+            ]
+          : []),
+      ]
       await storage.put('channels', ch as unknown as RowOf<TableName>)
     }
     return list()
@@ -190,6 +323,18 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     ch.credentialRef = createId('cred')
     /** 第二把钥匙也要有自己的引用（第 22 批 #358）：不然那个槽位没有落点 */
     ch.altCredentialRef = createId('cred')
+    ch.credentialGroups = [
+      initialCredentialGroup(ch, ch.credentialRef),
+      ...(ch.protocol === '65535' || ch.protocol === 'runninghub-api'
+        ? [
+            {
+              ...initialCredentialGroup(ch, ch.altCredentialRef),
+              name: ch.protocol === '65535' ? '生图分组' : '备用 Key',
+              priority: -1,
+            },
+          ]
+        : []),
+    ]
     await storage.put('channels', ch as unknown as RowOf<TableName>)
     return ch
   }
@@ -204,7 +349,7 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
      * 拦在这里才是"改不动"本身。**地址不剔**（用户：「站点地址留口子」）。
      */
     const safe: Partial<Channel> = spec ? { ...patch, name: spec.name, protocol: spec.protocol } : patch
-    const next: Channel = { ...existing, ...safe, id }
+    const next: Channel = withGroupAggregates({ ...existing, ...safe, id })
     await storage.put('channels', next as unknown as RowOf<TableName>)
     return next
   }
@@ -240,7 +385,11 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
      */
     await storage.put('channels', { ...ch, enabled: false } as unknown as RowOf<TableName>)
     const refs = new Set(
-      [ch.credentialRef, ch.altCredentialRef].filter((ref): ref is string => Boolean(ref)),
+      [
+        ch.credentialRef,
+        ch.altCredentialRef,
+        ...ch.credentialGroups.map((group) => group.credentialRef),
+      ].filter((ref): ref is string => Boolean(ref)),
     )
     for (const ref of refs) await credentials.remove(ref)
     await storage.delete('channels', id)

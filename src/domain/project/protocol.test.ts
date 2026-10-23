@@ -122,7 +122,7 @@ describe('能力查询', () => {
     // 四条都是 ready 且单独一组（`cli`），不再是"待支持 + 灰掉"
     for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
       expect(protocolById(id)?.status).toBe('ready')
-      expect(protocolById(id)?.kind).toBe('cli')
+      expect(protocolById(id)?.kind).toBe('hidden')
     }
   })
 

@@ -1592,19 +1592,19 @@ async function mapMockModels(page) {
      * 下面的 `count() === 0` 会静默跳过 —— 本批实测就是这样让「即梦 2.5」的映射
      * 从来没被写上，进而让 G46 的视频整组看起来像产品缺陷。
      */
-    await page.locator(`[data-route-map-filter="${filterKey}"]`).click().catch(() => {})
+    const filter = page.locator(`[data-route-map-filter="${filterKey}"]`)
+    if ((await filter.count()) === 0) continue
+    await filter.click({ timeout: 3000 }).catch(() => {})
     await sleep(150)
     const input = page.locator(`[data-route-map-input="${logical}"]`)
     if ((await input.count()) === 0) continue
     await input.fill(upstream)
-    await sleep(200)
-    const save = page.locator(`[data-route-map-save="${logical}"]`)
     /*
-     * 重复搭同一套 mock 场景时，值已经保存过，Save 会禁用。
-     * 直接点击禁用按钮会等满 30 秒；只在确实可点时点。
+     * 映射已改为失焦 / 停止输入后自动保存，不再有逐行保存按钮。
+     * 冒烟夹具只负责把值输入并失焦，随后等自动保存落库。
      */
-    if (await save.isEnabled().catch(() => false)) await save.click().catch(() => {})
-    await sleep(250)
+    await input.blur()
+    await sleep(750)
   }
   /*
    * 收尾把筛选拨回「生图」—— 助手是**搭场景**的，不该在界面上留下自己的脚印。
@@ -1613,7 +1613,10 @@ async function mapMockModels(page) {
    * 读到的却是这里最后切到的「视频」档 —— 看上去像产品默认值变了，
    * 真因是上一轮修 G46 时给这个助手加了"逐档切换"，却没把档位拨回去。
    */
-  await page.locator('[data-route-map-filter="image"]').click().catch(() => {})
+  await page
+    .locator('[data-route-map-filter="image"]')
+    .click({ timeout: 3000 })
+    .catch(() => {})
   await sleep(150)
 
 }
@@ -12977,10 +12980,10 @@ async function g74(browser) {
   await sleep(700)
   rec(
     g,
-    '★ 技能库浏览层有「功能预设词」卡片（预设词归这里）',
-    (await page.locator('[data-skills-preset-card]').count()) === 1,
+    '★ 技能库浏览层有「功能预设词」入口（预设词归这里）',
+    (await page.locator('[data-skills-presets]').count()) === 1,
   )
-  await page.locator('[data-skills-preset-card]').click()
+  await page.locator('[data-skills-presets]').click()
   await sleep(500)
   rec(
     g,
@@ -12997,6 +13000,14 @@ async function g74(browser) {
     JSON.stringify(cards) === JSON.stringify(['optimize', 'translate', 'describe']),
     cards.join(','),
   )
+  /*
+   * 上一轮若在「保存后刷新」附近中断，已改预设词会留在共享库。
+   * 先恢复出厂值，才能稳定验证「未改过时不显示已改」；本组收尾也会再恢复一次。
+   */
+  if ((await page.locator('[data-preset-card="optimize"] [data-preset-changed]').count()) > 0) {
+    await page.locator('[data-preset-restore="optimize"]').click()
+    await sleep(700)
+  }
   rec(
     g,
     '未改过时不显示「已改」标记',
@@ -13016,7 +13027,7 @@ async function g74(browser) {
 
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(800)
-  await page.locator('[data-skills-preset-card]').click()
+  await page.locator('[data-skills-presets]').click()
   await sleep(500)
   rec(
     g,
@@ -13066,7 +13077,7 @@ async function g74(browser) {
   // ── ④ 恢复默认 ──
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-skills-preset-card]').click()
+  await page.locator('[data-skills-presets]').click()
   await sleep(500)
   await page.locator('[data-preset-restore="optimize"]').click()
   await sleep(800)
@@ -14204,17 +14215,13 @@ async function g75(browser) {
     const firstRow = page.locator('[data-route-map-row]').first()
     const logical = await firstRow.getAttribute('data-route-map-row')
     const input = page.locator(`[data-route-map-input="${logical}"]`)
-    const saveBtn = page.locator(`[data-route-map-save="${logical}"]`)
     rec(
       g,
-      '★ 映射「保存」按钮在未改动时禁用（防误写）',
-      await saveBtn.isDisabled(),
-      `disabled=${await saveBtn.isDisabled()}`,
+      '★ 映射改为自动保存，不再出现逐行保存按钮',
+      (await page.locator(`[data-route-map-save="${logical}"]`).count()) === 0,
     )
     await input.fill('upstream-renamed-by-smoke')
-    await sleep(300)
-    rec(g, '★ 改动后「保存」可点', await saveBtn.isEnabled())
-    await saveBtn.click()
+    await input.blur()
     await sleep(700)
     await page.reload({ waitUntil: 'networkidle' })
     await sleep(700)
@@ -14229,8 +14236,7 @@ async function g75(browser) {
 
     // ④ 清空 = 删除该条映射，回到「按原名发送」
     await page.locator(`[data-route-map-input="${logical}"]`).fill('')
-    await sleep(300)
-    await page.locator(`[data-route-map-save="${logical}"]`).click()
+    await page.locator(`[data-route-map-input="${logical}"]`).blur()
     await sleep(700)
     await page.reload({ waitUntil: 'networkidle' })
     await sleep(700)
@@ -14324,18 +14330,16 @@ async function g76(browser) {
       const input = page.locator(`[data-route-map-input="${logical}"]`)
       if ((await input.count()) > 0) {
         await input.fill('')
-        await sleep(250)
-        await page.locator(`[data-route-map-save="${logical}"]`).click()
-        await sleep(600)
+        await input.blur()
+        await sleep(750)
       }
     } catch {
       // 还原失败不掩盖本组结论，也不该让整轮冒烟崩掉
     }
   }
   await page.locator(`[data-route-map-input="${logical}"]`).fill(MARK)
-  await sleep(300)
-  await page.locator(`[data-route-map-save="${logical}"]`).click()
-  await sleep(800)
+  await page.locator(`[data-route-map-input="${logical}"]`).blur()
+  await sleep(900)
   rec(g, '★ 后台已写入上游 ID 映射', true, `逻辑名=${logical} → ${MARK}`)
 
   // ② 画布：跑一次生成
@@ -14597,9 +14601,8 @@ async function g78(browser) {
   const firstRow = page.locator('[data-route-map-row]').first()
   const logical = await firstRow.getAttribute('data-route-map-row')
   await page.locator(`[data-route-map-input="${logical}"]`).fill('siteA-specific-id')
-  await sleep(300)
-  await page.locator(`[data-route-map-save="${logical}"]`).click()
-  await sleep(800)
+  await page.locator(`[data-route-map-input="${logical}"]`).blur()
+  await sleep(900)
   rec(g, '★ 渠道 A 已把逻辑名映射成自己的上游 ID', true, `${logical} → siteA-specific-id`)
   /** 同 G76：谁改的谁还原，避免把被改过的映射留给后面的组 */
   const restoreMapping = async () => {
@@ -14611,9 +14614,8 @@ async function g78(browser) {
       const input = page.locator(`[data-route-map-input="${logical}"]`)
       if ((await input.count()) > 0) {
         await input.fill('')
-        await sleep(250)
-        await page.locator(`[data-route-map-save="${logical}"]`).click()
-        await sleep(600)
+        await input.blur()
+        await sleep(750)
       }
     } catch {
       // 同上：还原失败不掩盖本组结论
@@ -14962,9 +14964,8 @@ async function g79(browser) {
     `五个筛选合起来 ${trimmedLabels.length} 行：${JSON.stringify(trimmedLabels)}`,
   )
   await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').fill('gpt-image-2.5-flare')
-  await sleep(300)
-  await page.locator('[data-route-map-save="GPT Image 2.5 Flare"]').click()
-  await sleep(700)
+  await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').blur()
+  await sleep(900)
 
   const restoreMapping = async () => {
     try {
@@ -14975,9 +14976,8 @@ async function g79(browser) {
       const input = page.locator('[data-route-map-input="GPT Image 2.5 Flare"]')
       if ((await input.count()) > 0) {
         await input.fill('')
-        await sleep(250)
-        await page.locator('[data-route-map-save="GPT Image 2.5 Flare"]').click()
-        await sleep(600)
+        await input.blur()
+        await sleep(750)
       }
     } catch {
       // 还原失败不掩盖本组结论

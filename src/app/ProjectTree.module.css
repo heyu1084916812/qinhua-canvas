@@ -132,6 +132,7 @@
   align-items: center;
   justify-content: center;
   color: var(--text-3);
+  margin-left: 2px;
   transition: transform 150ms var(--ease-out);
 }
 

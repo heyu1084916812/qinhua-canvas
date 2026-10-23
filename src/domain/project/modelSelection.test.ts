@@ -50,12 +50,24 @@ describe('filterModels', () => {
 })
 
 describe('groupModelsByCategory', () => {
-  it('固定四组、顺序稳定（生图 / 对话 / 视频 / 配音），空组也返回', () => {
+  it('固定五组、顺序稳定（未分类 / 生图 / 对话 / 视频 / 配音），空组也返回', () => {
     const groups = groupModelsByCategory([m('a', 'video')])
-    expect(groups.map((g) => g.category)).toEqual(['image', 'chat', 'video', 'audio'])
-    expect(groups.map((g) => g.label)).toEqual(['生图', '对话', '视频', '配音'])
+    expect(groups.map((g) => g.category)).toEqual([
+      'unknown',
+      'image',
+      'chat',
+      'video',
+      'audio',
+    ])
+    expect(groups.map((g) => g.label)).toEqual([
+      '未分类',
+      '生图',
+      '对话',
+      '视频',
+      '配音',
+    ])
     expect(groups[0].models).toEqual([])
-    expect(groups[2].models.map((x) => x.id)).toEqual(['a'])
+    expect(groups[3].models.map((x) => x.id)).toEqual(['a'])
   })
 })
 

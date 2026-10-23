@@ -25,6 +25,7 @@ import {
   toggleProjectSelection,
 } from '../../domain/project/selection'
 import styles from './ProjectsPage.module.css'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 
 /**
@@ -611,16 +612,19 @@ export function ProjectsPage() {
                 onChange={(e) => store.setQuery(e.target.value)}
                 aria-label="搜索项目"
               />
-              <select
+              <ChoicePicker
+                name="projects-sort"
                 className={styles.sort}
                 value={sort}
-                onChange={(e) => store.setSort(e.target.value as ProjectSort)}
-                aria-label="排序方式"
-              >
-                <option value="updated">最近编辑</option>
-                <option value="created">创建时间</option>
-                <option value="name">名称 A-Z</option>
-              </select>
+                compact
+                ariaLabel="排序方式"
+                options={[
+                  { value: 'updated', label: '最近编辑' },
+                  { value: 'created', label: '创建时间' },
+                  { value: 'name', label: '名称 A-Z' },
+                ]}
+                onChange={(next) => store.setSort(next as ProjectSort)}
+              />
               <button
                 className={styles.importBtn}
                 onClick={() => void handleImport()}

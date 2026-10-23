@@ -21,6 +21,7 @@ export interface GenerationRoutingRecipe {
 
 export interface GenerationRoutingTarget {
   channelId: string
+  credentialGroupId?: string
   /** 前端逻辑模型名；节点仍保存这一份，渠道适配器负责再映射到上游 ID。 */
   logicalModel: string
   /** 当前渠道最终要发送的模型 ID，供诊断和后续日志使用。 */
@@ -74,6 +75,12 @@ function sourceOf(channel: Channel): RouteChannelSource {
     lastTestLatency: channel.lastTestLatency,
     modelIds: channel.models.map((model) => model.id),
     modelMap: channel.modelMap,
+    credentialGroups: channel.credentialGroups.map((group) => ({
+      id: group.id,
+      hasToken: group.hasToken,
+      priority: group.priority,
+      modelIds: group.models.map((model) => model.id),
+    })),
   }
 }
 
@@ -114,6 +121,9 @@ function directTarget(
   if (!candidate?.enabled || !candidate.hasToken || !candidate.upstreamModel) return null
   return {
     channelId: channel.id,
+    ...(candidate.credentialGroupId
+      ? { credentialGroupId: candidate.credentialGroupId }
+      : {}),
     logicalModel,
     upstreamModel: candidate.upstreamModel,
     usedMock: channel.protocol === 'mock',
@@ -177,6 +187,9 @@ export function resolveGenerationTarget(opts: {
     return route
       ? {
           channelId: route.channelId,
+          ...(route.credentialGroupId
+            ? { credentialGroupId: route.credentialGroupId }
+            : {}),
           logicalModel: requestedModel,
           upstreamModel: route.upstreamModel,
           usedMock: pool.find((channel) => channel.id === route.channelId)?.protocol === 'mock',
@@ -201,6 +214,9 @@ export function resolveGenerationTarget(opts: {
     if (routed) {
       return {
         channelId: routed.channelId,
+        ...(routed.credentialGroupId
+          ? { credentialGroupId: routed.credentialGroupId }
+          : {}),
         logicalModel: recipeModel,
         upstreamModel: routed.upstreamModel,
         usedMock: pool.find((channel) => channel.id === routed.channelId)?.protocol === 'mock',

@@ -101,7 +101,12 @@ describe('素材传输 · 多服务（#260）', () => {
     expect(hostingReadiness({ provider: 'tmpfiles', expireSeconds: 86_400 }).ready).toBe(true)
     const bare = hostingReadiness({ provider: 'aliyun-oss', expireSeconds: 86_400 })
     expect(bare.ready).toBe(false)
-    expect(bare.missing).toEqual(['Endpoint', 'Region', 'Bucket', 'AccessKey ID'])
+    expect(bare.missing).toEqual([
+      'API 前缀（Endpoint）',
+      'Region',
+      'Bucket',
+      'AccessKey ID',
+    ])
     expect(hostingReadiness(oss).ready).toBe(true)
   })
 

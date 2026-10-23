@@ -13,8 +13,8 @@
  * - `assetLibrary` 是**收藏关系**（一行 = 用户主动保存过一次），
  *   保存当时冻结的元数据也在这一行上。
  *
- * 因此 `list()` 只查 `assetLibrary`，`remove()` 只删 `assetLibrary` 行 ——
- * 取消收藏不该顺手删掉字节：画布上可能还有节点引用着它。
+ * 因此 `remove()`（取消收藏）只删 `assetLibrary` 行；素材页的“删除记录”
+ * 还会删除对应 RunRecord 历史。两处都不删 `assets` 字节，因为画布节点可能仍引用。
  */
 import type { StoragePort, TableName } from '../../platform/ports'
 import { normalizeTags, toLibraryAssets, type LibraryAsset } from '../../domain/shared/assetLibrary'
@@ -41,7 +41,8 @@ export interface AssetLibraryRepository {
   /**
    * 从素材页移除记录：隐藏该 hash，并删除收藏关系。
    *
-   * 只动素材页自己的记录与隐藏索引，不删 `assets` 字节，也不删运行记录。
+   * 同时隐藏素材页记录、删除收藏关系，并删除输出包含这些 hash 的运行记录。
+   * `assets` 字节不删，画布上仍引用它的节点不能被静默弄坏。
    */
   removeMany(hashes: readonly string[]): Promise<number>
   /** 素材页隐藏索引（跨刷新保存） */
@@ -51,7 +52,7 @@ export interface AssetLibraryRepository {
 }
 
 /** 收藏关系 + 独立标签映射 */
-const TABLES: TableName[] = ['assetLibrary', 'presets']
+const TABLES: TableName[] = ['assetLibrary', 'presets', 'runRecords']
 const TAGS_KEY = 'assetTags:v1'
 const HIDDEN_KEY = 'assetRecordsHidden:v1'
 
@@ -143,12 +144,24 @@ export function createAssetLibraryRepository(storage: StoragePort): AssetLibrary
     async removeMany(hashes) {
       const targets = new Set(hashes.filter((hash) => hash.trim()))
       if (targets.size === 0) return 0
-      await storage.transaction(['assetLibrary', 'presets'], async (tx) => {
+      await storage.transaction(['assetLibrary', 'presets', 'runRecords'], async (tx) => {
         const rows = (await tx.query('presets', { id: HIDDEN_KEY })) as unknown[]
         const hidden = hiddenFrom(rows[0])
         for (const hash of targets) {
           hidden.add(hash)
           await tx.delete('assetLibrary', hash)
+        }
+        const records = (await tx.query('runRecords', {})) as unknown as {
+          id?: unknown
+          outputHashes?: unknown
+        }[]
+        for (const record of records) {
+          const outputs = Array.isArray(record.outputHashes)
+            ? record.outputHashes.filter((hash): hash is string => typeof hash === 'string')
+            : []
+          if (typeof record.id === 'string' && outputs.some((hash) => targets.has(hash))) {
+            await tx.delete('runRecords', record.id)
+          }
         }
         await tx.put('presets', { id: HIDDEN_KEY, hashes: [...hidden] })
       })

@@ -145,6 +145,7 @@ import {
   type VideoExtendModelId,
 } from '../../domain/storyboard/videoExtend'
 import styles from './StoryboardPage.module.css'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 
 const DIGITAL_HUMAN_MODEL_IDS = [
   'Kling V2 数字人口播 Std',
@@ -3941,12 +3942,17 @@ function ShotCard({
         <div className={styles.upscalePanel} data-storyboard-upscale-panel={shot.id}>
           <label className={styles.inlineField}>
             <span className={styles.label}>模型</span>
-            <select
+            <ChoicePicker
+              name={`storyboard-upscale-target-${shot.id}`}
               className={styles.select}
-              value={upscaleTargetIndex}
-              data-storyboard-upscale-target={shot.id}
-              onChange={(e) => {
-                const nextIndex = Number(e.target.value)
+              value={String(upscaleTargetIndex)}
+              ariaLabel="超清模型"
+              options={videoUpscaleTargets.map((target, targetIndex) => ({
+                value: String(targetIndex),
+                label: target.label,
+              }))}
+              onChange={(next) => {
+                const nextIndex = Number(next)
                 const nextTarget = videoUpscaleTargets[nextIndex]
                 if (!nextTarget) return
                 const normalized = normalizeVideoUpscaleSettings(nextTarget.model)
@@ -3954,46 +3960,38 @@ function ShotCard({
                 setUpscaleResolution(normalized.resolution)
                 setUpscaleFrameRate(normalized.frameRate)
               }}
-            >
-              {videoUpscaleTargets.map((target, targetIndex) => (
-                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           {currentUpscaleTarget.resolutions.length > 0 ? (
             <label className={styles.inlineField}>
               <span className={styles.label}>清晰度</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-upscale-resolution-${shot.id}`}
                 className={styles.select}
                 value={upscaleResolution}
-                data-storyboard-upscale-resolution={shot.id}
-                onChange={(e) => setUpscaleResolution(e.target.value)}
-              >
-                {currentUpscaleTarget.resolutions.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
+                ariaLabel="超清清晰度"
+                options={currentUpscaleTarget.resolutions.map((value) => ({
+                  value,
+                  label: value,
+                }))}
+                onChange={setUpscaleResolution}
+              />
             </label>
           ) : null}
           {currentUpscaleTarget.frameRates.length > 0 ? (
             <label className={styles.inlineField}>
               <span className={styles.label}>帧率</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-upscale-fps-${shot.id}`}
                 className={styles.select}
-                value={upscaleFrameRate ?? ''}
-                data-storyboard-upscale-fps={shot.id}
-                onChange={(e) => setUpscaleFrameRate(Number(e.target.value))}
-              >
-                {currentUpscaleTarget.frameRates.map((value) => (
-                  <option key={value} value={value}>
-                    {value}fps
-                  </option>
-                ))}
-              </select>
+                value={upscaleFrameRate == null ? '' : String(upscaleFrameRate)}
+                ariaLabel="超清帧率"
+                options={currentUpscaleTarget.frameRates.map((value) => ({
+                  value: String(value),
+                  label: `${value}fps`,
+                }))}
+                onChange={(value) => setUpscaleFrameRate(Number(value))}
+              />
             </label>
           ) : null}
           <div className={styles.upscaleActions}>
@@ -4032,18 +4030,17 @@ function ShotCard({
         >
           <label className={styles.inlineField}>
             <span className={styles.label}>模型</span>
-            <select
+            <ChoicePicker
+              name={`storyboard-video-erase-target-${shot.id}`}
               className={styles.select}
-              value={videoEraseTargetIndex}
-              data-storyboard-video-erase-target={shot.id}
-              onChange={(e) => setVideoEraseTargetIndex(Number(e.target.value))}
-            >
-              {videoEraseTargets.map((target, targetIndex) => (
-                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
+              value={String(videoEraseTargetIndex)}
+              ariaLabel="字幕擦除模型"
+              options={videoEraseTargets.map((target, targetIndex) => ({
+                value: String(targetIndex),
+                label: target.label,
+              }))}
+              onChange={(value) => setVideoEraseTargetIndex(Number(value))}
+            />
           </label>
           <div className={styles.videoEditActions}>
             <button
@@ -4088,12 +4085,17 @@ function ShotCard({
           </label>
           <label className={styles.inlineField}>
             <span className={styles.label}>模型</span>
-            <select
+            <ChoicePicker
+              name={`storyboard-video-edit-target-${shot.id}`}
               className={styles.select}
-              value={videoEditTargetIndex}
-              data-storyboard-video-edit-target={shot.id}
-              onChange={(e) => {
-                const nextIndex = Number(e.target.value)
+              value={String(videoEditTargetIndex)}
+              ariaLabel="视频编辑模型"
+              options={videoEditTargets.map((target, targetIndex) => ({
+                value: String(targetIndex),
+                label: target.label,
+              }))}
+              onChange={(value) => {
+                const nextIndex = Number(value)
                 const nextTarget = videoEditTargets[nextIndex]
                 if (!nextTarget) return
                 setVideoEditTargetIndex(nextIndex)
@@ -4102,29 +4104,22 @@ function ShotCard({
                   Boolean(nextTarget.supportsReferenceImage && shot.imageHash && laidOut),
                 )
               }}
-            >
-              {videoEditTargets.map((target, targetIndex) => (
-                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           {currentVideoEditTarget.resolutions.length > 0 ? (
             <label className={styles.inlineField}>
               <span className={styles.label}>清晰度</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-video-edit-resolution-${shot.id}`}
                 className={styles.select}
                 value={videoEditResolution}
-                data-storyboard-video-edit-resolution={shot.id}
-                onChange={(e) => setVideoEditResolution(e.target.value)}
-              >
-                {currentVideoEditTarget.resolutions.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
+                ariaLabel="视频编辑清晰度"
+                options={currentVideoEditTarget.resolutions.map((value) => ({
+                  value,
+                  label: value,
+                }))}
+                onChange={setVideoEditResolution}
+              />
             </label>
           ) : null}
           {currentVideoEditTarget.supportsReferenceImage ? (
@@ -4202,12 +4197,17 @@ function ShotCard({
           </label>
           <label className={styles.inlineField}>
             <span className={styles.label}>模型</span>
-            <select
+            <ChoicePicker
+              name={`storyboard-video-extend-target-${shot.id}`}
               className={styles.select}
-              value={videoExtendTargetIndex}
-              data-storyboard-video-extend-target={shot.id}
-              onChange={(e) => {
-                const nextIndex = Number(e.target.value)
+              value={String(videoExtendTargetIndex)}
+              ariaLabel="视频续写模型"
+              options={videoExtendTargets.map((target, targetIndex) => ({
+                value: String(targetIndex),
+                label: target.label,
+              }))}
+              onChange={(value) => {
+                const nextIndex = Number(value)
                 const nextTarget = videoExtendTargets[nextIndex]
                 if (!nextTarget) return
                 const normalized = normalizeVideoExtendSettings(nextTarget.model)
@@ -4215,46 +4215,38 @@ function ShotCard({
                 setVideoExtendResolution(normalized.resolution)
                 setVideoExtendDuration(normalized.duration)
               }}
-            >
-              {videoExtendTargets.map((target, targetIndex) => (
-                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           {currentVideoExtendTarget.resolutions.length > 0 ? (
             <label className={styles.inlineField}>
               <span className={styles.label}>清晰度</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-video-extend-resolution-${shot.id}`}
                 className={styles.select}
                 value={videoExtendResolution}
-                data-storyboard-video-extend-resolution={shot.id}
-                onChange={(e) => setVideoExtendResolution(e.target.value)}
-              >
-                {currentVideoExtendTarget.resolutions.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
+                ariaLabel="视频续写清晰度"
+                options={currentVideoExtendTarget.resolutions.map((value) => ({
+                  value,
+                  label: value,
+                }))}
+                onChange={setVideoExtendResolution}
+              />
             </label>
           ) : null}
           {currentVideoExtendTarget.durations.length > 0 ? (
             <label className={styles.inlineField}>
               <span className={styles.label}>新增时长</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-video-extend-duration-${shot.id}`}
                 className={styles.select}
-                value={videoExtendDuration ?? ''}
-                data-storyboard-video-extend-duration={shot.id}
-                onChange={(e) => setVideoExtendDuration(Number(e.target.value))}
-              >
-                {currentVideoExtendTarget.durations.map((value) => (
-                  <option key={value} value={value}>
-                    {value}s
-                  </option>
-                ))}
-              </select>
+                value={videoExtendDuration == null ? '' : String(videoExtendDuration)}
+                ariaLabel="视频续写新增时长"
+                options={currentVideoExtendTarget.durations.map((value) => ({
+                  value: String(value),
+                  label: `${value}s`,
+                }))}
+                onChange={(value) => setVideoExtendDuration(Number(value))}
+              />
             </label>
           ) : null}
           <div className={styles.videoEditActions}>
@@ -4302,19 +4294,17 @@ function ShotCard({
       <div className={styles.shotBind}>
         <label className={styles.inlineField}>
           <span className={styles.label}>场景</span>
-          <select
+          <ChoicePicker
+            name={`storyboard-shot-scene-${shot.id}`}
             className={styles.select}
             value={shot.sceneId ?? ''}
-            data-storyboard-shot-scene-bind={shot.id}
-            onChange={(e) => onBindScene(e.target.value || null)}
-          >
-            <option value="">未指定</option>
-            {scenes.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+            ariaLabel="绑定场景"
+            options={[
+              { value: '', label: '未指定' },
+              ...scenes.map((scene) => ({ value: scene.id, label: scene.name })),
+            ]}
+            onChange={(value) => onBindScene(value || null)}
+          />
         </label>
         <div className={styles.inlineField}>
           <span className={styles.label}>出场角色</span>
@@ -4421,20 +4411,20 @@ function ShotCard({
                 return (
                   <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
                     <div className={styles.lineMain}>
-                      <select
+                      <ChoicePicker
+                        name={`storyboard-line-speaker-${line.id}`}
                         className={styles.lineSpeaker}
                         value={line.speakerId ?? ''}
-                        aria-label="谁说的"
-                        data-storyboard-line-speaker={line.id}
-                        onChange={(e) => onLinePatch(line.id, { speakerId: e.target.value })}
-                      >
-                        <option value="">谁说…</option>
-                        {characters.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                        ariaLabel="谁说的"
+                        options={[
+                          { value: '', label: '谁说…' },
+                          ...characters.map((character) => ({
+                            value: character.id,
+                            label: character.name,
+                          })),
+                        ]}
+                        onChange={(value) => onLinePatch(line.id, { speakerId: value })}
+                      />
                       <input
                         className={styles.input}
                         value={line.text}
@@ -4456,23 +4446,22 @@ function ShotCard({
                     <div className={styles.lineVoiceControls}>
                       <label className={styles.lineVoiceSelect}>
                         <span>音色</span>
-                        <select
+                        <ChoicePicker
+                          name={`storyboard-line-voice-${line.id}`}
                           className={styles.select}
                           value={line.voice ?? ''}
-                          data-storyboard-line-voice-style={line.id}
-                          onChange={(e) => onLinePatch(line.id, { voice: e.target.value })}
-                        >
-                          <option value="">
-                            {inheritedVoice
-                              ? `跟随角色（${inheritedVoice}）`
-                              : '跟随渠道默认'}
-                          </option>
-                          {voiceOptions.map((item) => (
-                            <option key={item} value={item}>
-                              {item}
-                            </option>
-                          ))}
-                        </select>
+                          ariaLabel="台词语音音色"
+                          options={[
+                            {
+                              value: '',
+                              label: inheritedVoice
+                                ? `跟随角色（${inheritedVoice}）`
+                                : '跟随渠道默认',
+                            },
+                            ...voiceOptions.map((item) => ({ value: item, label: item })),
+                          ]}
+                          onChange={(value) => onLinePatch(line.id, { voice: value })}
+                        />
                       </label>
                       <label className={styles.lineVoiceSpeed}>
                         <span>语速</span>
@@ -4527,19 +4516,21 @@ function ShotCard({
           <>
             <label className={styles.field}>
               <span className={styles.label}>转场到下一镜</span>
-              <select
+              <ChoicePicker
+                name={`storyboard-shot-transition-${shot.id}`}
                 className={styles.select}
                 value={shot.transition ?? 'cut'}
-                data-storyboard-shot-transition={shot.id}
-                onChange={(e) =>
+                ariaLabel="转场到下一镜"
+                options={[
+                  { value: 'cut', label: '硬切' },
+                  { value: 'fade', label: '淡入淡出（黑场）' },
+                ]}
+                onChange={(value) =>
                   onPatch(shot.id, {
-                    transition: e.target.value === 'fade' ? 'fade' : 'cut',
+                    transition: value === 'fade' ? 'fade' : 'cut',
                   })
                 }
-              >
-                <option value="cut">硬切</option>
-                <option value="fade">淡入淡出（黑场）</option>
-              </select>
+              />
             </label>
             {shot.transition === 'fade' ? (
               <label className={styles.field}>
@@ -4746,19 +4737,17 @@ function AssetRow({
         <div className={styles.assetVoiceRow}>
           <label className={styles.inlineField}>
             <span className={styles.label}>默认音色</span>
-            <select
+            <ChoicePicker
+              name={`storyboard-character-voice-${asset.id}`}
               className={styles.select}
               value={asset.voice ?? ''}
-              data-storyboard-character-voice={asset.id}
-              onChange={(e) => onPatch({ voice: e.target.value })}
-            >
-              <option value="">跟随渠道默认</option>
-              {voiceOptions.map((voice) => (
-                <option key={voice} value={voice}>
-                  {voice}
-                </option>
-              ))}
-            </select>
+              ariaLabel="角色默认音色"
+              options={[
+                { value: '', label: '跟随渠道默认' },
+                ...voiceOptions.map((voice) => ({ value: voice, label: voice })),
+              ]}
+              onChange={(voice) => onPatch({ voice })}
+            />
           </label>
           <label className={styles.inlineField}>
             <span className={styles.label}>默认语速</span>

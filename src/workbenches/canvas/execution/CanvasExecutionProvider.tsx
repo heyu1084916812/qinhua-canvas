@@ -119,6 +119,14 @@ export interface CanvasExecutionApi {
 
 const Ctx = createContext<CanvasExecutionApi | null>(null)
 
+function adapterKey(
+  channelId: string,
+  credentialGroupId: string | undefined,
+  kind: RunRequest['kind'],
+): string {
+  return `${channelId}\u0000${credentialGroupId ?? ''}\u0000${kind}`
+}
+
 /**
  * 「正在跑」状态按**项目**存，不按组件实例存。
  *
@@ -278,7 +286,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         }
       },
       channelResolver: (request: RunRequest, runPlanId: string): ChannelAdapter => {
-        const a = adapterMapsRef.current.get(runPlanId)?.get(request.channelId)
+        const ids = request.credentialGroupIds ?? []
+        const groupId =
+          ids.length > 0
+            ? ids[Math.min(request.routingAttempt ?? 0, ids.length - 1)]
+            : request.credentialGroupId
+        const a = adapterMapsRef.current
+          .get(runPlanId)
+          ?.get(adapterKey(request.channelId, groupId, request.kind))
         if (!a) throw new Error(`[execution] 未解析到渠道适配器：${request.channelId}`)
         return a
       },
@@ -469,6 +484,12 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         lastTestLatency: c.lastTestLatency,
         modelIds: c.models.map((m) => m.id),
         modelMap: c.modelMap,
+        credentialGroups: c.credentialGroups.map((group) => ({
+          id: group.id,
+          hasToken: group.hasToken,
+          priority: group.priority,
+          modelIds: group.models.map((model) => model.id),
+        })),
       }))
 
       /** 全局选路策略（用户 2026-09-29 第 12 轮）：一次执行内固定，不再看渠道字段 */
@@ -532,6 +553,12 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           ...task.request,
           channelId: picked.channelId,
           model: picked.upstreamModel,
+          ...(picked.credentialGroupId
+            ? {
+                credentialGroupId: picked.credentialGroupId,
+                credentialGroupIds: picked.credentialGroupIds,
+              }
+            : {}),
         }
       }
 
@@ -547,29 +574,51 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const catalog = channels.protocolCatalog()
       for (const task of plan.tasks) {
         const id = task.request.channelId
-        if (map.has(id)) continue
         const ch = list.find((c) => c.id === id)
         if (!ch) continue
-        const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+        const legacyApiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
         const altApiKey = ch.altCredentialRef
           ? await repo.loadToken(ch.altCredentialRef)
           : null
-        /**
-         * 造不出适配器时**如实报错并中止**，不让异常冒到宿主外。
-         * 冒出去的表现是「点了生成既没请求也没提示」，用户只能干瞪眼 ——
-         * 这正是这次排查花掉最多时间的地方。
-         */
-        try {
-          map.set(id, adapterForChannel(ch, catalog, apiKey, platform, altApiKey))
-        } catch (e) {
-          const app = asAppError(e)
-          store.notify(
-            app
-              ? `渠道「${ch.name}」无法执行：${describeError(app)}`
-              : `渠道「${ch.name}」无法执行：${String(e)}`,
-            'error',
-          )
-          return
+        const groupIds =
+          task.request.credentialGroupIds?.length
+            ? task.request.credentialGroupIds
+            : [task.request.credentialGroupId]
+        for (const groupId of groupIds) {
+          const mapKey = adapterKey(id, groupId, task.request.kind)
+          if (map.has(mapKey)) continue
+          const group = groupId
+            ? ch.credentialGroups.find((item) => item.id === groupId)
+            : undefined
+          const groupKey = group ? await repo.loadToken(group.credentialRef) : null
+          const apiKey =
+            ch.protocol === '65535' && task.request.kind !== 'text'
+              ? null
+              : (groupKey ?? legacyApiKey)
+          const effectiveAltApiKey =
+            ch.protocol === '65535' && task.request.kind !== 'text'
+              ? (groupKey ?? altApiKey)
+              : altApiKey
+          /**
+           * 造不出适配器时**如实报错并中止**，不让异常冒到宿主外。
+           * 冒出去的表现是「点了生成既没请求也没提示」，用户只能干瞪眼 ——
+           * 这正是这次排查花掉最多时间的地方。
+           */
+          try {
+            map.set(
+              mapKey,
+              adapterForChannel(ch, catalog, apiKey, platform, effectiveAltApiKey),
+            )
+          } catch (e) {
+            const app = asAppError(e)
+            store.notify(
+              app
+                ? `渠道「${ch.name}」无法执行：${describeError(app)}`
+                : `渠道「${ch.name}」无法执行：${String(e)}`,
+              'error',
+            )
+            return
+          }
         }
       }
       adapterMapsRef.current.set(plan.id, map)

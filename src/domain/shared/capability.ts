@@ -7,7 +7,11 @@
  */
 export interface ModelCapability {
   id: string
-  category: 'image' | 'chat' | 'video' | 'audio'
+  category: 'image' | 'chat' | 'video' | 'audio' | 'unknown'
+  /** 站点目录给出的原始分类；用户手动改分类后仍保留，便于撤销与重新拉取。 */
+  upstreamCategory?: Exclude<ModelCapability['category'], 'unknown'>
+  /** 当前分类来自用户手动覆盖，不是站点目录的原始值。 */
+  categoryManual?: boolean
   inputTypes: ('text' | 'image' | 'video' | 'audio')[]
   aspectRatios?: string[]
   resolutions?: string[]

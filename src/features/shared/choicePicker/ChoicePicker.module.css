@@ -1,0 +1,143 @@
+.wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.trigger {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-app);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.triggerOpen {
+  background: var(--bg-hover);
+}
+
+.trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.compact {
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  font-size: var(--fs-chip);
+}
+
+.triggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transition: transform 150ms var(--ease-out);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.popup {
+  position: absolute;
+  z-index: 80;
+  left: 0;
+  min-width: 100%;
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.below {
+  top: calc(100% + 6px);
+}
+
+.above {
+  bottom: calc(100% + 6px);
+}
+
+.groupLabel {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.option {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--bg-hover);
+}
+
+.optionOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.optionText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.optionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionHint {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.check {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

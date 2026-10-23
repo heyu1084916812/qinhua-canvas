@@ -164,6 +164,11 @@ export interface ParamPickerProps {
    * 跳转到下面的选项，例如选图片就从图片的开头开始」。
    */
   jumps?: readonly { section: string; label: string }[]
+  /**
+   * `scroll`（默认）= 点分类只滚到对应段；`filter` = 只显示当前分类。
+   * Agent 的生成模型选择使用后者，避免图片与视频同时铺满浮层。
+   */
+  jumpMode?: 'scroll' | 'filter'
 }
 
 /**
@@ -245,6 +250,17 @@ export function ParamPicker(props: ParamPickerProps) {
     },
   ]
   const grouped = Boolean(props.sections)
+  const jumpMode = props.jumpMode ?? 'scroll'
+  const [activeJump, setActiveJump] = useState(props.jumps?.[0]?.section ?? '')
+  useEffect(() => {
+    if (!open) return
+    const first = props.jumps?.[0]?.section ?? ''
+    if (!props.jumps?.some((jump) => jump.section === activeJump)) setActiveJump(first)
+  }, [activeJump, open, props.jumps])
+  const renderedSections =
+    jumpMode === 'filter' && activeJump
+      ? sections.filter((section) => section.name === activeJump)
+      : sections
   /**
    * 「这一段有没有内容」的计数。
    *
@@ -304,7 +320,7 @@ export function ParamPicker(props: ParamPickerProps) {
     setThumbs((prev) => {
       const next: Record<string, PillThumbBox> = {}
       let changed = false
-      for (const s of sections) {
+      for (const s of renderedSections) {
         if (s.variant !== 'pill') continue
         /** 单段模式：轨道就是浮层自己（`VARIANT_CLASS.pill` 贴在 `.popup` 上） */
         const track = grouped ? pillRefs.current.get(s.name) : popRef.current
@@ -332,7 +348,7 @@ export function ParamPicker(props: ParamPickerProps) {
       if (!changed && Object.keys(prev).length === Object.keys(next).length) return prev
       return next
     })
-  }, [open, pillKey, grouped, sections])
+  }, [open, pillKey, grouped, renderedSections])
 
   /**
    * 跳到某一段（顶部那排「图片 / 视频」）。
@@ -471,16 +487,27 @@ export function ParamPicker(props: ParamPickerProps) {
                     <button
                       key={j.section}
                       type="button"
-                      className={styles.jumpBtn}
+                      className={
+                        jumpMode === 'filter' && activeJump === j.section
+                          ? `${styles.jumpBtn} ${styles.jumpBtnOn ?? ''}`
+                          : styles.jumpBtn
+                      }
                       data-param-jump={j.section}
-                      onClick={() => scrollToSection(j.section)}
+                      onClick={() => {
+                        if (jumpMode === 'filter') {
+                          setActiveJump(j.section)
+                          if (popRef.current) popRef.current.scrollTop = 0
+                        } else {
+                          scrollToSection(j.section)
+                        }
+                      }}
                     >
                       {j.label}
                     </button>
                   ))}
                 </div>
               )}
-              {sections.map((s) => {
+              {renderedSections.map((s) => {
                 /** 折叠态只画前 `collapsedCount` 条，剩下的靠「加载更多」放出来 */
                 const showAll = !s.collapsedCount || expanded[s.name]
                 const visible = showAll ? s.options : s.options.slice(0, s.collapsedCount)

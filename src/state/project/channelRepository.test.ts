@@ -65,6 +65,9 @@ describe('channelRepository', () => {
     const repo = createChannelRepository(p.storage, p.credentials)
     const ch = await repo.create({ name: 'A', protocol: 'mock', baseUrl: 'https://a' })
     expect(ch.credentialRef).toBeTruthy()
+    expect(ch.credentialGroups).toHaveLength(1)
+    expect(ch.credentialGroups[0]?.credentialRef).toBe(ch.credentialRef)
+    expect(ch.credentialGroups[0]?.name).toBe('默认分组')
 
     expect(await repo.list()).toHaveLength(1)
     expect((await repo.get(ch.id))?.name).toBe('A')
@@ -99,16 +102,65 @@ describe('channelRepository', () => {
     expect(await repo.loadToken(ch.credentialRef!)).toBe('sk-test')
   })
 
-  it('remove 同时清理主凭据与备用凭据', async () => {
+  it('remove 同时清理主凭据、备用凭据与新增分组凭据', async () => {
     const p = createMemoryPlatform()
     const repo = createChannelRepository(p.storage, p.credentials)
     const ch = await repo.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    const thirdRef = 'cred_third'
+    await repo.update(ch.id, {
+      credentialGroups: [
+        ...ch.credentialGroups,
+        {
+          id: 'group_third',
+          name: '第三组',
+          credentialRef: thirdRef,
+          tokenTail: null,
+          hasToken: true,
+          priority: -2,
+          models: [],
+          modelCache: [],
+          createdAt: 2,
+        },
+      ],
+    })
     await repo.saveToken(ch.credentialRef!, 'sk')
     await repo.saveToken(ch.altCredentialRef!, 'sk-alt')
+    await repo.saveToken(thirdRef, 'sk-third')
     await repo.remove(ch.id)
     expect(await repo.get(ch.id)).toBeNull()
     expect(await repo.loadToken(ch.credentialRef!)).toBeNull()
     expect(await repo.loadToken(ch.altCredentialRef!)).toBeNull()
+    expect(await repo.loadToken(thirdRef)).toBeNull()
+  })
+
+  it('老 65535 双槽按能力迁移成对话 / 生图两个分组', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await p.storage.put('channels', {
+      id: 'legacy-65535',
+      name: '65535',
+      protocol: '65535',
+      baseUrl: 'https://api2.65535.space',
+      credentialRef: 'cred_chat',
+      altCredentialRef: 'cred_image',
+      hasToken: true,
+      hasAltToken: true,
+      models: [
+        { id: 'gemini-3.8-flash', category: 'chat', inputTypes: ['text'] },
+        { id: 'gpt-image-2', category: 'image', inputTypes: ['text', 'image'] },
+      ],
+      modelCache: [
+        { id: 'gemini-3.8-flash', category: 'chat', inputTypes: ['text'] },
+        { id: 'gpt-image-2', category: 'image', inputTypes: ['text', 'image'] },
+      ],
+      createdAt: 1,
+    } as never)
+    const ch = await repo.get('legacy-65535')
+    expect(ch?.credentialGroups.map((group) => group.name)).toEqual(['对话分组', '生图分组'])
+    expect(ch?.credentialGroups[0]?.models.map((model) => model.id)).toEqual([
+      'gemini-3.8-flash',
+    ])
+    expect(ch?.credentialGroups[1]?.models.map((model) => model.id)).toEqual(['gpt-image-2'])
   })
 
   it('removeToken 只清密文，渠道与凭据槽位保留（可再存）', async () => {

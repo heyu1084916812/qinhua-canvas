@@ -67,6 +67,14 @@ export interface Channel {
   altTokenTail: string | null
   /** 备用槽的「存过没有」（同上；缺省回落到 `altTokenTail !== null`） */
   hasAltToken: boolean
+  /**
+   * 同一渠道内的多个 Key 分组。
+   *
+   * 每个分组绑定一把独立凭据与一份该 Key 能看到的模型目录。分组共同存在于
+   * 一条渠道里，不是「当前使用哪一把」的切换器；执行时按 `priority` 选组。
+   * 读取老数据时由仓库从主 / 备用槽派生，写入后以此数组为准。
+   */
+  credentialGroups: ChannelCredentialGroup[]
   /** 仅已启用渠道出现在画布创作面板的平台选择中（产品文档 §7.1） */
   enabled: boolean
   /**
@@ -122,6 +130,22 @@ export interface Channel {
   lastTestAt: number | null
   /** 上次「验证地址」的往返延迟（ms）；从未验证过为 null */
   lastTestLatency: number | null
+  createdAt: number
+}
+
+export interface ChannelCredentialGroup {
+  id: string
+  /** 用户可改的分组名，例如 `OpenAi - Std`、`image2专用分组` */
+  name: string
+  credentialRef: string
+  tokenTail: string | null
+  hasToken: boolean
+  /** 数值越大越先；同档按创建时间 */
+  priority: number
+  /** 该 Key 拉回并勾选的模型 */
+  models: ModelCapability[]
+  /** 该 Key 拉回的全部模型 */
+  modelCache: ModelCapability[]
   createdAt: number
 }
 
@@ -203,7 +227,7 @@ export const PROBE_PROTOCOLS: { value: string; label: string; short: string }[] 
 export function channelCapabilities(
   channel: Pick<Channel, 'models'>,
   declared: readonly ModelCapability['category'][] = [],
-): Record<ModelCapability['category'], boolean> {
+): Record<Exclude<ModelCapability['category'], 'unknown'>, boolean> {
   const fromModels = new Set(channel.models.map((m) => m.category))
   const set = fromModels.size > 0 ? fromModels : new Set<ModelCapability['category']>(declared)
   return {
@@ -227,6 +251,7 @@ export function createChannel(input: CreateChannelInput): Channel {
     altCredentialRef: null,
     altTokenTail: null,
     hasAltToken: false,
+    credentialGroups: [],
     /**
      * **新建即启用**（用户第 19 批 #3：「新建的渠道默认启用」）。
      *
@@ -280,7 +305,12 @@ export function requiresBaseUrl(protocol: string, catalog: ProtocolCatalog = BUI
 export function channelIsRoutable(
   channel: Pick<
     Channel,
-    'protocol' | 'baseUrl' | 'enabled' | 'hasToken' | 'hasAltToken'
+    | 'protocol'
+    | 'baseUrl'
+    | 'enabled'
+    | 'hasToken'
+    | 'hasAltToken'
+    | 'credentialGroups'
   >,
   catalog: ProtocolCatalog = BUILTIN_CATALOG,
 ): boolean {
@@ -289,7 +319,13 @@ export function channelIsRoutable(
   if (!def || def.status !== 'ready') return false
   if (protocolRequiresBaseUrl(channel.protocol, catalog) && !channel.baseUrl.trim()) return false
   if (def.family === 'mock' || def.family === 'cli-gateway') return true
-  if (channel.hasToken || channel.hasAltToken) return true
+  if (
+    channel.hasToken ||
+    channel.hasAltToken ||
+    channel.credentialGroups?.some((group) => group.hasToken)
+  ) {
+    return true
+  }
   try {
     const host = new URL(channel.baseUrl).hostname.toLowerCase()
     return host === 'localhost' || host === '127.0.0.1' || host === '::1'

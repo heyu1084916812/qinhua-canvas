@@ -92,16 +92,25 @@ export function defaultAgentDockLayout(area: AgentWorkArea): AgentDockLayout {
   }
 }
 
-/** 展开时沿用面板上次位置；首次默认在日志下方，避免盖住右上角入口。 */
+/**
+ * 展开时以浮球为锚点：优先放在球右侧，右边空间不足就翻到左侧；
+ * 纵向以球心对齐，贴边时再 clamp 回画布工作区。
+ */
 export function openAgentPanel(layout: AgentDockLayout, area: AgentWorkArea): AgentDockLayout {
   const width = agentPanelWidth(area)
   const height = agentPanelHeight(area, layout.panel.height)
+  const rightX = layout.orb.x + AGENT_ORB_SIZE + AGENT_DOCK_GAP
+  const leftX = layout.orb.x - width - AGENT_DOCK_GAP
+  const rightFits =
+    rightX + width <= area.x + area.width - AGENT_DOCK_GAP
+  const anchoredX = rightFits ? rightX : leftX
+  const anchoredY = layout.orb.y + AGENT_ORB_SIZE / 2 - height / 2
   return {
     ...layout,
     panel: clampAgentPanel(
       {
-        x: layout.panel.x,
-        y: layout.panel.y,
+        x: anchoredX,
+        y: anchoredY,
         width,
         height,
       },

@@ -60,7 +60,9 @@ describe('素材传输 · 上传（#260）', () => {
 
   it('★★ 配置不全 ⇒ 报错里点名缺什么（不让用户对着 401 猜）', async () => {
     const { hosting } = await harness({ provider: 'aliyun-oss', expireSeconds: 86_400 })
-    await expect(hosting.upload({ blob: probe(), name: 'a.png' })).rejects.toThrow(/还缺配置：Endpoint/)
+    await expect(hosting.upload({ blob: probe(), name: 'a.png' })).rejects.toThrow(
+      /还缺配置：API 前缀（Endpoint）/,
+    )
   })
 
   it('★★ 没填密钥 ⇒ 单独报一句（配置齐 ≠ 能用）', async () => {

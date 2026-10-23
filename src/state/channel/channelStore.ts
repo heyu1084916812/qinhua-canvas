@@ -1,6 +1,7 @@
 import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
+import type { ChannelCredentialGroup } from '../../domain/project/channel'
 import { channelIsRoutable, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
 import {
   buildProtocolCatalog,
@@ -25,6 +26,11 @@ import {
   resolveForNode,
 } from '../../domain/project/generationPreset'
 import type { ModelCapability } from '../../domain/shared/capability'
+import {
+  PRESET_MODELS,
+  type PresetModel,
+  type PresetVendor,
+} from '../../domain/project/modelPresets'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
 import { BUILTIN_CHANNEL_IDS, isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import type { CredentialSlot } from '../../domain/project/channel'
@@ -42,6 +48,7 @@ import type {
 } from '../../platform/channels/types'
 import type { ChatMessage, NodeInput, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
+import { createId } from '../../shared/id'
 
 /**
  * zustand 5 的 createStore 类型与本项目装好的 TypeScript 6 泛型推断冲突（见 state/workbenches/canvas/store.ts）。
@@ -106,6 +113,8 @@ export interface ChannelStoreState {
   recipeMemory: boolean
   /** 用户自建协议（内置协议不在这里，见 domain/project/protocol 的目录） */
   customProtocols: ProtocolDefinition[]
+  /** 用户新增的全局前端模型；内置 `PRESET_MODELS` 不允许删除。 */
+  customModels: PresetModel[]
   loaded: boolean
   verify: ChannelVerify
   models: ChannelModelsResult
@@ -123,6 +132,14 @@ export interface ChannelStoreActions {
   create(input: CreateChannelInput): Promise<Channel>
   update(id: string, patch: Partial<Channel>): Promise<Channel>
   remove(id: string): Promise<void>
+  globalModelsOf(category: PresetModel['category']): PresetModel[]
+  globalModelOf(name: string): PresetModel | undefined
+  addGlobalModel(input: {
+    name: string
+    category: PresetModel['category']
+    vendor: PresetVendor
+  }): Promise<PresetModel>
+  removeGlobalModel(name: string): Promise<void>
   /** 拖动排序（§7.2）：整表重编号 */
   reorder(orderedIds: string[]): Promise<void>
   /**
@@ -141,9 +158,24 @@ export interface ChannelStoreActions {
   loadToken(id: string, slot?: CredentialSlot): Promise<string | null>
   /** 删除令牌（§7.3）：只清密文，渠道保留、可再存 */
   removeToken(id: string, slot?: CredentialSlot): Promise<void>
+  /** 新增一个 Key 分组；模型目录初始为空，等待用这把 Key 拉取。 */
+  addCredentialGroup(id: string, name?: string): Promise<ChannelCredentialGroup>
+  renameCredentialGroup(id: string, groupId: string, name: string): Promise<void>
+  setCredentialGroupPriority(id: string, groupId: string, priority: number): Promise<void>
+  removeCredentialGroup(id: string, groupId: string): Promise<void>
+  saveCredentialGroupToken(id: string, groupId: string, token: string): Promise<void>
+  loadCredentialGroupToken(id: string, groupId: string): Promise<string | null>
+  removeCredentialGroupToken(id: string, groupId: string): Promise<void>
   setEnabled(id: string, enabled: boolean): Promise<void>
   /** 「应用到模型列表」（§7.4）：把面板勾选结果写进 `models` */
-  setModels(id: string, models: ModelCapability[]): Promise<void>
+  setModels(id: string, models: ModelCapability[], groupId?: string): Promise<void>
+  /** 用户手动修正某个模型的分类；保留站点原始分类供追溯。 */
+  setModelCategory(
+    id: string,
+    modelId: string,
+    category: ModelCapability['category'],
+    groupId?: string,
+  ): Promise<void>
   /**
    * 写一条模型映射（§7.4.1，M7-2）：`逻辑名 → 该站上游 ID`。
    * 上游 ID 传空串即**删除**该条映射（回到恒等），不存空串。
@@ -158,14 +190,14 @@ export interface ChannelStoreActions {
   setRouteStrategy(strategy: RouteStrategy): Promise<void>
   hasToken(id: string, slot?: CredentialSlot): Promise<boolean>
   /** 「验证地址」（§7.3）：只测通不通 + 延迟，不碰 models / modelCache */
-  verify(id: string): Promise<void>
+  verify(id: string, groupId?: string): Promise<void>
   /**
    * 「验证协议」（§7.3）：按候选表逐个试打，第一个通过的写回 `protocol` 并落库。
    * @returns 命中的协议 value；全失败返回 null（状态行给最后一条失败原因）
    */
-  detectProtocol(id: string): Promise<string | null>
+  detectProtocol(id: string, groupId?: string): Promise<string | null>
   /** 「拉取模型」（§7.4）：把该地址的全部模型写进 `modelCache`（选择面板的数据源） */
-  refreshModels(id: string): Promise<void>
+  refreshModels(id: string, groupId?: string): Promise<void>
   /** 已启用渠道：供创作面板的平台下拉使用（M2-2 接入） */
   enabledChannels(): Channel[]
   /**
@@ -289,6 +321,7 @@ export function createChannelStore(
     routeStrategy: 'priority',
     recipeMemory: true,
     customProtocols: [],
+    customModels: [],
     loaded: false,
     verify: { status: 'idle' },
     models: { status: 'idle' },
@@ -324,13 +357,14 @@ export function createChannelStore(
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [loadedChannels, customRows, routeStrategy, recipeMemory] = await Promise.all([
+    const [loadedChannels, customRows, customModels, routeStrategy, recipeMemory] = await Promise.all([
       /**
        * ★ 读表时**补齐常驻内置渠道**（用户第 20 批起）：它们常驻、置顶、不可删。
        * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
        */
       seedBuiltins ? repo.seedBuiltins() : repo.list(),
       platform.storage.query('customProtocols', {}),
+      presets.loadCustomModels(),
       presets.loadRoutingStrategy(),
       presets.loadRecipeMemory(),
     ])
@@ -343,7 +377,17 @@ export function createChannelStore(
     )
     if (staleRunningHub.length > 0) {
       const cleared = await Promise.all(
-        staleRunningHub.map((c) => repo.update(c.id, { modelCache: [], models: [] })),
+        staleRunningHub.map((c) =>
+          repo.update(c.id, {
+            modelCache: [],
+            models: [],
+            credentialGroups: c.credentialGroups.map((group) => ({
+              ...group,
+              modelCache: [],
+              models: [],
+            })),
+          }),
+        ),
       )
       const clearedById = new Map(cleared.map((c) => [c.id, c]))
       channels = channels.map((c) => clearedById.get(c.id) ?? c)
@@ -351,7 +395,14 @@ export function createChannelStore(
     const customProtocols = customRows
       .map((r) => toCustomDefinition(r as Record<string, unknown>))
       .filter((p): p is ProtocolDefinition => p !== null)
-    store.setState({ channels, customProtocols, routeStrategy, recipeMemory, loaded: true })
+    store.setState({
+      channels,
+      customProtocols,
+      customModels,
+      routeStrategy,
+      recipeMemory,
+      loaded: true,
+    })
   }
 
   const createCustomProtocol: ChannelStoreActions['createCustomProtocol'] = async (input) => {
@@ -398,6 +449,43 @@ export function createChannelStore(
     store.setState((s) => ({ channels: s.channels.filter((c) => c.id !== id) }))
   }
 
+  const globalModelsOf: ChannelStoreActions['globalModelsOf'] = (category) =>
+    [...PRESET_MODELS, ...store.getState().customModels].filter(
+      (model) => model.category === category,
+    )
+
+  const globalModelOf: ChannelStoreActions['globalModelOf'] = (name) => {
+    const key = name.trim()
+    return [...PRESET_MODELS, ...store.getState().customModels].find(
+      (model) => model.id === key,
+    )
+  }
+
+  const addGlobalModel: ChannelStoreActions['addGlobalModel'] = async (input) => {
+    const name = input.name.trim()
+    if (!name) throw new Error('模型名称不能为空')
+    if (globalModelOf(name)) throw new Error(`前端模型「${name}」已经存在`)
+    const model: PresetModel = {
+      id: name,
+      category: input.category,
+      vendor: input.vendor,
+    }
+    const next = [...store.getState().customModels, model]
+    await presets.saveCustomModels(next)
+    store.setState({ customModels: next })
+    return model
+  }
+
+  const removeGlobalModel: ChannelStoreActions['removeGlobalModel'] = async (name) => {
+    const key = name.trim()
+    if (!store.getState().customModels.some((model) => model.id === key)) {
+      throw new Error('内置前端模型不能删除')
+    }
+    const next = store.getState().customModels.filter((model) => model.id !== key)
+    await presets.saveCustomModels(next)
+    store.setState({ customModels: next })
+  }
+
   const reorder: ChannelStoreActions['reorder'] = async (orderedIds) => {
     /**
      * **内置渠道永远在最前**（用户第 20 批：「那三个渠道是一直在最上面」）：
@@ -441,7 +529,34 @@ export function createChannelStore(
      * **“存过”必须与尾号分开记**（对账 #517）：短令牌没有尾号，只写尾号的话
      * 界面会把它读成「没存过」，显示 / 删除两个按钮也一起置灰。
      */
-    await update(id, { [f.tail]: tokenTailOf(token), [f.has]: true })
+    let group = [...ch.credentialGroups].sort(
+      (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+    )[slot === 'alt' ? 1 : 0]
+    if (!group && slot === 'alt') {
+      group = {
+        id: createId('credgroup'),
+        name: '备用分组',
+        credentialRef: f.ref,
+        tokenTail: null,
+        hasToken: false,
+        priority: 0,
+        models: [],
+        modelCache: [],
+        createdAt: Date.now(),
+      }
+      await update(id, { credentialGroups: [...ch.credentialGroups, group] })
+    }
+    if (group) {
+      await patchCredentialGroup(id, group.id, {
+        tokenTail: tokenTailOf(token),
+        hasToken: true,
+      })
+      if (slot === 'alt') {
+        await update(id, { altTokenTail: tokenTailOf(token), hasAltToken: true })
+      }
+    } else {
+      await update(id, { [f.tail]: tokenTailOf(token), [f.has]: true })
+    }
   }
 
   const removeToken: ChannelStoreActions['removeToken'] = async (id, slot = 'primary') => {
@@ -449,7 +564,17 @@ export function createChannelStore(
     const f = ch ? slotFields(ch, slot) : null
     if (!ch || !f?.ref) return
     await repo.removeToken(f.ref)
-    await update(id, { [f.tail]: null, [f.has]: false })
+    const group = [...ch.credentialGroups].sort(
+      (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+    )[slot === 'alt' ? 1 : 0]
+    if (group) {
+      await patchCredentialGroup(id, group.id, { tokenTail: null, hasToken: false })
+      if (slot === 'alt') {
+        await update(id, { altTokenTail: null, hasAltToken: false })
+      }
+    } else {
+      await update(id, { [f.tail]: null, [f.has]: false })
+    }
   }
 
   /**
@@ -463,6 +588,120 @@ export function createChannelStore(
     const ref = ch ? slotFields(ch, slot).ref : null
     return ref ? repo.loadToken(ref) : null
   }
+
+  const credentialGroupOf = (ch: Channel, groupId?: string): ChannelCredentialGroup => {
+    const group = groupId
+      ? ch.credentialGroups.find((item) => item.id === groupId)
+      : [...ch.credentialGroups].sort(
+          (a, b) => b.priority - a.priority || a.createdAt - b.createdAt,
+        )[0]
+    if (!group) throw new Error(`[channelStore] 渠道没有可用的 Key 分组：${ch.name}`)
+    return group
+  }
+
+  const patchCredentialGroup = async (
+    id: string,
+    groupId: string,
+    patch: Partial<ChannelCredentialGroup>,
+  ): Promise<void> => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    if (!ch.credentialGroups.some((group) => group.id === groupId)) {
+      throw new Error(`[channelStore] Key 分组不存在：${groupId}`)
+    }
+    await update(id, {
+      credentialGroups: ch.credentialGroups.map((group) =>
+        group.id === groupId ? { ...group, ...patch, id: group.id } : group,
+      ),
+    })
+  }
+
+  const addCredentialGroup: ChannelStoreActions['addCredentialGroup'] = async (
+    id,
+    name,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    const group: ChannelCredentialGroup = {
+      id: createId('credgroup'),
+      name: name?.trim() || `Key 分组 ${ch.credentialGroups.length + 1}`,
+      credentialRef: createId('cred'),
+      tokenTail: null,
+      hasToken: false,
+      priority: 0,
+      models: [],
+      modelCache: [],
+      createdAt: Date.now(),
+    }
+    await update(id, { credentialGroups: [...ch.credentialGroups, group] })
+    return group
+  }
+
+  const renameCredentialGroup: ChannelStoreActions['renameCredentialGroup'] = async (
+    id,
+    groupId,
+    name,
+  ) => {
+    await patchCredentialGroup(id, groupId, { name: name.trim() || '未命名分组' })
+  }
+
+  const setCredentialGroupPriority: ChannelStoreActions['setCredentialGroupPriority'] =
+    async (id, groupId, priority) => {
+      await patchCredentialGroup(id, groupId, {
+        priority: Number.isFinite(priority) ? Math.trunc(priority) : 0,
+      })
+    }
+
+  const removeCredentialGroup: ChannelStoreActions['removeCredentialGroup'] = async (
+    id,
+    groupId,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) return
+    if (ch.credentialGroups.length <= 1) {
+      throw new Error('至少要保留一个 Key 分组；不想使用这个渠道可以停用或删除渠道')
+    }
+    const target = ch.credentialGroups.find((group) => group.id === groupId)
+    if (!target) return
+    await update(id, {
+      credentialGroups: ch.credentialGroups.filter((group) => group.id !== groupId),
+    })
+    await repo.removeToken(target.credentialRef)
+  }
+
+  const saveCredentialGroupToken: ChannelStoreActions['saveCredentialGroupToken'] = async (
+    id,
+    groupId,
+    token,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    const group = ch.credentialGroups.find((item) => item.id === groupId)
+    if (!group) throw new Error(`[channelStore] Key 分组不存在：${groupId}`)
+    await repo.saveToken(group.credentialRef, token)
+    await patchCredentialGroup(id, groupId, {
+      tokenTail: tokenTailOf(token),
+      hasToken: true,
+    })
+  }
+
+  const loadCredentialGroupToken: ChannelStoreActions['loadCredentialGroupToken'] = async (
+    id,
+    groupId,
+  ) => {
+    const ch = await repo.get(id)
+    const group = ch?.credentialGroups.find((item) => item.id === groupId)
+    return group ? repo.loadToken(group.credentialRef) : null
+  }
+
+  const removeCredentialGroupToken: ChannelStoreActions['removeCredentialGroupToken'] =
+    async (id, groupId) => {
+      const ch = await repo.get(id)
+      const group = ch?.credentialGroups.find((item) => item.id === groupId)
+      if (!group) return
+      await repo.removeToken(group.credentialRef)
+      await patchCredentialGroup(id, groupId, { tokenTail: null, hasToken: false })
+    }
 
   /**
    * 启用开关：**先改内存，再落库**（乐观更新，2026-10-08 修）。
@@ -492,8 +731,57 @@ export function createChannelStore(
     }
   }
 
-  const setModels: ChannelStoreActions['setModels'] = async (id, models) => {
-    await update(id, { models })
+  const setModels: ChannelStoreActions['setModels'] = async (id, models, groupId) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    if (ch.credentialGroups.length === 0) {
+      await update(id, { models })
+      return
+    }
+    const group = credentialGroupOf(ch, groupId)
+    await patchCredentialGroup(id, group.id, { models })
+  }
+
+  const setModelCategory: ChannelStoreActions['setModelCategory'] = async (
+    id,
+    modelId,
+    category,
+    groupId,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    const targetGroup = ch.credentialGroups.length
+      ? credentialGroupOf(ch, groupId)
+      : undefined
+    const patchModel = (model: ModelCapability): ModelCapability =>
+      model.id === modelId
+        ? {
+            ...model,
+            category,
+            upstreamCategory:
+              model.upstreamCategory ??
+              (model.category === 'unknown' ? undefined : model.category),
+            categoryManual: true,
+          }
+        : model
+    if (!targetGroup) {
+      await update(id, {
+        models: ch.models.map(patchModel),
+        modelCache: ch.modelCache.map(patchModel),
+      })
+      return
+    }
+    await update(id, {
+      credentialGroups: ch.credentialGroups.map((group) =>
+        group.id === targetGroup.id
+          ? {
+              ...group,
+              models: group.models.map(patchModel),
+              modelCache: group.modelCache.map(patchModel),
+            }
+          : group,
+      ),
+    })
   }
 
   const setModelMappingAction: ChannelStoreActions['setModelMapping'] = async (
@@ -539,7 +827,7 @@ export function createChannelStore(
     return (await repo.loadToken(ref)) != null
   }
 
-  const verify: ChannelStoreActions['verify'] = async (id) => {
+  const verify: ChannelStoreActions['verify'] = async (id, groupId) => {
     const ch = await repo.get(id)
     if (!ch) return
     // 地址都没填就别发请求：空地址会让 URL 退化成**相对当前页**的路径（`/v1/models`），
@@ -554,9 +842,20 @@ export function createChannelStore(
     const startedAt = Date.now()
     const elapsed = () => Date.now() - startedAt
     try {
-      const { apiKey, altApiKey } = await loadKeys(ch)
+      const group =
+        ch.credentialGroups.length > 0 ? credentialGroupOf(ch, groupId) : undefined
+      const groupKey = group ? await repo.loadToken(group.credentialRef) : null
+      const { apiKey: legacyApiKey, altApiKey: legacyAltApiKey } = await loadKeys(ch)
+      const apiKey = groupKey ?? legacyApiKey
+      const altApiKey =
+        ch.protocol === '65535' && group?.models.every((model) => model.category !== 'chat')
+          ? (groupKey ?? legacyAltApiKey)
+          : legacyAltApiKey
       const config: ResolvedChannelConfig = {
         ...toSafeConfig(ch, catalog()),
+        ...(group
+          ? { credentialRef: group.credentialRef, modelCache: group.modelCache }
+          : {}),
         apiKey,
         altApiKey,
       }
@@ -584,7 +883,7 @@ export function createChannelStore(
     }
   }
 
-  const detectProtocol: ChannelStoreActions['detectProtocol'] = async (id) => {
+  const detectProtocol: ChannelStoreActions['detectProtocol'] = async (id, groupId) => {
     const ch = await repo.get(id)
     if (!ch) return null
     // 候选协议都是「打某个真实端点」的协议，没有地址就没有可打的东西。
@@ -596,7 +895,13 @@ export function createChannelStore(
       return null
     }
     store.setState({ detect: { status: 'checking', protocol: null } })
-    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+    const group =
+      ch.credentialGroups.length > 0 ? credentialGroupOf(ch, groupId) : undefined
+    const apiKey = group
+      ? await repo.loadToken(group.credentialRef)
+      : ch.credentialRef
+        ? await repo.loadToken(ch.credentialRef)
+        : null
     /**
      * 探测只问一件事：这个地址是不是 OpenAI 兼容 HTTP。
      *
@@ -650,19 +955,64 @@ export function createChannelStore(
     return null
   }
 
-  const refreshModels: ChannelStoreActions['refreshModels'] = async (id) => {
+  const refreshModels: ChannelStoreActions['refreshModels'] = async (id, groupId) => {
     const ch = await repo.get(id)
     if (!ch) return
     store.setState({ models: { status: 'checking' } })
     try {
-      const { apiKey, altApiKey } = await loadKeys(ch)
+      const group =
+        ch.credentialGroups.length > 0 ? credentialGroupOf(ch, groupId) : undefined
+      const apiKey = group
+        ? await repo.loadToken(group.credentialRef)
+        : (await loadKeys(ch)).apiKey
+      const altApiKey = group ? null : (await loadKeys(ch)).altApiKey
       const config: ResolvedChannelConfig = {
         ...toSafeConfig(ch, catalog()),
+        ...(group
+          ? {
+              credentialRef: group.credentialRef,
+              modelCache: group.modelCache,
+            }
+          : {}),
         apiKey,
         altApiKey,
       }
       const adapter = createChannelAdapter(config, platform)
-      const models = await adapter.listModels(config, timeoutSignal(10_000))
+      let pulled: ModelCapability[]
+      try {
+        pulled = await adapter.listModels(config, timeoutSignal(10_000))
+      } catch (error) {
+        if (ch.protocol !== '65535' || !group) throw error
+        const taskDefinition = protocolById('65535-task', catalog())
+        const taskConfig: ResolvedChannelConfig = {
+          ...config,
+          protocol: '65535-task',
+          protocolDefinition: taskDefinition,
+          baseUrl:
+            taskDefinition?.defaultBaseUrl ?? 'https://task-api-1.65535.space',
+        }
+        pulled = await createChannelAdapter(taskConfig, platform).listModels(
+          taskConfig,
+          timeoutSignal(10_000),
+        )
+      }
+      const manualById = new Map(
+        [...(group?.modelCache ?? ch.modelCache), ...(group?.models ?? ch.models)]
+          .filter((model) => model.categoryManual)
+          .map((model) => [model.id, model]),
+      )
+      const models = pulled.map((model) => {
+        const manual = manualById.get(model.id)
+        return manual
+          ? {
+              ...model,
+              category: manual.category,
+              upstreamCategory:
+                model.category === 'unknown' ? undefined : model.category,
+              categoryManual: true,
+            }
+          : model
+      })
       /**
        * 拉取后**顺带建默认映射**（§7.4.1）：上游 ID 与逻辑名同名的自动补成恒等映射，
        * 不同名的留空待用户填。
@@ -672,19 +1022,28 @@ export function createChannelStore(
        * 想起来有哪些名字。补的是**同名恒等**项，行为与不写完全一致，零风险。
        */
       const logicalNames = [
-        ...new Set([...models.map((m) => m.id), ...ch.models.map((m) => m.id)]),
+        ...new Set([
+          ...models.map((model) => model.id),
+          ...(group?.models ?? ch.models).map((model) => model.id),
+        ]),
       ]
       /**
        * 已勾选模型的选择集合不变，但能力元数据必须跟着最新目录刷新。
        * Comfly 旧缓存曾把 `gemini-3.1-flash-image` 误判为 chat；只更新
        * `modelCache` 会让它继续以“Nano Banana 2”出现在对话模型里。
        */
-      const refreshedSelection = ch.models.map(
+      const refreshedSelection = (group?.models ?? ch.models).map(
         (selected) => models.find((model) => model.id === selected.id) ?? selected,
       )
+      const nextGroups = group
+        ? ch.credentialGroups.map((item) =>
+            item.id === group.id
+              ? { ...item, modelCache: models, models: refreshedSelection }
+              : item,
+          )
+        : ch.credentialGroups
       const updated = await repo.update(id, {
-        modelCache: models,
-        models: refreshedSelection,
+        ...(group ? { credentialGroups: nextGroups } : { modelCache: models, models: refreshedSelection }),
         modelMap: buildDefaultModelMap(ch.modelMap, logicalNames, models.map((m) => m.id)),
       })
       store.setState((s) => ({
@@ -697,7 +1056,18 @@ export function createChannelStore(
       const app = asAppError(e)
       const message = app ? describeError(app) : e instanceof Error ? e.message : String(e)
       if (app?.kind === 'channel' && app.detail === 'missingKey') {
-        const cleared = await repo.update(id, { modelCache: [], models: [] })
+        const group =
+          ch.credentialGroups.length > 0 ? credentialGroupOf(ch, groupId) : undefined
+        const cleared = await repo.update(
+          id,
+          group
+            ? {
+                credentialGroups: ch.credentialGroups.map((item) =>
+                  item.id === group.id ? { ...item, modelCache: [], models: [] } : item,
+                ),
+              }
+            : { modelCache: [], models: [] },
+        )
         store.setState((s) => ({
           channels: s.channels.map((c) => (c.id === id ? cleared : c)),
           models: { status: 'error', message },
@@ -928,12 +1298,24 @@ export function createChannelStore(
     create,
     update,
     remove,
+    globalModelsOf,
+    globalModelOf,
+    addGlobalModel,
+    removeGlobalModel,
     reorder,
     saveToken,
     loadToken,
     removeToken,
+    addCredentialGroup,
+    renameCredentialGroup,
+    setCredentialGroupPriority,
+    removeCredentialGroup,
+    saveCredentialGroupToken,
+    loadCredentialGroupToken,
+    removeCredentialGroupToken,
     setEnabled,
     setModels,
+    setModelCategory,
     setModelMapping: setModelMappingAction,
     setRouteTuning,
     setRouteStrategy,

@@ -16,6 +16,7 @@ export type CategoryFilter = 'all' | ModelCategory
 
 /** 分类的顺序与中文名（§7.4 的三行与 tab 共用一份，避免两处各写一遍） */
 export const MODEL_CATEGORIES: { value: ModelCategory; label: string }[] = [
+  { value: 'unknown', label: '未分类' },
   { value: 'image', label: '生图' },
   { value: 'chat', label: '对话' },
   { value: 'video', label: '视频' },

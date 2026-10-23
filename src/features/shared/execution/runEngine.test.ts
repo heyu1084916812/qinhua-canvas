@@ -62,6 +62,73 @@ describe('runEngine / 回调参数契约', () => {
     expect(summary.records[0]?.errorText).toContain('超时')
   })
 
+  it('★ 同渠道多 Key 分组遇到 403 按优先级换组；只换到下一组一次', async () => {
+    const plan = makePlan()
+    plan.tasks[0]!.request.credentialGroupIds = ['chat-primary', 'chat-backup']
+    const attempts: number[] = []
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      channelResolver: (request) => {
+        attempts.push(request.routingAttempt ?? -1)
+        return {
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            if (calls === 1) throw { kind: 'http', status: 403 }
+            return [{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array([1]) }]
+          },
+        } as never
+      },
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 0, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+    expect(attempts).toEqual([0, 1])
+    expect(calls).toBe(2)
+    expect(summary.succeeded).toBe(1)
+  })
+
+  it('★★ 多分组时网络超时仍不换组，避免付费请求重复提交', async () => {
+    const plan = makePlan()
+    plan.tasks[0]!.request.credentialGroupIds = ['chat-primary', 'chat-backup']
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            throw { kind: 'network', detail: 'timeout' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
+  })
+
   it('★ onTaskTarget 三参到位：(planId, taskId, targetId)', async () => {
     const plan = makePlan()
     const seen: { planId: string; taskId: string; targetId: string }[] = []

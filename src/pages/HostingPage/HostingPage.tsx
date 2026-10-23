@@ -5,15 +5,18 @@ import {
   HOSTING_EXPIRES,
   HOSTING_FIELDS,
   HOSTING_PROVIDERS,
+  HOSTING_REGIONS,
   HOSTING_ROW_ID,
   hostingConfigOf,
   hostingNeedsSecret,
   hostingReadiness,
   hostingRowOf,
   hostingSecretRef,
+  qiniuEndpointForRegion,
   type HostingConfig,
   type HostingProviderId,
 } from '../../domain/shared/hosting'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 import styles from './HostingPage.module.css'
 
 /** 测试上传用的一张 32×32 真 PNG（免去让用户先去挑文件） */
@@ -161,7 +164,19 @@ export function HostingPage() {
                 data-hosting-provider={p.id}
                 aria-pressed={config.provider === p.id}
                 disabled={!loaded}
-                onClick={() => void save({ ...config, provider: p.id as HostingProviderId })}
+                onClick={() => {
+                  const provider = p.id as HostingProviderId
+                  const regionOptions = HOSTING_REGIONS[provider]
+                  const region = config.region || regionOptions?.[0]?.value
+                  void save({
+                    ...config,
+                    provider,
+                    ...(region ? { region } : {}),
+                    ...(provider === 'qiniu' && region
+                      ? { endpoint: qiniuEndpointForRegion(region) }
+                      : {}),
+                  })
+                }}
               >
                 {p.label}
               </button>
@@ -204,7 +219,27 @@ export function HostingPage() {
                   {field.label}
                   {field.optional && <span className={styles.fieldOptional}>选填</span>}
                 </span>
-                {field.secret ? (
+                {field.key === 'region' && HOSTING_REGIONS[config.provider] ? (
+                  <ChoicePicker
+                    name={`hosting-${config.provider}-region`}
+                    value={config.region ?? ''}
+                    ariaLabel={`${field.label}区域`}
+                    placeholder="选择区域"
+                    options={HOSTING_REGIONS[config.provider]!.map((region) => ({
+                      value: region.value,
+                      label: region.label,
+                    }))}
+                    onChange={(region) =>
+                      void save({
+                        ...config,
+                        region,
+                        ...(config.provider === 'qiniu'
+                          ? { endpoint: qiniuEndpointForRegion(region) }
+                          : {}),
+                      })
+                    }
+                  />
+                ) : field.secret ? (
                   <input
                     className={styles.input}
                     type="password"

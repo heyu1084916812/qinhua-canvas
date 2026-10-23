@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import { filterCases, tagCounts, type InspirationCase } from '../../domain/inspiration/cases'
 import { createInspirationRepository } from '../../state/project/inspirationRepository'
 import {
@@ -29,6 +30,60 @@ const PAGE_SIZE = 24
  */
 const FAV_KEY = 'inspiration:favorites'
 const UI_KEY = 'inspiration:ui:v1'
+
+function InspirationShot({
+  item,
+  repo,
+  onCached,
+  onOpen,
+}: {
+  item: InspirationCase
+  repo: ReturnType<typeof createInspirationRepository>
+  onCached: (sourceId: string, caseId: string, hash: string) => void
+  onOpen: () => void
+}) {
+  const cached = useAsset(item.imageHash ?? '')
+  const imageSrc = cached ?? item.imageUrl
+
+  useEffect(() => {
+    if (item.imageHash || !item.imageUrl) return
+    let alive = true
+    void repo.cacheImage(item.sourceId, item.id, item.imageUrl).then((hash) => {
+      if (alive && hash) onCached(item.sourceId, item.id, hash)
+    })
+    return () => {
+      alive = false
+    }
+  }, [item.id, item.imageHash, item.imageUrl, item.sourceId, onCached, repo])
+
+  if (item.videoUrl) {
+    return (
+      <video
+        src={item.videoUrl}
+        poster={imageSrc || undefined}
+        muted
+        playsInline
+        preload="metadata"
+        data-inspiration-open
+        data-inspiration-cached={item.imageHash ? 'true' : undefined}
+        onClick={onOpen}
+      />
+    )
+  }
+  if (imageSrc) {
+    return (
+      <img
+        src={imageSrc}
+        alt={item.title}
+        loading="lazy"
+        data-inspiration-open
+        data-inspiration-cached={item.imageHash ? 'true' : undefined}
+        onClick={onOpen}
+      />
+    )
+  }
+  return <span className={styles.shotEmpty}>没有预览图</span>
+}
 
 /**
  * 灵感库（用户 2026-10-14：「我要在左边菜单加一个灵感库，用 github 上开源的库，
@@ -102,6 +157,24 @@ export function InspirationPage() {
       })
     },
     [platform],
+  )
+
+  const rememberCachedImage = useCallback(
+    (cachedSourceId: string, caseId: string, hash: string) => {
+      setCases((prev) =>
+        prev.map((item) =>
+          item.sourceId === cachedSourceId && item.id === caseId
+            ? { ...item, imageHash: hash }
+            : item,
+        ),
+      )
+      setDetail((prev) =>
+        prev && prev.sourceId === cachedSourceId && prev.id === caseId
+          ? { ...prev, imageHash: hash }
+          : prev,
+      )
+    },
+    [],
   )
 
   const persistSources = useCallback(
@@ -536,27 +609,12 @@ export function InspirationPage() {
                     data-inspiration-model={c.modelCategory ?? ''}
                   >
                     <div className={styles.shot}>
-                      {c.videoUrl ? (
-                        <video
-                          src={c.videoUrl}
-                          poster={c.imageUrl || undefined}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          data-inspiration-open
-                          onClick={() => setDetail(c)}
-                        />
-                      ) : c.imageUrl ? (
-                        <img
-                          src={c.imageUrl}
-                          alt={c.title}
-                          loading="lazy"
-                          data-inspiration-open
-                          onClick={() => setDetail(c)}
-                        />
-                      ) : (
-                        <span className={styles.shotEmpty}>没有预览图</span>
-                      )}
+                      <InspirationShot
+                        item={c}
+                        repo={repo}
+                        onCached={rememberCachedImage}
+                        onOpen={() => setDetail(c)}
+                      />
                       <button
                         type="button"
                         className={favs.has(c.id) ? `${styles.fav} ${styles.favOn}` : styles.fav}

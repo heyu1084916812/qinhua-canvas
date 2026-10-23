@@ -184,6 +184,7 @@ export interface ModelMapComboProps {
   emptyHint?: string
   ariaLabel: string
   onChange: (value: string) => void
+  onBlur?: () => void
 }
 
 /**
@@ -201,6 +202,7 @@ export function ModelMapCombo({
   emptyHint,
   ariaLabel,
   onChange,
+  onBlur,
 }: ModelMapComboProps) {
   const [open, setOpen] = useState(false)
   const { wrapRef, popRef, above, closeRef } = usePickerMenu(open)
@@ -215,6 +217,7 @@ export function ModelMapCombo({
         placeholder={placeholder}
         aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
       />
       <button
         type="button"

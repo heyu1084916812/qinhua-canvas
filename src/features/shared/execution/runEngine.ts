@@ -142,6 +142,23 @@ function isRetryable(error: AppError, policy: RunPolicy): boolean {
   return false
 }
 
+/**
+ * 同一渠道换 Key 分组前允许跨过的错误。
+ *
+ * 这里刻意不把 `timeout / aborted` 算进来：请求可能已经到达上游并扣费，
+ * 自动换组会变成第二次付费提交。DNS / TLS / CORS 属于连接未建立的失败，
+ * 401 / 403 / 429 / 5xx 才是换一把 Key 可能恢复的范围。
+ */
+function isGroupSwitchable(error: AppError): boolean {
+  if (error.kind === 'network') {
+    return error.detail === 'dns' || error.detail === 'tls' || error.detail === 'cors'
+  }
+  if (error.kind === 'http') {
+    return error.status === 401 || error.status === 403 || error.status === 429 || error.status >= 500
+  }
+  return false
+}
+
 function callChannel(
   adapter: ChannelAdapter,
   request: RunRequest,
@@ -297,7 +314,10 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
       for (;;) {
         try {
-          const adapter = deps.channelResolver(task.request)
+          const adapter = deps.channelResolver({
+            ...task.request,
+            routingAttempt: attempt,
+          })
           // 批量展开出的后续调用套上「第 n 项」序号：渠道多以 prompt 为素材种子，
           // 不加序号时同一素材跑多次会产出同一个 hash，结果互相覆盖（§6.12）。
           const callRequest = applyCallOrdinal(task)
@@ -310,7 +330,12 @@ export async function runEngine<TTask extends RunTask, TCommand>(
             state = { kind: 'canceled' }
             break
           }
-          if (isRetryable(error, policy) && attempt < policy.maxRetries) {
+          const hasNextCredentialGroup =
+            attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
+          const shouldRetry =
+            (isRetryable(error, policy) && attempt < policy.maxRetries) ||
+            (hasNextCredentialGroup && isGroupSwitchable(error))
+          if (shouldRetry) {
             attempt += 1
             await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
             continue

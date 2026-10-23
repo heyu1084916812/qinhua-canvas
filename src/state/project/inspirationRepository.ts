@@ -9,6 +9,7 @@ import {
 } from '../../domain/inspiration/cases'
 import type { InspirationSource } from '../../domain/inspiration/sources'
 import { errorTextOf } from '../../shared/result'
+import { fingerprintBytes } from '../../domain/shared/hash'
 
 /**
  * 一个来源的**索引缓存**。
@@ -36,6 +37,8 @@ export interface InspirationRepository {
    * 用户下次打开只会看到一个空页面，比「这次没刷成功」糟糕得多。
    */
   refresh(source: InspirationSource, signal: AbortSignal): Promise<CachedSource>
+  /** 首次看到某张预览图时把字节缓存到本地；失败返回 null，不阻塞卡片显示外链。 */
+  cacheImage(sourceId: string, caseId: string, url: string): Promise<string | null>
 }
 
 const write = (
@@ -44,6 +47,8 @@ const write = (
   cases: InspirationCase[],
   fetchedAt: number,
 ) => storage.put('inspirationCache', { id: sourceId, sourceId, cases, fetchedAt })
+
+const imageCacheJobs = new Map<string, Promise<string | null>>()
 
 export function createInspirationRepository(
   storage: StoragePort,
@@ -165,6 +170,53 @@ export function createInspirationRepository(
           error: errorTextOf(e),
         }
       }
+    },
+
+    async cacheImage(sourceId, caseId, url) {
+      const key = `${sourceId}:${caseId}:${url}`
+      const existing = imageCacheJobs.get(key)
+      if (existing) return existing
+      const job = (async (): Promise<string | null> => {
+        try {
+          const cached = await repo.read(sourceId)
+          const hit = cached?.cases.find((item) => item.id === caseId)
+          if (!hit) return null
+          if (hit.imageHash) return hit.imageHash
+          const response = await network.request(
+            { url, method: 'GET', timeoutMs: 30_000 },
+            new AbortController().signal,
+          )
+          if (response.status < 200 || response.status >= 300) return null
+          const bytes = new Uint8Array(await response.arrayBuffer())
+          if (bytes.length === 0) return null
+          const hash = await fingerprintBytes(bytes)
+          const headerMime = Object.entries(response.headers).find(
+            ([name]) => name.toLowerCase() === 'content-type',
+          )?.[1]
+          const mime = (headerMime ?? 'image/jpeg').split(';')[0]!.trim()
+          await storage.put('assets', {
+            id: hash,
+            hash,
+            mime,
+            bytes,
+            createdAt: Date.now(),
+            projectId: 'inspiration-library',
+          } as never)
+          if (cached) {
+            const cases = cached.cases.map((item) =>
+              item.id === caseId ? { ...item, imageHash: hash } : item,
+            )
+            await write(storage, sourceId, cases, cached.fetchedAt)
+          }
+          return hash
+        } catch {
+          return null
+        } finally {
+          imageCacheJobs.delete(key)
+        }
+      })()
+      imageCacheJobs.set(key, job)
+      return job
     },
   }
   return repo

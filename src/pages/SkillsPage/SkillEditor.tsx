@@ -9,6 +9,7 @@ import {
   type UserSkill,
 } from '../../domain/prompt/skill'
 import styles from './SkillsPage.module.css'
+import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 
 /**
  * 技能库第二层编辑。
@@ -152,17 +153,19 @@ export function SkillEditor({
 
       <label className={styles.field}>
         <span className={styles.label}>需要的输入</span>
-        <select
+        <ChoicePicker
+          name="skill-input-mode"
           className={styles.input}
-          data-skill-inputmode
           value={draft.inputMode}
           disabled={readonly}
-          onChange={(e) => onChange({ ...draft, inputMode: e.target.value as SkillInputMode })}
-        >
-          <option value="text">文本（节点正文）</option>
-          <option value="image">图片（上游生成节点的产物）</option>
-          <option value="any">文本或图片</option>
-        </select>
+          ariaLabel="技能需要的输入"
+          options={[
+            { value: 'text', label: '文本（节点正文）' },
+            { value: 'image', label: '图片（上游生成节点的产物）' },
+            { value: 'any', label: '文本或图片' },
+          ]}
+          onChange={(next) => onChange({ ...draft, inputMode: next as SkillInputMode })}
+        />
       </label>
 
       <label className={`${styles.field} ${styles.grow}`}>
