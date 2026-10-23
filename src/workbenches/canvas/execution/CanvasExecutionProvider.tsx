@@ -32,6 +32,10 @@ import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 import { useExecution } from '../../../features/shared/execution/useExecution'
 import { trimProjectTasks } from '../../../features/shared/execution/taskLog'
 import type { RunSummary, RunTaskState } from '../../../features/shared/execution/runEngine'
+import {
+  registerGuardedChannelRun,
+  unregisterGuardedChannelRun,
+} from '../../../features/shared/execution/runChannelGuard'
 import { imageCountOf, progressNotice, runNotice, shouldNotify } from '../../../domain/ui/notify'
 import { getNotifyPrefs } from '../../../state/ui/notifyPrefs'
 import { sendSystemNotify } from '../../../features/shared/notify/desktopNotify'
@@ -60,7 +64,6 @@ import { trimToolResult } from '../../../features/shared/promptTools/promptTools
 import { composePromptFromDraft } from '../../../features/canvas/execution/composePrompt'
 import { asAppError, describeError } from '../../../shared/result'
 import { emitRunRecordChanged } from './runRecordEvents'
-import { tasksAffectedByChannelRemoval } from './channelRemoval'
 import {
   resolveNodeRoute,
   type RouteChannelSource,
@@ -203,9 +206,9 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const adapterMapsRef = useRef<Map<string, Map<string, ChannelAdapter>>>(new Map())
   /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
   const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
-  /** 并发运行各自的 task → channel 反查表；删除渠道时据此精确找到受影响计划 */
-  const taskChannelMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
   const planIdRef = useRef<string | null>(null)
+  /** 被渠道删除中止的计划：收口时必须保留明确原因，不能被通用的“已取消”覆盖。 */
+  const channelInterruptedPlansRef = useRef<Set<string>>(new Set())
   /**
    * 提示词节点「生成正文」阶段的并发闸门。
    *
@@ -369,6 +372,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       onFinish: (summary: RunSummary) => {
         void store.flush()
         planProgressRef.current.delete(summary.runPlanId)
+        if (channelInterruptedPlansRef.current.delete(summary.runPlanId)) {
+          store.notify('渠道已删除，相关生成已停止；请重新选择平台后再生成', 'error')
+          return
+        }
         const notice = runNotice({
           images: imageCountOf(summary.taskResults),
           failed: summary.failed,
@@ -390,52 +397,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   )
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
-
-  /**
-   * 运行中删除渠道的止损边界。
-   *
-   * 渠道行删掉后，旧节点下一次运行会由路由层直接拒绝；而已经在等待上游的计划
-   * 也必须马上停下。这里只按已记录到 plan 的真实 channelId 命中，不扫模型名、
-   * 不把请求改投其他渠道。abort 只停止本机等待，无法撤回上游已经收到的付费请求。
-   */
-  const knownChannelIdsRef = useRef(
-    new Set(channels.getState().channels.map((channel) => channel.id)),
-  )
-  useEffect(() => {
-    knownChannelIdsRef.current = new Set(
-      channels.getState().channels.map((channel) => channel.id),
-    )
-    return channels.subscribe(() => {
-      const next = channels.getState().channels
-      const nextIds = new Set(next.map((channel) => channel.id))
-      const removed = [...knownChannelIdsRef.current].filter((id) => !nextIds.has(id))
-      knownChannelIdsRef.current = nextIds
-      if (removed.length === 0) return
-
-      const removedIds = new Set(removed)
-      for (const [planId, taskChannels] of taskChannelMapsRef.current) {
-        const affected = tasksAffectedByChannelRemoval(taskChannels, removedIds)
-        if (affected.length === 0) continue
-
-        cancelRun(planId)
-        const nodeByTask = taskToNodeMapsRef.current.get(planId)
-        updateRunStates(store.getSnapshot().projectId, (prev) => {
-          const states = new Map(prev)
-          for (const { taskId } of affected) {
-            const nodeId = nodeByTask?.get(taskId)
-            if (!nodeId) continue
-            states.set(nodeId, {
-              kind: 'failed',
-              error: { kind: 'channel', detail: 'missingChannel' },
-              attempts: 1,
-            })
-          }
-          return states
-        })
-        store.notify('渠道已删除，相关生成已停止；请重新选择平台后再生成', 'error')
-      }
-    })
-  }, [channels, cancelRun, store])
 
   /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行 */
   const launch = useCallback(
@@ -621,12 +582,62 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-      adapterMapsRef.current.set(plan.id, map)
-      taskToNodeMapsRef.current.set(plan.id, new Map(plan.tasks.map((t) => [t.id, t.nodeId])))
-      taskChannelMapsRef.current.set(
-        plan.id,
-        new Map(plan.tasks.map((task) => [task.id, task.request.channelId])),
+      /**
+       * 令牌读取是异步的；读凭据期间用户可能已经在设置页删掉渠道。
+       * 因此进入 queued / running 之前必须用最新渠道表再校验一次。
+       */
+      const currentChannels = new Map(
+        channels.getState().channels.map((channel) => [channel.id, channel]),
       )
+      const vanished = plan.tasks.filter(
+        (task) => !currentChannels.has(task.request.channelId),
+      )
+      if (vanished.length > 0) {
+        const projectId = store.getSnapshot().projectId
+        const vanishedNodeIds = new Set(vanished.map((task) => task.nodeId))
+        updateRunStates(projectId, (prev) => {
+          const states = new Map(prev)
+          for (const nodeId of vanishedNodeIds) {
+            states.set(nodeId, {
+              kind: 'failed',
+              error: { kind: 'channel', detail: 'missingChannel' },
+              attempts: 1,
+            })
+          }
+          return states
+        })
+        store.notify('渠道已删除，生成已停止；请重新选择平台后再生成', 'error')
+        return
+      }
+
+      adapterMapsRef.current.set(plan.id, map)
+      const taskToNode = new Map(plan.tasks.map((task) => [task.id, task.nodeId]))
+      const taskChannels = new Map(
+        plan.tasks.map((task) => [task.id, task.request.channelId]),
+      )
+      taskToNodeMapsRef.current.set(plan.id, taskToNode)
+      const projectId = store.getSnapshot().projectId
+      registerGuardedChannelRun(plan.id, {
+        taskChannels,
+        cancel: () => cancelRun(plan.id),
+        onInterrupted: (affected) => {
+          channelInterruptedPlansRef.current.add(plan.id)
+          updateRunStates(projectId, (prev) => {
+            const states = new Map(prev)
+            for (const { taskId } of affected) {
+              const nodeId = taskToNode.get(taskId)
+              if (!nodeId) continue
+              states.set(nodeId, {
+                kind: 'failed',
+                error: { kind: 'channel', detail: 'missingChannel' },
+                attempts: 1,
+              })
+            }
+            return states
+          })
+          store.notify('渠道已删除，相关生成已停止；请重新选择平台后再生成', 'error')
+        },
+      })
       planIdRef.current = plan.id
 
       /**
@@ -644,6 +655,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        *  - 其余（要另建承载的）由 `onTaskTarget` 在落点确定后补上（见下）。
        * 这样源节点再也不会平白进入生成态。
        */
+      try {
       updateRunStates(store.getSnapshot().projectId, (prev) => {
         const n = new Map(prev)
         for (const t of plan.tasks) {
@@ -709,12 +721,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         for (const nid of touched) if (!stillRunning.has(nid)) n.delete(nid)
         return n
       })
-      adapterMapsRef.current.delete(plan.id)
-      taskToNodeMapsRef.current.delete(plan.id)
-      taskChannelMapsRef.current.delete(plan.id)
-      if (planIdRef.current === plan.id) planIdRef.current = null
+      } finally {
+        unregisterGuardedChannelRun(plan.id)
+        adapterMapsRef.current.delete(plan.id)
+        taskToNodeMapsRef.current.delete(plan.id)
+        if (planIdRef.current === plan.id) planIdRef.current = null
+      }
     },
-    [store, channels, repo, platform, startRun],
+    [store, channels, repo, platform, startRun, cancelRun],
   )
 
   /**

@@ -38845,7 +38845,99 @@ async function g164(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167]
+// ────────────────────────────────────────────────────────────
+// G168 运行中删除渠道（对账 #734a）
+// ────────────────────────────────────────────────────────────
+/**
+ * 本组覆盖真实用户路径：慢速 mock 生成中打开全局设置的渠道页，删除渠道，
+ * 关闭浮层后确认没有转圈残留、RunRecord 收口为 canceled 且没有产物。
+ * 跨路由卸载场景由 `runChannelGuard.test.ts` 和常驻 `ChannelRemovalGuard` 覆盖。
+ */
+async function g168(browser) {
+  const g = 'G168 运行中删除渠道'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push((error.stack ?? String(error)).slice(0, 1200)))
+  try {
+    await configureMockChannel(page, { isolate: true })
+    await gotoProjects(page)
+    await page.locator('[data-template="text2img"]').click()
+    await page.waitForURL(/\/canvas\//)
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'visible', timeout: 15000 })
+    const projectId = page.url().split('/canvas/')[1]
+    const generation = page.locator('[data-node-type="generation"]').first()
+    const nodeId = await generation.getAttribute('data-node-id')
+    const panel = await genPanel(page, generation)
+    await configureGenPanel(page, panel, '慢速测试图：删除渠道边界')
+    await panel.locator('[data-panel-run]').click()
+    const started = await page
+      .locator(`[data-node-id="${nodeId}"] [data-node-status="running"]`)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    rec(g, '★★ 慢速生成已进入运行中', started)
+
+    await page.locator('[data-sidebar-settings]').click()
+    await page.locator('[data-global-settings]').waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('[data-global-settings-tab="channels"]').click()
+    const deleteBox = page.locator('[data-channel-delete-select="ch_smoke_mock"]')
+    await deleteBox.waitFor({ state: 'visible', timeout: 10000 })
+    await deleteBox.check()
+    await page.locator('[data-channel-remove]').click()
+    await page.locator('[data-channel-remove-yes]').click()
+    await deleteBox.waitFor({ state: 'detached', timeout: 10000 })
+    rec(g, '★★ 已在设置页删除正在使用的渠道', true)
+    await page.locator('[data-global-settings-close]').click()
+    await page.locator('[data-global-settings]').waitFor({ state: 'detached', timeout: 5000 })
+
+    const stopped = await page
+      .locator(`[data-node-id="${nodeId}"] [data-node-status="running"]`)
+      .waitFor({ state: 'detached', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    rec(g, '★★ 返回画布后没有残留的生成中转圈', stopped)
+
+    const noticeShown = await page
+      .locator('[data-canvas-notice]')
+      .filter({ hasText: '渠道已删除，相关生成已停止' })
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    rec(g, '★★ 用户能看到“渠道已删除，相关生成已停止”的提示', noticeShown)
+
+    let latestRecord = null
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const rows = (await sharedRows(page, 'runRecords')).filter(
+        (row) => row.projectId === projectId && row.nodeId === nodeId,
+      )
+      latestRecord = rows.sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0] ?? null
+      if (latestRecord?.status === 'canceled') break
+      await sleep(200)
+    }
+    rec(
+      g,
+      '★★ RunRecord 收口为 canceled，不是 succeeded',
+      latestRecord?.status === 'canceled' &&
+        Array.isArray(latestRecord.outputHashes) &&
+        latestRecord.outputHashes.length === 0,
+      latestRecord
+        ? `status=${latestRecord.status} outputs=${latestRecord.outputHashes?.length ?? 'missing'}`
+        : 'missing',
+    )
+    rec(
+      g,
+      '★★ 中止后没有产物落到节点',
+      (await page.locator(`[data-node-id="${nodeId}"] [data-node-asset]`).count()) === 0,
+    )
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await sharedDelete(page, 'channels', 'ch_smoke_mock').catch(() => {})
+    await ctx.close()
+  }
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

@@ -15,7 +15,7 @@
   原生 `<select>` 为 0。
 - **映射自动保存**：失焦或停止输入 600ms 后落库，冒烟不能再等已删除的 `data-route-map-save`
   按钮；否则 `locator.isEnabled()` 会在空 locator 上等满 30 秒，表现为整组假死。
-- **验证基线**：全量 **3071 passed / 1 skipped**；`npm run check`、`npm run build`、
+- **验证基线**：全量 **3073 passed / 1 skipped**；`npm run check`、`npm run build`、
   `node --check scripts/smoke.mjs` 通过；G74 **23/23**；真实设置页原生 select=0、多选删除与
   65535 双分组正常、无页面异常。
 
@@ -32,7 +32,12 @@
   不进入 `queued / running`、不发网络请求；不能只弹一条 toast 后留下节点空状态。
 - **运行中删除按真实 channelId 止损**：计划保存 `taskId → channelId`，渠道从 store 消失后
   只 abort 实际使用它的计划；abort 只停本机等待，上游可能已扣费，绝不自动重发。
-- **验证基线**：定向 **61/61**；全量 **3071 passed / 1 skipped**；`npm run check`、
+- **监听必须在路由之外**：`ChannelRemovalGuard` 常驻 App，运行登记表放模块级；不能把删除监听
+  留在画布 Provider 内，否则切换到 `/settings` 时 Provider 先卸载，生成会继续转圈。
+- **收口提示有优先级**：渠道删除中止的 plan 在 `onFinish` 里必须继续显示“渠道已删除”，
+  不能被 runEngine 的通用“已取消”覆盖；令牌读取期间删渠道还要在 `queued / running` 前复检。
+- **验证基线**：定向 **61/61**；G168 **7/7**（浮层内删渠道→无转圈、提示可见、
+  RunRecord=`canceled`、0 产物）；全量 **3073 passed / 1 skipped**；`npm run check`、
   `npm run build` 通过。
 
 ### 提示词节点滚轮与滚动条贴边（2026-10-24 → 对账 #733）

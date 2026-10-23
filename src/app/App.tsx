@@ -9,6 +9,7 @@ import { CanvasStyleProvider } from './providers/CanvasStyleProvider'
 import { AppRoutes } from './routes'
 import { AppShell } from './AppShell'
 import { BootstrapGate } from './BootstrapGate'
+import { ChannelRemovalGuard } from './ChannelRemovalGuard'
 import { registerAllSpecs } from '../domain/canvas/nodeSpecs'
 import { registerAllViews } from '../workbenches/canvas/nodes'
 import { detectRuntime, type RuntimeId } from '../platform'
@@ -38,36 +39,38 @@ export function App(props: AppProps) {
   return (
     <PlatformProvider runtime={runtime}>
       <ChannelStoreProvider>
-        <SkillStoreProvider>
-        {/* 预设词与技能同层：两者都是「后台可改、画布消费」的内容，
-            且都要在路由切换后仍然生效（见各 Provider 的注释）。 */}
-        <PresetTextProvider>
-        {/* 主题在最外层：它只改 <html data-theme>，不依赖任何业务状态，
-            先于 BootstrapGate 落地才能让「启动校验」那一屏也是正确配色。 */}
-        <ThemeProvider>
-          {/* 字体/外观在主题之内、应用之前：它要往 <head> 注入 @font-face 并改 :root 令牌，
-              与主题同一层（都是"渲染前的全局样式准备"），但不依赖业务数据。 */}
-          <FontProvider>
-          <BootstrapGate>
-            <BrowserRouter>
-              {/* 项目级画布外观（#379 C4/C5）：必须在 Router 之内 ——
-                  它靠 `location.pathname` 认"当前打开的是哪个项目"。 */}
-              <CanvasStyleProvider>
-              {/*
-                应用壳包在**路由之外**（产品文档 §2.1「全路由常驻」）：
-                它是布局，不是页面；放进来之后切页面不会重建侧栏，
-                侧栏的展开状态与「最近项目」列表因此不会闪一下重来。
-              */}
-              <AppShell>
-                <AppRoutes />
-              </AppShell>
-              </CanvasStyleProvider>
-            </BrowserRouter>
-          </BootstrapGate>
-          </FontProvider>
-        </ThemeProvider>
-        </PresetTextProvider>
-        </SkillStoreProvider>
+        <ChannelRemovalGuard>
+          <SkillStoreProvider>
+            {/* 预设词与技能同层：两者都是「后台可改、画布消费」的内容，
+                且都要在路由切换后仍然生效（见各 Provider 的注释）。 */}
+            <PresetTextProvider>
+              {/* 主题在最外层：它只改 <html data-theme>，不依赖任何业务状态，
+                  先于 BootstrapGate 落地才能让「启动校验」那一屏也是正确配色。 */}
+              <ThemeProvider>
+                {/* 字体/外观在主题之内、应用之前：它要往 <head> 注入 @font-face 并改 :root 令牌，
+                    与主题同一层（都是"渲染前的全局样式准备"），但不依赖业务数据。 */}
+                <FontProvider>
+                  <BootstrapGate>
+                    <BrowserRouter>
+                      {/* 项目级画布外观（#379 C4/C5）：必须在 Router 之内 ——
+                          它靠 `location.pathname` 认"当前打开的是哪个项目"。 */}
+                      <CanvasStyleProvider>
+                        {/*
+                          应用壳包在**路由之外**（产品文档 §2.1「全路由常驻」）：
+                          它是布局，不是页面；放进来之后切页面不会重建侧栏，
+                          侧栏的展开状态与「最近项目」列表因此不会闪一下重来。
+                        */}
+                        <AppShell>
+                          <AppRoutes />
+                        </AppShell>
+                      </CanvasStyleProvider>
+                    </BrowserRouter>
+                  </BootstrapGate>
+                </FontProvider>
+              </ThemeProvider>
+            </PresetTextProvider>
+          </SkillStoreProvider>
+        </ChannelRemovalGuard>
       </ChannelStoreProvider>
     </PlatformProvider>
   )

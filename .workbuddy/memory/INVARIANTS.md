@@ -160,7 +160,7 @@
 
 ## canvas · 渠道与协议
 
-- **删除渠道与旧节点是硬失败，不是自动修复**：删除先把渠道置停用，再清主 / 备用全部凭据，最后删行；显式 `channelId` 缺失、停用、无 Key、模型缺失都在 `queued / running` 之前失败，禁止改走其他渠道。运行中删除按 plan 里真实的 `taskId → channelId` abort 受影响计划；已提交的上游付费请求不自动重发。
+- **删除渠道与旧节点是硬失败，不是自动修复**：删除先把渠道置停用，再清主 / 备用全部凭据，最后删行；显式 `channelId` 缺失、停用、无 Key、模型缺失都在 `queued / running` 之前失败，禁止改走其他渠道。运行中删除按 plan 里真实的 `taskId → channelId` abort 受影响计划，监听必须由路由外的 `ChannelRemovalGuard` + 模块级运行登记表承担；已提交的上游付费请求不自动重发。
 - **渠道内多 Key 分组是持久化单位**：每组独立保存凭据引用、模型集合与优先级；渠道级 `models / modelCache` 只是去重聚合。老主 / 备用槽读取时派生为分组，删除渠道必须清空全部组凭据。
 - **分组降级不等于普通重试**：适配器键为 `channelId + credentialGroupId + kind`；只有 401 / 403 / 429 / 5xx 与 DNS / TLS / CORS 可切下一组。**timeout / aborted / 响应丢失不得换组重发**，上游可能已受理并计费。
 - **模型分类允许 `unknown`**：站点原值保留在 `upstreamCategory`，用户手动覆盖写 `categoryManual`；重新拉取不得覆盖手动分类，也不能把未知模型默认塞进 chat。
