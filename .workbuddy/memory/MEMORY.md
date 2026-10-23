@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商任务列与完成态优先（2026-10-23 → 对账 #716）
+
+- **一个任务一列**：同任务按 position 竖排，下一任务向右开列；不要继续把新批次堆到底部。新列起点取现有对象最右边界 + 96，手动拉宽过的旧列也不能被压。
+- **完成态取更新值**：`freshestResultsById()` 合并数据库结果和内存结果，以 `updatedAt` 为准；同时间戳数据库优先。旧 `running` 不能覆盖已对账的 `done`。
+- 真实项目 `proj_b710e6ed...`：30 个结果全部 done，0 running / 0 failed，无“素材不存在”；形成 4 列 `96 / 939 / 1782 / 2625`，列内竖排。
+- 验证：定向 38/38；全量 3000 passed / 1 skipped；check/build 通过。
+
 ### 电商结果补账与工作台手势（2026-10-22 → 对账 #715）
 
 - **`done` 必须带可展示的资产**：`ecommerceResults` 行出现 `done` 但无 `assetHash` 时，从同一节点最新成功 RunRecord 的 `outputHashes[0]` 回填；不能只对账 `pending / running`，否则坏行会永久显示“素材不存在”。

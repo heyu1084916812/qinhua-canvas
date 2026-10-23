@@ -2,7 +2,6 @@ import type { StoragePort } from '../../platform/ports'
 import { createId } from '../../shared/id'
 import {
   WORKBENCH_ITEM_GAP,
-  WORKBENCH_LEFT,
   WORKBENCH_TASK_GAP,
   layoutEcommerceResults,
   mergeWorkbenchItems,
@@ -135,39 +134,51 @@ export function createEcommerceCanvasRepository(
       const merged = mergeWorkbenchItems(existing, desired)
       const at = Date.now()
       const removedIds = new Set(merged.removedIds)
-      /**
-       * 已隐藏 / 已删除的结果对象不能参与下一批的底部计算。
-       * 否则历史对象虽然会在本事务里删掉，新任务仍会先被排到它们下方几十屏之外，
-       * 用户看到的就是“点了生成，画布里没有占位”。
-       */
       const retainedExisting = existing.filter((item) => !removedIds.has(item.id))
-      const taskBottom = new Map<string, number>()
-      let globalBottom = retainedExisting.reduce(
-        (bottom, item) => Math.max(bottom, item.y + item.height),
+      const retainedByTask = new Map<string, EcommerceCanvasItem[]>()
+      for (const item of retainedExisting) {
+        const key = item.taskId ?? ''
+        const group = retainedByTask.get(key) ?? []
+        group.push(item)
+        retainedByTask.set(key, group)
+      }
+      let globalRight = retainedExisting.reduce(
+        (right, item) => Math.max(right, item.x + item.width),
         Number.NEGATIVE_INFINITY,
       )
+      const columnX = new Map<string, number>()
+      const taskBottom = new Map<string, number>()
+      for (const [taskId, group] of retainedByTask) {
+        columnX.set(taskId, Math.min(...group.map((item) => item.x)))
+        taskBottom.set(
+          taskId,
+          Math.max(...group.map((item) => item.y + item.height)),
+        )
+      }
       const added = merged.added.map((item) => {
         const key = item.taskId ?? ''
-        const existingInTask = retainedExisting.filter(
-          (candidate) => (candidate.taskId ?? '') === key,
-        )
-        const existingTaskBottom = existingInTask.reduce(
-          (bottom, candidate) => Math.max(bottom, candidate.y + candidate.height),
-          Number.NEGATIVE_INFINITY,
-        )
-        const y = Number.isFinite(taskBottom.get(key))
-          ? (taskBottom.get(key) as number) + WORKBENCH_ITEM_GAP
-          : Number.isFinite(existingTaskBottom)
-            ? existingTaskBottom + WORKBENCH_ITEM_GAP
-            : Number.isFinite(globalBottom)
-              ? globalBottom + WORKBENCH_TASK_GAP
-              : item.y
-        const positioned = { ...item, x: WORKBENCH_LEFT, y }
-        taskBottom.set(key, y + positioned.height)
-        globalBottom = Math.max(globalBottom, y + positioned.height)
-        return materialize(positioned, at)
+        let x = columnX.get(key)
+        if (x === undefined) {
+          x = Math.max(
+            item.x,
+            Number.isFinite(globalRight) ? globalRight + WORKBENCH_TASK_GAP : item.x,
+          )
+          columnX.set(key, x)
+          globalRight = Math.max(globalRight, x + item.width)
+        }
+        const previousBottom = taskBottom.get(key)
+        const y = previousBottom === undefined
+          ? item.y
+          : previousBottom + WORKBENCH_ITEM_GAP
+        taskBottom.set(key, y + item.height)
+        return materialize({ ...item, x, y }, at)
       })
       const resultByResultId = new Map(results.map((result) => [result.id, result]))
+      const desiredByResultId = new Map(
+        desired
+          .filter((item) => item.resultId)
+          .map((item) => [item.resultId as string, item] as const),
+      )
       const taskByTaskId = new Map(tasks.map((task) => [task.id, task]))
       const updatedExisting = merged.items
         .filter((item) => !item.id.startsWith('pending:'))
@@ -199,31 +210,15 @@ export function createEcommerceCanvasRepository(
           return next
         })
       const reflowedExisting = (() => {
-        const byTask = new Map<string, EcommerceCanvasItem[]>()
+        const positions = new Map<string, { x: number; y: number }>()
         for (const item of updatedExisting) {
-          if (!item.autoLayout || !item.resultId || !item.taskId) continue
-          const group = byTask.get(item.taskId) ?? []
-          group.push(item)
-          byTask.set(item.taskId, group)
-        }
-        const positions = new Map<string, number>()
-        for (const [taskId, group] of byTask) {
-          group.sort((left, right) => {
-            const l = resultByResultId.get(left.resultId!)
-            const r = resultByResultId.get(right.resultId!)
-            return (l?.position ?? 0) - (r?.position ?? 0)
-          })
-          let y = Math.min(...group.map((item) => item.y))
-          for (const item of group) {
-            positions.set(item.id, y)
-            y += item.height + WORKBENCH_ITEM_GAP
-          }
-          taskBottom.set(taskId, y)
-          globalBottom = Math.max(globalBottom, y)
+          if (!item.autoLayout || !item.resultId) continue
+          const target = desiredByResultId.get(item.resultId)
+          if (target) positions.set(item.id, { x: target.x, y: target.y })
         }
         return updatedExisting.map((item) => {
-          const y = positions.get(item.id)
-          return y === undefined ? item : { ...item, y, x: WORKBENCH_LEFT }
+          const position = positions.get(item.id)
+          return position === undefined ? item : { ...item, ...position }
         })
       })()
       const finalItems = [

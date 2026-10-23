@@ -102,6 +102,25 @@ export interface EcommerceResultRecord extends EcommerceResultMetadata {
   errorText?: string
 }
 
+/**
+ * 合并同一结果的多份视图，按 updatedAt 只保留更新的一份。
+ *
+ * 电商工作台同时持有数据库回读结果与内存实时行；不能固定让某一边覆盖，
+ * 否则已对账完成的 done 会被旧 running 盖回去，或新一轮运行态被旧库值盖住。
+ */
+export function freshestResultsById(
+  ...groups: readonly (readonly EcommerceResultRecord[])[]
+): Map<string, EcommerceResultRecord> {
+  const out = new Map<string, EcommerceResultRecord>()
+  for (const group of groups) {
+    for (const result of group) {
+      const previous = out.get(result.id)
+      if (!previous || result.updatedAt > previous.updatedAt) out.set(result.id, result)
+    }
+  }
+  return out
+}
+
 export function resultMetadataOf(
   value: Partial<EcommerceResultMetadata>,
 ): EcommerceResultMetadata {

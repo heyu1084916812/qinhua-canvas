@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  freshestResultsById,
   resultDisplayStatus,
   statusOfResult,
   statusOfTask,
   taskStatusOf,
   taskSummaryOf,
 } from './tasks'
+import type { EcommerceResultRecord } from './tasks'
 
 describe('电商任务 / 结果状态纯函数', () => {
   it('全部完成 = done', () => {
@@ -48,6 +50,30 @@ describe('电商任务 / 结果状态纯函数', () => {
     expect(resultDisplayStatus({ stored: 'running', hasAsset: true })).toBe('running')
     expect(resultDisplayStatus({ stored: 'canceled', hasAsset: false })).toBe('failed')
     expect(resultDisplayStatus({ stored: 'pending', hasAsset: false })).toBe('running')
+  })
+
+  it('数据库结果与内存结果按 updatedAt 取新，旧 running 不能覆盖已完成', () => {
+    const resultOf = (
+      id: string,
+      status: EcommerceResultRecord['status'],
+      updatedAt: number,
+    ): EcommerceResultRecord => ({
+      id,
+      taskId: 't1',
+      projectId: 'p1',
+      nodeId: 'n1',
+      position: 0,
+      createdAt: 1,
+      updatedAt,
+      status,
+    })
+    const stored = resultOf('r1', 'done', 30)
+    const staleLive = resultOf('r1', 'running', 20)
+    expect(freshestResultsById([stored], [staleLive]).get('r1')?.status).toBe('done')
+    expect(freshestResultsById([stored], [resultOf('r1', 'running', 40)]).get('r1')?.status)
+      .toBe('running')
+    expect(freshestResultsById([stored], [resultOf('r1', 'running', 30)]).get('r1')?.status)
+      .toBe('done')
   })
 
   it('★ 历史批次摘要：时间 / 用途 / 平台 / 张数 / 状态', () => {

@@ -166,7 +166,7 @@ describe('ecommerceCanvasRepository', () => {
     expect(await repo.list('p1')).toHaveLength(0)
   })
 
-  it('用户移动并放大第一批后，新批次从真实底部继续，不覆盖已有对象', async () => {
+  it('用户调整第一批后，新批次在右侧开新列，不覆盖已有对象', async () => {
     const storage = seed()
     const repo = createEcommerceCanvasRepository(storage)
     const first = await repo.sync('p1', 1280)
@@ -202,12 +202,13 @@ describe('ecommerceCanvasRepository', () => {
     } as never)
     const next = await repo.sync('p1', 1280)
     const added = next.find((item) => item.resultId === 'r4')!
-    const firstBottom = Math.max(
+    const firstRight = Math.max(
       ...next
         .filter((item) => item.resultId !== 'r4')
-        .map((item) => item.y + item.height),
+        .map((item) => item.x + item.width),
     )
-    expect(added.y).toBeGreaterThanOrEqual(firstBottom + 96)
+    expect(added.x).toBeGreaterThanOrEqual(firstRight + 96)
+    expect(added.y).toBe(72)
   })
 
   it('已隐藏历史对象不参与新批次底部计算，不会把占位推到几十屏之外', async () => {

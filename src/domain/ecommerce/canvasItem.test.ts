@@ -51,7 +51,7 @@ const result = (
 })
 
 describe('ecommerce canvas item layout', () => {
-  it('按任务与 position 纵向排列，任务之间多留一段间距', () => {
+  it('一个任务一列：任务内按 position 竖排，下一任务向右开列', () => {
     const items = layoutEcommerceResults(
       'p1',
       [task('t2', 2), task('t1', 1)],
@@ -59,7 +59,20 @@ describe('ecommerce canvas item layout', () => {
       1280,
     )
     expect(items.map((item) => item.resultId)).toEqual(['r1', 'r2'])
-    expect(items[1]!.y - (items[0]!.y + items[0]!.height)).toBe(96)
+    expect(items[0]!.x).toBe(96)
+    expect(items[1]!.x).toBe(items[0]!.x + items[0]!.width + 96)
+    expect(items[1]!.y).toBe(items[0]!.y)
+  })
+
+  it('同一任务的多张仍保持竖排，不横向散开', () => {
+    const items = layoutEcommerceResults(
+      'p1',
+      [task('t1', 1)],
+      [result('r1', 't1', 0), result('r2', 't1', 1)],
+      1280,
+    )
+    expect(items[1]!.x).toBe(items[0]!.x)
+    expect(items[1]!.y).toBe(items[0]!.y + items[0]!.height)
   })
 
   it('保持真实宽高比，视频也进入同一工作台', () => {

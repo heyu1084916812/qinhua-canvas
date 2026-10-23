@@ -16,6 +16,7 @@ import {
   snapWorkbenchMove,
 } from '../../domain/ecommerce/canvasItem'
 import {
+  freshestResultsById,
   resultDisplayStatus,
   type EcommerceDisplayResultStatus,
   type EcommerceResultRecord,
@@ -538,13 +539,10 @@ export function EcommerceWorkbench({
     return () => node.removeEventListener('wheel', onWheel)
   }, [])
 
-  const resultById = useMemo(
-    () => new Map(results.map((result) => [result.id, result])),
-    [results],
-  )
-  const activeResultById = useMemo(
-    () => new Map(activeResults.map((result) => [result.id, result] as const)),
-    [activeResults],
+  /** 数据库回读与内存实时结果按 updatedAt 取新，避免旧 running 覆盖对账后的 done。 */
+  const latestResultById = useMemo(
+    () => freshestResultsById(results, activeResults),
+    [activeResults, results],
   )
   const taskById = useMemo(
     () => new Map(tasks.map((task) => [task.id, task] as const)),
@@ -560,9 +558,7 @@ export function EcommerceWorkbench({
   const selectedItems = localItems.filter((item) => selectedIds.has(item.id))
   const selected = selectedItems.length === 1 ? selectedItems[0]! : null
   const selectedResult = selected?.resultId
-    ? activeResultById.get(selected.resultId) ??
-      resultById.get(selected.resultId) ??
-      null
+    ? latestResultById.get(selected.resultId) ?? null
     : null
 
   const displayStatusOf = useCallback(
@@ -1234,9 +1230,8 @@ export function EcommerceWorkbench({
         }
       >
         {localItems.map((item) => {
-          const result = item.resultId ? resultById.get(item.resultId) ?? null : null
-          const activeResult = result
-            ? activeResultById.get(result.id) ?? result
+          const activeResult = item.resultId
+            ? latestResultById.get(item.resultId) ?? null
             : null
           const status = activeResult ? displayStatusOf(activeResult) : null
           const task = activeResult ? taskById.get(activeResult.taskId) : null
@@ -1244,7 +1239,6 @@ export function EcommerceWorkbench({
           const errorText =
             run?.errorText ??
             activeResult?.errorText ??
-            result?.errorText ??
             task?.errorText ??
             '任务已结束，但没有返回可展示的结果'
           const selectedItem = selectedIds.has(item.id)
@@ -1265,8 +1259,8 @@ export function EcommerceWorkbench({
                 transform: `rotate(${item.rotation}deg)`,
               }}
               data-ecommerce-workbench-item={item.id}
-              data-ecommerce-result={result ? true : undefined}
-              data-ecommerce-result-id={result?.nodeId ?? item.resultId ?? item.id}
+              data-ecommerce-result={activeResult ? true : undefined}
+              data-ecommerce-result-id={activeResult?.nodeId ?? item.resultId ?? item.id}
               data-ecommerce-result-record-id={item.resultId}
               data-status={status ?? undefined}
               data-item-x={Math.round(item.x)}
@@ -1288,13 +1282,13 @@ export function EcommerceWorkbench({
                   status={status}
                   errorText={errorText}
                   onRetry={
-                    status === 'failed' && result
+                    status === 'failed' && activeResult
                       ? () => onAction?.(item, 'retry')
                       : undefined
                   }
                   onRemove={
-                    status === 'failed' && result
-                      ? () => onRemoveFailed?.(result.id)
+                    status === 'failed' && activeResult
+                      ? () => onRemoveFailed?.(activeResult.id)
                       : undefined
                   }
                 />

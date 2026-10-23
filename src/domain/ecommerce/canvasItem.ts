@@ -66,10 +66,11 @@ export function defaultWorkbenchWidth(viewportWidth: number): number {
 }
 
 /**
- * 旧结果 / 新结果的确定性纵向排列。
+ * 旧结果 / 新结果的确定性排列。
  *
- * 同一任务内按 position 纵向排，任务之间留更大的间隔。这里只生成“还没有布局”的
- * 对象；已有对象的坐标由 `mergeWorkbenchItems` 原样保留。
+ * **一个任务一列**：同一任务内按 position 纵向排；下一任务向右开新列，
+ * 不再把所有批次一直往页面底部堆。这里只生成“还没有布局”的对象；已有对象的
+ * 坐标由 `mergeWorkbenchItems` 原样保留。
  */
 export function layoutEcommerceResults(
   projectId: string,
@@ -98,15 +99,13 @@ export function layoutEcommerceResults(
 
   const width = defaultWorkbenchWidth(viewportWidth)
   let y = WORKBENCH_TOP
+  let column = -1
   let previousTask = ''
   let maxZ = 1
   return laidOut.map((result) => {
-    /**
-     * `y` 在上一条之后已经加过普通图片间距；换任务时补到任务间距，
-     * 不是再叠一次 96，否则实际会变成 120。
-     */
-    if (previousTask && previousTask !== result.taskId) {
-      y += WORKBENCH_TASK_GAP - WORKBENCH_ITEM_GAP
+    if (previousTask !== result.taskId) {
+      column += 1
+      y = WORKBENCH_TOP
     }
     previousTask = result.taskId
     const task = taskById.get(result.taskId)
@@ -125,7 +124,7 @@ export function layoutEcommerceResults(
       taskId: result.taskId,
       resultId: result.id,
       assetHash: result.assetHash,
-      x: WORKBENCH_LEFT,
+      x: WORKBENCH_LEFT + column * (width + WORKBENCH_TASK_GAP),
       y,
       width,
       height,
