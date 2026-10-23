@@ -1,0 +1,248 @@
+.orb {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 46;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--agent-orb-edge);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, var(--agent-orb-glint) 0 4%, transparent 25%),
+    conic-gradient(
+      from 210deg,
+      var(--agent-orb-cyan),
+      var(--agent-orb-mint),
+      var(--agent-orb-gold),
+      var(--agent-orb-rose),
+      var(--agent-orb-violet),
+      var(--agent-orb-cyan)
+    );
+  box-shadow:
+    0 14px 30px var(--agent-orb-shadow),
+    inset -8px -10px 18px var(--agent-orb-shade),
+    inset 5px 7px 12px var(--agent-orb-glint);
+  cursor: grab;
+  touch-action: none;
+}
+
+.orb::before {
+  position: absolute;
+  inset: 5px;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 66% 70%, transparent 0 16%, var(--agent-orb-shade) 64%),
+    conic-gradient(
+      from 30deg,
+      transparent,
+      var(--agent-orb-glint),
+      transparent 28%,
+      var(--agent-orb-violet),
+      transparent 62%,
+      var(--agent-orb-gold),
+      transparent
+    );
+  content: '';
+  filter: blur(4px);
+  opacity: 0.9;
+  animation: agent-orb-swirl 14s linear infinite;
+}
+
+.orb::after {
+  position: absolute;
+  inset: 8px;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse at 33% 23%,
+    var(--agent-orb-glint) 0 2%,
+    var(--agent-orb-glint-soft) 8%,
+    transparent 31%
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.orb:hover {
+  cursor: pointer;
+  box-shadow:
+    0 17px 34px var(--agent-orb-shadow),
+    inset -8px -10px 18px var(--agent-orb-shade),
+    inset 5px 7px 12px var(--agent-orb-glint);
+}
+
+.orb:active {
+  cursor: grabbing;
+}
+
+.orb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+
+.orbSwirl,
+.orbGlint {
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.orbSwirl {
+  inset: 18px;
+  background: var(--agent-orb-core);
+  filter: blur(9px);
+  opacity: 0.72;
+  animation: agent-orb-breathe 5s ease-in-out infinite alternate;
+}
+
+.orbGlint {
+  top: 12px;
+  left: 15px;
+  width: 19px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--agent-orb-glint-soft);
+  transform: rotate(-32deg);
+  filter: blur(2px);
+}
+
+.orbLabel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  padding: 5px 9px;
+  border: 1px solid var(--stroke);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out;
+  white-space: nowrap;
+}
+
+.orb:hover .orbLabel,
+.orb:focus-visible .orbLabel {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.panelFrame {
+  position: fixed;
+  z-index: 45;
+  min-width: 280px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  box-shadow: 0 18px 42px var(--agent-panel-shadow);
+  isolation: isolate;
+}
+
+.panelFrame[hidden] {
+  display: none;
+}
+
+.panelFrame :global([data-agent-panel]) {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+  z-index: auto;
+}
+
+.panelFrame :global([data-agent-drag-handle]) {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.panelFrame[data-agent-dragging='panel'] :global([data-agent-drag-handle]) {
+  cursor: grabbing;
+}
+
+.resizeHandle {
+  position: absolute;
+  right: 50%;
+  bottom: 0;
+  width: 58px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  touch-action: none;
+  transform: translateX(50%);
+}
+
+.resizeHandle::before {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--stroke);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.resizeHandle:hover::before,
+.resizeHandle:focus-visible::before,
+.panelFrame[data-agent-dragging='resize'] .resizeHandle::before {
+  background: var(--text-3);
+}
+
+.resizeHandle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+@keyframes agent-orb-swirl {
+  to {
+    transform: rotate(360deg) scale(1.06);
+  }
+}
+
+@keyframes agent-orb-breathe {
+  from {
+    opacity: 0.54;
+    transform: rotate(-8deg) scale(0.92);
+  }
+  to {
+    opacity: 0.8;
+    transform: rotate(12deg) scale(1.08);
+  }
+}
+
+@media (hover: none) {
+  .orbLabel {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb::before,
+  .orbSwirl {
+    animation: none;
+  }
+
+  .orbLabel {
+    transition: none;
+  }
+}

@@ -2779,7 +2779,7 @@ async function countMinimapInk(page, clip) {
  *
  * 为什么必须有这个函数、而一处都不能写死坐标：所谓「空白」会随布局漂移。
  * - M6-16：创作参数面板下沉到节点下方，原先安全的 `(1150, 720)` 落进面板里；
- * - M6-27：小地图常驻右下角 200×140（§6.4），同一片坐标又落进小地图里。
+ * - 小地图现在常驻左下角 200×140，下方坐标仍会落进它的范围。
  *
  * **后者尤其阴险**：小地图是 `[data-canvas-surface]` 的**后代**，所以 Playwright 的
  * 命中检查不会报「intercepts pointer events」——点击静悄悄发给小地图，既没当成
@@ -2855,7 +2855,7 @@ async function g12(browser) {
   rec(g, '连线在画面上真的被绘制（像素采样）', ink0 >= EDGE_INK_MIN, `墨迹像素=${ink0}`)
 
   // 平移：世界变换挂在内层 <g> 上，连线应随视口一起移动并照常绘制
-  // 起终点都走 blankPoint：右下角现在是小地图，写死坐标会把「平移」变成「跳转视口」
+  // 起终点都走 blankPoint：小地图占着左下角，写死坐标可能把「平移」变成「跳转视口」
   const panFrom = await blankPoint(page, { dx: -100, dy: -50 })
   await page.mouse.move(panFrom.x, panFrom.y)
   await page.mouse.down()
@@ -4097,7 +4097,7 @@ async function g17(browser) {
   // 注意：单选会弹出创作参数面板，面板浮在节点**下方**（§6.8），
   // 会挡住正下方节点的点击 —— 因此节点一律**横向排开**，
   // 且对齐/整理这类会把节点摞到一起的操作放到最后。
-  // 点空白清选中：右下角已被小地图占用，必须走 blankPoint（见其注释）
+  // 点空白清选中：左下角已被小地图占用，必须走 blankPoint（见其注释）
   await clickBlankCanvas(page)
   const alignDisabledAfterClear = !(await page.locator('[data-toolbar-arrange-modes]').isEnabled())
   rec(g, '空白单击清空选中（对齐按钮禁用）', alignDisabledAfterClear)
@@ -4805,7 +4805,7 @@ async function g18(browser) {
   rec(g, '右键删除移除节点（§4.1 删除）', (await page.locator(`[data-node-id="${genId}"]`).count()) === 0)
 
   // 6. 右键画布空白 → 含 6 个新建项 + 重置视图
-  //    坐标走 blankPoint：小地图在右下角，写死 (1200,760) 是把右键发给了小地图
+  //    坐标走 blankPoint：小地图在左下角，写死坐标仍可能发给导航浮层
   //    （它只吃左键、事件会冒泡到画布，所以断言仍过——但那是巧合，不是覆盖）
   const blankRight = await blankPoint(page)
   await page.mouse.click(blankRight.x, blankRight.y, { button: 'right' })
@@ -8734,7 +8734,7 @@ async function g55(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G56 小地图（§6.4）：右下角导航浮层 —— 点 / 拖跳转，方向键平移，Home 复位
+// G56 小地图：左下角导航浮层（节点状态条上方）—— 点 / 拖跳转，方向键平移，Home 复位
 // ────────────────────────────────────────────────────────────
 async function g56(browser) {
   const g = 'G56 小地图'
@@ -8757,9 +8757,23 @@ async function g56(browser) {
    * 改成等元素出现再数（判据一个字没改）。
    */
   await host.first().waitFor({ state: 'attached', timeout: 10000 }).catch(() => {})
+  // 模板水合与节点首帧比小地图晚一拍；等节点真正出现再测投影，避免把空图当产品缺陷。
+  await page.waitForFunction(() => document.querySelectorAll('[data-node-id]').length >= 2, null, {
+    timeout: 10000,
+  })
   const hostCount = await host.count()
-  rec(g, '画布右下角有小地图', hostCount === 1, `count=${hostCount}`)
+  rec(g, '画布左下角有小地图', hostCount === 1, `count=${hostCount}`)
   const box = await host.boundingBox()
+  const hudBox = await page.locator('[data-flow-hud]').boundingBox()
+  rec(
+    g,
+    '★ 小地图与节点状态条左对齐，并位于状态条上方',
+    !!box &&
+      !!hudBox &&
+      Math.abs(box.x - hudBox.x) < 3 &&
+      box.y + box.height <= hudBox.y - 4,
+    box && hudBox ? `小地图底=${Math.round(box.y + box.height)} 状态条顶=${Math.round(hudBox.y)}` : 'null',
+  )
   rec(
     g,
     '尺寸 200 × 140（§6.4）',
@@ -8878,7 +8892,8 @@ async function g56(browser) {
    * ⚠️ 起点必须落在**空白处**：2026-09-27 起画布右侧多了应用壳侧栏，
    * 而模板节点也随之整体右移，原先写死的 (600,500) 可能正好压在节点上 ——
    * 那样拖的是节点、画布没动，视口框自然「没跟着动」（实测就是这条挂了）。
-   * 改为按画布矩形取一个偏左下的空白点。
+   * 改为按画布矩形取一个偏右下的空白点。小地图已迁到左下，
+   * 左下方不能再当默认平移起点。
    */
   /**
    * ⚠️ 平移起点必须离左侧栏远一点（`+160`，不是 `+40`）。
@@ -8891,7 +8906,7 @@ async function g56(browser) {
    * 视口框宽 115.8 时中心可达 [57.9, 142.1]，120 本来就在可达区内。
    */
   const surfaceBox = await page.locator('[data-canvas-surface]').boundingBox()
-  const panFrom = { x: surfaceBox.x + 160, y: surfaceBox.y + surfaceBox.height - 60 }
+  const panFrom = { x: surfaceBox.x + surfaceBox.width - 120, y: surfaceBox.y + surfaceBox.height - 80 }
   await page.mouse.move(panFrom.x, panFrom.y)
   await page.mouse.down()
   await page.mouse.move(panFrom.x - 100, panFrom.y - 70, { steps: 8 })
@@ -9520,7 +9535,7 @@ async function g58(browser) {
   // 先把两个节点**拉开**：复制体只偏 24px、与原件重叠 216px，
   // 重叠区里点击一律命中上层节点（探针实测：点了但选中态不变）。
   // 取消多选 → 单选复制体 → 拖到空白处 → 再单选它，才是一个能稳定点中的目标。
-  // Esc = 取消选中（画布既定键位）；右下角压着小地图，「点空白」在那儿清不掉选中
+  // Esc = 取消选中（画布既定键位）；左下角压着小地图，「点空白」在那儿清不掉选中
   await page.keyboard.press('Escape')
   await sleep(300)
   rec(g, 'Esc 取消选中后跟随栏消失', (await bar.count()) === 0, `count=${await bar.count()}`)

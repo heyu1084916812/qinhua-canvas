@@ -1,24 +1,21 @@
-/* 小地图（产品文档 §6.4）：右下角 200 × 140，距边缘 16px，无边框、带轻阴影 */
+/* 小地图：左下角 200 × 140，放在节点数 / 缩放状态条正上方。 */
 .minimap {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
+  left: 12px;
+  bottom: 50px;
   width: 200px;
   /*
    * ⚠️ **尺寸仍钉死 200×140**（§6.4 的规格，冒烟 G56 按它断言）。
    *
-   * 缩放读数**不放进这个盒子**：那会把高度撑到 163，直接违背 §6.4。
-   * 它作为**兄弟元素**定位在盒子正下方（见 `.zoom`）——
-   * 读数属于「小地图附近」，不属于小地图本身。
+   * 缩放读数的视觉文本已合并到左侧 HUD，不再把 200×140 的导航盒撑高。
    */
   height: 140px;
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   box-shadow: var(--shadow-float);
   overflow: hidden;
-  /* 层叠：高于工具栏（15/16）、**低于创作面板（20）**——两者都在右下角，物理上会重叠；
-     同层时后渲染的小地图会盖住面板的「生成」按钮（G9 全量冒烟拦截就是这么来的）。
-     规则：常驻环境控件（小地图）让位于临时作业面（面板 / 菜单）。 */
+  /* 层叠：高于工具栏（15/16）、低于临时作业面（面板 / 菜单）。
+     规则：常驻环境控件让位于临时作业面。 */
   z-index: 18;
   cursor: crosshair;
   /* 触摸拖拽由自己接管，别让浏览器抢去做滚动 */
@@ -26,35 +23,16 @@
 }
 
 /*
- * 缩放读数（产品文档 §6.2：顶栏去掉后「缩放读数移到小地图附近，只显示数值；
- * 不额外做加减号与适配按钮」）。
- *
- * ⚠️ 它是小地图的**兄弟**，不是子元素：
- * 小地图本体被 §6.4 钉成 200×140，读数塞进去会把它撑高（实测 163），
- * 破坏那条规格。这里用绝对定位贴在它**正下方**，两者视觉上仍连成一块 ——
- * 读数本来就属于「小地图附近」。
- *
- * 定位基准是 `.minimap` 的父层（画布 surface），所以右/下都要与小地图对齐：
- * right:16 + 小地图高 140 + 间距 4 + 距底 16。
+ * 缩放百分比现在已经由左侧 HUD 一起显示；这个节点保留为
+ * `data-canvas-zoom` 的语义锚点，不再重复画一份视觉读数。
  */
 .zoom {
   position: absolute;
-  right: 16px;
-  bottom: calc(16px + 140px + 4px);
-  min-width: 48px;
-  padding: 2px 8px;
-  box-sizing: border-box;
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-float);
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  /* 与小地图同级，但不可交互：点它不该有任何反应 */
-  cursor: default;
-  user-select: none;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .minimap:focus-visible {
@@ -97,16 +75,11 @@
 
 /*
  * 窄窗口下底部中间要让给画布工具栏（48px 高 + 上下间距）。
- * 这里只移动小地图和缩放读数，不隐藏功能，也不靠提高层级互相覆盖。
+ * 这里只上移小地图，不隐藏功能，也不靠提高层级互相覆盖。
  * 1024px 是桌面壳的最小宽度，所以正常桌面布局保持原规格。
  */
 @media (max-width: 1000px) {
   .minimap {
-    /* 工具栏 → 状态条 → 小地图 → 缩放读数，自下而上依次让位。 */
-    bottom: calc(var(--space-4) + 48px + var(--space-3) + 40px);
-  }
-
-  .zoom {
-    bottom: calc(var(--space-4) + 48px + var(--space-3) + 40px + 140px + 4px);
+    bottom: calc(var(--space-3) + 48px + var(--space-2) + 32px + var(--space-2));
   }
 }

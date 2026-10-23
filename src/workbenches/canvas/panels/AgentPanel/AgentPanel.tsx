@@ -1706,7 +1706,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         本面板不到 400px 宽，四项文字按钮一排会把会话名挤到看不清 ——
         图标 + title 提示，鼠标停上去才知道是什么，这点与画布工具栏同一口径。
       */}
-      <header className={styles.head}>
+      <header className={styles.head} data-agent-drag-handle>
         {renaming ? (
           <>
             <input
@@ -1820,7 +1820,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               type="button"
               className={styles.iconBtn}
               onClick={onClose}
-              title="收起助手"
+              title="收起浮窗"
               data-agent-close
             >
               <IconClose size={16} />

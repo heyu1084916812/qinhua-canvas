@@ -22,7 +22,7 @@ import { fitCanvasView } from './fitView'
 import styles from './Minimap.module.css'
 
 /**
- * 小地图（产品文档 §6.4）：画布右下角的全局导航浮层。
+ * 小地图：画布左下角、节点状态条上方的全局导航浮层。
  *
  * 投影数学全在 `domain/canvas/minimap`（纯函数），这里只负责：量容器、取节点、
  * 把指针 / 键盘事件翻译成 `store.setViewport`。
@@ -245,11 +245,8 @@ export function Minimap() {
         />
       </svg>
       {/*
-        缩放读数（产品文档 §6.2：顶栏去掉后「缩放百分比移到小地图附近，只显示数值；
-        不额外做加减号与适配按钮」）。
-
-        放在小地图**正下方**而不是塞进 SVG：它是纯文本、不该参与投影与命中，
-        塞进去会连带影响小地图那套「点击跳转」的坐标换算。
+        缩放读数的视觉位置已合并到左侧 HUD。这里保留 span 作为
+        `data-canvas-zoom` 的语义锚点，避免脚本和旧测试出现第二套读数。
       */}
       <span className={styles.zoom} data-canvas-zoom>
         {Math.round(viewport.zoom * 100)}%

@@ -31,7 +31,7 @@ export interface AppearancePrefs {
    * 归零后颜色 / 位置仍然立刻到位，只是没有过渡（与设计稿的验收判据一致）。
    */
   motion: MotionPref
-  /** 是否显示画布右下角的小地图（本机偏好；关掉只是少一个导航控件） */
+  /** 是否显示画布左下角的小地图（本机偏好；关掉只是少一个导航控件） */
   showMinimap: boolean
 }
 

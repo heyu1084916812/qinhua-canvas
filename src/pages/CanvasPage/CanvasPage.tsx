@@ -11,7 +11,7 @@ import { FlowSurface } from '../../workbenches/canvas/flow/FlowSurface'
 import { fitCanvasView, focusCanvasNode } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
-import { AgentPanel } from '../../workbenches/canvas/panels/AgentPanel/AgentPanel'
+import { AgentDock } from '../../workbenches/canvas/panels/AgentPanel/AgentDock'
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
 import { TextEditorLayer } from '../../workbenches/canvas/text/TextEditorLayer'
@@ -403,7 +403,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
       {/* 执行宿主上提一层包住整页：顶栏的「仅刷新陈旧 / 全图重跑」需要与画布共用同一份
           执行状态（原先只包住 Surface，顶栏拿不到 useCanvasExecution）。 */}
       <CanvasExecutionProvider>
-        <div className={agentOpen ? `${styles.page} ${styles.pageAgentOpen}` : styles.page}>
+        <div className={styles.page}>
           {/*
             ⛔ 顶部悬浮栏已整体去除（产品文档 §6.2 / 2026-09-27 应用壳改版）。
 
@@ -423,15 +423,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
             顶栏被去掉要解决的是「它挡住画布内容」，不是「按钮本身不该存在」。
           */}
           {/*
-            右上角那排入口（用户 2026-10-06 第 6 条改过三处）：
-            ① **顺序换过来**：现在是「日志 → Agent」（原来「助手 → 日志」）；
-            ② **间距减半**：`--space-4`(16) → `--space-2`(8) —— 用户原话「目前助手和日志之间的距离太远」；
-            ③ **面板打开时只隐藏 Agent 那一个按钮**，日志始终在（用户原话：
-               「整排隐藏的是 agent 那个按钮，不是日志」）—— 所以下面 Agent 按钮是条件渲染，
-               而 `.pageAgentOpen` 那条"整排左移"的规则保留：剩下的日志仍要躲开面板。
-
-            名字也改了：**助手 → Agent**（用户第 6 条：「助手改个名称叫 Agent」）。
-            锚点 `data-canvas-agent` 不变（冒烟与样式都靠它定位，名字是给人看的）。
+            右上角只保留日志。Agent 已改为可拖动的画布浮球 / 浮窗，
+            不再占固定顶栏位置，也不会再挤压日志。
           */}
           <div className={styles.topRightActions}>
             <button
@@ -445,19 +438,6 @@ function CanvasProject({ projectId }: { projectId: string }) {
             >
               日志
             </button>
-            {!agentOpen && (
-              <button
-                type="button"
-                className={`${styles.topBtn} ${styles.agentBtn}`}
-                data-canvas-agent
-                aria-pressed={agentOpen}
-                aria-label="Agent"
-                title="Agent"
-                onClick={() => setAgentOpen((v) => !v)}
-              >
-                Agent
-              </button>
-            )}
           </div>
           {externalEdit && (
             <div className={styles.externalBanner} role="status">
@@ -485,8 +465,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
             onCreateNode={addNodeAtCenter}
             onImportAsset={() => void importAssetAtCenter()}
           />
-            {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
-            {agentOpen && <AgentPanel projectId={projectId} onClose={() => setAgentOpen(false)} />}
+          {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
+          <AgentDock projectId={projectId} open={agentOpen} onOpenChange={setAgentOpen} />
           {/* 素材灯箱（§6.17）挂在页面级：它的触发方有画布表面与日志面板两处，
               挂在任一子树里另一处都够不着；状态在 store，故放哪都能读 */}
           <LightboxLayer />

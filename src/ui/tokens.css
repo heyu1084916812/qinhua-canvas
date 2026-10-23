@@ -129,6 +129,20 @@
   --stroke-focus: #171716;
   --focus-ring: #5b67d6;
 
+  /* Agent 浮球：五色只服务这一个品牌化入口，不扩散到常规控件。 */
+  --agent-orb-cyan: #41c7f5;
+  --agent-orb-mint: #65e0b6;
+  --agent-orb-gold: #ffc95c;
+  --agent-orb-rose: #f78bb8;
+  --agent-orb-violet: #8d7cf5;
+  --agent-orb-glint: rgba(255, 255, 255, 0.92);
+  --agent-orb-glint-soft: rgba(255, 255, 255, 0.42);
+  --agent-orb-edge: rgba(255, 255, 255, 0.72);
+  --agent-orb-shade: rgba(26, 32, 56, 0.36);
+  --agent-orb-shadow: rgba(36, 51, 79, 0.26);
+  --agent-orb-core: rgba(255, 255, 255, 0.36);
+  --agent-panel-shadow: rgba(23, 23, 22, 0.14);
+
   --success: #2f7d5a;
   --warn: #9a6424;
   --danger: #b4473a;
@@ -314,6 +328,20 @@
   --stroke-focus: #efefef;
   /* 焦点环提亮：#5B67D6 在深底上偏闷，抬到能一眼看见的靛蓝 */
   --focus-ring: #8f9bf5;
+
+  /* 深色下保留五色，但压低玻璃高光的面积，避免变成发光按钮。 */
+  --agent-orb-cyan: #5bd5ff;
+  --agent-orb-mint: #72ebc3;
+  --agent-orb-gold: #ffd878;
+  --agent-orb-rose: #ff9fc7;
+  --agent-orb-violet: #a79aff;
+  --agent-orb-glint: rgba(255, 255, 255, 0.88);
+  --agent-orb-glint-soft: rgba(255, 255, 255, 0.3);
+  --agent-orb-edge: rgba(255, 255, 255, 0.38);
+  --agent-orb-shade: rgba(0, 0, 0, 0.52);
+  --agent-orb-shadow: rgba(0, 0, 0, 0.64);
+  --agent-orb-core: rgba(255, 255, 255, 0.16);
+  --agent-panel-shadow: rgba(0, 0, 0, 0.58);
 
   --success: #57c08a;
   --warn: #d8a44c;
