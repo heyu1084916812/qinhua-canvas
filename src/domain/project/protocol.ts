@@ -366,16 +366,16 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     credentials: [
       {
         id: 'chat',
-        label: '对话 Key（OpenAi系）',
-        hint: '用于对话、提示词优化。分组选 OpenAi系 - Std / Pro。',
+        label: '对话 Key（按模型选分组）',
+        hint: '用于对话、提示词优化。Gemini 3.8 Flash 选「Gemini - Std」；GPT 系选「OpenAi - Std / Pro」。',
       },
       {
         id: 'image',
-        label: '生图 Key（image2专用分组）',
-        hint: '用于 /v1/tasks 异步生图。分组选 image2专用分组。',
+        label: '生图 Key（任务专用分组）',
+        hint: '用于 /v1/tasks 异步生图。分组选「任务专用分组」（旧文案可能叫 image2专用分组）。',
       },
     ],
-    note: '一条渠道两把 Key：主令牌走对话 api2*，备用令牌走生图任务 task-api-1*。把地址改成 api2-cn 大陆域后，生图会自动切到 task-api-1-cn。只填一把 Key 时，只有对应能力可用。',
+    note: '一条渠道两把 Key：主令牌走对话 api2*，备用令牌走生图任务 task-api-1*。一个 Key 只能访问一个分组：Gemini 选 Gemini - Std，GPT 选 OpenAi - Std / Pro，Grok 选 Grok - Heavy；想同时用多个厂商的对话模型，站点侧就需要多把 Key。生图统一选任务专用分组。把地址改成 api2-cn 后生图会自动切到 task-api-1-cn。',
   },
   {
     id: '65535-chat',
@@ -390,7 +390,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     alternateBaseUrls: [],
     versionPath: '/v1',
     docUrl: 'https://my.65535.space/docs/Codex-app-start',
-    note: '拆分模式：只做对话。新渠道优先用「65535 · 对话 + 生图」一条渠道。',
+    note: '拆分模式：只做对话。分组跟着模型走：Gemini 选 Gemini - Std，GPT 选 OpenAi - Std / Pro。新渠道优先用「65535 · 对话 + 生图」一条渠道。',
   },
   {
     id: '65535-task',
@@ -404,7 +404,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     alternateBaseUrls: [],
     versionPath: '/v1',
     docUrl: 'https://my.65535.space/docs/async-native-api',
-    note: '拆分模式：只做生图。原生入口 POST /v1/tasks 提交、GET /v1/tasks/{id} 轮询；新渠道优先用「65535 · 对话 + 生图」一条渠道。',
+    note: '拆分模式：只做生图。分组选「任务专用分组」；原生入口 POST /v1/tasks 提交、GET /v1/tasks/{id} 轮询。新渠道优先用「65535 · 对话 + 生图」一条渠道。',
   },
   {
     id: '65535-image-sync',

@@ -88,6 +88,8 @@ describe('能力查询', () => {
       'chat',
       'image',
     ])
+    expect(protocolById('65535')?.credentials?.[0]?.hint).toContain('Gemini - Std')
+    expect(protocolById('65535')?.credentials?.[1]?.hint).toContain('任务专用分组')
     expect(protocolById('65535')?.endpointBaseUrls?.image).toBe(
       'https://task-api-1.65535.space',
     )

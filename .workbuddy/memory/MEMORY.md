@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### 65535 分组边界与 Key 选择（2026-10-23 → 对账 #726）
+
+- **分组 = 模型池授权**：一把 Key 只能绑一个分组，不能同时访问 Gemini / OpenAI / Grok。
+- **模型归属（官网 `/api/catalog`）**：`gemini-3.8-flash` 在 `Gemini - Std`；
+  GPT 系在 `OpenAi - Std / Pro`；Grok 在 `Grok - Heavy`；DeepSeek 在 `开源模型`；
+  生图 / 视频在 `任务专用分组`（旧文案「image2专用分组」已过时）。
+- **`+ 添加映射` 不是跨组**：它是 `model_mapping`，只把请求模型名改写成目标模型名。
+- **Key 编辑不是转换**：改成另一个分组也只能一次属一个组，不能合并授权。
+- **应用侧无“分组转换按钮”**：当前合并渠道就是一把对话 Key + 一把生图 Key；
+  要跨厂商对话，站点侧建多把 Key，应用侧另建拆分对话渠道（或后续扩多 Key 槽位）。
+- 已把设置页提示改成按模型选分组；页面探针确认 Gemini / OpenAI / 任务组提示均可见。
+
 ### 65535 对话工具回调与 Agent 浮层裁切（2026-10-23 → 对账 #725）
 
 - **Gemini 网关的 `function_response` 要 name**：OpenAI `role:'tool'` 只带
