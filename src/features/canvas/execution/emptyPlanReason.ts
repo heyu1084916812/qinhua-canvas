@@ -1,6 +1,7 @@
 import type { Channel } from '../../../domain/project/channel'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import { presetPromptSuffix } from '../../../domain/canvas/layout/presets'
 
 /**
  * 「这个节点为什么进不了执行计划」（用户 2026-09-23 报「点生成没有反应」）。
@@ -25,7 +26,15 @@ export function emptyPlanReason(
   /* 对账 #515：禁用节点不参与执行，它的内容也不再作为上游输入 */
   if (node.disabled) return '节点已禁用 —— 先启用再生成；它的内容（含已生成的图）不会作为上游输入'
 
-  const data = node.data as { channelId?: string; model?: string; prompt?: string }
+  const data = node.data as {
+    channelId?: string
+    model?: string
+    prompt?: string
+    preset?: string
+    presetOptions?: Record<string, string>
+    emotion?: string
+    faceBox?: { x: number; y: number; w: number; h: number }
+  }
   const enabled = channels.filter((c) => c.enabled)
 
   if (enabled.length === 0) {
@@ -42,8 +51,20 @@ export function emptyPlanReason(
   const hasUpstreamPrompt = graph.edges
     .filter((e) => e.target === node.id)
     .map((e) => graph.nodes.find((n) => n.id === e.source))
-    .some((n) => n?.type === 'prompt' && (((n.data as { text?: string }).text ?? '').trim().length > 0))
+    .some(
+      (n) =>
+        n?.type === 'prompt' &&
+        (((n.data as { text?: string }).text ?? '').trim().length > 0),
+    )
 
-  if (!(data.prompt ?? '').trim() && !hasUpstreamPrompt) return '还没有写提示词'
+  /**
+   * 预设 / 情绪本身会拼进提示词，所以它们也是内容来源。
+   * 判据与 `generationSpec.toRunRequest` 共用 `presetPromptSuffix()`，
+   * 不能只看正文 —— 否则「只选了预设」会被误报成没写提示词。
+   */
+  const hasPresetPrompt = presetPromptSuffix(data).trim().length > 0
+  if (!(data.prompt ?? '').trim() && !hasUpstreamPrompt && !hasPresetPrompt) {
+    return '还没有写提示词'
+  }
   return '这次生成没有可执行的任务'
 }

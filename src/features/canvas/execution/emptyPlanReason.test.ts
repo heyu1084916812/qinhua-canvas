@@ -128,6 +128,11 @@ describe('emptyPlanReason · 计划为空时必须给出可读理由', () => {
     )
   })
 
+  it('正文为空但选了预设 → 预设会拼进提示词，不算缺失', () => {
+    const node = genNode({ prompt: '', preset: 'storyboard' })
+    expect(emptyPlanReason(node, [channel()], graph([node]))).not.toBe('还没有写提示词')
+  })
+
   it('节点不存在 → 返回 null（由调用方决定是否提示，不编理由）', () => {
     expect(emptyPlanReason(undefined, [channel()], graph([]))).toBeNull()
   })

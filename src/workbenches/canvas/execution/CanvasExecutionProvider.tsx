@@ -1095,21 +1095,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 而不是假装跑了。否则用户会以为「技能生效了」，实际发出去的是没处理的正文。
        */
       if (node?.type === 'prompt') {
-        /**
-         * 用户 2026-10-23：下面写提示词、上面显示结果，节点正文仍可手写并作为下游上游。
-         * 若用户只写了草稿、还没点「写入节点」，首次生成时把草稿提交成结果，
-         * 否则下游拿到空提示词；节点已经有结果时不动它。
-         */
-        const promptData = node.data as PromptData
-        const draft = (promptData.draft ?? '').trim()
-        if (!promptData.skillId && draft && !(promptData.text ?? '').trim()) {
-          store.dispatch({
-            kind: 'node.updateData',
-            id: node.id,
-            patch: { text: promptData.draft ?? '' },
-            transient: false,
-          })
-        }
         const applied = await applySkillIfSelected(node as NodeSnapshot<PromptData>)
         if (applied === 'failed') return
       }

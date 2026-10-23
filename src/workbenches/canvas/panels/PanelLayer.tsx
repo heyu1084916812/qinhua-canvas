@@ -459,9 +459,6 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
       node.type === 'prompt'
         ? ((node.data as PromptData).draft ?? (node.data as PromptData).text ?? '')
         : data.prompt,
-    ...(node.type === 'prompt'
-      ? { promptResult: (node.data as PromptData).text ?? '' }
-      : {}),
     linkedPromptCount,
     promptToggle: null,
     /**
@@ -642,17 +639,12 @@ function handlePanelEvent(
   switch (event.type) {
     case 'setPrompt':
       /*
-       * 用户 2026-10-23 改回「面板 = 输入草稿、上方节点 = 结果」：
-       * 输入只写 `draft`，不碰 `text`。要更新结果正文走 `applyPrompt`。
+       * 用户 2026-10-23：「面板 = LLM 输入草稿、上方节点 = 结果」：
+       * 输入只写 `draft`，不碰 `text`。结果由优化 / 翻译 / 反推 / 技能产生。
        */
       if (node.type === 'prompt') {
         patch({ draft: event.text } as Partial<GenerationData>)
       } else patch({ prompt: event.text })
-      break
-    case 'applyPrompt':
-      if (node.type === 'prompt') {
-        patch({ draft: event.text, text: event.text } as Partial<GenerationData>)
-      }
       break
     case 'setChannel':
       // 换渠道后模型缓存变了，清空模型避免脏值
