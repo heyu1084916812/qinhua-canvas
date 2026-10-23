@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "qinghua"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "qinghua-shared-store",
  "reqwest",

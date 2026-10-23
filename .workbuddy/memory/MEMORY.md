@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### v0.1.5 桌面封包（2026-10-23 → 对账 #732）
+
+- **版本五处对齐**：`package.json` / `package-lock.json` / `src-tauri/tauri.conf.json` /
+  `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` 全部 **0.1.5**。v0.1.4 已发布，
+  同版本号不能覆盖。
+- **产物**：`release/0.1.5/qinghua_0.1.5_x64-setup.exe` **42,162,290 B**，
+  SHA-256 `98822B64D3D4CFD6722B64D28145A8CF4D1449E7ADA0E7A94A3DCA668140BFDC`；
+  `.sig` 436 B；签名 keyid `7cec98e1251b82bf`，Ed25519 验签通过。
+- **交付门禁 11/11**：内嵌前端 / platform=desktop / 首屏 / 项目页 / 版本 0.1.5 /
+  mediapipe wasm / FFmpeg 真实编码 / 隔离 shared-store / 无页面异常。
+- **★★★ 跑门禁前必须停两个东西**：① 开发端 `qinghua.exe` 在跑会被单实例插件接管，
+  release 第二实例直接 `code=0` 退出、开不出调试端口；② 独立 `qinghua-store` 占着
+  18765 会让 release 自检连到真实目录，而不是临时 `LOCALAPPDATA` 隔离目录。
+  两个都停掉后门禁才 11/11。
+- 安装包由 `release-desktop.mjs` 产出；脚本本身**不 push**。发布还需推提交 / tag /
+  GitHub Release，按 AGENTS 必须先列清单并取得用户确认。
+
 ### 提示词草稿点生成先走 LLM（2026-10-23 → 对账 #730）
 
 - **★★ compose 不是“一律生成提示词”**（2026-10-23 → 对账 #731）：用户说
