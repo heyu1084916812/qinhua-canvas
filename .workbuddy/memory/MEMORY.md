@@ -16,6 +16,10 @@
   两个都停掉后门禁才 11/11。
 - 安装包由 `release-desktop.mjs` 产出；脚本本身**不 push**。发布还需推提交 / tag /
   GitHub Release，按 AGENTS 必须先列清单并取得用户确认。
+- **已发布（2026-10-23）**：`main` `7b17e47..5173d04`；tag `v0.1.5`；Release id
+  `422062908`，https://github.com/heyu1084916812/qinhua-canvas/releases/tag/v0.1.5。
+  资产：安装包 42,162,290 B / `.sig` 436 B / `latest.json` 827 B。
+  `check-published-release` **6/6**。
 
 ### 提示词草稿点生成先走 LLM（2026-10-23 → 对账 #730）
 
