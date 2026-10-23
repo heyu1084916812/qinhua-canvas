@@ -198,7 +198,12 @@ export function createS65535TaskAdapter(
           message: '响应不是模型列表，该地址不像 65535 任务接口',
         }
       }
-      return { ok: true, models: body.data.map((m) => toModelCapability(m.id)) }
+      return {
+        ok: true,
+        models: body.data
+          .map((m) => toModelCapability(m.id))
+          .filter((model) => model.category === 'image'),
+      }
     } catch (e) {
       const { error, message } = classifyError(e)
       return { ok: false, error, message }
@@ -223,7 +228,9 @@ export function createS65535TaskAdapter(
     const body = await res
       .json<{ data?: { id: string }[] }>()
       .catch(() => ({ data: [] as { id: string }[] }))
-    return (body.data ?? []).map((m) => toModelCapability(m.id))
+    return (body.data ?? [])
+      .map((m) => toModelCapability(m.id))
+      .filter((model) => model.category === 'image')
   }
 
   const submit = async (

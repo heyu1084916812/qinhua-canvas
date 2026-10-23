@@ -236,4 +236,21 @@ describe('65535 原生异步任务适配器', () => {
       }),
     ).toEqual(['a', 'b', 'c'])
   })
+
+  it('模型目录只保留生图模型，不把对话 / 视频模型伪装成本渠道能力', async () => {
+    const platform = createMemoryPlatform({
+      handler: async () =>
+        json(200, {
+          data: [
+            { id: 'gpt-image-2' },
+            { id: 'gpt-5.5' },
+            { id: 'grok-imagine-video' },
+          ],
+        }),
+    })
+    const adapter = createS65535TaskAdapter(config as never, platform)
+    const result = await adapter.verify(config as never, new AbortController().signal)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.models.map((model) => model.id)).toEqual(['gpt-image-2'])
+  })
 })

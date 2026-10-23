@@ -475,13 +475,16 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         const ch = list.find((c) => c.id === id)
         if (!ch) continue
         const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+        const altApiKey = ch.altCredentialRef
+          ? await repo.loadToken(ch.altCredentialRef)
+          : null
         /**
          * 造不出适配器时**如实报错并中止**，不让异常冒到宿主外。
          * 冒出去的表现是「点了生成既没请求也没提示」，用户只能干瞪眼 ——
          * 这正是这次排查花掉最多时间的地方。
          */
         try {
-          map.set(id, adapterForChannel(ch, catalog, apiKey, platform))
+          map.set(id, adapterForChannel(ch, catalog, apiKey, platform, altApiKey))
         } catch (e) {
           const app = asAppError(e)
           store.notify(
@@ -853,8 +856,17 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        */
       const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+      const altApiKey = ch.altCredentialRef
+        ? await repo.loadToken(ch.altCredentialRef)
+        : null
       /** 同上面那条路：协议定义必须按 id 去目录查（提示词节点也走内置站点协议） */
-      const adapter = adapterForChannel(ch, channels.protocolCatalog(), apiKey, platform)
+      const adapter = adapterForChannel(
+        ch,
+        channels.protocolCatalog(),
+        apiKey,
+        platform,
+        altApiKey,
+      )
       const prompt = system ? `${system}\n\n${text}` : text
       const result = await adapter.completeText(
         { kind: 'text', channelId, model: upstreamModel, prompt, inputs: inputs ?? [], params: {} },

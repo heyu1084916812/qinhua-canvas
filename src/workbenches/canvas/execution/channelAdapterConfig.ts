@@ -39,6 +39,7 @@ export function resolvedChannelConfig(
   channel: Channel,
   catalog: ProtocolCatalog,
   apiKey: string | null,
+  altApiKey: string | null = null,
 ): ResolvedChannelConfig {
   return {
     id: channel.id,
@@ -53,6 +54,7 @@ export function resolvedChannelConfig(
     credentialRef: channel.credentialRef,
     modelCache: channel.modelCache,
     apiKey,
+    altApiKey,
   }
 }
 
@@ -62,6 +64,10 @@ export function adapterForChannel(
   catalog: ProtocolCatalog,
   apiKey: string | null,
   platform: PlatformKit,
+  altApiKey: string | null = null,
 ): ChannelAdapter {
-  return createChannelAdapter(resolvedChannelConfig(channel, catalog, apiKey), platform)
+  return createChannelAdapter(
+    resolvedChannelConfig(channel, catalog, apiKey, altApiKey),
+    platform,
+  )
 }

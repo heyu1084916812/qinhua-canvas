@@ -11,16 +11,53 @@ describe('channelRepository', () => {
     await repo.seedBuiltins()
     const rows = await repo.list()
     const soon = rows.find((channel) => channel.id === 'ch_builtin_soonstudio')
-    expect(rows.filter((channel) => channel.id.startsWith('ch_builtin_'))).toHaveLength(6)
+    expect(rows.filter((channel) => channel.id.startsWith('ch_builtin_'))).toHaveLength(5)
     expect(soon?.name).toBe('SoonStudio')
     expect(soon?.protocol).toBe('soonstudio')
     expect(soon?.baseUrl).toBe('https://soonstudio.ai')
-    expect(rows.find((channel) => channel.id === 'ch_builtin_65535_chat')?.protocol).toBe(
-      '65535-chat',
-    )
-    expect(rows.find((channel) => channel.id === 'ch_builtin_65535_task')?.baseUrl).toBe(
-      'https://task-api-1.65535.space',
-    )
+    const combined = rows.find((channel) => channel.id === 'ch_builtin_65535_chat')
+    expect(combined?.name).toBe('65535')
+    expect(combined?.protocol).toBe('65535')
+    expect(combined?.baseUrl).toBe('https://api2.65535.space')
+    expect(rows.some((channel) => channel.id === 'ch_builtin_65535_task')).toBe(false)
+  })
+
+  it('退役的 65535 任务内置行在未配置时清理，配置过的保留', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await p.storage.put('channels', {
+      id: 'ch_builtin_65535_task',
+      name: '65535 生图',
+      protocol: '65535-task',
+      baseUrl: 'https://task-api-1.65535.space',
+      enabled: true,
+      hasToken: false,
+      hasAltToken: false,
+      models: [],
+      modelCache: [],
+      order: -995,
+      createdAt: 1,
+    })
+    await repo.seedBuiltins()
+    expect(await repo.get('ch_builtin_65535_task')).toBeNull()
+
+    const p2 = createMemoryPlatform()
+    const repo2 = createChannelRepository(p2.storage, p2.credentials)
+    await p2.storage.put('channels', {
+      id: 'ch_builtin_65535_task',
+      name: '65535 生图',
+      protocol: '65535-task',
+      baseUrl: 'https://task-api-1.65535.space',
+      enabled: true,
+      hasToken: true,
+      hasAltToken: false,
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', category: 'image' }],
+      modelCache: [],
+      order: -995,
+      createdAt: 1,
+    })
+    await repo2.seedBuiltins()
+    expect(await repo2.get('ch_builtin_65535_task')).not.toBeNull()
   })
 
   it('create / list / get / update', async () => {

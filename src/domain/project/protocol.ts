@@ -109,6 +109,14 @@ export interface ProtocolDefinition {
    */
   alternateBaseUrls?: readonly string[]
   /**
+   * 按能力覆盖基址。
+   *
+   * 65535 这类站把「对话」和「生图任务」放在两个域名下，但用户希望它们在
+   * 渠道列表里只占一行。渠道仍只填一个主地址（默认对话地址），生图能力由
+   * 这里给出的任务地址覆盖；适配器按能力分流，不把生图请求发到对话入口。
+   */
+  endpointBaseUrls?: Partial<Record<ProtocolCapability, string>>
+  /**
    * OpenAI 兼容族的版本段。官方是 `/v1`；火山引擎 Ark 是 `/api/v3`。
    *
    * 单列出来正是为了修老 `normalizeBaseUrl` 的洞：它无条件剥掉结尾的 `/vN`，
@@ -339,18 +347,50 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     note: '异步任务协议：提交后轮询 /v1/tasks/{task_id} 取结果（图像 / 视频）。对话请另建 OpenAI 兼容渠道。',
   },
   {
+    id: '65535',
+    name: '65535 · 对话 + 生图',
+    short: '65535',
+    family: 'openai-compatible',
+    kind: 'station',
+    status: 'ready',
+    capabilities: ['chat', 'image'],
+    defaultBaseUrl: 'https://api2.65535.space',
+    alternateBaseUrls: [
+      'https://api2-cn.65535.space',
+      'https://task-api-1.65535.space',
+      'https://task-api-1-cn.65535.space',
+    ],
+    endpointBaseUrls: { image: 'https://task-api-1.65535.space' },
+    versionPath: '/v1',
+    docUrl: 'https://my.65535.space/docs/daxiong',
+    credentials: [
+      {
+        id: 'chat',
+        label: '对话 Key（OpenAi系）',
+        hint: '用于对话、提示词优化。分组选 OpenAi系 - Std / Pro。',
+      },
+      {
+        id: 'image',
+        label: '生图 Key（image2专用分组）',
+        hint: '用于 /v1/tasks 异步生图。分组选 image2专用分组。',
+      },
+    ],
+    note: '一条渠道两把 Key：主令牌走对话 api2*，备用令牌走生图任务 task-api-1*。把地址改成 api2-cn 大陆域后，生图会自动切到 task-api-1-cn。只填一把 Key 时，只有对应能力可用。',
+  },
+  {
     id: '65535-chat',
-    name: '65535 · 对话',
+    name: '65535 · 对话（拆分）',
     short: '65535',
     family: 'openai-compatible',
     kind: 'station',
     status: 'ready',
     capabilities: ['chat'],
     defaultBaseUrl: 'https://api2.65535.space',
-    alternateBaseUrls: ['https://api2-cn.65535.space'],
+    /** 不参与站点反查：合并协议优先占住 api2*，这里只作手动拆分模式。 */
+    alternateBaseUrls: [],
     versionPath: '/v1',
     docUrl: 'https://my.65535.space/docs/Codex-app-start',
-    note: '国际端点 https://api2.65535.space；大陆优化 https://api2-cn.65535.space。这里是对话入口，密钥分组选 OpenAi系 - Std / Pro；生图任务请用「65535 · 生图任务」。',
+    note: '拆分模式：只做对话。新渠道优先用「65535 · 对话 + 生图」一条渠道。',
   },
   {
     id: '65535-task',
@@ -361,10 +401,10 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     status: 'ready',
     capabilities: ['image'],
     defaultBaseUrl: 'https://task-api-1.65535.space',
-    alternateBaseUrls: ['https://task-api-1-cn.65535.space'],
+    alternateBaseUrls: [],
     versionPath: '/v1',
     docUrl: 'https://my.65535.space/docs/async-native-api',
-    note: '原生异步任务入口：POST /v1/tasks 提交，GET /v1/tasks/{id} 轮询。国际端点 https://task-api-1.65535.space；大陆优化 https://task-api-1-cn.65535.space；密钥分组选「image2专用分组」。分发专用 https://sub-proxy-us.65535.space 只用于 OpenAI / Gemini 同步图片返回 Base64，不是任务入口。',
+    note: '拆分模式：只做生图。原生入口 POST /v1/tasks 提交、GET /v1/tasks/{id} 轮询；新渠道优先用「65535 · 对话 + 生图」一条渠道。',
   },
   {
     id: '65535-image-sync',

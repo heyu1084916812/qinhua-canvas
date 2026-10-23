@@ -268,6 +268,7 @@ function toSafeConfig(ch: Channel, catalog: ProtocolCatalog): ResolvedChannelCon
     credentialRef: ch.credentialRef,
     modelCache: ch.modelCache,
     apiKey: null,
+    altApiKey: null,
   }
 }
 
@@ -415,6 +416,12 @@ export function createChannelStore(
         }
       : { ref: ch.credentialRef, tail: 'tokenTail' as const, has: 'hasToken' as const }
 
+  /** 两把明文 Key 一起读：合并协议按能力各自使用，普通协议只读主槽。 */
+  const loadKeys = async (ch: Channel) => ({
+    apiKey: ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null,
+    altApiKey: ch.altCredentialRef ? await repo.loadToken(ch.altCredentialRef) : null,
+  })
+
   const saveToken: ChannelStoreActions['saveToken'] = async (id, token, slot = 'primary') => {
     const ch = await repo.get(id)
     const f = ch ? slotFields(ch, slot) : null
@@ -540,8 +547,12 @@ export function createChannelStore(
     const startedAt = Date.now()
     const elapsed = () => Date.now() - startedAt
     try {
-      const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+      const { apiKey, altApiKey } = await loadKeys(ch)
+      const config: ResolvedChannelConfig = {
+        ...toSafeConfig(ch, catalog()),
+        apiKey,
+        altApiKey,
+      }
       const adapter = createChannelAdapter(config, platform)
       const res: VerifyResult = await adapter.verify(config, timeoutSignal(10_000))
       if (res.ok) {
@@ -637,8 +648,12 @@ export function createChannelStore(
     if (!ch) return
     store.setState({ models: { status: 'checking' } })
     try {
-      const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+      const { apiKey, altApiKey } = await loadKeys(ch)
+      const config: ResolvedChannelConfig = {
+        ...toSafeConfig(ch, catalog()),
+        apiKey,
+        altApiKey,
+      }
       const adapter = createChannelAdapter(config, platform)
       const models = await adapter.listModels(config, timeoutSignal(10_000))
       /**
@@ -806,8 +821,12 @@ export function createChannelStore(
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
     if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
-    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const { apiKey, altApiKey } = await loadKeys(ch)
+    const config: ResolvedChannelConfig = {
+      ...toSafeConfig(ch, catalog()),
+      apiKey,
+      altApiKey,
+    }
     const adapter = createChannelAdapter(config, platform)
     /**
      * 逻辑名 → 上游 ID（M7-4 同一条映射）：调用方发的是**前端显示名**
@@ -851,8 +870,12 @@ export function createChannelStore(
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
     if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
-    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const { apiKey, altApiKey } = await loadKeys(ch)
+    const config: ResolvedChannelConfig = {
+      ...toSafeConfig(ch, catalog()),
+      apiKey,
+      altApiKey,
+    }
     const adapter = createChannelAdapter(config, platform)
     if (!adapter.generateSpeech) {
       throw new Error('[channelStore] 当前渠道未实现配音能力')
@@ -878,8 +901,12 @@ export function createChannelStore(
   }) => {
     const ch = store.getState().channels.find((c) => c.id === request.channelId)
     if (!ch) throw new Error(`[channelStore] 渠道不存在：${request.channelId}`)
-    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const { apiKey, altApiKey } = await loadKeys(ch)
+    const config: ResolvedChannelConfig = {
+      ...toSafeConfig(ch, catalog()),
+      apiKey,
+      altApiKey,
+    }
     const adapter = createChannelAdapter(config, platform)
     const upstreamModel = resolveUpstreamModel(ch.modelMap, request.model) ?? request.model
     return adapter.generateVideo({ ...request, model: upstreamModel }, signal)

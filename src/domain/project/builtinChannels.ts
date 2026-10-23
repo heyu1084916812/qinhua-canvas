@@ -26,8 +26,16 @@ export const BUILTIN_CHANNEL_IDS = [
   'ch_builtin_runninghub',
   'ch_builtin_soonstudio',
   'ch_builtin_65535_chat',
-  'ch_builtin_65535_task',
 ] as const
+
+/**
+ * 已退役的内置渠道 id。
+ *
+ * 65535 从「对话 / 生图两条内置渠道」收敛成一条合并渠道后，旧的任务行需要
+ * 安静退场；但仅在**用户没配过令牌、也没勾过模型**时清掉，配过的一律保留，
+ * 避免升级时抹掉用户已有工作。
+ */
+export const RETIRED_BUILTIN_CHANNEL_IDS = ['ch_builtin_65535_task'] as const
 
 /** 内置渠道的排序位基准（实际用 `BASE + 序号`，越小越靠前） */
 export const BUILTIN_ORDER_BASE = -1000
@@ -46,8 +54,8 @@ export const BUILTIN_CHANNELS: readonly BuiltinChannelSpec[] = [
   /** RunningHub 用 **API** 那条（用户：「runninghub它也有api」）；CLI 那条仍留给本机用法 */
   { id: 'ch_builtin_runninghub', name: 'RunningHub', protocol: 'runninghub-api' },
   { id: 'ch_builtin_soonstudio', name: 'SoonStudio', protocol: 'soonstudio' },
-  { id: 'ch_builtin_65535_chat', name: '65535 对话', protocol: '65535-chat' },
-  { id: 'ch_builtin_65535_task', name: '65535 生图', protocol: '65535-task' },
+  /** id 沿用旧的 `_chat`，只为让已存在的内置行原地升级成合并协议 */
+  { id: 'ch_builtin_65535_chat', name: '65535', protocol: '65535' },
 ]
 
 /** 这条渠道是不是内置的（界面据此禁用删除 / 锁定名称与协议） */

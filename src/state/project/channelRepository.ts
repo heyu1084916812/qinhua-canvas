@@ -4,6 +4,7 @@ import { createChannel } from '../../domain/project/channel'
 import {
   BUILTIN_CHANNEL_IDS,
   BUILTIN_CHANNELS,
+  RETIRED_BUILTIN_CHANNEL_IDS,
   createBuiltinChannel,
   isBuiltinChannelId,
   builtinSpecOf,
@@ -134,7 +135,34 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
    *（用户配过的令牌 / 启用 / 地址都不动）。返回补完之后的整表。
    */
   const seedBuiltins = async (): Promise<Channel[]> => {
-    const current = await list()
+    let current = await list()
+    const retired = new Set<string>(RETIRED_BUILTIN_CHANNEL_IDS)
+    for (const channel of current) {
+      if (!retired.has(channel.id)) continue
+      /**
+       * 只清「从未配置过」的退役内置行。用户存过任意一把 Key、或勾过模型，
+       * 都说明这条渠道已经参与过真实工作，升级时不能替他删掉。
+       */
+      if (channel.hasToken || channel.hasAltToken || channel.models.length > 0) continue
+      await storage.delete('channels', channel.id)
+    }
+    current = await list()
+
+    /**
+     * 内置渠道的名称与协议是固定契约；旧版本可能把同一个 id 写成拆分协议
+     * （例如 `65535-chat`），这里同步回当前目录。**地址不动**——那是用户可改项。
+     */
+    for (const spec of BUILTIN_CHANNELS) {
+      const existing = current.find((channel) => channel.id === spec.id)
+      if (!existing || (existing.name === spec.name && existing.protocol === spec.protocol)) continue
+      await storage.put('channels', {
+        ...existing,
+        name: spec.name,
+        protocol: spec.protocol,
+      } as unknown as RowOf<TableName>)
+    }
+    current = await list()
+
     const have = new Set(current.map((c) => c.id))
     const missing = BUILTIN_CHANNELS.filter((spec) => !have.has(spec.id))
     if (missing.length === 0) return current

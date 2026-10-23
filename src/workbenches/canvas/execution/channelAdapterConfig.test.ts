@@ -48,7 +48,21 @@ describe('执行期渠道适配器配置', () => {
     const cfg = resolvedChannelConfig(channel(), BUILTIN_CATALOG, 'sk-test')
     expect(cfg.protocolDefinition?.id).toBe('comfly')
     expect(cfg.protocolDefinition?.family).toBe('openai-compatible')
+    expect(cfg.altApiKey).toBeNull()
     // 「造得出适配器」才是这条链路真的能跑的定义（用户报的正是卡在这一步）
+    expect(() => createChannelAdapter(cfg, createMemoryPlatform())).not.toThrow()
+  })
+
+  it('第二把 Key 随执行配置传给 65535 合并协议', () => {
+    const cfg = resolvedChannelConfig(
+      channel({ protocol: '65535', baseUrl: 'https://api2.65535.space' }),
+      BUILTIN_CATALOG,
+      'chat-key',
+      'image-key',
+    )
+    expect(cfg.protocolDefinition?.capabilities).toEqual(['chat', 'image'])
+    expect(cfg.apiKey).toBe('chat-key')
+    expect(cfg.altApiKey).toBe('image-key')
     expect(() => createChannelAdapter(cfg, createMemoryPlatform())).not.toThrow()
   })
 

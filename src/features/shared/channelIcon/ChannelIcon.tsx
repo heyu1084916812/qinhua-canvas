@@ -9,6 +9,7 @@ import styles from './ChannelIcon.module.css'
 import modelscopeLogo from '../../../assets/channel-logos/modelscope.ico'
 import agnesLogo from '../../../assets/channel-logos/agnes.png'
 import runninghubLogo from '../../../assets/channel-logos/runninghub.ico'
+import logo65535 from '../../../assets/channel-logos/65535.svg'
 
 const LOGOS: Record<string, string> = {
   modelscope: modelscopeLogo,
@@ -16,6 +17,10 @@ const LOGOS: Record<string, string> = {
   /** API 那条与 CLI 那条是同一个品牌，共用一张图 */
   'runninghub-api': runninghubLogo,
   runninghub: runninghubLogo,
+  '65535': logo65535,
+  '65535-chat': logo65535,
+  '65535-task': logo65535,
+  '65535-image-sync': logo65535,
 }
 
 /**
@@ -41,6 +46,10 @@ const LABEL: Record<string, string> = {
   agnes: 'Agnes',
   'runninghub-api': 'RunningHub',
   runninghub: 'RunningHub',
+  '65535': '65535',
+  '65535-chat': '65535',
+  '65535-task': '65535',
+  '65535-image-sync': '65535',
 }
 
 export interface ChannelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {

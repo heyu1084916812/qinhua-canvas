@@ -8,12 +8,15 @@ import { createOpenAiSpeechAdapter } from './openaiSpeech'
 import { createAsyncTaskAdapter } from './asyncTask'
 import { createRunningHubAdapter } from './runninghub'
 import { createS65535TaskAdapter } from './s65535'
+import { createS65535CombinedAdapter } from './s65535Combined'
 import { createCliGatewayAdapter } from './cliGateway'
 import { createCliRunAdapter } from './cliRun'
 
 /** 调用前由凭据层注入明文令牌的渠道配置（业务代码与 UI 全程不接触明文） */
 export interface ResolvedChannelConfig extends SafeChannelConfig {
   apiKey: string | null
+  /** 备用令牌（第二把 Key）；目前服务于 65535 的「对话 + 生图」合并渠道 */
+  altApiKey?: string | null
 }
 
 export type ChannelAdapterFactory = (config: ResolvedChannelConfig, deps: ChannelDeps) => ChannelAdapter
@@ -99,6 +102,11 @@ export function createChannelAdapter(
   // 显式注册（测试替身 / 未来专用协议）优先
   const explicit = factories.get(config.protocol)
   if (explicit) return explicit(config, deps)
+  /**
+   * 65535 合并渠道：一条渠道两把 Key、两个基址，按能力分流。
+   * 它不是普通的 OpenAI 兼容组合（生图走的是原生异步任务），必须在这里分流。
+   */
+  if (config.protocol === '65535') return createS65535CombinedAdapter(config, deps)
 
   const family = config.protocolDefinition?.family ?? LEGACY_FAMILY[config.protocol]
   switch (family) {

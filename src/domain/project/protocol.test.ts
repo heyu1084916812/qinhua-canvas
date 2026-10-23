@@ -82,6 +82,15 @@ describe('能力查询', () => {
   })
 
   it('65535 拆成对话与任务两条协议，能力不互相冒充', () => {
+    expect(protocolSupports('65535', 'chat')).toBe(true)
+    expect(protocolSupports('65535', 'image')).toBe(true)
+    expect(protocolById('65535')?.credentials?.map((item) => item.id)).toEqual([
+      'chat',
+      'image',
+    ])
+    expect(protocolById('65535')?.endpointBaseUrls?.image).toBe(
+      'https://task-api-1.65535.space',
+    )
     expect(protocolSupports('65535-chat', 'chat')).toBe(true)
     expect(protocolSupports('65535-chat', 'image')).toBe(false)
     expect(protocolSupports('65535-task', 'image')).toBe(true)
@@ -169,10 +178,8 @@ describe('stationProtocolForUrl', () => {
     expect(stationProtocolForUrl('https://apihub.agnes-ai.com/v1')?.id).toBe('agnes')
     expect(stationProtocolForUrl('https://soonstudio.ai')?.id).toBe('soonstudio')
     expect(stationProtocolForUrl('https://soonstudio.ai/v1')?.id).toBe('soonstudio')
-    expect(stationProtocolForUrl('https://api2-cn.65535.space/v1')?.id).toBe('65535-chat')
-    expect(stationProtocolForUrl('https://task-api-1-cn.65535.space/v1')?.id).toBe(
-      '65535-task',
-    )
+    expect(stationProtocolForUrl('https://api2-cn.65535.space/v1')?.id).toBe('65535')
+    expect(stationProtocolForUrl('https://task-api-1-cn.65535.space/v1')?.id).toBe('65535')
     expect(stationProtocolForUrl('https://sub-proxy-us.65535.space/v1')?.id).toBe(
       '65535-image-sync',
     )
