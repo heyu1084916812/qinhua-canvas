@@ -403,7 +403,18 @@ function CanvasProject({ projectId }: { projectId: string }) {
       {/* 执行宿主上提一层包住整页：顶栏的「仅刷新陈旧 / 全图重跑」需要与画布共用同一份
           执行状态（原先只包住 Surface，顶栏拿不到 useCanvasExecution）。 */}
       <CanvasExecutionProvider>
-        <div className={styles.page}>
+        {/*
+          水合完成标记（冒烟 / 探针用）。
+
+          `hydrate()` 是异步的，而 `[data-canvas-surface]` 在它之前就已经挂载。
+          只等 surface 就建节点，随后水合会用库里那份（新建项目 = 空）盖回来 ——
+          节点先出现再消失，看起来像「新建节点偶发失效」。这个属性让测试有一个
+          明确的「图数据已经读回来了」判据；界面本身不显示它。
+        */}
+        <div
+          className={styles.page}
+          data-canvas-hydrated={cached.hydrated || hydratedAt > 0 ? 'true' : 'false'}
+        >
           {/*
             ⛔ 顶部悬浮栏已整体去除（产品文档 §6.2 / 2026-09-27 应用壳改版）。
 

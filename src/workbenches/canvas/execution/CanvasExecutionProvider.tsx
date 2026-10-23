@@ -53,9 +53,11 @@ import { RunHotkeys } from './RunHotkeys'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { useSkillsOptional } from '../../../app/providers/SkillStoreProvider'
+import { usePresetTextOptional } from '../../../app/providers/PresetTextProvider'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import type { PromptData } from '../../../domain/canvas/model/node'
 import { trimToolResult } from '../../../features/shared/promptTools/promptTools'
+import { composePromptFromDraft } from '../../../features/canvas/execution/composePrompt'
 import { asAppError, describeError } from '../../../shared/result'
 import { emitRunRecordChanged } from './runRecordEvents'
 import {
@@ -176,6 +178,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
    * 代价远大于「技能列表为空」。
    */
   const skillStore = useSkillsOptional()
+  /** 功能预设词：有图时「点生成」沿用后台改过的「反推」指令 */
+  const presetText = usePresetTextOptional()
   const repo = useMemo(
     () => createChannelRepository(platform.storage, platform.credentials),
     [platform.storage, platform.credentials],
@@ -191,6 +195,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
   const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
   const planIdRef = useRef<string | null>(null)
+  /**
+   * 提示词节点「生成正文」阶段的并发闸门。
+   *
+   * 技能 / 草稿 → LLM 发生在引擎启动**之前**，此时 `isRunning` 仍是 false；
+   * 不在这里挡住，用户连点两次会发两次请求（= 两次扣费），而且后一次的结果
+   * 可能覆盖前一次。同时把节点标成 running，让等待期间有可见反馈。
+   */
+  const preparingPromptRef = useRef<Set<string>>(new Set())
   /**
    * 「正在跑」状态从**按项目**的那份读（见文件顶部 `runStatesByProject` 的说明）。
    *
@@ -973,6 +985,43 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   )
 
   /**
+   * 面板草稿 → LLM → 节点正文（用户 2026-10-23）。
+   *
+   * 用户定稿的语义：下面创作面板写的是**给 LLM 的请求**，上面提示词节点
+   * 存的是**结果**。所以点生成时，只要正文还是空的、草稿有内容，就先让
+   * 对话模型生成正文，再把结果写回 `text`，然后继续跑下游。
+   *
+   * 返回 `'none'`（不需要补正文）时调用方照旧规划下游；
+   * `'failed'` 必须中止 —— 拿空正文继续跑只会得到一个更难懂的
+   * 「还没有写提示词」，把真正的失败原因盖掉。
+   */
+  const applyComposeIfNeeded = useCallback(
+    async (node: NodeSnapshot<PromptData>): Promise<'none' | 'applied' | 'failed'> => {
+      const result = await composePromptFromDraft({
+        node,
+        graph: store.getSnapshot(),
+        presetOverrides: presetText.overrides,
+        completeText: ({ channelId, model, system, text, inputs, signal }) =>
+          completeText({ channelId, model, system, text, inputs, signal }),
+      })
+      if (result.kind === 'skip') return 'none'
+      if (result.kind === 'failed') {
+        store.notify(result.message, 'error')
+        return 'failed'
+      }
+      store.dispatch({
+        kind: 'node.updateData',
+        id: node.id,
+        patch: { text: result.text },
+        // 进撤销栈：从草稿生成正文是一次明确的创作动作，要能反悔
+        transient: false,
+      })
+      return 'applied'
+    },
+    [store, completeText, presetText.overrides],
+  )
+
+  /**
    * 追加一条 RunRecord（**引擎之外**的写入方）并同步版本计数（§6.21）。
    *
    * 抽成具名回调是因为它现在有两个调用方：版本恢复、以及**融合**（对账 #554）。
@@ -992,7 +1041,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
 
   const runNode = useCallback(
     async (nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }) => {
-      const graph = store.getSnapshot()
+      let graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === nodeId)
 
       /**
@@ -1095,8 +1144,42 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 而不是假装跑了。否则用户会以为「技能生效了」，实际发出去的是没处理的正文。
        */
       if (node?.type === 'prompt') {
-        const applied = await applySkillIfSelected(node as NodeSnapshot<PromptData>)
-        if (applied === 'failed') return
+        const promptNode = node as NodeSnapshot<PromptData>
+        const needsSkill = !promptNode.disabled && !!promptNode.data.skillId
+        const needsCompose =
+          !promptNode.disabled &&
+          !(promptNode.data.text ?? '').trim() &&
+          !!(promptNode.data.draft ?? '').trim()
+        if (needsSkill || needsCompose) {
+          if (preparingPromptRef.current.has(nodeId)) return
+          preparingPromptRef.current.add(nodeId)
+          updateRunStates(projectId, (prev) =>
+            new Map(prev).set(nodeId, { kind: 'running', startedAt: Date.now() }),
+          )
+          try {
+            const applied = await applySkillIfSelected(promptNode)
+            if (applied === 'failed') return
+            if (applied === 'applied') {
+              // 技能刚改写正文：下游规划必须读新快照，不能用进入函数时那份
+              graph = store.getSnapshot()
+            } else {
+              const composed = await applyComposeIfNeeded(promptNode)
+              if (composed === 'failed') return
+              if (composed === 'applied') graph = store.getSnapshot()
+            }
+          } finally {
+            preparingPromptRef.current.delete(nodeId)
+            /**
+             * 清掉「准备中」这条状态。不清的话提示词节点会一直转圈：
+             * 引擎随后只给真正收产物的下游节点写状态，不会替它收尾。
+             */
+            updateRunStates(projectId, (prev) => {
+              const next = new Map(prev)
+              next.delete(nodeId)
+              return next
+            })
+          }
+        }
       }
 
       /**
@@ -1154,6 +1237,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       explainEmptyPlan,
       runLoop,
       applySkillIfSelected,
+      applyComposeIfNeeded,
       appendRecord,
       bumpVersion,
       platform,

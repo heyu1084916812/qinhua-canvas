@@ -229,9 +229,31 @@ const nodeCount = (page) => page.locator('[data-node-id]').count()
  * 早先冒烟直接点顶栏按钮，改版后必须改成：点开菜单 → 点菜单项。
  */
 const addNodeViaToolbar = async (page, type) => {
-  await page.locator('[data-toolbar-add]').click()
-  await sleep(200)
-  await page.locator(`[data-toolbar-menu-item="${type}"]`).click()
+  const nodeCount = () => page.locator(`[data-node-type="${type}"]`).count()
+  const before = await nodeCount()
+  /**
+   * 「点了菜单但节点没建出来」偶发出现（画布刚挂载 / 指针事件被浮层吃掉）。
+   * 不确认结果的话，后续 `boundingBox()` 会等 30s 才超时，错误看起来像
+   * 「节点消失」。这里以**节点数增加**为成功判据，失败重开菜单再试一次。
+   */
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(200)
+    const item = page.locator(`[data-toolbar-menu-item="${type}"]`)
+    if ((await item.count()) === 0) {
+      await page.keyboard.press('Escape').catch(() => {})
+      await sleep(200)
+      continue
+    }
+    await item.click()
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(100)
+      if ((await nodeCount()) > before) return
+    }
+    await page.keyboard.press('Escape').catch(() => {})
+    await sleep(200)
+  }
+  throw new Error(`addNodeViaToolbar: 点击「${type}」后节点数没有增加`)
 }
 
 /**
@@ -783,19 +805,73 @@ function panelRunBtn(page) {
  * `[data-node-type="prompt"] textarea`，改完入口就集体超时。
  * 收成一个 helper 后，下次再改入口只改这一个地方。
  *
- * 走的是**和用户一样的路**：右键节点 → 菜单「全屏编辑」→ 填 → Esc。
+ * 走的是**和用户一样的路**：双击正文 → 行内输入 → 填 → Esc。
  * （刻意不用直接派发 store 命令：那样测不到入口本身。）
+ *
+ * 2026-10-23：原来走「右键 → 全屏编辑」在空文本节点上偶发点完不出灯箱
+ * （G23 实测 5s 超时），而双击行内编辑是同一份正文、更短的一条用户路径，
+ * 探针确认稳定可用。全屏编辑入口本身仍由 G64 单独覆盖。
  */
 async function setTextViaEditor(page, nodeLocator, text) {
   const node = nodeLocator ?? page.locator('[data-node-type="prompt"]').first()
-  const box = await node.boundingBox()
+  /**
+   * 新建节点后会触发一次「适配视图」，节点在动画中仍在移动。
+   * 直接读一次 boundingBox 再双击，坐标可能是旧的 —— 实测点到了画布空白
+   * （`elementFromPoint` 命中 `.react-flow__pane`）。这里等到位置连续两次一致再点。
+   */
+  let box = await node.boundingBox()
+  for (let i = 0; i < 12 && box; i += 1) {
+    await sleep(120)
+    const next = await node.boundingBox()
+    if (
+      next &&
+      Math.abs(next.x - box.x) < 1 &&
+      Math.abs(next.y - box.y) < 1 &&
+      Math.abs(next.width - box.width) < 1 &&
+      Math.abs(next.height - box.height) < 1
+    ) {
+      box = next
+      break
+    }
+    box = next
+  }
   if (!box) throw new Error('setTextViaEditor: 节点不可见')
-  await page.mouse.click(box.x + 40, box.y + 60, { button: 'right' })
-  await sleep(250)
-  await page.locator('[data-context-menu-item="fullscreenEdit"]').click()
-  await sleep(400)
-  const input = page.locator('[data-text-input]')
-  await input.waitFor({ state: 'visible', timeout: 5000 })
+  await page.mouse.dblclick(box.x + 60, box.y + 70)
+  await sleep(350)
+  const input = page.locator('[data-prompt-inline-input]')
+  try {
+    await input.waitFor({ state: 'visible', timeout: 5000 })
+  } catch (e) {
+    const diag = await page.evaluate(
+      ({ x, y }) => {
+        const el = document.elementFromPoint(x, y)
+        return {
+          hit: el ? `${el.tagName}.${el.className}` : null,
+          hitType: el?.closest('[data-node-type]')?.getAttribute('data-node-type') ?? null,
+          inline: document.querySelectorAll('[data-prompt-inline-input]').length,
+          nodeCount: document.querySelectorAll('[data-node-type="prompt"]').length,
+          nodeRects: [...document.querySelectorAll('[data-node-type="prompt"]')].map((n) => {
+            const r = n.getBoundingClientRect()
+            return {
+              id: n.getAttribute('data-node-id'),
+              x: Math.round(r.x),
+              y: Math.round(r.y),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+            }
+          }),
+          click: { x: Math.round(x), y: Math.round(y) },
+          menu: [...document.querySelectorAll('[data-context-menu-item]')].map((m) =>
+            m.getAttribute('data-context-menu-item'),
+          ),
+        }
+      },
+      { x: box.x + 60, y: box.y + 70 },
+    )
+    console.log('  [diag setTextViaEditor]', JSON.stringify(diag))
+    await page.screenshot({ path: `${OUT}/diag-settexviaeditor.png` }).catch(() => {})
+    throw e
+  }
   await input.fill(text)
   await sleep(200)
   await page.keyboard.press('Escape')
@@ -932,6 +1008,16 @@ async function createProject(page) {
   /* URL 切过去不等于 lazy chunk 已挂载；所有 createProject 调用方都要一块真画布。 */
   await page
     .waitForSelector('[data-canvas-surface]', { state: 'attached', timeout: 20000 })
+    .catch(() => {})
+  /*
+   * ★ 还要等**水合完成**再返回（2026-10-23）。
+   *
+   * `CanvasPage` 先挂 surface，再异步 `store.hydrate()`。只等 surface 就
+   * `node.create`，水合回来会用库里那份（新建项目 = 空）覆盖内存 ——
+   * 节点先出现再消失，后续用例看到的是「节点不存在」或 30s 超时。
+   */
+  await page
+    .waitForSelector('[data-canvas-hydrated="true"]', { state: 'attached', timeout: 20000 })
     .catch(() => {})
 }
 
@@ -5073,14 +5159,14 @@ async function g22(browser) {
 // ────────────────────────────────────────────────────────────
 // G23 LLM 优化与翻译（M4-4 / §6.7）。
 //
-// ⚠️ **口径已变（用户 2026-09-24）**：删掉了「写入节点」按钮。
+// ⚠️ **口径已变（用户 2026-10-23，取代 2026-09-24）**：面板 = LLM 输入草稿
+// （`data.draft`），节点正文 = 结果与下游输入（`data.text`），两者**不再同步**。
+// 没有「写入节点」按钮；节点正文双击手写。
 //
-// 此前：面板 = 草稿工作区（`data.draft`），节点正文 = 最终提示词（`data.text`），
-// 两者解耦，「写入节点」是唯一的桥。现在**面板直接写正文** ——
-// 面板里打的字就是下游读到的东西，不需要也不存在第二道确认。
-//
-// 这条口径变化必须连着改执行层：若只删按钮、面板仍写 `draft`，
-// 就会出现「面板打了字、下游永远收不到」的静默失效。
+// 点「生成」时，正文为空且草稿非空 → 执行层先调文本模型生成正文，再跑下游；
+// 正文已有内容 → 不覆盖，直接跑下游。有上游图时走「反推」指令并带图，
+// 纯文本需求走内部 compose 指令。这条链路必须真机验：单测只证明决策，
+// 证明不了「点生成按钮真的接上了」。
 // ────────────────────────────────────────────────────────────
 async function g23(browser) {
   const g = 'G23 LLM优化翻译'
@@ -5141,31 +5227,28 @@ async function g23(browser) {
   await page.screenshot({ path: `${OUT}/37-g23-panel-ready.png` })
 
   /**
-   * 4) 面板与正文现在是**同一份内容**（用户 2026-09-24 删掉「写入节点」）。
+   * 4) 面板与正文**分离**（用户 2026-10-23 定稿）。
    *
-   * 面板一打开就回显节点正文；两边不再是「草稿 vs 正文」两份。
+   * 面板只读草稿，节点手写正文不能反向带进面板；没有「写入节点」按钮。
    */
   const panelTa = () => panelPrompt(panel)
-  rec(g, '面板回显节点正文（不再是空的草稿框）', (await readPanelPrompt(panel)).includes('一只猫'))
-  rec(g, '节点正文仍是灯箱输入的文本', (await nodeText()).includes('一只猫'))
+  rec(g, '★ 面板不回退显示节点正文（只读草稿）', (await readPanelPrompt(panel)) === '')
+  rec(g, '节点正文仍保留灯箱手写内容', (await nodeText()).includes('一只猫'))
   rec(
     g,
-    '★「写入节点」按钮已删除（面板直接写正文）',
+    '「写入节点」按钮已删除',
     (await panel.locator('[data-panel-prompt-apply]').count()) === 0,
   )
 
-  // 5) 面板输入**直接写正文**：节点本体立刻跟着变
+  // 5) 面板输入只写草稿，节点正文不被实时覆盖
   await panelTa().click()
-  await panelTa().fill('面板直接写正文')
+  await panelTa().fill('面板草稿')
   await panelTa().blur()
   await sleep(600)
-  rec(
-    g,
-    '★★ 面板输入直接落到节点正文（下游读的就是它）',
-    (await nodeText()).includes('面板直接写正文'),
-  )
+  rec(g, '★★ 面板输入只写草稿，不改节点正文', (await nodeText()).includes('一只猫') && !(await nodeText()).includes('面板草稿'))
+  rec(g, '面板草稿已写入', (await readPanelPrompt(panel)) === '面板草稿')
 
-  // 6) 面板「优化」→ LLM 结果直接覆盖正文（mock 返回 mock:<system+text>）
+  // 6) 面板「优化」→ 以草稿为输入，LLM 结果写入正文（mock 返回 mock:<system+text>）
   await panel.locator('[data-panel-prompt-tools] button', { hasText: '优化' }).click()
   let optimized = false
   for (let i = 0; i < 30; i++) {
@@ -5175,12 +5258,13 @@ async function g23(browser) {
     }
     await sleep(200)
   }
-  rec(g, '★ 面板「优化」结果直接进正文', optimized)
+  rec(g, '★ 面板「优化」以草稿为输入，结果进正文', optimized)
+  rec(g, '草稿不被 LLM 结果覆盖', (await readPanelPrompt(panel)) === '面板草稿')
 
   // 7) Ctrl+Z → 优化结果回滚（进撤销栈）
   await page.keyboard.press('Control+z')
   await sleep(400)
-  rec(g, '★ 优化结果可撤销（还原成面板里那句）', !(await nodeText()).includes('mock:'))
+  rec(g, '★ 优化结果可撤销（还原成手写正文）', !(await nodeText()).includes('mock:'))
 
   // 9) 节点本体「优化」按钮（底部弱化按钮，hover 显形）→ 直接改正文（原有行为不变）
   await promptNode.hover()
@@ -5211,6 +5295,110 @@ async function g23(browser) {
   }
   rec(g, '面板点「翻译」→ 正文变化', translated)
   await page.screenshot({ path: `${OUT}/38-g23-after-translate.png` })
+
+  /**
+   * 10.5) ★ 用户 2026-10-23 的核心链路：正文为空 + 面板有草稿 → 点生成
+   *       先让文本模型产出正文，再跑下游生成节点。
+   *
+   * 这是单测覆盖不到的一段：`composePrompt` 只证明「决策对」，
+   * 这里证明「提示词面板的生成按钮真的把它接上了」。
+   */
+  await setTextViaEditor(page, promptNode, '')
+  await panelTa().click()
+  await panelTa().fill('')
+  await panelTa().blur()
+  await sleep(400)
+  /* 创作面板会盖住左下角的「新建节点」按钮，先点空白收面板 */
+  await clickBlankCanvas(page)
+
+  /**
+   * 下游生成节点走「从输出端口拖到空白 → 菜单里选生成节点」。
+   *
+   * 这一步同时完成**建节点 + 连线**，比「先建节点、再从一个 2×2 的端点拖到
+   * 另一个 2×2 的端点」稳得多；后者一旦落空就会弹「新建并连接」菜单，
+   * 反而把下一次重试挡住（本次实测踩到）。
+   */
+  await promptNode.hover()
+  await sleep(250)
+  const edgesBefore = await page.locator('[data-edge]').count()
+  {
+    const ob = await promptNode.locator('[data-port="output"]').boundingBox()
+    /**
+     * 落点放在**右侧空区**：既避开左侧一级导航，也让新建节点与提示词节点
+     * 不重叠（否则生成面板会盖住提示词节点，后续点不回去）。
+     */
+    const drop = await page.evaluate(() => {
+      const blocked =
+        '[data-node-id],[data-creation-panel],[data-canvas-toolbar],[data-canvas-minimap],[data-app-sidebar]'
+      const candidates = [
+        [900, 140],
+        [900, 300],
+        [1000, 140],
+        [1000, 320],
+        [380, 140],
+      ]
+      for (const [x, y] of candidates) {
+        const el = document.elementFromPoint(x, y)
+        if (el && !el.closest(blocked) && el.closest('[data-canvas-surface]')) return { x, y }
+      }
+      return null
+    })
+    if (ob && drop) {
+      await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
+      await page.mouse.move(drop.x, drop.y, { steps: 18 })
+      await page.mouse.up()
+      await sleep(700)
+    }
+  }
+  const connectItem = page.locator('[data-link-menu-item="create:generation"]')
+  const hasConnectItem = (await connectItem.count()) > 0
+  rec(g, '★ 提示词输出拖到空白出现「生成节点」菜单', hasConnectItem)
+  if (hasConnectItem) await connectItem.click()
+  await sleep(1200)
+  const genCount = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '★ 为草稿链路新建下游生成节点', genCount === 1, `generation=${genCount}`)
+  const genNode = page.locator('[data-node-type="generation"]').last()
+  const genPanelLoc = await genPanel(page, genNode)
+  await configureGenPanel(page, genPanelLoc, null)
+  await sleep(300)
+  const wired = await page.locator('[data-edge]').count()
+  rec(g, '★ 提示词 → 生成 已连上', wired > edgesBefore, `edges=${wired}`)
+
+  // 回到提示词节点：写草稿、点生成
+  /* 生成节点的创作面板会盖住提示词节点，先点空白收起再点回去 */
+  await clickBlankCanvas(page)
+  await promptNode.click()
+  await sleep(400)
+  await panelTa().click()
+  await panelTa().fill('写一个小乌龟的故事')
+  await panelTa().blur()
+  await sleep(500)
+  await panelRunBtn(page).click()
+
+  let composed = false
+  for (let i = 0; i < 60; i++) {
+    if ((await nodeText()).includes('mock:')) {
+      composed = true
+      break
+    }
+    await sleep(200)
+  }
+  rec(g, '★★ 点生成：面板草稿先走 LLM，结果写进提示词节点正文', composed)
+  rec(g, '★★ 生成后的正文确实来自这条草稿', (await nodeText()).includes('写一个小乌龟的故事'))
+
+  let downAsset = false
+  for (let i = 0; i < 80; i++) {
+    if ((await page.locator('[data-node-type="generation"] [data-node-asset]').count()) > 0) {
+      downAsset = true
+      break
+    }
+    await sleep(250)
+  }
+  rec(g, '★★ 补完正文后下游生成节点真的出图', downAsset)
+  rec(g, '草稿仍留在面板（结果不反写草稿）', (await readPanelPrompt(panel)) === '写一个小乌龟的故事')
+  await page.screenshot({ path: `${OUT}/39-g23-compose-downstream.png` })
 
   /**
    * 11) 工具行的**外观与位置**（用户 2026-09-24 两轮反馈）：
