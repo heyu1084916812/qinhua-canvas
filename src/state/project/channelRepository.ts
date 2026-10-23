@@ -1,7 +1,13 @@
 import type { StoragePort, CredentialPort, RowOf, TableName } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { createChannel } from '../../domain/project/channel'
-import { BUILTIN_CHANNELS, createBuiltinChannel, isBuiltinChannelId, builtinSpecOf } from '../../domain/project/builtinChannels'
+import {
+  BUILTIN_CHANNEL_IDS,
+  BUILTIN_CHANNELS,
+  createBuiltinChannel,
+  isBuiltinChannelId,
+  builtinSpecOf,
+} from '../../domain/project/builtinChannels'
 import { createId } from '../../shared/id'
 import { normalizeModelMap } from '../../domain/project/modelMapping'
 import { ROUTE_STRATEGIES } from '../../domain/project/modelRouting'
@@ -90,10 +96,32 @@ const toChannel = (row: Record<string, unknown>): Channel => {
 }
 
 export function createChannelRepository(storage: StoragePort, credentials: CredentialPort): ChannelRepository {
+  const builtinPosition = new Map<string, number>(
+    BUILTIN_CHANNEL_IDS.map((id, index) => [id, index] as const),
+  )
+
+  /**
+   * 内置渠道的顺序是**固定契约**，不能让 `order` 列决定。
+   *
+   * `reorder` 会把整表重编号成 0..N（历史拖拽已经这样写过）；若新增内置渠道
+   * 仍带负数排序位，它就会跑到原有内置渠道前面。这里先按
+   * `BUILTIN_CHANNEL_IDS` 排内置项，用户渠道再按自己的 `order` 排。
+   */
+  const compareChannels = (a: Channel, b: Channel): number => {
+    const aBuiltin = builtinPosition.get(a.id)
+    const bBuiltin = builtinPosition.get(b.id)
+    if (aBuiltin !== undefined || bBuiltin !== undefined) {
+      if (aBuiltin === undefined) return 1
+      if (bBuiltin === undefined) return -1
+      return aBuiltin - bBuiltin
+    }
+    return a.order - b.order || b.createdAt - a.createdAt
+  }
+
   const list = async (): Promise<Channel[]> => {
     const rows = await storage.query('channels', {})
     // 用户排序位升序；同值（老数据全是 0）回落到创建时间倒序，与加排序前完全一致。
-    return rows.map(toChannel).sort((a, b) => a.order - b.order || b.createdAt - a.createdAt)
+    return rows.map(toChannel).sort(compareChannels)
   }
 
   const get = async (id: string): Promise<Channel | null> => {

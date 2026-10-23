@@ -7,6 +7,7 @@ import { createOpenAiVideoAdapter } from './openaiVideo'
 import { createOpenAiSpeechAdapter } from './openaiSpeech'
 import { createAsyncTaskAdapter } from './asyncTask'
 import { createRunningHubAdapter } from './runninghub'
+import { createS65535TaskAdapter } from './s65535'
 import { createCliGatewayAdapter } from './cliGateway'
 import { createCliRunAdapter } from './cliRun'
 
@@ -117,6 +118,12 @@ export function createChannelAdapter(
        * 不通用。故**同族内按协议分流**，既有 async-task 行为一字不动。
        */
       if (config.protocol === 'runninghub-api') return createRunningHubAdapter(config, deps)
+      /**
+       * 65535 的任务入口是原生 `POST /tasks` + `GET /tasks/{id}`，没有
+       * APIMART 兼容层的 `data` 包装；放在 async-task 族内按协议分流，
+       * 既保留「异步任务」的统一能力语义，也不让两条协议共享错误的字段映射。
+       */
+      if (config.protocol === '65535-task') return createS65535TaskAdapter(config, deps)
       return createAsyncTaskAdapter(config, deps)
     /**
      * CLI 族（对账 #308）：**桌面壳里真的起本机命令**（`cliRun.ts`），

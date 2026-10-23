@@ -1,5 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### 65535 对话 / 任务端点拆分（2026-10-23 → 对账 #723）
+
+- **一个站不止一个基址**：对话用 `api2.65535.space`（大陆 `api2-cn`），生图任务用
+  `task-api-1.65535.space`（大陆 `task-api-1-cn`），`sub-proxy-us` 只是同步图片的 Base64 分发口。
+- **必须拆三条协议**：`65535-chat` 走 OpenAI 兼容，`65535-task` 走原生异步任务，
+  `65535-image-sync` 走分发专用同步生图；一条渠道只有一个 `baseUrl`，混在一起会发错入口。
+- **原生任务不是 APIMart 壳**：`POST /v1/tasks` + `GET /v1/tasks/{id}`，成功读 `result_urls`；
+  APIMart 兼容层把任务放在 `data` 下，直接复用会判不出完成态。
+- **大陆域名要能被识别**：`alternateBaseUrls` 只给 `stationProtocolForUrl` 按 host 认身份，
+  不参与拼路径；否则“验证协议”会把 `65535-task` 改成普通 `openai-compatible`。
+- **内置渠道排序不能靠负数 order**：历史拖拽会把整表重编号成 0..N，新内置项若仍用负数
+  就会跑到原有内置渠道前面。`channelRepository.list()` 已按 `BUILTIN_CHANNEL_IDS` 固定置顶。
+- **真实边界**：无 Key 的 `POST /v1/tasks` 实测 401（不是 404），`/v1/models` 公开 200；
+  付费出图仍待用户 Key 验证。定向 53/53；真实页面探针 6 条内置顺序正确；全量 3036 passed / 1 skipped。
+
 ### MiniMax H3 官方视频与 AtlasCloud（2026-10-23 → 对账 #722）
 
 - **MiniMax 不是没有官方案例**：8 个风格 Skill 对应 8 个 GIF；T2VA / FL2VA / Ref2VA 有 3 个

@@ -100,6 +100,15 @@ export interface ProtocolDefinition {
    */
   defaultBaseUrl?: string
   /**
+   * 同一站点的其他官方入口。
+   *
+   * 只用于「验证协议」按 host 反查站点身份，不参与适配器拼路径：渠道仍然只有
+   * 一个 `baseUrl`。65535 这类站会同时给国际 / 大陆两套域名，若只认默认域名，
+   * 用户填了大陆优化地址后会被探测改回普通的 `openai-compatible`，任务协议
+   * 也就丢了异步提交语义。
+   */
+  alternateBaseUrls?: readonly string[]
+  /**
    * OpenAI 兼容族的版本段。官方是 `/v1`；火山引擎 Ark 是 `/api/v3`。
    *
    * 单列出来正是为了修老 `normalizeBaseUrl` 的洞：它无条件剥掉结尾的 `/vN`，
@@ -330,6 +339,47 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     note: '异步任务协议：提交后轮询 /v1/tasks/{task_id} 取结果（图像 / 视频）。对话请另建 OpenAI 兼容渠道。',
   },
   {
+    id: '65535-chat',
+    name: '65535 · 对话',
+    short: '65535',
+    family: 'openai-compatible',
+    kind: 'station',
+    status: 'ready',
+    capabilities: ['chat'],
+    defaultBaseUrl: 'https://api2.65535.space',
+    alternateBaseUrls: ['https://api2-cn.65535.space'],
+    versionPath: '/v1',
+    docUrl: 'https://my.65535.space/docs/Codex-app-start',
+    note: '国际端点 https://api2.65535.space；大陆优化 https://api2-cn.65535.space。这里是对话入口，密钥分组选 OpenAi系 - Std / Pro；生图任务请用「65535 · 生图任务」。',
+  },
+  {
+    id: '65535-task',
+    name: '65535 · 生图任务',
+    short: '65535T',
+    family: 'async-task',
+    kind: 'station',
+    status: 'ready',
+    capabilities: ['image'],
+    defaultBaseUrl: 'https://task-api-1.65535.space',
+    alternateBaseUrls: ['https://task-api-1-cn.65535.space'],
+    versionPath: '/v1',
+    docUrl: 'https://my.65535.space/docs/async-native-api',
+    note: '原生异步任务入口：POST /v1/tasks 提交，GET /v1/tasks/{id} 轮询。国际端点 https://task-api-1.65535.space；大陆优化 https://task-api-1-cn.65535.space；密钥分组选「image2专用分组」。分发专用 https://sub-proxy-us.65535.space 只用于 OpenAI / Gemini 同步图片返回 Base64，不是任务入口。',
+  },
+  {
+    id: '65535-image-sync',
+    name: '65535 · 同步生图（分发）',
+    short: '65535S',
+    family: 'openai-compatible',
+    kind: 'station',
+    status: 'ready',
+    capabilities: ['image'],
+    defaultBaseUrl: 'https://sub-proxy-us.65535.space',
+    versionPath: '/v1',
+    docUrl: 'https://my.65535.space/docs/sub',
+    note: '分发专用同步图片入口：支持 Gemini / OpenAI 图片协议，可返回 Base64；服务器位于美国，没有大陆优化线路。常规生图优先用「65535 · 生图任务」的异步协议。',
+  },
+  {
     id: 'runninghub',
     name: 'RunningHub（本机 CLI）',
     short: 'RH',
@@ -532,7 +582,11 @@ export function stationProtocolForUrl(
   const host = hostOf(baseUrl)
   if (!host) return undefined
   return catalog.all.find(
-    (p) => p.status === 'ready' && p.defaultBaseUrl && hostOf(p.defaultBaseUrl) === host,
+    (p) =>
+      p.status === 'ready' &&
+      [p.defaultBaseUrl, ...(p.alternateBaseUrls ?? [])]
+        .filter((url): url is string => !!url)
+        .some((url) => hostOf(url) === host),
   )
 }
 

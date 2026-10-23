@@ -81,6 +81,20 @@ describe('能力查询', () => {
     expect(protocolSupports('openai-compatible', 'image')).toBe(true)
   })
 
+  it('65535 拆成对话与任务两条协议，能力不互相冒充', () => {
+    expect(protocolSupports('65535-chat', 'chat')).toBe(true)
+    expect(protocolSupports('65535-chat', 'image')).toBe(false)
+    expect(protocolSupports('65535-task', 'image')).toBe(true)
+    expect(protocolSupports('65535-task', 'chat')).toBe(false)
+    expect(protocolSupports('65535-image-sync', 'image')).toBe(true)
+    expect(protocolSupports('65535-image-sync', 'chat')).toBe(false)
+    expect(protocolById('65535-task')?.family).toBe('async-task')
+    expect(protocolById('65535-chat')?.defaultBaseUrl).toBe('https://api2.65535.space')
+    expect(protocolById('65535-task')?.defaultBaseUrl).toBe(
+      'https://task-api-1.65535.space',
+    )
+  })
+
   it('short / label：未知协议回落原串，不吞信息', () => {
     expect(protocolShort('openai-images')).toBe('OAI')
     expect(protocolLabel('anthropic')).toBe('anthropic')
@@ -155,6 +169,13 @@ describe('stationProtocolForUrl', () => {
     expect(stationProtocolForUrl('https://apihub.agnes-ai.com/v1')?.id).toBe('agnes')
     expect(stationProtocolForUrl('https://soonstudio.ai')?.id).toBe('soonstudio')
     expect(stationProtocolForUrl('https://soonstudio.ai/v1')?.id).toBe('soonstudio')
+    expect(stationProtocolForUrl('https://api2-cn.65535.space/v1')?.id).toBe('65535-chat')
+    expect(stationProtocolForUrl('https://task-api-1-cn.65535.space/v1')?.id).toBe(
+      '65535-task',
+    )
+    expect(stationProtocolForUrl('https://sub-proxy-us.65535.space/v1')?.id).toBe(
+      '65535-image-sync',
+    )
   })
 
   it('未知站点返回 undefined（调用方回落通用模板）', () => {

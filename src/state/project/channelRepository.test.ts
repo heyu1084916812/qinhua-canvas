@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
+import { BUILTIN_CHANNEL_IDS } from '../../domain/project/builtinChannels'
 import { createChannelRepository } from './channelRepository'
 
 describe('channelRepository', () => {
@@ -10,10 +11,16 @@ describe('channelRepository', () => {
     await repo.seedBuiltins()
     const rows = await repo.list()
     const soon = rows.find((channel) => channel.id === 'ch_builtin_soonstudio')
-    expect(rows.filter((channel) => channel.id.startsWith('ch_builtin_'))).toHaveLength(4)
+    expect(rows.filter((channel) => channel.id.startsWith('ch_builtin_'))).toHaveLength(6)
     expect(soon?.name).toBe('SoonStudio')
     expect(soon?.protocol).toBe('soonstudio')
     expect(soon?.baseUrl).toBe('https://soonstudio.ai')
+    expect(rows.find((channel) => channel.id === 'ch_builtin_65535_chat')?.protocol).toBe(
+      '65535-chat',
+    )
+    expect(rows.find((channel) => channel.id === 'ch_builtin_65535_task')?.baseUrl).toBe(
+      'https://task-api-1.65535.space',
+    )
   })
 
   it('create / list / get / update', async () => {
@@ -28,6 +35,23 @@ describe('channelRepository', () => {
     const upd = await repo.update(ch.id, { name: 'B', enabled: true })
     expect(upd.name).toBe('B')
     expect(upd.enabled).toBe(true)
+  })
+
+  it('内置渠道按固定顺序置顶，重排把 order 打平后也不会乱序', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await repo.seedBuiltins()
+    const before = await repo.list()
+    await repo.reorder(before.map((channel) => channel.id))
+
+    const user = await repo.create({ name: '用户渠道', protocol: 'mock', baseUrl: '' })
+    const after = await repo.list()
+    expect(after.slice(0, BUILTIN_CHANNEL_IDS.length).map((channel) => channel.id)).toEqual([
+      ...BUILTIN_CHANNEL_IDS,
+    ])
+    expect(after.findIndex((channel) => channel.id === user.id)).toBe(
+      BUILTIN_CHANNEL_IDS.length,
+    )
   })
 
   it('saveToken / loadToken 往返', async () => {

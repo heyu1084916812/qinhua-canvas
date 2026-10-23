@@ -25,6 +25,8 @@ export const BUILTIN_CHANNEL_IDS = [
   'ch_builtin_agnes',
   'ch_builtin_runninghub',
   'ch_builtin_soonstudio',
+  'ch_builtin_65535_chat',
+  'ch_builtin_65535_task',
 ] as const
 
 /** 内置渠道的排序位基准（实际用 `BASE + 序号`，越小越靠前） */
@@ -44,6 +46,8 @@ export const BUILTIN_CHANNELS: readonly BuiltinChannelSpec[] = [
   /** RunningHub 用 **API** 那条（用户：「runninghub它也有api」）；CLI 那条仍留给本机用法 */
   { id: 'ch_builtin_runninghub', name: 'RunningHub', protocol: 'runninghub-api' },
   { id: 'ch_builtin_soonstudio', name: 'SoonStudio', protocol: 'soonstudio' },
+  { id: 'ch_builtin_65535_chat', name: '65535 对话', protocol: '65535-chat' },
+  { id: 'ch_builtin_65535_task', name: '65535 生图', protocol: '65535-task' },
 ]
 
 /** 这条渠道是不是内置的（界面据此禁用删除 / 锁定名称与协议） */
