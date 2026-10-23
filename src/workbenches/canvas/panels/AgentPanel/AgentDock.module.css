@@ -140,7 +140,12 @@
   z-index: 45;
   min-width: 280px;
   box-sizing: border-box;
-  overflow: hidden;
+  /**
+   * 不能在这里裁：对话窗里的参数浮层（模型列表）宽 430px，比 380px 的面板更宽，
+   * `overflow: hidden` 会把列表的左半边直接切掉。窗口内部本身已有滚动容器，
+   * 圆角由背景与边框表达；这里放开 overflow，让浮层能正常盖到画布上。
+   */
+  overflow: visible;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-node);
   background: var(--bg-surface);

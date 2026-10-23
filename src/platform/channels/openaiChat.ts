@@ -375,7 +375,22 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       m: { role: string; content: string; toolCalls?: { id: string; name: string; args: string }[]; toolCallId?: string },
       isLastUser: boolean,
     ): Record<string, unknown> => {
-      if (m.role === 'tool') return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content }
+      if (m.role === 'tool') {
+        /**
+         * OpenAI 的 tool 消息只要求 `tool_call_id`，但 Gemini 网关在把历史转成
+         * `function_response` 时要求 **name 非空**。真机报错原文：
+         * `*.contents[0].parts[0].function_response.name: Name cannot be empty`。
+         * `name` 在 OpenAI 规范里是可选字段，带上它不改变普通渠道的行为，却能让
+         * 这类网关正确回放工具结果。
+         */
+        const toolName = toolNameOf(m.toolCallId)
+        return {
+          role: 'tool',
+          tool_call_id: m.toolCallId ?? '',
+          ...(toolName ? { name: toolName } : {}),
+          content: m.content,
+        }
+      }
       if (m.role === 'assistant' && m.toolCalls?.length) {
         return {
           role: 'assistant',
@@ -392,6 +407,16 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       }
       return { role: m.role, content: m.content }
     }
+
+    /** 工具调用 id → 函数名：tool 结果只有 id，名字要从同一条 assistant 消息里回查。 */
+    const toolNames = new Map<string, string>()
+    for (const message of request.messages ?? []) {
+      for (const call of message.toolCalls ?? []) {
+        if (call.id && call.name) toolNames.set(call.id, call.name)
+      }
+    }
+    const toolNameOf = (id: string | undefined): string | undefined =>
+      id ? toolNames.get(id) : undefined
 
     const lastUserIndex = request.messages
       ? [...request.messages].reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1)

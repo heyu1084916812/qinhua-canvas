@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### 65535 对话工具回调与 Agent 浮层裁切（2026-10-23 → 对账 #725）
+
+- **Gemini 网关的 `function_response` 要 name**：OpenAI `role:'tool'` 只带
+  `tool_call_id` 不够；必须从同轮 assistant `tool_calls` 回查函数名，补可选 `name`。
+  报错原文：`*.contents[0].parts[0].function_response.name: Name cannot be empty`。
+- **不要只给 assistant 的 `tool_calls` 加 name**：报错说的是 response，问题在 tool 消息。
+- **Agent 浮窗外层不能 `overflow:hidden`**：模型浮层 430px，比 380/420px 面板宽，
+  外层一裁就只剩中间一截；内容区自己已有 `overflow-y:auto`，外层放开即可。
+- 页面探针判据用 `elementFromPoint` 打浮层四边，不要只看 `boundingBox`（裁切时 rect 仍完整）。
+- 验证：openaiChat 工具消息断言通过；全量 3043 passed / 1 skipped；check/build 通过；
+  页面浮层伸出面板且四边命中。65535 对话仍需用户真 Key 复测。
+
 ### 65535 单渠道合并与品牌图标（2026-10-23 → 对账 #724）
 
 - **一条渠道可以同时做对话与生图**：请求地址分开不是障碍，关键是按能力分流；真正约束是

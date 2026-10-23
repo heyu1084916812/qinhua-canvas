@@ -482,7 +482,11 @@ describe('openaiChat adapter / 多轮消息', () => {
           { id: 'call_1', type: 'function', function: { name: 'readGraph', arguments: '{"scope":"all"}' } },
         ],
       },
-      { role: 'tool', tool_call_id: 'call_1', content: '{"nodes":[]}' },
+      /**
+       * `name` 是给 Gemini 网关看的：它把 OpenAI 历史转成 `function_response`
+       * 时要求名字非空；普通 OpenAI 渠道多这个可选字段也不受影响。
+       */
+      { role: 'tool', tool_call_id: 'call_1', name: 'readGraph', content: '{"nodes":[]}' },
     ])
   })
 
