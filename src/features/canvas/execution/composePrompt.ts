@@ -75,10 +75,16 @@ export async function composePromptFromDraft(
     .filter((input) => input.kind === 'asset')
 
   /**
-   * 有图时沿用后台可编辑的「反推」指令（用户能在中枢改它）；
-   * 纯文本需求则用内部 compose 指令，避免把「优化」的改写语义硬套过来。
+   * 只有「有图 + 明确要反推 / 描述图片 / 写提示词」才套后台可编辑的「反推」指令。
+   *
+   * 不能一概“有图就用反推”：用户完全可能连着图说「用这张图写一个小乌龟的故事」，
+   * 那时反推指令会把它硬掰成英文绘画提示词。其余情况一律用通用 compose 指令，
+   * 按用户请求直接产出结果。
    */
-  const system = imageInputs.length
+  const wantsReversePrompt =
+    imageInputs.length > 0 &&
+    /反推|描述(?:这张|图片|画面)|提示词|image\s*prompt|describe\s+(?:the\s+)?image/i.test(draft)
+  const system = wantsReversePrompt
     ? effectivePresetText('describe', presetOverrides)
     : PROMPT_COMPOSE_TEXT
 

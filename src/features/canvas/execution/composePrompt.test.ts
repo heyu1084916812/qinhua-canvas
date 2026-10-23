@@ -105,6 +105,55 @@ describe('composePromptFromDraft · 面板草稿先走 LLM 再写正文', () => 
     ])
   })
 
+  it('★ 有图但用户要写故事 → 不套反推指令，直接完成故事请求', async () => {
+    const prompt = node({
+      id: 'p',
+      type: 'prompt',
+      data: {
+        text: '',
+        draft: '用这张图写一个小乌龟的故事',
+        upstreamPromptLinked: false,
+        channelId: 'ch-text',
+        model: 'gpt-4o',
+      },
+    })
+    const image = node({
+      id: 'up',
+      type: 'generation',
+      data: {
+        text: '',
+        upstreamPromptLinked: false,
+        mode: 'image',
+        prompt: '',
+        linkedPromptNodeIds: [],
+        channelId: 'ch-img',
+        model: 'img',
+        assetHash: 'hash-up',
+      } as never,
+    })
+    const completeText = vi.fn(async (_req: ComposePromptRequest) => '小乌龟慢慢爬向湖边。')
+
+    const result = await composePromptFromDraft({
+      node: prompt,
+      graph: graph(
+        [prompt, image],
+        [{ id: 'e1', projectId: 'p1', source: 'up', target: 'p' }],
+      ),
+      completeText,
+    })
+
+    expect(result).toEqual({ kind: 'applied', text: '小乌龟慢慢爬向湖边。' })
+    const request = completeText.mock.calls[0]![0]
+    expect(request.system).toBe(PROMPT_COMPOSE_TEXT)
+    expect(request.inputs).toHaveLength(1)
+  })
+
+  it('★ compose 指令要求按用户请求产出，不许把故事请求改写成提示词', () => {
+    expect(PROMPT_COMPOSE_TEXT).toMatch(/要写故事就写故事/)
+    expect(PROMPT_COMPOSE_TEXT).toMatch(/不要把请求本身改写成/)
+    expect(PROMPT_COMPOSE_TEXT).toMatch(/直接完成这个请求/)
+  })
+
   it('正文已有内容 → 不调用模型，不覆盖手写结果', async () => {
     const prompt = node({
       id: 'p',
