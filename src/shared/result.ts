@@ -7,7 +7,10 @@ export type AppError =
   | { kind: 'parse'; raw: string }
   | { kind: 'storage'; detail: 'quota' | 'corrupt' | 'permission' }
   | { kind: 'validation'; field: string; reason: string }
-  | { kind: 'channel'; detail: 'missingKey' | 'missingModel' | 'unsupported' }
+  | {
+      kind: 'channel'
+      detail: 'missingChannel' | 'missingKey' | 'missingModel' | 'unsupported'
+    }
   /**
    * **本机命令行**（对账 #308）：桌面壳里真的起了一条 CLI 进程，它不认账时用这个。
    *
@@ -117,7 +120,11 @@ const STORAGE_TEXT: Record<'quota' | 'corrupt' | 'permission', string> = {
   permission: '浏览器没给存储权限',
 }
 
-const CHANNEL_TEXT: Record<'missingKey' | 'missingModel' | 'unsupported', string> = {
+const CHANNEL_TEXT: Record<
+  'missingChannel' | 'missingKey' | 'missingModel' | 'unsupported',
+  string
+> = {
+  missingChannel: '这个渠道已经删除，请重新选择平台',
   missingKey: '还没填令牌（API Key）',
   missingModel: '这个渠道里没有你选的那个模型',
   unsupported: '这个渠道不支持这次请求',

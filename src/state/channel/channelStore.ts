@@ -387,7 +387,14 @@ export function createChannelStore(
   }
 
   const remove: ChannelStoreActions['remove'] = async (id) => {
-    await repo.remove(id)
+    try {
+      await repo.remove(id)
+    } catch (error) {
+      // 删除可能已经把渠道写成停用态后才因凭据清理失败；重新读表，
+      // 让界面立即反映真实状态，不能继续显示一条实际已不可用的旧行。
+      store.setState({ channels: await repo.list() })
+      throw error
+    }
     store.setState((s) => ({ channels: s.channels.filter((c) => c.id !== id) }))
   }
 

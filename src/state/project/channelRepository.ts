@@ -230,7 +230,19 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     /** 内置渠道**不能删**（用户第 20 批）—— 界面禁用之外，这里也拒绝 */
     if (isBuiltinChannelId(id)) throw new Error('这是内置渠道，不能删除')
     const ch = await get(id)
-    if (ch?.credentialRef) await credentials.remove(ch.credentialRef)
+    if (!ch) return
+
+    /**
+     * 先把渠道落成停用态，再清凭据，最后删行。
+     *
+     * 这样任一步中途失败都不会留下“行还在、自动路由仍认为可用”的窗口；
+     * 凭据清理覆盖主槽、备用槽，避免删除渠道后还残留可被旧引用读出的 Key。
+     */
+    await storage.put('channels', { ...ch, enabled: false } as unknown as RowOf<TableName>)
+    const refs = new Set(
+      [ch.credentialRef, ch.altCredentialRef].filter((ref): ref is string => Boolean(ref)),
+    )
+    for (const ref of refs) await credentials.remove(ref)
     await storage.delete('channels', id)
   }
 

@@ -236,12 +236,11 @@ describe('resolveNodeRoute', () => {
       ),
     ).toEqual({
       ok: true,
-      repaired: false,
       selection: { channelId: 'soon图', upstreamModel: 'gpt-image-2' },
     })
   })
 
-  it('旧节点渠道已不提供该模型时按模型修复到真实提供者', () => {
+  it('★ 旧节点引用的渠道不存在时直接失败，不自动改走其他渠道', () => {
     expect(
       resolveNodeRoute(
         [
@@ -255,14 +254,30 @@ describe('resolveNodeRoute', () => {
           }),
         ],
         'GPT Image 2',
-        'ch_builtin_soonstudio',
+        'deleted-channel',
         { resolve: resolveUpstreamModel },
       ),
     ).toEqual({
-      ok: true,
-      repaired: true,
-      selection: { channelId: 'soon图', upstreamModel: 'gpt-image-2' },
+      ok: false,
+      reason: 'channel_missing',
     })
+  })
+
+  it('★ 原渠道存在但不提供该模型时同样硬失败，不静默换站', () => {
+    expect(
+      resolveNodeRoute(
+        [
+          source('builtin', { modelIds: ['other-model'] }),
+          source('soon图', {
+            modelIds: ['gpt-image-2'],
+            modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          }),
+        ],
+        'GPT Image 2',
+        'builtin',
+        { resolve: resolveUpstreamModel },
+      ),
+    ).toEqual({ ok: false, reason: 'model_missing' })
   })
 
   it('原渠道停用 / 缺令牌时失败，不借修复之名换站', () => {

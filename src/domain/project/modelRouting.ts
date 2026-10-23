@@ -75,12 +75,15 @@ export type NodeRouteResult =
   | {
       ok: true
       selection: RouteSelection
-      /** 原渠道不存在 / 不提供该模型，已按模型修复到另一条渠道 */
-      repaired: boolean
     }
   | {
       ok: false
-      reason: 'channel_disabled' | 'channel_no_token' | 'no_provider'
+      reason:
+        | 'channel_missing'
+        | 'channel_disabled'
+        | 'channel_no_token'
+        | 'model_missing'
+        | 'no_provider'
     }
 
 /**
@@ -349,8 +352,7 @@ export function resolveRouteForChannel(
  * 生成节点最终走哪条渠道。
  *
  * - 原渠道**确实提供**该模型：严格用它，不参与全局竞争；
- * - 原渠道不存在 / 不提供该模型：视为旧数据，按模型找到唯一可用提供者并修复；
- * - 原渠道停用 / 缺令牌：如实失败，不偷偷换站；
+ * - 原渠道不存在 / 不提供该模型 / 停用 / 缺令牌：全部如实失败，不偷偷换站；
  * - 没有原渠道：沿用全局策略。
  */
 export function resolveNodeRoute(
@@ -367,19 +369,9 @@ export function resolveNodeRoute(
   const resolve = options.resolve ?? defaultResolve
   if (explicitChannelId.trim()) {
     const direct = resolveRouteForChannel(channels, logicalModel, explicitChannelId, resolve)
-    if (direct.ok) return { ok: true, selection: direct.selection, repaired: false }
-    if (direct.reason === 'channel_disabled' || direct.reason === 'channel_no_token') {
-      return { ok: false, reason: direct.reason }
-    }
-    const fallback = resolveRouteFor(channels, logicalModel, {
-      strategy: options.strategy,
-      attempt: options.attempt,
-      random: options.random,
-      resolve,
-    })
-    return fallback
-      ? { ok: true, selection: fallback, repaired: true }
-      : { ok: false, reason: 'no_provider' }
+    return direct.ok
+      ? { ok: true, selection: direct.selection }
+      : { ok: false, reason: direct.reason }
   }
   const routed = resolveRouteFor(channels, logicalModel, {
     strategy: options.strategy,
@@ -388,6 +380,6 @@ export function resolveNodeRoute(
     resolve,
   })
   return routed
-    ? { ok: true, selection: routed, repaired: false }
+    ? { ok: true, selection: routed }
     : { ok: false, reason: 'no_provider' }
 }

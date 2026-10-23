@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### 渠道删除与节点执行硬边界（2026-10-24 → 对账 #734a）
+
+- **删除顺序先失效再清密文**：`channelRepository.remove()` 先把渠道 `enabled=false` 落库，
+  再清 `credentialRef` 与 `altCredentialRef`，最后删渠道行。任一步失败都不能留下
+  “行还在、自动路由仍认为可用”的窗口；`channelStore.remove()` 失败时重读整表，
+  不继续显示实际已停用的旧行。
+- **显式渠道绝不自动修复**：`resolveNodeRoute()` 遇到 `channel_missing / channel_disabled /
+  channel_no_token / model_missing` 全部硬失败。只有节点未显式选渠道时，才允许全局选路。
+  旧逻辑会把已删渠道按模型改投别站，这会让用户误以为仍是原渠道。
+- **失败必须停在 running 之前**：执行宿主在路由失败时直接写节点 `failed` 状态并提示，
+  不进入 `queued / running`、不发网络请求；不能只弹一条 toast 后留下节点空状态。
+- **运行中删除按真实 channelId 止损**：计划保存 `taskId → channelId`，渠道从 store 消失后
+  只 abort 实际使用它的计划；abort 只停本机等待，上游可能已扣费，绝不自动重发。
+- **验证基线**：定向 **61/61**；全量 **3062 passed / 1 skipped**；`npm run check`、
+  `npm run build` 通过。
+
 ### 提示词节点滚轮与滚动条贴边（2026-10-24 → 对账 #733）
 
 - **滚轮不能让给画布**：React Flow 会接管滚轮缩放，React `onWheel` 是 passive；

@@ -60,6 +60,7 @@ import { trimToolResult } from '../../../features/shared/promptTools/promptTools
 import { composePromptFromDraft } from '../../../features/canvas/execution/composePrompt'
 import { asAppError, describeError } from '../../../shared/result'
 import { emitRunRecordChanged } from './runRecordEvents'
+import { tasksAffectedByChannelRemoval } from './channelRemoval'
 import {
   resolveNodeRoute,
   type RouteChannelSource,
@@ -194,6 +195,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const adapterMapsRef = useRef<Map<string, Map<string, ChannelAdapter>>>(new Map())
   /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
   const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
+  /** 并发运行各自的 task → channel 反查表；删除渠道时据此精确找到受影响计划 */
+  const taskChannelMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
   const planIdRef = useRef<string | null>(null)
   /**
    * 提示词节点「生成正文」阶段的并发闸门。
@@ -373,6 +376,52 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
 
+  /**
+   * 运行中删除渠道的止损边界。
+   *
+   * 渠道行删掉后，旧节点下一次运行会由路由层直接拒绝；而已经在等待上游的计划
+   * 也必须马上停下。这里只按已记录到 plan 的真实 channelId 命中，不扫模型名、
+   * 不把请求改投其他渠道。abort 只停止本机等待，无法撤回上游已经收到的付费请求。
+   */
+  const knownChannelIdsRef = useRef(
+    new Set(channels.getState().channels.map((channel) => channel.id)),
+  )
+  useEffect(() => {
+    knownChannelIdsRef.current = new Set(
+      channels.getState().channels.map((channel) => channel.id),
+    )
+    return channels.subscribe(() => {
+      const next = channels.getState().channels
+      const nextIds = new Set(next.map((channel) => channel.id))
+      const removed = [...knownChannelIdsRef.current].filter((id) => !nextIds.has(id))
+      knownChannelIdsRef.current = nextIds
+      if (removed.length === 0) return
+
+      const removedIds = new Set(removed)
+      for (const [planId, taskChannels] of taskChannelMapsRef.current) {
+        const affected = tasksAffectedByChannelRemoval(taskChannels, removedIds)
+        if (affected.length === 0) continue
+
+        cancelRun(planId)
+        const nodeByTask = taskToNodeMapsRef.current.get(planId)
+        updateRunStates(store.getSnapshot().projectId, (prev) => {
+          const states = new Map(prev)
+          for (const { taskId } of affected) {
+            const nodeId = nodeByTask?.get(taskId)
+            if (!nodeId) continue
+            states.set(nodeId, {
+              kind: 'failed',
+              error: { kind: 'channel', detail: 'missingChannel' },
+              attempts: 1,
+            })
+          }
+          return states
+        })
+        store.notify('渠道已删除，相关生成已停止；请重新选择平台后再生成', 'error')
+      }
+    })
+  }, [channels, cancelRun, store])
+
   /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行 */
   const launch = useCallback(
     async (plan: ReturnType<typeof buildRunPlan>, originNodeId: string | undefined) => {
@@ -435,11 +484,38 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         if (!routed.ok) {
           const channelName =
             all.find((channel) => channel.id === explicitChannelId)?.name ?? explicitChannelId
+          const failure =
+            routed.reason === 'channel_missing'
+              ? ({ kind: 'channel', detail: 'missingChannel' } as const)
+              : routed.reason === 'channel_no_token'
+                ? ({ kind: 'channel', detail: 'missingKey' } as const)
+                : routed.reason === 'model_missing' || routed.reason === 'no_provider'
+                  ? ({ kind: 'channel', detail: 'missingModel' } as const)
+                  : ({
+                      kind: 'validation',
+                      field: '平台',
+                      reason: `渠道「${channelName}」已停用`,
+                    } as const)
+          /**
+           * 渠道类失败必须停在规划阶段：不置 queued / running、不发网络请求。
+           * 同时把失败写回节点状态，用户能看到原因，不必只靠一闪而过的 toast 猜。
+           */
+          updateRunStates(store.getSnapshot().projectId, (prev) =>
+            new Map(prev).set(task.nodeId, {
+              kind: 'failed',
+              error: failure,
+              attempts: 1,
+            }),
+          )
           const reason =
             routed.reason === 'channel_disabled'
               ? `节点指定的渠道「${channelName}」已停用`
               : routed.reason === 'channel_no_token'
                 ? `节点指定的渠道「${channelName}」没有可用令牌`
+                : routed.reason === 'channel_missing'
+                  ? `节点指定的渠道「${channelName}」已删除，生成已停止，请重新选择平台`
+                  : routed.reason === 'model_missing'
+                    ? `节点指定的渠道「${channelName}」没有提供模型「${logical}」`
                 : null
           if (reason) {
             store.notify(reason, 'error')
@@ -452,18 +528,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           return
         }
         const picked = routed.selection
-        /**
-         * 旧节点可能把“内置 SoonStudio + GPT Image 2”这种已失效组合留在 data 里。
-         * 原渠道不提供该模型时，按模型修复到真实提供者并写回节点；后续再跑就不会
-         * 反复走同一条错误路径。停用 / 缺令牌的渠道不做这种修复。
-         */
-        if (routed.repaired) {
-          store.dispatch({
-            kind: 'node.updateData',
-            id: task.nodeId,
-            patch: { channelId: picked.channelId },
-          })
-        }
         task.request = {
           ...task.request,
           channelId: picked.channelId,
@@ -510,6 +574,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       }
       adapterMapsRef.current.set(plan.id, map)
       taskToNodeMapsRef.current.set(plan.id, new Map(plan.tasks.map((t) => [t.id, t.nodeId])))
+      taskChannelMapsRef.current.set(
+        plan.id,
+        new Map(plan.tasks.map((task) => [task.id, task.request.channelId])),
+      )
       planIdRef.current = plan.id
 
       /**
@@ -594,6 +662,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       })
       adapterMapsRef.current.delete(plan.id)
       taskToNodeMapsRef.current.delete(plan.id)
+      taskChannelMapsRef.current.delete(plan.id)
       if (planIdRef.current === plan.id) planIdRef.current = null
     },
     [store, channels, repo, platform, startRun],

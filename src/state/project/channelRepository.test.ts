@@ -99,14 +99,16 @@ describe('channelRepository', () => {
     expect(await repo.loadToken(ch.credentialRef!)).toBe('sk-test')
   })
 
-  it('remove 同时清理凭据', async () => {
+  it('remove 同时清理主凭据与备用凭据', async () => {
     const p = createMemoryPlatform()
     const repo = createChannelRepository(p.storage, p.credentials)
     const ch = await repo.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await repo.saveToken(ch.credentialRef!, 'sk')
+    await repo.saveToken(ch.altCredentialRef!, 'sk-alt')
     await repo.remove(ch.id)
     expect(await repo.get(ch.id)).toBeNull()
     expect(await repo.loadToken(ch.credentialRef!)).toBeNull()
+    expect(await repo.loadToken(ch.altCredentialRef!)).toBeNull()
   })
 
   it('removeToken 只清密文，渠道与凭据槽位保留（可再存）', async () => {
