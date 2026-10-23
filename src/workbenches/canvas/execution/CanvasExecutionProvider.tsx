@@ -913,10 +913,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       }
 
       /**
-       * 技能输入取面板草稿；旧节点没有草稿时回落到正文。
-       * 结果写 `text`，不覆盖草稿 —— 面板输入与节点结果分离（对账 #728）。
+       * 技能属于面板 LLM 动作：输入只取草稿；节点正文是结果，不反向当输入。
+       * 结果写 `text`，不覆盖草稿（对账 #728 / #729）。
        */
-      const text = (node.data.draft ?? node.data.text ?? '').trim()
+      const text = (node.data.draft ?? '').trim()
       const channelId = node.data.channelId
       const model = node.data.model
       if (!channelId || !model) {

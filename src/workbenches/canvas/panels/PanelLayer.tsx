@@ -452,12 +452,12 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
     collections,
     emptyHint: '连线上游节点，或拖入素材',
     /**
-     * 提示词节点：面板绑定**输入草稿**（`draft`），节点正文是结果（`text`）。
-     * 旧节点没有 `draft` 时用正文作起点，用户一编辑就会生成新的草稿。
+     * 提示词节点：面板只绑定**输入草稿**（`draft`），节点正文是结果（`text`）。
+     * 不回退读取正文 —— 否则在节点里手写结果会反向同步到面板（对账 #729）。
      */
     prompt:
       node.type === 'prompt'
-        ? ((node.data as PromptData).draft ?? (node.data as PromptData).text ?? '')
+        ? ((node.data as PromptData).draft ?? '')
         : data.prompt,
     linkedPromptCount,
     promptToggle: null,
@@ -579,9 +579,9 @@ async function detectFaceInBackground(
 }
 
 /** 面板事件 → 命令 / 执行（架构 §4.7 ①：面板只能 emit，由这里翻译） */
-/** 面板输入源：新口径读草稿，旧节点没有草稿时回落到结果正文。 */
+/** 面板 LLM 输入源：只读草稿；节点正文是结果，不反向带进面板。 */
 function promptSourceOf(data: PromptData): string {
-  return data.draft ?? data.text ?? ''
+  return data.draft ?? ''
 }
 
 function handlePanelEvent(
