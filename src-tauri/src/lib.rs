@@ -298,6 +298,49 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     decide_data_dir(exe_dir, &system_roots(app), &dir_is_writable)
 }
 
+/// **业务主库**的优先位置：开发版用项目根目录的 `data`，正式版用安装目录隔壁的 `data`。
+///
+/// 这是用户先前明确要过的 `轻画\{app,data}` 布局。安装在系统目录（例如默认
+/// `%LOCALAPPDATA%\轻画`）时，隔壁的 `%LOCALAPPDATA%\data` 会污染系统目录，故返回 `None`，
+/// 由 shared-store 回退到 `%LOCALAPPDATA%\com.qinghua.canvas\shared-store-v1`。
+fn preferred_business_data_dir(
+    exe: &Path,
+    system_roots: &[PathBuf],
+    writable: &dyn Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let exe_dir = exe.parent()?;
+    let is_dev_output = exe_dir
+        .file_name()
+        .is_some_and(|name| name == "debug" || name == "release")
+        && exe_dir
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "target")
+        && exe_dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "src-tauri");
+
+    let candidate = if is_dev_output {
+        // .../<project>/src-tauri/target/debug/qinghua.exe → .../<project>/data
+        exe_dir.parent()?.parent()?.parent()?.join("data")
+    } else {
+        let install_root = exe_dir.parent()?;
+        // 盘根或系统目录不采用“隔壁 data”，避免生成 C:\data / %LOCALAPPDATA%\data。
+        install_root.parent()?;
+        let lower_root = lower(install_root);
+        if system_roots
+            .iter()
+            .any(|root| lower_root.starts_with(lower(root)))
+        {
+            return None;
+        }
+        install_root.join("data")
+    };
+    writable(&candidate).then_some(candidate)
+}
+
 /// 所有壳共用同一份空壳 profile。
 ///
 /// 业务数据已迁到 shared-store；这里只放 WebView2 缓存和可重建偏好。
@@ -573,6 +616,16 @@ fn apply_data_dir_config(app: &tauri::AppHandle) {
     if let Some(path) = configured_data_dir(app) {
         std::env::set_var("QINGHUA_DATA_DIR", &path);
         eprintln!("[data] 自定义主库目录：{}", path.display());
+        return;
+    }
+    let Some(exe) = std::env::current_exe().ok() else {
+        return;
+    };
+    if let Some(path) =
+        preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable)
+    {
+        std::env::set_var("QINGHUA_DATA_DIR", &path);
+        eprintln!("[data] 安装目录主库：{}", path.display());
     }
 }
 
@@ -2629,6 +2682,63 @@ mod data_dir_tests {
         );
         assert_eq!(parse_data_dir_config(r#"{"dataDir":"relative\\data"}"#), None);
         assert_eq!(parse_data_dir_config("not json"), None);
+    }
+
+    #[test]
+    fn development_build_uses_project_data_dir() {
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("E:\\work\\qinghua\\src-tauri\\target\\debug\\qinghua.exe"),
+                &none_roots(),
+                &always,
+            ),
+            Some(PathBuf::from("E:\\work\\qinghua\\data"))
+        );
+    }
+
+    #[test]
+    fn custom_install_uses_sibling_data_dir() {
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("E:\\apps\\qinghua\\app\\qinghua.exe"),
+                &none_roots(),
+                &always,
+            ),
+            Some(PathBuf::from("E:\\apps\\qinghua\\data"))
+        );
+    }
+
+    #[test]
+    fn system_install_and_drive_root_do_not_pollute_parent() {
+        let roots = vec![PathBuf::from("C:\\Users\\u\\AppData\\Local")];
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("C:\\Users\\u\\AppData\\Local\\轻画\\qinghua.exe"),
+                &roots,
+                &always,
+            ),
+            None
+        );
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("D:\\qinghua.exe"),
+                &none_roots(),
+                &always,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn unwritable_preferred_data_dir_falls_back() {
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("E:\\apps\\qinghua\\app\\qinghua.exe"),
+                &none_roots(),
+                &never,
+            ),
+            None
+        );
     }
 
     #[test]

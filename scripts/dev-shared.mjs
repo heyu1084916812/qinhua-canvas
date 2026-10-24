@@ -24,6 +24,9 @@ function configuredDataDir() {
   }
 }
 
+/** 桌面壳未写自定义配置时，开发版主库跟随项目根目录的 `data/`。 */
+const developmentDataDir = path.join(root, 'data')
+
 async function healthy() {
   try {
     const response = await fetch('http://127.0.0.1:18765/health')
@@ -47,7 +50,7 @@ if (!(await healthy())) {
     'debug',
     process.platform === 'win32' ? 'qinghua-store.exe' : 'qinghua-store',
   )
-  const dataDir = configuredDataDir()
+  const dataDir = configuredDataDir() ?? developmentDataDir
   storage = spawn(binary, [], {
     cwd: root,
     stdio: 'inherit',

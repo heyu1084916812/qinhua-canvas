@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### 主库默认位置与安装目录迁移（2026-10-24 → 对账 #741）
+
+- **默认位置必须兑现 `轻画\{app,data}`，不能只留一个可切换按钮**：
+  `preferred_business_data_dir()` 在开发构建中把
+  `…/src-tauri/target/debug/qinghua.exe` 映射到项目根 `data/`；自定义安装位置使用
+  安装目录隔壁的 `data/`；系统目录或不可写时回退 shared-store 默认位置。
+- **C 盘路径可能是 Codex 沙箱重定向**：本机旧
+  `%LOCALAPPDATA%\com.qinghua.canvas\shared-store-v1` 的 `Target` 指向
+  `AppData\Local\Packages\OpenAI.Codex_...\LocalCache\...`。应用能读写，但普通资源管理器
+  打开会报“位置不可用”。切到 E 盘真实路径后 `open_dir` 成功。
+- **真实迁移**：C 盘源库与 `E:\软件\无限画布\轻画\data` 都是
+  **4708 文件 / 3,013,647,122 字节**，项目 142 行、素材 470 行；应用重启后健康检查
+  `dataDir=E:\软件\无限画布\轻画\data`，设置页 2 项目 / 470 素材 / 7 收藏 / 2.8 GB。
+  原 C 盘库保留作回滚，不自动删除。
+- **此目录不能入库**：项目根 `/data/` 已加入 `.gitignore`；以后开发版真实主库都在这里。
+- **测试**：Tauri `data_dir_tests` **12/12**，覆盖开发构建、自定义安装、系统目录回落、盘根与不可写。
+
 ### 存储面板与可切换主库（2026-10-24 → 对账 #740）
 
 - **统计不能读素材正文**：`assets` 每行带全分辨率字节；概况计数若按默认 payload 扫描，

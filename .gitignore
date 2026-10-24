@@ -80,3 +80,6 @@ yarn-error.log*
 
 # 发版出品：`scripts/release-desktop.mjs` 的产物（安装包 + latest.json），只在发布机上有
 /release/
+
+# 开发版主库：项目安装目录旁的 data（真实素材可达数 GB，绝不入库）
+/data/
