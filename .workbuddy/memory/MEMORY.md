@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### v0.1.6 桌面封包（2026-10-24 → 对账 #738）
+
+- **版本五处对齐**：`package.json` / `package-lock.json` / `src-tauri/tauri.conf.json` /
+  `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` 全部 **0.1.6**。`0.1.5` 已发布，
+  同版本号不能覆盖。
+- **产物**：`release/0.1.6/qinghua_0.1.6_x64-setup.exe` **42,207,007 B**，
+  SHA-256 `B3CBEECB22F4662E1D5BD1B917005A33D3F1C746BAB1EEAF43D5B1DFBF3B04D9`；
+  `.sig` 436 B；签名 keyid `7cec98e1251b82bf`，Ed25519 验签通过。
+- **交付门禁 11/11**：内嵌前端 / platform=desktop / 首屏 / 项目页 / 版本 0.1.6 /
+  mediapipe wasm / FFmpeg 真实编码 / 隔离 shared-store / 无页面异常。
+- **图标复验**：从 `release/0.1.6` 的 setup `.exe` 与 `target/release/qinghua.exe`
+  分别抽取 PE 资源图标，均为项目猫形图标。
+- **发布配置**：`.codex/project-release.json` 固定仓库 `heyu1084916812/qinhua-canvas`、
+  `main`、tag `v${version}` 与产物路径；不放任何密钥。
+- **发布边界**：脚本只在本地产出，不 push。首次检查 GitHub 时连接被重置；push 前重查远端，
+  禁止覆盖未见提交。按 AGENTS 必须先列提交和产物清单，取得用户对本次 push 的明确确认。
+
 ### Windows 安装器图标（2026-10-24 → 对账 #737）
 
 - **`bundle.icon` 不等于安装器图标**：Tauri 的 `bundle.icon` 覆盖应用本体与常规 bundle；

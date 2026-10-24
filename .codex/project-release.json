@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "publish_repo": "E:\\软件\\无限画布\\轻画",
+  "remote": "origin",
+  "branch": "main",
+  "source_paths": [
+    {
+      "from": "E:\\软件\\无限画布\\轻画",
+      "to": "."
+    }
+  ],
+  "version": {
+    "manifest": "package.json",
+    "field": "version",
+    "must_increase": true
+  },
+  "validation": {
+    "commands": [
+      "npm test",
+      "npm run check",
+      "npm run build"
+    ],
+    "artifact": "release/0.1.6/qinghua_0.1.6_x64-setup.exe"
+  },
+  "github": {
+    "repository": "heyu1084916812/qinhua-canvas",
+    "release_tag": "v${version}",
+    "asset_name": "qinghua_${version}_x64-setup.exe"
+  },
+  "local_mirrors": {
+    "current": [
+      "release/0.1.6"
+    ],
+    "history": "release",
+    "archive_superseded": false
+  }
+}
