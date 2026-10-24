@@ -582,6 +582,283 @@ fn load_asset(root: &Path, id: &str) -> Result<(Vec<u8>, String), String> {
     Ok((bytes, mime))
 }
 
+trait StoreBackend: Send + Sync {
+    fn kind(&self) -> &'static str;
+    fn root(&self) -> &Path;
+    fn put(&self, table: &str, row: &Value) -> Result<(), String>;
+    fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String>;
+    fn delete(&self, table: &str, id: &str) -> Result<(), String>;
+    fn transaction(&self, ops: Vec<TxOp>) -> Result<(), String>;
+    fn query(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        include_payload: bool,
+        fields: Option<&str>,
+    ) -> Result<Vec<Value>, String>;
+    fn scan_page(
+        &self,
+        table: &str,
+        offset: usize,
+        limit: usize,
+        include_payload: bool,
+    ) -> Result<(Vec<Value>, u64), String>;
+    fn usage(&self) -> u64;
+    fn kv_get(&self, key: &str) -> Result<Value, String>;
+    fn kv_put(&self, key: &str, value: &Value) -> Result<(), String>;
+    fn kv_delete(&self, key: &str) -> Result<(), String>;
+    fn asset_bytes(&self, id: &str) -> Result<(Vec<u8>, String), String>;
+    fn asset_thumb(&self, id: &str) -> Result<Vec<u8>, String>;
+    fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String>;
+}
+
+impl StoreBackend for Store {
+    fn kind(&self) -> &'static str {
+        "json-v1"
+    }
+
+    fn root(&self) -> &Path {
+        self.root.as_path()
+    }
+
+    fn put(&self, table: &str, row: &Value) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        write_row(self.root.as_path(), table, row)
+    }
+
+    fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        for row in rows {
+            write_row(self.root.as_path(), table, row)?;
+        }
+        Ok(())
+    }
+
+    fn delete(&self, table: &str, id: &str) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        delete_row(self.root.as_path(), table, id)
+    }
+
+    fn transaction(&self, ops: Vec<TxOp>) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        apply_tx(self.root.as_path(), TxRequest { ops })
+    }
+
+    fn query(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        include_payload: bool,
+        fields: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        let root = self.root.as_path();
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        let mut rows = if !include_payload
+            && table == "assets"
+            && filter.len() == 1
+            && filter.get("id").and_then(Value::as_str).is_some()
+        {
+            let id = filter.get("id").and_then(Value::as_str).unwrap();
+            let metadata_file = meta_path(root, table, id)?;
+            if metadata_file.exists() {
+                vec![read_json(&metadata_file)?]
+            } else {
+                let full = read_json(&row_path(root, table, id)?)?;
+                write_sidecars(root, table, &full)?;
+                let mut metadata = full;
+                strip_payload(&mut metadata);
+                vec![metadata]
+            }
+        } else {
+            query_rows(root, table, filter)?
+        };
+        for row in &mut rows {
+            if !include_payload {
+                strip_payload(row);
+            }
+            project_fields(row, fields);
+        }
+        Ok(rows)
+    }
+
+    fn scan_page(
+        &self,
+        table: &str,
+        offset: usize,
+        limit: usize,
+        include_payload: bool,
+    ) -> Result<(Vec<Value>, u64), String> {
+        let root = self.root.as_path();
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        let files = row_files(root, table)?;
+        let total = files.len() as u64;
+        let page = files
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|file| {
+                if include_payload {
+                    return read_json(&file);
+                }
+                let metadata_file = file.with_extension("meta.json");
+                if metadata_file.exists() {
+                    return read_json(&metadata_file);
+                }
+                let row = read_json(&file)?;
+                write_sidecars(root, table, &row)?;
+                let mut metadata = row;
+                strip_payload(&mut metadata);
+                Ok(metadata)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok((page, total))
+    }
+
+    fn usage(&self) -> u64 {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        usage(self.root.as_path()).used
+    }
+
+    fn kv_get(&self, key: &str) -> Result<Value, String> {
+        let path = self.root.join("_kv").join(format!("{}.json", hex_id(key)));
+        if path.exists() {
+            read_json(&path)
+        } else {
+            Ok(Value::Null)
+        }
+    }
+
+    fn kv_put(&self, key: &str, value: &Value) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        let path = self.root.join("_kv").join(format!("{}.json", hex_id(key)));
+        let payload = serde_json::to_vec(value).map_err(|error| format!("encode kv: {error}"))?;
+        write_atomic(&path, &payload)
+    }
+
+    fn kv_delete(&self, key: &str) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        let path = self.root.join("_kv").join(format!("{}.json", hex_id(key)));
+        if path.exists() {
+            fs::remove_file(path).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn asset_bytes(&self, id: &str) -> Result<(Vec<u8>, String), String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        load_asset(self.root.as_path(), id)
+    }
+
+    fn asset_thumb(&self, id: &str) -> Result<Vec<u8>, String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        load_thumb(self.root.as_path(), id)
+    }
+
+    fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String> {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        load_preview(self.root.as_path(), id)
+    }
+}
+
+impl StoreBackend for sqlite::SqliteStore {
+    fn kind(&self) -> &'static str {
+        "sqlite-v2"
+    }
+
+    fn root(&self) -> &Path {
+        self.root_path()
+    }
+
+    fn put(&self, table: &str, row: &Value) -> Result<(), String> {
+        sqlite::SqliteStore::put(self, table, row)
+    }
+
+    fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String> {
+        sqlite::SqliteStore::bulk_put(self, table, rows)
+    }
+
+    fn delete(&self, table: &str, id: &str) -> Result<(), String> {
+        sqlite::SqliteStore::delete(self, table, id)
+    }
+
+    fn transaction(&self, ops: Vec<TxOp>) -> Result<(), String> {
+        let ops = ops
+            .into_iter()
+            .map(|op| match op {
+                TxOp::Put { table, row } => sqlite::SqliteOp::Put { table, row },
+                TxOp::BulkPut { table, rows } => sqlite::SqliteOp::BulkPut { table, rows },
+                TxOp::Delete { table, id } => sqlite::SqliteOp::Delete { table, id },
+            })
+            .collect::<Vec<_>>();
+        sqlite::SqliteStore::transaction(self, &ops)
+    }
+
+    fn query(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        include_payload: bool,
+        fields: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        sqlite::SqliteStore::query(self, table, filter, include_payload, fields)
+    }
+
+    fn scan_page(
+        &self,
+        table: &str,
+        offset: usize,
+        limit: usize,
+        include_payload: bool,
+    ) -> Result<(Vec<Value>, u64), String> {
+        sqlite::SqliteStore::scan_page(self, table, offset, limit, include_payload)
+    }
+
+    fn usage(&self) -> u64 {
+        sqlite::SqliteStore::usage(self)
+    }
+
+    fn kv_get(&self, key: &str) -> Result<Value, String> {
+        sqlite::SqliteStore::kv_get(self, key)
+    }
+
+    fn kv_put(&self, key: &str, value: &Value) -> Result<(), String> {
+        sqlite::SqliteStore::kv_put(self, key, value)
+    }
+
+    fn kv_delete(&self, key: &str) -> Result<(), String> {
+        sqlite::SqliteStore::kv_delete(self, key)
+    }
+
+    fn asset_bytes(&self, id: &str) -> Result<(Vec<u8>, String), String> {
+        sqlite::SqliteStore::asset_bytes(self, id)
+    }
+
+    fn asset_thumb(&self, id: &str) -> Result<Vec<u8>, String> {
+        sqlite::SqliteStore::asset_thumb(self, id)
+    }
+
+    fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String> {
+        sqlite::SqliteStore::asset_preview(self, id)
+    }
+}
+
+fn select_backend(data_dir: &Path) -> Result<Arc<dyn StoreBackend>, String> {
+    let requested = std::env::var("QINGHUA_STORE_BACKEND")
+        .unwrap_or_else(|_| "json-v1".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    match requested.as_str() {
+        "" | "json" | "json-v1" | "v1" => Ok(Arc::new(Store {
+            root: Arc::new(data_dir.to_path_buf()),
+            lock: Arc::new(Mutex::new(())),
+        })),
+        "sqlite" | "sqlite-v2" | "v2" => Ok(Arc::new(sqlite::SqliteStore::open(data_dir)?)),
+        other => Err(format!(
+            "unsupported QINGHUA_STORE_BACKEND={other}; expected v1 or v2"
+        )),
+    }
+}
+
 fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, String> {
     let mut raw = Vec::new();
     request
@@ -591,7 +868,7 @@ fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, S
     serde_json::from_slice(&raw).map_err(|error| format!("parse body: {error}"))
 }
 
-fn handle(store: &Store, mut request: Request) {
+fn handle(store: Arc<dyn StoreBackend>, mut request: Request) {
     let origin = request
         .headers()
         .iter()
@@ -614,11 +891,9 @@ fn handle(store: &Store, mut request: Request) {
         return;
     }
 
-    let root = store.root.as_path();
     if request.method() == &Method::Get && path.starts_with("/asset/") {
         let id = path.trim_start_matches("/asset/");
-        let _guard = store.lock.lock().expect("store lock poisoned");
-        match load_asset(root, id) {
+        match store.asset_bytes(id) {
             Ok((bytes, mime)) => {
                 let _ = respond_bytes(request, StatusCode(200), bytes, &mime, origin.as_deref());
             }
@@ -635,8 +910,7 @@ fn handle(store: &Store, mut request: Request) {
     }
     if request.method() == &Method::Get && path.starts_with("/thumb/") {
         let id = path.trim_start_matches("/thumb/");
-        let _guard = store.lock.lock().expect("store lock poisoned");
-        match load_thumb(root, id) {
+        match store.asset_thumb(id) {
             Ok(bytes) => {
                 let _ = respond_bytes(
                     request,
@@ -659,8 +933,7 @@ fn handle(store: &Store, mut request: Request) {
     }
     if request.method() == &Method::Get && path.starts_with("/preview/") {
         let id = path.trim_start_matches("/preview/");
-        let _guard = store.lock.lock().expect("store lock poisoned");
-        match load_preview(root, id) {
+        match store.asset_preview(id) {
             Ok(bytes) => {
                 let _ = respond_bytes(
                     request,
@@ -686,58 +959,34 @@ fn handle(store: &Store, mut request: Request) {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 4,
-                "dataDir": root.to_string_lossy(),
+                "version": 5,
+                "backend": store.kind(),
+                "dataDir": store.root().to_string_lossy(),
             }));
         }
         if request.method() == &Method::Post && path == "/put" {
             let body: PutRequest = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
-            write_row(root, &body.table, &body.row)?;
+            store.put(&body.table, &body.row)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/bulkPut" {
             let body: BulkPutRequest = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
-            for row in &body.rows {
-                write_row(root, &body.table, row)?;
-            }
+            store.bulk_put(&body.table, &body.rows)?;
             return Ok(json!({ "ok": true, "count": body.rows.len() }));
         }
         if request.method() == &Method::Post && path == "/delete" {
             let body: DeleteRequest = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
-            delete_row(root, &body.table, &body.id)?;
+            store.delete(&body.table, &body.id)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/query" {
             let body: QueryRequest = body_json(&mut request)?;
-            let mut rows = if !body.include_payload
-                && body.table == "assets"
-                && body.filter.len() == 1
-                && body.filter.get("id").and_then(Value::as_str).is_some()
-            {
-                let id = body.filter.get("id").and_then(Value::as_str).unwrap();
-                let metadata_file = meta_path(root, &body.table, id)?;
-                if metadata_file.exists() {
-                    vec![read_json(&metadata_file)?]
-                } else {
-                    let _guard = store.lock.lock().expect("store lock poisoned");
-                    let full = read_json(&row_path(root, &body.table, id)?)?;
-                    write_sidecars(root, &body.table, &full)?;
-                    let mut metadata = full;
-                    strip_payload(&mut metadata);
-                    vec![metadata]
-                }
-            } else {
-                query_rows(root, &body.table, &body.filter)?
-            };
-            for row in &mut rows {
-                if !body.include_payload {
-                    strip_payload(row);
-                }
-                project_fields(row, body.fields.as_deref());
-            }
+            let rows = store.query(
+                &body.table,
+                &body.filter,
+                body.include_payload,
+                body.fields.as_deref(),
+            )?;
             return Ok(json!({ "rows": rows }));
         }
         if request.method() == &Method::Get && path.starts_with("/rows") {
@@ -764,54 +1013,25 @@ fn handle(store: &Store, mut request: Request) {
                 .find(|(key, _)| key == "includePayload")
                 .map(|(_, value)| value == "1")
                 .unwrap_or(true);
-            let files = row_files(root, &table)?;
-            let total = files.len();
-            let page = files
-                .into_iter()
-                .skip(offset)
-                .take(limit)
-                .map(|file| {
-                    if include_payload {
-                        return read_json(&file);
-                    }
-                    let metadata_file = file.with_extension("meta.json");
-                    if metadata_file.exists() {
-                        return read_json(&metadata_file);
-                    }
-                    let _guard = store.lock.lock().expect("store lock poisoned");
-                    let row = read_json(&file)?;
-                    write_sidecars(root, &table, &row)?;
-                    let mut metadata = row;
-                    strip_payload(&mut metadata);
-                    Ok(metadata)
-                })
-                .collect::<Result<Vec<_>, String>>()?;
+            let (page, total) = store.scan_page(&table, offset, limit, include_payload)?;
             return Ok(json!({ "rows": page, "total": total }));
         }
         if request.method() == &Method::Post && path == "/tx" {
             let body: TxRequest = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
-            apply_tx(root, body)?;
+            store.transaction(body.ops)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Get && path == "/usage" {
-            return Ok(serde_json::to_value(usage(root)).map_err(|error| error.to_string())?);
+            return Ok(json!({ "used": store.usage(), "quota": 0 }));
         }
         if request.method() == &Method::Post && path == "/kv/put" {
             let body: Map<String, Value> = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
             let key = body
                 .get("key")
                 .and_then(Value::as_str)
                 .ok_or("key missing")?;
             let value = body.get("value").cloned().unwrap_or(Value::Null);
-            let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
-            write_atomic(
-                &path,
-                serde_json::to_vec(&value)
-                    .map_err(|error| error.to_string())?
-                    .as_slice(),
-            )?;
+            store.kv_put(key, &value)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/kv/get" {
@@ -820,25 +1040,16 @@ fn handle(store: &Store, mut request: Request) {
                 .get("key")
                 .and_then(Value::as_str)
                 .ok_or("key missing")?;
-            let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
-            let value = if path.exists() {
-                read_json(&path)?
-            } else {
-                Value::Null
-            };
+            let value = store.kv_get(key)?;
             return Ok(json!({ "value": value }));
         }
         if request.method() == &Method::Post && path == "/kv/delete" {
             let body: Map<String, Value> = body_json(&mut request)?;
-            let _guard = store.lock.lock().expect("store lock poisoned");
             let key = body
                 .get("key")
                 .and_then(Value::as_str)
                 .ok_or("key missing")?;
-            let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
-            if path.exists() {
-                fs::remove_file(path).map_err(|error| error.to_string())?;
-            }
+            store.kv_delete(key)?;
             return Ok(json!({ "ok": true }));
         }
         Err(format!("unknown route: {} {path}", request.method()))
@@ -880,16 +1091,18 @@ pub fn start(data_dir: &Path, port: u16) -> Result<(), String> {
         Server::http(("127.0.0.1", port))
             .map_err(|error| format!("start shared store on {port}: {error}"))?,
     );
-    let store = Store {
-        root: Arc::new(data_dir.to_path_buf()),
-        lock: Arc::new(Mutex::new(())),
-    };
+    let store = select_backend(data_dir)?;
+    eprintln!(
+        "[shared-store] backend={} data={}",
+        store.kind(),
+        store.root().display()
+    );
     for _ in 0..4 {
         let server = Arc::clone(&server);
-        let store = store.clone();
+        let store = Arc::clone(&store);
         thread::spawn(move || {
             while let Ok(request) = server.recv() {
-                handle(&store, request);
+                handle(store.clone(), request);
             }
         });
     }
@@ -928,6 +1141,94 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    fn exercise_backend_contract(backend: Arc<dyn StoreBackend>) {
+        backend
+            .put("projects", &json!({"id":"p1","name":"first","updatedAt":1}))
+            .unwrap();
+        backend
+            .bulk_put(
+                "nodes",
+                &[
+                    json!({"id":"n1","projectId":"p1","title":"one"}),
+                    json!({"id":"n2","projectId":"p1","title":"two"}),
+                ],
+            )
+            .unwrap();
+
+        let projects = backend
+            .query(
+                "projects",
+                &Map::from_iter([("id".into(), json!("p1"))]),
+                false,
+                Some("id,name"),
+            )
+            .unwrap();
+        assert_eq!(projects, vec![json!({"id":"p1","name":"first"})]);
+        let (nodes, total) = backend.scan_page("nodes", 0, 1, false).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(nodes.len(), 1);
+
+        backend.kv_put("theme", &json!({"mode":"dark"})).unwrap();
+        assert_eq!(backend.kv_get("theme").unwrap(), json!({"mode":"dark"}));
+        backend.kv_delete("theme").unwrap();
+        assert_eq!(backend.kv_get("theme").unwrap(), Value::Null);
+
+        backend
+            .transaction(vec![
+                TxOp::Put {
+                    table: "projects".into(),
+                    row: json!({"id":"p1","name":"updated"}),
+                },
+                TxOp::Put {
+                    table: "nodes".into(),
+                    row: json!({"id":"n3","projectId":"p1","title":"three"}),
+                },
+            ])
+            .unwrap();
+        assert_eq!(
+            backend
+                .query(
+                    "projects",
+                    &Map::from_iter([("id".into(), json!("p1"))]),
+                    false,
+                    None,
+                )
+                .unwrap()[0]["name"],
+            json!("updated")
+        );
+
+        let bytes = b"backend parity asset";
+        let hash = crate::hash::sha1_hex(bytes)[..16].to_string();
+        backend
+            .put(
+                "assets",
+                &json!({
+                    "id":hash,
+                    "mime":"image/png",
+                    "bytes":{
+                        "__qhType":"u8",
+                        "base64":base64::engine::general_purpose::STANDARD.encode(bytes)
+                    }
+                }),
+            )
+            .unwrap();
+        assert_eq!(backend.asset_bytes(&hash).unwrap().0, bytes);
+    }
+
+    #[test]
+    fn json_and_sqlite_backends_share_the_storage_contract() {
+        let json_root = temp_root("contract-json");
+        exercise_backend_contract(Arc::new(Store {
+            root: Arc::new(json_root.clone()),
+            lock: Arc::new(Mutex::new(())),
+        }));
+        let _ = fs::remove_dir_all(json_root);
+
+        let sqlite_root = temp_root("contract-sqlite");
+        exercise_backend_contract(Arc::new(sqlite::SqliteStore::open(&sqlite_root).unwrap()));
+        let _ = fs::remove_dir_all(sqlite_root);
     }
 
     #[test]

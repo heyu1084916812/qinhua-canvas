@@ -63,6 +63,10 @@ impl SqliteStore {
         Ok(store)
     }
 
+    pub fn root_path(&self) -> &Path {
+        self.root.as_path()
+    }
+
     fn connection(&self) -> Result<Connection, String> {
         let conn = Connection::open(self.db_path.as_path())
             .map_err(|err| format!("open manifest.sqlite: {err}"))?;
