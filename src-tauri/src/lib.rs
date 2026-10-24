@@ -539,6 +539,84 @@ const CACHE_DIR_NAMES: [&str; 8] = [
     "ShaderCache",
 ];
 
+const DATA_DIR_CONFIG_NAME: &str = "storage-location.json";
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataDirConfig {
+    data_dir: String,
+}
+
+fn data_dir_config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_local_data_dir()
+        .ok()
+        .map(|root| root.join(DATA_DIR_CONFIG_NAME))
+}
+
+fn parse_data_dir_config(raw: &str) -> Option<PathBuf> {
+    let config: DataDirConfig = serde_json::from_str(raw).ok()?;
+    let path = PathBuf::from(config.data_dir.trim());
+    path.is_absolute().then_some(path)
+}
+
+/// 自定义主库目录保存在壳自己的配置区，不放在主库里。
+///
+/// 这样切换主库后仍能读回“上次选了哪里”，也能切回原目录；配置损坏或路径不是绝对路径时
+/// 一律回落到系统默认库，不能让一个坏配置把应用永久锁死。
+fn configured_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(data_dir_config_path(app)?).ok()?;
+    parse_data_dir_config(&raw)
+}
+
+fn apply_data_dir_config(app: &tauri::AppHandle) {
+    if let Some(path) = configured_data_dir(app) {
+        std::env::set_var("QINGHUA_DATA_DIR", &path);
+        eprintln!("[data] 自定义主库目录：{}", path.display());
+    }
+}
+
+/// 选择一个新主库目录。这里只返回路径，不授权素材文件作用域。
+#[tauri::command]
+async fn pick_data_dir(app: tauri::AppHandle) -> Option<String> {
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    app.dialog()
+        .file()
+        .set_title("选择轻画数据目录")
+        .pick_folder(move |picked| {
+            let _ = tx.blocking_send(picked.map(|p| p.to_string()));
+        });
+    rx.recv().await.flatten()
+}
+
+/// 保存新主库位置。只验证可写并落配置，不复制 / 移动 / 删除任何现有数据。
+#[tauri::command]
+fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let dir = PathBuf::from(path.trim());
+    if !dir.is_absolute() {
+        return Err("数据目录必须是绝对路径".into());
+    }
+    if !dir_is_writable(&dir) {
+        return Err(format!("目录不可写：{}", dir.display()));
+    }
+    let config_path =
+        data_dir_config_path(&app).ok_or_else(|| "无法定位应用配置目录".to_string())?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败：{err}"))?;
+    }
+    let payload = serde_json::to_vec_pretty(&DataDirConfig {
+        data_dir: dir.to_string_lossy().to_string(),
+    })
+    .map_err(|err| format!("序列化数据目录配置失败：{err}"))?;
+    let temporary = config_path.with_extension("json.tmp");
+    std::fs::write(&temporary, payload).map_err(|err| format!("写配置临时文件失败：{err}"))?;
+    if config_path.exists() {
+        std::fs::remove_file(&config_path).map_err(|err| format!("替换旧配置失败：{err}"))?;
+    }
+    std::fs::rename(&temporary, &config_path).map_err(|err| format!("保存配置失败：{err}"))?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
 fn is_cache_dir_name(name: &str) -> bool {
     CACHE_DIR_NAMES.contains(&name)
 }
@@ -2419,6 +2497,8 @@ pub fn run() {
             check_update,
             install_update,
             data_dir_path,
+            pick_data_dir,
+            set_data_dir,
             open_dir,
             cache_usage,
             clear_cache,
@@ -2436,6 +2516,7 @@ pub fn run() {
             ui_heartbeat
         ])
         .setup(|app| {
+            apply_data_dir_config(app.handle());
             /*
              * 权威数据从这里开始不再属于某个 WebView origin。
              * 调试壳、release 壳和浏览器都连同一个本地服务与同一份文件库。
@@ -2538,6 +2619,16 @@ mod data_dir_tests {
     }
     fn never(_: &Path) -> bool {
         false
+    }
+
+    #[test]
+    fn storage_location_config_requires_an_absolute_path() {
+        assert_eq!(
+            parse_data_dir_config(r#"{"dataDir":"D:\\轻画数据"}"#),
+            Some(PathBuf::from("D:\\轻画数据"))
+        );
+        assert_eq!(parse_data_dir_config(r#"{"dataDir":"relative\\data"}"#), None);
+        assert_eq!(parse_data_dir_config("not json"), None);
     }
 
     #[test]

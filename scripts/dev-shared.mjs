@@ -1,10 +1,28 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo'
 const viteEntry = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
+
+/**
+ * 桌面壳把自定义数据目录写在壳配置区；浏览器开发库也读同一份配置。
+ * 没有配置或配置损坏时继续使用 shared-store 的系统默认目录。
+ */
+function configuredDataDir() {
+  const localAppData = process.env.LOCALAPPDATA
+  if (!localAppData) return null
+  const configPath = path.join(localAppData, 'com.qinghua.canvas', 'storage-location.json')
+  if (!existsSync(configPath)) return null
+  try {
+    const value = JSON.parse(readFileSync(configPath, 'utf8'))?.dataDir
+    return typeof value === 'string' && path.isAbsolute(value.trim()) ? value.trim() : null
+  } catch {
+    return null
+  }
+}
 
 async function healthy() {
   try {
@@ -29,7 +47,12 @@ if (!(await healthy())) {
     'debug',
     process.platform === 'win32' ? 'qinghua-store.exe' : 'qinghua-store',
   )
-  storage = spawn(binary, [], { cwd: root, stdio: 'inherit' })
+  const dataDir = configuredDataDir()
+  storage = spawn(binary, [], {
+    cwd: root,
+    stdio: 'inherit',
+    env: dataDir ? { ...process.env, QINGHUA_DATA_DIR: dataDir } : process.env,
+  })
   const started = Date.now()
   while (!(await healthy())) {
     if (storage.exitCode !== null) {

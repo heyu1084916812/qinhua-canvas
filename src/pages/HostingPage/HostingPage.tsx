@@ -214,7 +214,11 @@ export function HostingPage() {
         {fields.length > 0 && (
           <div className={styles.fields} data-hosting-fields>
             {fields.map((field) => (
-              <label className={styles.field} key={field.key}>
+              <label
+                className={styles.field}
+                key={field.key}
+                data-hosting-field={field.key === 'region' ? field.key : undefined}
+              >
                 <span className={styles.fieldLabel}>
                   {field.label}
                   {field.optional && <span className={styles.fieldOptional}>选填</span>}

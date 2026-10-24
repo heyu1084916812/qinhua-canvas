@@ -1,12 +1,11 @@
 /**
- * 「存储」面板（对账 #261）：四块 —— 概况 / 数据目录 / 网页缓存 / 素材文件夹。
- * 全部走令牌，深浅色自动跟随；不写死颜色与时长（主题守卫会拦）。
+ * 「存储」面板：概况 / 应用数据目录 / 生成文件目录 / 缓存。
+ * 全部走令牌，深浅色自动跟随；不写死颜色与时长。
  */
 .panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
   padding: var(--space-5) var(--space-6) var(--space-8);
   overflow-y: auto;
   height: 100%;
@@ -15,16 +14,27 @@
 .block {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  /**
-   * 与其他栏目一致的**无描边实色容器**（用户 2026-10-09）。
-   *
-   * 原来这一栏靠 `border-bottom` 细线把四段隔开 —— 全站统一去描边之后，
-   * 那几道线在"其他栏目都是实色块"的对照下反而显眼，改成和「关于与隐私」同一种卡片。
-   */
+  gap: var(--space-3);
   padding: var(--space-4);
   border-radius: 8px;
   background: var(--bg-subtle);
+}
+
+.overview {
+  gap: var(--space-4);
+}
+
+.blockHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .title {
@@ -34,79 +44,145 @@
   color: var(--text-1);
 }
 
-.desc {
-  margin: 0;
-  max-width: 62ch;
-  font-size: var(--fs-nav);
-  line-height: var(--lh-body);
-  color: var(--text-2);
-}
-
-/**
- * **一行一式**：路径 / 数字在左，动作在右（换行时动作落下一行）。
- *
- * 用户 2026-10-08 第 4 条要的「重排 ui」就是它 —— 原来是「一段解释 + 一块路径 +
- * 一排按钮」的三段式，光解释就占掉半屏；现在三样并成一行。
- */
-.line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-
-/* 行内的路径：占满剩下的宽度，按钮才不会被挤到下一行 */
-.line .path {
-  flex: 1 1 18ch;
-  width: auto;
-}
-
-.fact {
-  flex: 1 1 auto;
-  font-size: var(--fs-nav);
-  color: var(--text-1);
-}
-
-/**
- * 短小字：**只放会影响决策的那一两句**（卸载不删数据 / 清缓存不动项目 / 素材怎么放回画布）。
- *
- * 与 `.desc` 的区别是刻意的：`.desc` 是"介绍"，用户明确不要（「无用的文字介绍都给我删掉」）；
- * 这一档是"按之前先知道一句"的提示，且压到一行。
- */
 .caption {
-  margin: 0;
+  margin: var(--space-1) 0 0;
   font-size: var(--fs-label);
+  line-height: var(--lh-body);
   color: var(--text-3);
 }
 
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-  font-size: var(--fs-nav);
-  color: var(--text-1);
+.meta {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 路径用等宽字并允许换行：中文目录名很长，塞一行会顶破面板 */
+.badge,
+.badgeOn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+}
+
+.badgeOn {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+}
+
+.meterFill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform var(--dur-panel) var(--ease-out);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.facts dt {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.facts dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: var(--fs-panel-title);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .path {
   display: block;
   padding: var(--space-2) var(--space-3);
+  border: var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  background: var(--bg-surface);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: var(--fs-label);
+  line-height: 1.5;
   color: var(--text-2);
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
-.actions {
+.pathField {
+  min-height: 38px;
   display: flex;
+  align-items: center;
+}
+
+.changePanel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.changePanel strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.pendingPath {
+  display: block;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: var(--fs-chip);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.actions,
+.headActions,
+.cacheAction {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
+.headActions {
+  justify-content: flex-end;
+}
+
 .btn {
-  height: 32px;
+  min-height: 32px;
   padding: 0 var(--space-4);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -115,7 +191,10 @@
   font: inherit;
   font-size: var(--fs-nav);
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 
 .btn:hover:not(:disabled) {
@@ -123,20 +202,73 @@
   border-color: var(--stroke-focus);
 }
 
+.btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .btn:disabled {
   color: var(--text-3);
   cursor: default;
+  opacity: 0.72;
 }
 
-/* 「仅在桌面应用可用」这类如实说明：不装成错误、也不装成按钮 */
+.btnPrimary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  border-color: var(--text-2);
+  background: var(--text-2);
+  color: var(--accent-text);
+}
+
+.cacheBlock {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cacheAction {
+  justify-content: flex-end;
+}
+
 .only {
   margin: 0;
   font-size: var(--fs-nav);
+  line-height: var(--lh-body);
   color: var(--text-3);
 }
 
 .status {
   margin: 0;
-  font-size: var(--fs-nav);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
   color: var(--text-2);
+  font-size: var(--fs-nav);
+}
+
+@media (max-width: 760px) {
+  .panel {
+    padding: var(--space-4);
+  }
+
+  .blockHead,
+  .cacheBlock,
+  .changePanel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .headActions,
+  .cacheAction {
+    justify-content: flex-start;
+  }
+
+  .facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

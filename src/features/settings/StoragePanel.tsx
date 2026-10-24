@@ -1,56 +1,42 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import { createProjectRepository } from '../../state/project/repository'
+import type { StoragePort } from '../../platform/ports'
 import { useAssetFolderActions } from '../canvas/useAssetFolderActions'
 import styles from './StoragePanel.module.css'
 
 /**
- * 「全局设置 → 存储」面板（用户 2026-10-06 定，对账 #261 / #285 / #293）。
+ * 「全局设置 → 存储」面板（对账 #261 / #285 / #293 / #740）。
  *
- * ## 四块，每一块都回答一个用户真的会问的问题
+ * 布局借了「资源位置 + 使用情况 + 维护动作」这套成熟心智，但不改变数据所有权：
  *
- *  - **存储概况**：我的东西有多少、占多大；
- *  - **数据目录**：它们在哪（并且**找得到** —— 我们没给"改数据目录"的 UI，它是编译期规则）；
- *  - **网页缓存**：那堆能清的东西是什么、清了**有没有用**；
- *  - **素材文件夹**：素材除了在库里，还能在哪有一个副本（导出 / 备份 / 换机器）。
+ *  - 应用数据目录是权威库，可选择新目录并打开，切换在下次启动生效；
+ *  - 生成文件目录是用户可替换的本地副本，新素材落库后自动镜像到这里；
+ *  - 网页缓存只省磁盘，不承担素材或项目存储。
  *
- * ## 两条口径
- *
- * 1. **桌面专属的项也显示出来**（用户 2026-10-06 第 5 条：「不管是桌面才可以用的，
- *    但是 UI 需要给我显示出来」）—— 浏览器里给出"仅在桌面应用可用"的说明，
- *    而不是把整块删掉（删掉的话用户根本不知道有这个能力）。
- * 2. **"清理"要如实说清有什么用**（用户追问过「那那个清理缓存不就对我的画布没啥用吗？」）——
- *    答案就是"没用，它只省磁盘、不会更快"，所以下面那段文字**不写"加速/优化"**
- *    （实测：Cache 48.9MB + Code Cache 19.5MB + GPUCache 1.6MB ≈ 70MB 系统垃圾，
- *    而真正占地方的 91.8MB 是数据库里的素材字节，那属于**数据**，不在这一块清）。
+ * 生成文件目录必须显示完整绝对路径（桌面壳），用户才能确认自己换到哪。
+ * 浏览器拿不到绝对路径，此时只显示目录名，并明确说明打开能力仅在桌面版可用。
  */
 export function StoragePanel() {
   const platform = usePlatform()
   const admin = platform.storageAdmin
-  /** 素材文件夹动作（选择并同步 / 只换位置 / 打开 / 导出）——与画布右键那条「从素材文件夹加载」同一份实现 */
   const folderActions = useAssetFolderActions()
 
   const [counts, setCounts] = useState<{ projects: number; assets: number; saved: number } | null>(null)
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null)
   const [dataDir, setDataDir] = useState<string>('')
+  const [pendingDataDir, setPendingDataDir] = useState<string>('')
+  const [switchingDir, setSwitchingDir] = useState(false)
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
 
-  /** 数一遍：项目走仓储（轻），素材与收藏走 `scan`（流式，别把整表拉进内存）。 */
+  /** 概况只读计数，不展开项目封面、节点、运行记录或素材正文。 */
   const refresh = useCallback(async () => {
-    const repo = createProjectRepository(platform.storage)
-    const projects = (await repo.list()).length
-    const countRows = async (table: 'assets' | 'assetLibrary') => {
-      const scan = platform.storage.scan?.bind(platform.storage)
-      if (!scan) return (await platform.storage.query(table, {})).length
-      let total = 0
-      await scan(table, 50, async (rows: unknown[]) => {
-        total += rows.length
-      })
-      return total
-    }
-    const [assets, saved] = await Promise.all([countRows('assets'), countRows('assetLibrary')])
+    const [projects, assets, saved] = await Promise.all([
+      countStorageProjects(platform.storage),
+      countStorageRows(platform.storage, 'assets'),
+      countStorageRows(platform.storage, 'assetLibrary'),
+    ])
     setCounts({ projects, assets, saved })
     setUsage(await platform.storage.estimateUsage())
     if (admin) {
@@ -77,35 +63,114 @@ export function StoragePanel() {
     }
   }
 
+  const setFolder = async () => {
+    setStatus(await folderActions.pick())
+  }
+
+  const chooseDataDir = async () => {
+    if (!admin?.pickDataDir) return
+    try {
+      const next = await admin.pickDataDir()
+      if (!next) return
+      if (next === dataDir) {
+        setStatus('当前已经使用这个数据目录')
+        return
+      }
+      setPendingDataDir(next)
+      setStatus('')
+    } catch (err) {
+      setStatus(`选择数据目录失败：${String(err)}`)
+    }
+  }
+
+  const applyDataDir = async () => {
+    if (!admin?.setDataDir || !pendingDataDir) return
+    setSwitchingDir(true)
+    try {
+      const saved = await admin.setDataDir(pendingDataDir)
+      setPendingDataDir('')
+      setStatus(`数据目录已保存为「${saved}」，关闭并重新打开轻画后生效`)
+    } catch (err) {
+      setStatus(`切换数据目录失败：${String(err)}`)
+    } finally {
+      setSwitchingDir(false)
+    }
+  }
+
+  const usagePercent = storageUsagePercent(usage)
+  const generatedPath = folderActions.folderPath
+  const generatedName = folderActions.folderName
+  const canOpenGenerated = Boolean(generatedPath && admin)
+  const canChangeDataDir = Boolean(admin?.pickDataDir && admin?.setDataDir)
+
   return (
     <div className={styles.panel} data-storage-panel>
-      {/*
-        用户 2026-10-08 第 4 条：「存储面板也是介绍文字这么多，我也是只需要有用的，
-        无用的文字介绍都给我删掉，帮我重排一下 ui」。
-
-        于是四块的写法统一成「**标题 + 数字 / 路径 + 按钮**」这种一行一式：
-        原来的四段解释（每段三四行）全部撤掉，只留**真的会影响决策**的那一两句，
-        压成 `.caption` 的小字贴在动作旁边（卸载不删数据 / 清缓存不动项目 / 素材怎么放回画布）。
-      */}
-      <section className={styles.block}>
-        <h3 className={styles.title}>存储概况</h3>
-        <div className={styles.facts}>
-          <span data-storage-count="projects">项目 {counts ? counts.projects : '…'}</span>
-          <span data-storage-count="assets">素材 {counts ? counts.assets : '…'}</span>
-          <span data-storage-count="saved">收藏 {counts ? counts.saved : '…'}</span>
-          <span data-storage-count="used">占用 {usage ? formatBytes(usage.used) : '…'}</span>
+      <section className={`${styles.block} ${styles.overview}`}>
+        <div className={styles.blockHead}>
+          <div>
+            <h3 className={styles.title}>存储概况</h3>
+            <p className={styles.caption}>自动保存：改动约 0.8 秒后落库</p>
+          </div>
+          <span className={styles.meta}>{usage ? formatBytes(usage.used) : '统计中…'}</span>
         </div>
-        <p className={styles.caption}>自动保存：改动约 0.8 秒后落库，关窗前再落一次</p>
+        {usagePercent !== null && (
+          <div
+            className={styles.meter}
+            role="progressbar"
+            aria-label="存储空间占用"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={usagePercent}
+            data-storage-usage-meter
+          >
+            <span
+              className={styles.meterFill}
+              style={{ transform: `scaleX(${usagePercent / 100})` }}
+            />
+          </div>
+        )}
+        <dl className={styles.facts}>
+          <div>
+            <dt>项目</dt>
+            <dd data-storage-count="projects">{counts ? counts.projects : '…'}</dd>
+          </div>
+          <div>
+            <dt>素材</dt>
+            <dd data-storage-count="assets">{counts ? counts.assets : '…'}</dd>
+          </div>
+          <div>
+            <dt>收藏</dt>
+            <dd data-storage-count="saved">{counts ? counts.saved : '…'}</dd>
+          </div>
+          <div>
+            <dt>占用</dt>
+            <dd data-storage-count="used">{usage ? formatBytes(usage.used) : '…'}</dd>
+          </div>
+        </dl>
       </section>
 
       <section className={styles.block}>
-        <h3 className={styles.title}>数据目录</h3>
-        {admin ? (
-          <>
-            <div className={styles.line}>
-              <code className={styles.path} data-storage-data-dir>
-                {dataDir || '…'}
-              </code>
+        <div className={styles.blockHead}>
+          <div>
+            <div className={styles.titleRow}>
+              <h3 className={styles.title}>应用数据目录</h3>
+              <span className={styles.badge}>主库</span>
+            </div>
+            <p className={styles.caption}>项目数据库、生成记录与配置都在这里；卸载不会删除</p>
+          </div>
+          {admin && (
+            <div className={styles.headActions}>
+              {canChangeDataDir && (
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-storage-change-data-dir
+                  disabled={busy || switchingDir}
+                  onClick={() => void chooseDataDir()}
+                >
+                  更换目录
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.btn}
@@ -115,115 +180,142 @@ export function StoragePanel() {
                   void admin.openDir(dataDir).catch((err: unknown) => setStatus(`打不开：${String(err)}`))
                 }}
               >
-                打开数据目录
+                打开目录
               </button>
             </div>
-            <p className={styles.caption}>项目、令牌与素材库都在这里；卸载不会删它</p>
-          </>
+          )}
+        </div>
+        {admin ? (
+          <code className={`${styles.path} ${styles.pathField}`} data-storage-data-dir>
+            {dataDir || '读取中…'}
+          </code>
         ) : (
           <p className={styles.only} data-storage-desktop-only>
-            仅在桌面应用可用（浏览器里数据存在浏览器自己的库里，没有"目录"可打开）
+            仅在桌面应用可用。浏览器版的数据保存在浏览器自己的本地库中。
           </p>
         )}
-      </section>
-
-      <section className={styles.block}>
-        <h3 className={styles.title}>网页缓存</h3>
-        {/*
-          ⚠️ 「只省磁盘」这句**不能改成"加速 / 优化"**：清了不会更快（下次用到还会重建，
-          第一次反而更慢）。它唯一的好处是省磁盘与清掉"更新之后界面还是旧的"这类残留。
-          用户专门追问过这一条（「那那个清理缓存不就对我的画布没啥用吗？」），
-          所以这句压成一行小字也要留着 —— 它直接决定用户按不按这个按钮。
-        */}
-        {admin ? (
-          <>
-            <div className={styles.line}>
-              <span className={styles.fact} data-storage-cache>
-                当前 {cacheBytes === null ? '…' : formatBytes(cacheBytes)}
-              </span>
+        {pendingDataDir && (
+          <div className={styles.changePanel} role="group" aria-label="确认切换数据目录">
+            <div>
+              <strong>下次启动使用</strong>
+              <code className={styles.pendingPath} data-storage-pending-data-dir>
+                {pendingDataDir}
+              </code>
+              <p className={styles.caption}>
+                不会复制或合并当前数据；原目录保持原样，之后可再次切换回去。
+              </p>
+            </div>
+            <div className={styles.headActions}>
               <button
                 type="button"
                 className={styles.btn}
-                data-storage-clear-cache
-                disabled={busy}
-                onClick={() => void clearCache()}
+                disabled={switchingDir}
+                onClick={() => {
+                  setPendingDataDir('')
+                  setStatus('已取消切换数据目录')
+                }}
               >
-                清理网页缓存
+                取消
+              </button>
+              <button
+                type="button"
+                className={`${styles.btn} ${styles.btnPrimary}`}
+                data-storage-apply-data-dir
+                disabled={switchingDir}
+                onClick={() => void applyDataDir()}
+              >
+                {switchingDir ? '正在保存…' : '保存更改'}
               </button>
             </div>
-            <p className={styles.caption}>只省磁盘，不会让应用变快；不动项目、素材与令牌</p>
-          </>
-        ) : (
-          <p className={styles.only}>仅在桌面应用可用</p>
+          </div>
         )}
       </section>
 
       <section className={styles.block}>
-        <h3 className={styles.title}>素材文件夹</h3>
-        {folderActions.canPick ? (
-          <>
-            <div className={styles.line}>
-              <code className={styles.path} data-storage-asset-dir>
-                {folderActions.folderName || '（未选择：素材只存在库里）'}
-              </code>
-              <button
-                type="button"
-                className={styles.btn}
-                data-storage-pick-and-sync
-                disabled={busy || folderActions.exporting !== null}
-                onClick={() => void folderActions.pickAndSync().then(setStatus)}
-              >
-                {folderActions.exporting
-                  ? `同步中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
-                  : folderActions.folderName
-                    ? '更换并同步'
-                    : '选择并同步素材'}
-              </button>
+        <div className={styles.blockHead}>
+          <div>
+            <div className={styles.titleRow}>
+              <h3 className={styles.title}>生成文件目录</h3>
+              <span className={generatedName ? styles.badgeOn : styles.badge}>
+                {generatedName ? '已连接' : '未设置'}
+              </span>
             </div>
-            <div className={styles.actions}>
+            <p className={styles.caption}>新生成的素材在落库后同步一份到这里，数据库仍是主副本</p>
+          </div>
+          {folderActions.canPick && (
+            <div className={styles.headActions}>
               <button
                 type="button"
-                className={styles.btn}
+                className={`${styles.btn} ${styles.btnPrimary}`}
                 data-storage-pick-folder
                 disabled={busy || folderActions.exporting !== null}
-                title="只记住新位置，不复制现有素材"
-                onClick={() => void folderActions.pick().then(setStatus)}
+                onClick={() => void setFolder()}
               >
-                只换位置
+                {generatedName ? '更换位置' : '选择位置'}
               </button>
               <button
                 type="button"
                 className={styles.btn}
                 data-storage-open-folder
+                disabled={!canOpenGenerated || busy}
+                title={canOpenGenerated ? '在文件管理器中打开' : '选择桌面版目录后才能打开'}
                 onClick={() => void folderActions.openFolder().then(setStatus)}
               >
                 打开文件夹
               </button>
-              {/*
-                「导出素材到文件夹」从画布状态条搬到这里（用户 2026-10-06 第 13 条：
-                状态条只留节点数与缩放）—— 它本来就是"把库写一份到磁盘"的存储动作。
-              */}
+            </div>
+          )}
+        </div>
+        {folderActions.canPick ? (
+          <>
+            <code className={`${styles.path} ${styles.pathField}`} data-storage-folder-path>
+              {generatedPath || generatedName || '尚未选择目录'}
+            </code>
+            <div className={styles.actions}>
               <button
                 type="button"
                 className={styles.btn}
                 data-storage-export-assets
-                disabled={busy || !folderActions.folderName || folderActions.exporting !== null}
+                disabled={busy || !generatedName || folderActions.exporting !== null}
                 onClick={() => void folderActions.exportAll().then(setStatus)}
               >
                 {folderActions.exporting
-                  ? `导出中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
-                  : '导出素材到文件夹'}
+                  ? `同步中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
+                  : '同步现有素材'}
               </button>
+              <span className={styles.caption}>放回画布：空白处右键 → 从素材文件夹加载</span>
             </div>
-            <p className={styles.caption}>放回画布：画布空白处右键 → 从素材文件夹加载</p>
           </>
         ) : (
-          <p className={styles.only}>当前环境不支持选择素材文件夹</p>
+          <p className={styles.only}>当前环境不支持选择目录</p>
         )}
       </section>
 
+      <section className={`${styles.block} ${styles.cacheBlock}`}>
+        <div>
+          <h3 className={styles.title}>网页缓存</h3>
+          <p className={styles.caption}>只省磁盘，不会让应用变快；不动项目、素材与令牌</p>
+        </div>
+        <div className={styles.cacheAction}>
+          <span className={styles.meta} data-storage-cache>
+            {admin ? `当前 ${cacheBytes === null ? '…' : formatBytes(cacheBytes)}` : '仅在桌面应用可用'}
+          </span>
+          {admin && (
+            <button
+              type="button"
+              className={styles.btn}
+              data-storage-clear-cache
+              disabled={busy}
+              onClick={() => void clearCache()}
+            >
+              清理缓存
+            </button>
+          )}
+        </div>
+      </section>
+
       {status && (
-        <p className={styles.status} role="status" data-storage-status>
+        <p className={styles.status} role="status" aria-live="polite" data-storage-status>
           {status}
         </p>
       )}
@@ -231,7 +323,7 @@ export function StoragePanel() {
   )
 }
 
-/** 人类可读的字节数。单独一个纯函数，方便以后单测（不进 i18n，本项目只有中文）。 */
+/** 人类可读的字节数。 */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -241,5 +333,60 @@ export function formatBytes(bytes: number): string {
     value /= 1024
     unit += 1
   }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
+  const rendered =
+    value >= 10 || unit === 0
+      ? String(Math.round(value))
+      : value.toFixed(1).replace(/\.0$/, '')
+  return `${rendered} ${units[unit]}`
+}
+
+/**
+ * 存储概况只需要行数，绝不能把素材正文一起取回来。
+ * `assets` 每行都有全分辨率字节，3 GB 的库若带 payload 扫描会长期卡在“统计中…”。
+ */
+export async function countStorageRows(
+  storage: StoragePort,
+  table: 'assets' | 'assetLibrary',
+): Promise<number> {
+  const scan = storage.scan?.bind(storage)
+  if (!scan) return (await storage.query(table, {}, { includePayload: false })).length
+  let total = 0
+  await scan(
+    table,
+    50,
+    async (rows) => {
+      total += rows.length
+    },
+    { includePayload: false },
+  )
+  return total
+}
+
+export async function countStorageProjects(storage: StoragePort): Promise<number> {
+  const scan = storage.scan?.bind(storage)
+  if (!scan) {
+    return (await storage.query('projects', {}, { includePayload: false })).filter(
+      (row) => !row.deletedAt,
+    ).length
+  }
+  let total = 0
+  await scan(
+    'projects',
+    50,
+    async (rows) => {
+      total += rows.filter((row) => !row.deletedAt).length
+    },
+    { includePayload: false },
+  )
+  return total
+}
+
+/** 配额未知时返回 null，不伪造进度。 */
+export function storageUsagePercent(
+  usage: { used: number; quota: number } | null,
+): number | null {
+  if (!usage || !Number.isFinite(usage.quota) || usage.quota <= 0) return null
+  const percent = (usage.used / usage.quota) * 100
+  if (!Number.isFinite(percent)) return null
+  return Math.min(100, Math.max(0, Math.round(percent * 10) / 10))
 }

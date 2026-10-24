@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### 存储面板与可切换主库（2026-10-24 → 对账 #740）
+
+- **统计不能读素材正文**：`assets` 每行带全分辨率字节；概况计数若按默认 payload 扫描，
+  2.8 GB 库会长期卡在“统计中…”。`countStorageRows()` 必须传 `{ includePayload:false }`，
+  项目计数也只扫 `projects` 并排除 `deletedAt`，不要再走带封面的项目列表仓储。
+- **主库切换只切目录，不迁移**：桌面壳把选择写到
+  `%LOCALAPPDATA%\com.qinghua.canvas\storage-location.json`，启动时设置
+  `QINGHUA_DATA_DIR`；`shared-store::default_data_dir()` 优先读它。保存后关闭并重新打开应用生效，
+  不自动重启。原目录原样保留，切回即可恢复。
+- **自动重启在开发壳不稳定**：实测第一次 `app.restart()` 成功，第二次没有重新拉起进程。
+  因此 UI 只保存配置并提示手工重开，不把重启当作目录切换成功的前提。
+- **生成文件目录是镜像，不是主库**：完整路径只在桌面壳拿得到；浏览器只显示目录名，打开按钮禁用。
+  新素材落库后镜像一份，`assets` / `assetLibrary` 仍是权威数据。
+- **真实可逆演练**：临时目录空库 `0/0/0`；切回 `%LOCALAPPDATA%\com.qinghua.canvas\shared-store-v1`
+  后恢复 `2 项目 / 470 素材 / 7 收藏 / 2.8 GB`。`StoragePanel` 4/4、Tauri 8/8、
+  shared-store 10/10；1440×900 与 1024×700 无横向溢出。
+
 ### v0.1.6 桌面封包（2026-10-24 → 对账 #738）
 
 - **版本五处对齐**：`package.json` / `package-lock.json` / `src-tauri/tauri.conf.json` /

@@ -813,6 +813,12 @@ fn handle(store: &Store, mut request: Request) {
 }
 
 pub fn default_data_dir() -> PathBuf {
+    if let Ok(custom) = std::env::var("QINGHUA_DATA_DIR") {
+        let custom = custom.trim();
+        if !custom.is_empty() {
+            return PathBuf::from(custom);
+        }
+    }
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         return PathBuf::from(local)
             .join("com.qinghua.canvas")

@@ -11,6 +11,8 @@ import type { StorageAdminPort } from '../ports'
 export function createTauriStorageAdmin(): StorageAdminPort {
   return {
     dataDir: () => invoke<string>('data_dir_path'),
+    pickDataDir: () => invoke<string | null>('pick_data_dir'),
+    setDataDir: (path) => invoke<string>('set_data_dir', { path }),
     openDir: async (path) => {
       await invoke('open_dir', { path })
     },

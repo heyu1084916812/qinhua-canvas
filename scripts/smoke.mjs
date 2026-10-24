@@ -21659,16 +21659,19 @@ async function g97(browser) {
   await sleep(500)
   rec(
     g,
-    '★★ 存储栏有「素材文件夹」四件事：选择并同步 / 只换位置 / 打开 / 导出',
-    (await page.locator('[data-storage-pick-and-sync]').count()) === 1 &&
-      (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
+    '★★ 存储栏有「生成文件目录」位置、打开与同步动作',
+    (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
       (await page.locator('[data-storage-open-folder]').count()) === 1 &&
-      (await page.locator('[data-storage-export-assets]').count()) === 1,
+      (await page.locator('[data-storage-export-assets]').count()) === 1 &&
+      (await page.locator('[data-storage-folder-path]').count()) === 1,
   )
   const cacheCopy = await page.locator('[data-storage-panel]').innerText().catch(() => '')
+  const captionLengths = await page.locator('[data-storage-panel] [class*="_caption_"]').evaluateAll(
+    (els) => els.map((el) => (el.textContent ?? '').replace(/\s+/g, '').length),
+  )
   rec(
     g,
-    '★★ 存储面板里那些长解释都不在了（用户 2026-10-08 第 4 条）',
+    '★★ 存储面板没有旧长解释，每条短说明都不超过 60 字',
     /**
      * ⚠️ 范围说明：**浏览器里没有「清理网页缓存」这个按钮**（那一格只显示"仅在桌面应用可用"），
      * 所以"点了只省磁盘、不动项目素材"那句小字在浏览器里根本不渲染 ——
@@ -21678,8 +21681,8 @@ async function g97(browser) {
     !/不需要手动保存/.test(cacheCopy) &&
       !/下次用到会重建/.test(cacheCopy) &&
       !/重复导入不会重复落盘/.test(cacheCopy) &&
-      !/[。；][\s\S]{60,}/.test(cacheCopy.replace(/\n/g, '')),
-    `面板文字=${cacheCopy.replace(/\s+/g, ' ').slice(0, 80)}…`,
+      captionLengths.every((length) => length <= 60),
+    `说明字数=${captionLengths.join('/')}`,
   )
   rec(
     g,

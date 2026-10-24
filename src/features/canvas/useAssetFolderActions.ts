@@ -23,6 +23,8 @@ import { pickAndSyncAssets } from './pickAndSyncAssets'
 export interface AssetFolderActions {
   /** 当前素材文件夹名；没选过就是 `null`（那时素材只在内置库里） */
   folderName: string | null
+  /** 桌面壳拿到的绝对路径；浏览器拿不到路径时为 `null` */
+  folderPath: string | null
   /** 这个环境支不支持选目录（浏览器 / 壳里都支持；内存平台不支持） */
   canPick: boolean
   /** 加载进度（大目录要能看见"走到第几个"） */
@@ -51,11 +53,13 @@ export function useAssetFolderActions(): AssetFolderActions {
   const platform = usePlatform()
   const folder = platform.assetFolder
   const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
+  const [folderPath, setFolderPath] = useState<string | null>(folder?.path?.() ?? null)
   const [loading, setLoading] = useState<{ done: number; total: number } | null>(null)
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
 
   return {
     folderName,
+    folderPath,
     canPick: folder?.supported() ?? false,
     loading,
     exporting,
@@ -66,6 +70,7 @@ export function useAssetFolderActions(): AssetFolderActions {
       try {
         const result = await pickAndSyncAssets(platform, (done, total) => setExporting({ done, total }))
         setFolderName(result.folderName)
+        setFolderPath(folder.path?.() ?? null)
         return result.message
       } finally {
         setExporting(null)
@@ -84,10 +89,12 @@ export function useAssetFolderActions(): AssetFolderActions {
          */
         if (!picked) {
           setFolderName(folder.current()?.name ?? null)
+          setFolderPath(folder.path?.() ?? null)
           return '没有选择文件夹'
         }
         const name = picked.name || folder.current()?.name || null
         setFolderName(name)
+        setFolderPath(folder.path?.() ?? null)
         return name ? `素材文件夹已设为「${name}」` : '没有选择文件夹'
       } catch (err) {
         platform.logger.log('warn', '[assetFolder] 选目录失败', { error: String(err) })

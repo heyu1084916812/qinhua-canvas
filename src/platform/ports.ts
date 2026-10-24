@@ -365,6 +365,14 @@ export interface UpdatePort {
 export interface StorageAdminPort {
   /** 数据目录绝对路径（项目 / 令牌 / 素材库都在里面） */
   dataDir(): Promise<string>
+  /**
+   * 选择新的主库目录并保存到壳配置区。
+   *
+   * 只切换目录，不复制 / 合并旧数据；必须重启应用后才生效。
+   * 这些方法可选，便于浏览器与旧平台实现继续工作。
+   */
+  pickDataDir?(): Promise<string | null>
+  setDataDir?(path: string): Promise<string>
   /** 在系统文件管理器里打开一个目录（目录没了就抛错，由调用方如实展示） */
   openDir(path: string): Promise<void>
   /** 网页缓存占用（字节） */
