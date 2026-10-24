@@ -29,6 +29,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
 } from 'node:fs'
@@ -41,6 +42,41 @@ const RESOURCE_SRC = path.join(path.dirname(EXE_SRC), 'resources')
 const PORT = Number(process.env.QH_CDP_PORT ?? 9444)
 const KEEP_PROFILE = process.env.QH_KEEP_PROFILE === '1'
 const PKG_VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
+const USER_LOCAL_APPDATA = process.env.LOCALAPPDATA
+const USER_STORAGE_CONFIG = USER_LOCAL_APPDATA
+  ? path.join(USER_LOCAL_APPDATA, 'com.qinghua.canvas', 'storage-location.json')
+  : null
+const STORAGE_CONFIG_BACKUP = USER_STORAGE_CONFIG
+  ? `${USER_STORAGE_CONFIG}.release-gate-${process.pid}.bak`
+  : null
+let storageConfigMoved = false
+function restoreStorageConfig() {
+  if (
+    storageConfigMoved &&
+    STORAGE_CONFIG_BACKUP &&
+    USER_STORAGE_CONFIG &&
+    existsSync(STORAGE_CONFIG_BACKUP)
+  ) {
+    renameSync(STORAGE_CONFIG_BACKUP, USER_STORAGE_CONFIG)
+    storageConfigMoved = false
+  }
+}
+process.on('exit', restoreStorageConfig)
+process.on('SIGINT', () => {
+  restoreStorageConfig()
+  process.exit(130)
+})
+process.on('SIGTERM', () => {
+  restoreStorageConfig()
+  process.exit(143)
+})
+if (USER_STORAGE_CONFIG && existsSync(USER_STORAGE_CONFIG)) {
+  if (existsSync(STORAGE_CONFIG_BACKUP)) {
+    throw new Error(`门禁备份文件已存在，拒绝覆盖：${STORAGE_CONFIG_BACKUP}`)
+  }
+  renameSync(USER_STORAGE_CONFIG, STORAGE_CONFIG_BACKUP)
+  storageConfigMoved = true
+}
 /** 期望字节数优先取 `dist/`（真正被打进包的那份），没有就退回 `public/` 源文件（同长） */
 const WASM_REF = [
   path.join(ROOT, 'dist/mediapipe/wasm/vision_wasm_internal.wasm'),
@@ -300,17 +336,16 @@ check(
   JSON.stringify(ffmpeg),
 )
 
-// ⑦ 独立 LOCALAPPDATA 下的 shared-store 必须真的启动，且不能连回用户真实库
-const sharedStoreDir = path.join(localAppData, 'com.qinghua.canvas', 'shared-store-v1')
+// ⑦ 安装目录旁的独立 data\ 必须真的启动，且不能连回用户真实库
 const health = await fetch('http://127.0.0.1:18765/health')
   .then((res) => (res.ok ? res.json() : null))
   .catch(() => null)
 check(
-  '独立 LOCALAPPDATA 下的 shared-store 已启动',
-  existsSync(sharedStoreDir) &&
+  '安装目录旁的隔离 shared-store 已启动',
+  existsSync(dataDir) &&
     health?.ok === true &&
-    path.resolve(String(health?.dataDir ?? '')) === path.resolve(sharedStoreDir),
-  `health=${JSON.stringify(health)} 期望目录=${sharedStoreDir}`,
+    path.resolve(String(health?.dataDir ?? '')) === path.resolve(dataDir),
+  `health=${JSON.stringify(health)} 期望目录=${dataDir}`,
 )
 
 // ⑦ 生产构建不该有运行时错误
@@ -320,6 +355,7 @@ check('没有 console.error', consoleErrors.length === 0, consoleErrors.slice(0,
 await browser.close().catch(() => {})
 killTree()
 await sleep(800)
+restoreStorageConfig()
 cleanup()
 
 const failed = results.filter((r) => !r.ok)

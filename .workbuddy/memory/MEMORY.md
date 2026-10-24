@@ -21,6 +21,15 @@
 - **验证**：Rust shared-store 25/25、Tauri 41/41、Vitest 3086/3086（1 skip）、
   `npm run check`、定向 G97 30/30；桌面设置页 1440/1024 无横向溢出，画布 60 节点和
   可见缩略图全部加载成功。
+- **0.1.7 签名包**：原私钥来源是 `C:\Users\Administrator\.tauri\qinghua-updater.key`；
+  发布器用 `TAURI_SIGNING_PRIVATE_KEY` 指向它，生成匹配签名并通过 Ed25519 验签。
+  出品 `release/0.1.7`，包 43,027,338 B，SHA-256
+  `907E4A523D745B3545E3AC3839D583F22D30490986A51E9C06B07FA016472A76`，
+  真机启动门禁 11/11。尚未 push / 上传 Release。
+- **发布门禁必须隔离用户存储配置**：`check-release-shell.mjs` 启动前临时移走真实
+  `%LOCALAPPDATA%\com.qinghua.canvas\storage-location.json`，退出时恢复；否则 release
+  壳会读到用户当前 `data-v2`，把“隔离数据”判成失败。隔离 release 的期望根是
+  `<临时目录>\data`，不是旧的 `%LOCALAPPDATA%\shared-store-v1`。
 
 ### 主库默认位置与安装目录迁移（2026-10-24 → 对账 #741）
 
