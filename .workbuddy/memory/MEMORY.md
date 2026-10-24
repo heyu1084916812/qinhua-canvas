@@ -16,6 +16,13 @@
   `main`、tag `v${version}` 与产物路径；不放任何密钥。
 - **发布边界**：脚本只在本地产出，不 push。首次检查 GitHub 时连接被重置；push 前重查远端，
   禁止覆盖未见提交。按 AGENTS 必须先列提交和产物清单，取得用户对本次 push 的明确确认。
+- **已发布（2026-10-24）**：`main` `b4efe34..1447bf3`，tag `v0.1.6`；Release id
+  `422556023`，https://github.com/heyu1084916812/qinhua-canvas/releases/tag/v0.1.6。
+  `check-published-release` **6/6**，稳定别名返回 `0.1.6`。
+- **GitHub Release API 字段类型**：创建请求里 `make_latest` 当前必须是字符串枚举
+  `"true"` / `"false"`，布尔 `true` 会返回 422。`v0.1.5` 的 `release-body.json`
+  根本没有该字段，所以旧流程不会踩到。更稳的可复用方法是在创建时省略 `make_latest`，
+  再按需 PATCH Release；或者使用 `gh release create --latest` / GitHub Actions。
 
 ### Windows 安装器图标（2026-10-24 → 对账 #737）
 
