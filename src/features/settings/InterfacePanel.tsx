@@ -23,9 +23,7 @@ export function InterfacePanel() {
     <div className={styles.panel} data-interface-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>主题</h3>
-        <p className={styles.caption}>
-          本机偏好：换一台机器要重设。配色与侧栏底部那个切换是同一份状态。
-        </p>
+        <p className={styles.caption}>本机偏好，与侧栏切换同步。</p>
 
         <div className={styles.row}>
           <span className={styles.rowLabel}>配色</span>
@@ -77,9 +75,7 @@ export function InterfacePanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>动效与显示</h3>
-        <p className={styles.caption}>
-          减少动效只把过渡时长归零 —— 颜色与状态照常立刻变化，不做"全局冻结"。
-        </p>
+        <p className={styles.caption}>减少动效仅关闭过渡动画。</p>
 
         <label className={styles.switchRow}>
           <span className={styles.rowLabel}>减少动效</span>

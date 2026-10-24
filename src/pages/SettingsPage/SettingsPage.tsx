@@ -1276,12 +1276,10 @@ export function SettingsPage() {
           <div className={styles.globalRouteText}>
             <span className={styles.cardTitle}>选路策略</span>
             <span className={styles.cardSub}>
-              同一个模型在多条渠道都能用时，所有渠道统一按这个规则挑一条
+              同一模型可用时，按此规则选择渠道。
             </span>
             {routeStrategy === 'performance' && (
-              <span className={styles.cardSub}>
-                性能优先按「验证地址」测出的延迟排序；没测过的渠道会排在测过的后面。
-              </span>
+              <span className={styles.cardSub}>按最近一次验证延迟排序。</span>
             )}
           </div>
           <StrategyPicker
@@ -1602,7 +1600,7 @@ export function SettingsPage() {
                       />
                       <div className={styles.keyGroupFoot}>
                         <span className={styles.cardSub}>
-                          这个分组独立保存 Key 和模型；优先级高的先请求。
+                          每组独立保存 Key 和模型，优先级高的先请求。
                         </span>
                         <button
                           className={styles.ghostBtn}
@@ -2056,7 +2054,7 @@ export function SettingsPage() {
                   <div className={styles.modelsTitleBox}>
                     <span className={styles.cardTitle}>渠道权重与模型映射</span>
                     <span className={styles.cardSub}>
-                      优先度与权重只描述这条渠道本身；映射解决各站模型 ID 叫法不同
+                      仅作用于当前渠道。
                     </span>
                   </div>
                 </div>

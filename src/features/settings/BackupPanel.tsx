@@ -167,10 +167,7 @@ export function BackupPanel() {
     <div className={styles.panel} data-backup-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>自动快照</h3>
-        <p className={styles.caption}>
-          每个项目每天自动留一份<strong>图数据</strong>（不含素材字节 —— 素材本身只增不改，是天然的历史）。
-          改坏了想退回昨天，从下面这份清单里挑一张还原即可。默认最多保留 7 份。
-        </p>
+        <p className={styles.caption}>每天保存项目结构快照，默认保留 7 份。</p>
         <div className={styles.row}>
           <span className={styles.label}>
             已有的快照
@@ -237,10 +234,7 @@ export function BackupPanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>全量备份</h3>
-        <p className={styles.caption}>
-          一次带走整库：项目、节点、素材字节、素材库收藏、技能、自建协议、预设、自定义字体。
-          这是"换机器 / 重装系统"用的兜底，与项目卡片里的「导出项目」不是一回事。
-        </p>
+        <p className={styles.caption}>包含项目、素材、技能、协议与预设。</p>
 
         <div className={styles.row}>
           <span className={styles.label}>包含自定义字体</span>
@@ -255,15 +249,13 @@ export function BackupPanel() {
             <span className={styles.knob} />
           </button>
         </div>
-        <p className={styles.note}>
-          字体文件可能有好几 MB；不带的话，换机器后字体要重新导入（其余数据不受影响）。
-        </p>
+        <p className={styles.note}>不包含字体时，换机后需重新导入。</p>
 
         <div className={styles.row}>
           <span className={styles.label}>
             令牌不进备份
             <span className={styles.sub}>
-              令牌用本机密钥加密，换台机器解不开 —— 备份里<strong>不包含</strong>它，换机后要重填一次
+              令牌使用本机密钥加密，不进入备份。
             </span>
           </span>
         </div>
@@ -275,10 +267,7 @@ export function BackupPanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>从备份恢复</h3>
-        <p className={styles.caption}>
-          导入是<strong>合并</strong>，不会清空现有数据：同一个 id 视为同一条数据。
-          需要"回到某个备份"时，导入后手动删掉不要的项目即可（项目卡片支持批量删除）。
-        </p>
+        <p className={styles.caption}>合并导入，不覆盖现有数据。</p>
 
         <div className={styles.row}>
           <span className={styles.label}>遇到同一条数据时</span>

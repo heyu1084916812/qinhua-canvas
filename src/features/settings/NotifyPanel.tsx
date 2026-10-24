@@ -20,16 +20,16 @@ import styles from './NotifyPanel.module.css'
  *   而且绝不自动申请权限 —— 那会弹系统对话框，只能由用户点按钮触发。
  */
 const ROWS: readonly { kind: NotifyKind; label: string; hint: string }[] = [
-  { kind: 'success', label: '生成完成', hint: '这一趟真的出图了（按出图的张数报）' },
-  { kind: 'failure', label: '生成失败', hint: '有任务没出图；部分失败也报，并指路日志看原因' },
-  { kind: 'progress', label: '批量进度', hint: '一次跑多个任务时逐条报进度。默认关：跑 20 张会弹 20 条' },
+  { kind: 'success', label: '生成完成', hint: '按成功出图数量提示。' },
+  { kind: 'failure', label: '生成失败', hint: '任务失败时提示。' },
+  { kind: 'progress', label: '批量进度', hint: '批量任务逐条提示。' },
 ]
 
 const DESKTOP_TEXT: Record<DesktopNotifyState, string> = {
-  granted: '已允许 —— 生成完成 / 失败时，除了页内提示还会弹一条系统通知。',
-  default: '这个运行时支持系统通知，但还没允许。点下面的按钮申请（只有你点了才会弹系统对话框）。',
-  denied: '系统通知被拒绝过：现在只有页内提示。要改的话去系统 / 浏览器设置里放行，再回来刷新。',
-  unsupported: '当前运行时没有系统通知能力 —— 页内提示照常工作。',
+  granted: '系统通知已允许。',
+  default: '系统通知尚未允许。',
+  denied: '系统通知已被拒绝，请在系统设置中放行。',
+  unsupported: '当前环境不支持系统通知。',
 }
 
 export function NotifyPanel() {
@@ -56,9 +56,7 @@ export function NotifyPanel() {
     <div className={styles.panel} data-notify-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>提示时机</h3>
-        <p className={styles.caption}>
-          本机偏好：换一台机器要重设。三档只管弹不弹 —— 全关也照常出图，只是不弹提示。
-        </p>
+        <p className={styles.caption}>只控制提示，不影响生成。</p>
 
         {ROWS.map((row) => (
           <label className={styles.switchRow} key={row.kind}>
@@ -114,7 +112,7 @@ export function NotifyPanel() {
               ).then((ok) =>
                 setSendResult(
                   ok
-                    ? '已发给系统（如果没看到，去系统「通知」里看轻画是不是被静音了）'
+                    ? '已发给系统。'
                     : '这次没发出去：系统那边没允许',
                 ),
               )

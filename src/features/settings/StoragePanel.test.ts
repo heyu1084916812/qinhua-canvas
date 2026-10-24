@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { StoragePort } from '../../platform/ports'
 import {
+  countStorageAssets,
   countStorageProjects,
-  countStorageMedia,
-  countStorageRows,
   formatBytes,
   rootKindLabel,
   storageUsagePercent,
@@ -25,22 +24,6 @@ describe('StoragePanel helpers', () => {
     expect(storageUsagePercent({ used: 1, quota: 3 })).toBe(33.3)
   })
 
-  it('counts asset rows without requesting full binary payloads', async () => {
-    const scan = vi.fn(async (_table, _batch, onBatch) => {
-      await onBatch([{ id: 'a' }, { id: 'b' }] as never, { total: 2 })
-      return 2
-    })
-    const storage = { scan } as unknown as StoragePort
-
-    await expect(countStorageRows(storage, 'assets')).resolves.toBe(2)
-    expect(scan).toHaveBeenCalledWith(
-      'assets',
-      50,
-      expect.any(Function),
-      { includePayload: false },
-    )
-  })
-
   it('counts only live projects without loading project payloads', async () => {
     const scan = vi.fn(async (_table, _batch, onBatch) => {
       await onBatch([{ id: 'p1' }, { id: 'p2', deletedAt: 1 }] as never, { total: 2 })
@@ -57,30 +40,58 @@ describe('StoragePanel helpers', () => {
     )
   })
 
-  it('counts media by MIME without loading media bytes', async () => {
+  it('uses the same deduplicated asset count as the assets page', async () => {
+    const now = Date.now()
     const scan = vi.fn(async (_table, _batch, onBatch) => {
       await onBatch(
         [
-          { id: 'i', mime: 'image/png' },
-          { id: 'v', mime: 'video/mp4' },
-          { id: 'a', mime: 'audio/wav' },
-          { id: 'x', mime: 'application/octet-stream' },
+          { id: 'image', hash: 'image', mime: 'image/png', bytesLength: 10 },
+          { id: 'video', hash: 'video', mime: 'video/mp4', bytesLength: 20 },
+          { id: 'hidden', hash: 'hidden', mime: 'image/png', bytesLength: 30 },
         ] as never,
-        { total: 4 },
+        { total: 3 },
       )
-      return 4
+      return 3
     })
-    const storage = { scan } as unknown as StoragePort
+    const query = vi.fn(async (table: string) => {
+      if (table === 'runRecords') {
+        return [
+          {
+            id: 'run-1',
+            nodeId: 'node-1',
+            projectId: 'project-1',
+            version: 1,
+            createdAt: now,
+            status: 'succeeded',
+            inputs: [],
+            params: { prompt: 'fixture', model: 'image-model' },
+            outputHashes: ['image', 'video', 'hidden'],
+            fingerprint: 'fingerprint',
+            taskId: 'task-1',
+            durationMs: 1,
+          },
+        ]
+      }
+      if (table === 'assetLibrary') {
+        return [{ id: 'uploaded', hash: 'uploaded', mime: 'image/webp', savedAt: now }]
+      }
+      if (table === 'presets') {
+        return [{ id: 'assetRecordsHidden:v1', hashes: ['hidden'] }]
+      }
+      return []
+    })
+    const storage = { scan, query } as unknown as StoragePort
 
-    await expect(countStorageMedia(storage)).resolves.toEqual({
-      images: 1,
-      videos: 1,
-      audio: 1,
-      other: 1,
+    await expect(countStorageAssets(storage, now)).resolves.toMatchObject({
+      all: 3,
+      image: 2,
+      video: 1,
+      audio: 0,
+      saved: 1,
     })
     expect(scan).toHaveBeenCalledWith(
       'assets',
-      50,
+      8,
       expect.any(Function),
       { includePayload: false },
     )

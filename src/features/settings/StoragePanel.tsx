@@ -9,6 +9,9 @@ import {
   backfillAssetPreviews,
   backfillAssetThumbs,
 } from '../../platform/assetThumb'
+import { countAssets, type LibraryCountRow } from '../../domain/shared/assetHistory'
+import { createAssetHistoryRepository } from '../../state/project/assetHistoryRepository'
+import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import styles from './StoragePanel.module.css'
 
 interface MediaCounts {
@@ -45,17 +48,21 @@ export function StoragePanel() {
   const [variantProgress, setVariantProgress] = useState('')
 
   const refresh = useCallback(async () => {
-    const [projects, saved, media] = await Promise.all([
+    const [projects, assetCounts] = await Promise.all([
       countStorageProjects(platform.storage),
-      countStorageRows(platform.storage, 'assetLibrary'),
-      countStorageMedia(platform.storage),
+      countStorageAssets(platform.storage),
     ])
     setCounts({
       projects,
-      assets: media.images + media.videos + media.audio + media.other,
-      saved,
+      assets: assetCounts.all,
+      saved: assetCounts.saved,
     })
-    setMediaCounts(media)
+    setMediaCounts({
+      images: assetCounts.image,
+      videos: assetCounts.video,
+      audio: assetCounts.audio,
+      other: Math.max(0, assetCounts.all - assetCounts.image - assetCounts.video - assetCounts.audio),
+    })
     setUsage(await platform.storage.estimateUsage())
     if (admin) {
       const dir = await admin.dataDir()
@@ -211,7 +218,6 @@ export function StoragePanel() {
         <div className={styles.blockHead}>
           <div>
             <h3 className={styles.title}>存储概况</h3>
-            <p className={styles.caption}>项目结构与素材索引统一保存在当前资源目录</p>
           </div>
           <span className={styles.meta}>{usage ? formatBytes(usage.used) : '统计中…'}</span>
         </div>
@@ -252,19 +258,19 @@ export function StoragePanel() {
         <dl className={`${styles.facts} ${styles.mediaFacts}`}>
           <div>
             <dt>图片</dt>
-            <dd data-storage-media="images">{mediaCounts.images}</dd>
+            <dd data-storage-media="images">{counts ? mediaCounts.images : '…'}</dd>
           </div>
           <div>
             <dt>视频</dt>
-            <dd data-storage-media="videos">{mediaCounts.videos}</dd>
+            <dd data-storage-media="videos">{counts ? mediaCounts.videos : '…'}</dd>
           </div>
           <div>
             <dt>音频</dt>
-            <dd data-storage-media="audio">{mediaCounts.audio}</dd>
+            <dd data-storage-media="audio">{counts ? mediaCounts.audio : '…'}</dd>
           </div>
           <div>
             <dt>其他</dt>
-            <dd data-storage-media="other">{mediaCounts.other}</dd>
+            <dd data-storage-media="other">{counts ? mediaCounts.other : '…'}</dd>
           </div>
         </dl>
       </section>
@@ -279,7 +285,7 @@ export function StoragePanel() {
               </span>
             </div>
             <p className={styles.caption}>
-              V2 使用 SQLite 索引，图片、视频和音频直接保存在 `media` 文件夹
+              图片、视频和音频保存在 `media` 文件夹。
             </p>
           </div>
           {admin && (
@@ -344,7 +350,7 @@ export function StoragePanel() {
                 {pendingDataDir}
               </code>
               <p className={styles.caption}>
-                将完整资源根移动到新位置；校验通过后才切换，成功后删除旧位置。
+                校验通过后切换，并删除旧位置。
               </p>
             </div>
             <div className={styles.headActions}>
@@ -395,7 +401,7 @@ export function StoragePanel() {
                         : '待处理'}
                 </span>
               </div>
-              <p className={styles.caption}>V1 保持原样；新目录完成全量回读校验后才可切换</p>
+              <p className={styles.caption}>V1 保持原样，校验通过后才切换。</p>
             </div>
             <div className={styles.headActions}>
               {migrationReady && (
@@ -437,7 +443,7 @@ export function StoragePanel() {
         <div className={styles.blockHead}>
           <div>
             <h3 className={styles.title}>预览缓存</h3>
-            <p className={styles.caption}>派生文件可删除，缺图时会按需生成</p>
+            <p className={styles.caption}>缺失时自动生成。</p>
           </div>
           <div className={styles.headActions}>
             <button
@@ -465,7 +471,7 @@ export function StoragePanel() {
       <section className={`${styles.block} ${styles.cacheBlock}`}>
         <div>
           <h3 className={styles.title}>网页缓存</h3>
-          <p className={styles.caption}>只影响浏览器缓存，不碰项目、素材和令牌</p>
+          <p className={styles.caption}>不会影响项目、素材和令牌。</p>
         </div>
         <div className={styles.cacheAction}>
           <span className={styles.meta} data-storage-cache>
@@ -557,51 +563,24 @@ export function formatBytes(bytes: number): string {
   return `${rendered} ${units[unit]}`
 }
 
-export async function countStorageMedia(storage: StoragePort): Promise<MediaCounts> {
-  const counts = { ...EMPTY_MEDIA_COUNTS }
-  const scan = storage.scan?.bind(storage)
-  if (!scan) {
-    for (const row of await storage.query('assets', {}, { includePayload: false })) {
-      countMime(counts, row.mime)
-    }
-    return counts
-  }
-  await scan(
-    'assets',
-    50,
-    async (rows) => {
-      for (const row of rows) countMime(counts, row.mime)
-    },
-    { includePayload: false },
-  )
-  return counts
-}
-
-function countMime(counts: MediaCounts, value: unknown) {
-  const mime = typeof value === 'string' ? value : ''
-  if (mime.startsWith('image/')) counts.images += 1
-  else if (mime.startsWith('video/')) counts.videos += 1
-  else if (mime.startsWith('audio/')) counts.audio += 1
-  else counts.other += 1
-}
-
-/** 存储概况只需要行数，绝不能把素材正文一起取回来。 */
-export async function countStorageRows(
+/** 与素材页一致：生成历史 ∪ 收藏，按素材 hash 去重。 */
+export async function countStorageAssets(
   storage: StoragePort,
-  table: 'assets' | 'assetLibrary',
-): Promise<number> {
-  const scan = storage.scan?.bind(storage)
-  if (!scan) return (await storage.query(table, {}, { includePayload: false })).length
-  let total = 0
-  await scan(
-    table,
-    50,
-    async (rows) => {
-      total += rows.length
-    },
-    { includePayload: false },
+  now = Date.now(),
+): Promise<ReturnType<typeof countAssets>> {
+  const [rawHistory, rawLibrary, hidden] = await Promise.all([
+    createAssetHistoryRepository(storage).list(),
+    storage.query('assetLibrary', {}),
+    createAssetLibraryRepository(storage).listHidden(),
+  ])
+  const history = rawHistory.filter(
+    (item) => item.kind !== 'output' || !hidden.has(item.hash),
   )
-  return total
+  const library = (rawLibrary as LibraryCountRow[]).filter((row) => {
+    const hash = typeof row.hash === 'string' ? row.hash : typeof row.id === 'string' ? row.id : ''
+    return !hash || !hidden.has(hash)
+  })
+  return countAssets(history, library, now)
 }
 
 export async function countStorageProjects(storage: StoragePort): Promise<number> {

@@ -111,10 +111,7 @@ export function PackPanel() {
     <div className={styles.panel} data-pack-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>扩展包</h3>
-        <p className={styles.caption}>
-          阶段一的扩展包<b>只装数据</b>：技能与电商平台规则。它不执行任何代码、也不带权限声明 ——
-          带权限的包会在导入时直接被拒收。
-        </p>
+        <p className={styles.caption}>只安装技能与平台规则，不执行代码。</p>
 
         <input
           ref={fileRef}
@@ -197,7 +194,7 @@ export function PackPanel() {
         <h3 className={styles.title}>已安装</h3>
         {installed.length === 0 ? (
           <p className={styles.caption} data-pack-empty>
-            还没有装过扩展包。导入一个 .json 就能把技能与平台规则一次性带进来。
+            尚未安装扩展包。
           </p>
         ) : (
           <ul className={styles.list}>

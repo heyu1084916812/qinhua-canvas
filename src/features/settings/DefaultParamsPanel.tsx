@@ -23,7 +23,13 @@ import styles from './DefaultParamsPanel.module.css'
  * 关掉开关**不影响这里的保存** —— 用户在设置里明确点保存当然要生效，
  * 否则"关掉记忆"就变成"再也改不动默认值"了。
  */
-type DefaultCategory = 'generate' | 'chat'
+type DefaultCategory = 'image' | 'video' | 'chat'
+
+const DEFAULT_CATEGORY_LABELS: Record<DefaultCategory, string> = {
+  image: '图片',
+  video: '视频',
+  chat: '对话',
+}
 
 export function DefaultParamsPanel() {
   const channels = useChannels()
@@ -46,7 +52,7 @@ export function DefaultParamsPanel() {
     () => channels.getState().uncommonModelIds,
     () => [],
   )
-  const [category, setCategory] = useState<DefaultCategory>('generate')
+  const [category, setCategory] = useState<DefaultCategory>('image')
   const [resolved, setResolved] = useState<{
     channelId: string
     model: string
@@ -66,7 +72,7 @@ export function DefaultParamsPanel() {
             const model = channels.globalModelOf(id)
             return model ? [model] : []
           })
-        : [...channels.globalModelsOf('image'), ...channels.globalModelsOf('video')],
+        : channels.globalModelsOf(category),
     [category, channels, customModels, uncommonModelIds],
   )
 
@@ -74,7 +80,7 @@ export function DefaultParamsPanel() {
   const reload = useCallback(async () => {
     setBusy(true)
     setStatus('')
-    const next = await channels.defaultForNewNode({}, category === 'chat' ? 'chat' : undefined)
+    const next = await channels.defaultForNewNode({}, category)
     setResolved(next)
     setModel(next?.model ?? '')
     setRatio(typeof next?.params.ratio === 'string' ? next.params.ratio : '')
@@ -113,36 +119,27 @@ export function DefaultParamsPanel() {
     if (category === 'chat') {
       /* 对话模型没有比例 / 画质 / 张数这几档，别把生成参数塞进对话那条默认里 */
       await channels.setDefaultRecipe(resolved.channelId, model, params)
-      setStatus('已保存：以后新建的对话节点默认用这个模型')
+      setStatus('已保存为对话默认模型')
       return
     }
-    const picked = options.find((m) => m.id === model)
-    if (picked?.category === 'image' || picked?.category === 'video') params.mode = picked.category
+    params.mode = category
     if (ratio) params.ratio = ratio
     if (quality) params.quality = quality
     params.count = count
     await channels.setDefaultRecipe(resolved.channelId, model, params)
-    setStatus('已保存：下一个新建的生成节点会用这套')
+    setStatus(`已保存为${DEFAULT_CATEGORY_LABELS[category]}默认参数`)
   }
 
   return (
     <div className={styles.panel} data-defaults-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>默认参数</h3>
-        <p className={styles.caption}>
-          这里保存的是<b>下一个新建节点</b>的默认值（与画布新建时走同一条解析链）。
-          参数存在本机、按渠道各记一份。
-        </p>
+        <p className={styles.caption}>仅影响之后新建的节点。</p>
 
         <div className={styles.row}>
           <span className={styles.rowLabel}>类别</span>
           <div className={styles.segments} role="radiogroup" aria-label="默认参数类别">
-            {(
-              [
-                ['generate', '生成（图片 / 视频）'],
-                ['chat', '对话'],
-              ] as const
-            ).map(([id, label]) => (
+            {(Object.keys(DEFAULT_CATEGORY_LABELS) as DefaultCategory[]).map((id) => (
               <button
                 key={id}
                 type="button"
@@ -152,7 +149,7 @@ export function DefaultParamsPanel() {
                 data-defaults-category={id}
                 onClick={() => setCategory(id)}
               >
-                {label}
+                {DEFAULT_CATEGORY_LABELS[id]}
               </button>
             ))}
           </div>
@@ -160,7 +157,7 @@ export function DefaultParamsPanel() {
 
         <p className={styles.current} data-defaults-current>
           当前默认：{channelName} · {model || '（还没有可用模型）'}
-          {category === 'generate' && model
+          {category !== 'chat' && model
             ? ` · ${ratio || '未设比例'} · ${quality || '未设画质'} · ${count} 张`
             : ''}
         </p>
@@ -192,7 +189,7 @@ export function DefaultParamsPanel() {
             />
           </label>
 
-          {category === 'generate' ? (
+          {category !== 'chat' ? (
             <>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>默认比例</span>
@@ -262,10 +259,7 @@ export function DefaultParamsPanel() {
 
       <section className={styles.block}>
         <h4 className={styles.blockTitle}>记住上次参数</h4>
-        <p className={styles.caption}>
-          开着的时候，你在画布上改一次参数，之后新建的节点会继承它；
-          关掉之后默认值只认上面保存的这一份，随手改动不再带走它。
-        </p>
+        <p className={styles.caption}>开启后，画布上的参数改动会成为新节点默认值。</p>
         <label className={styles.switchRow}>
           <span className={styles.rowLabel}>记住上次参数</span>
           <span className={styles.switchBox}>

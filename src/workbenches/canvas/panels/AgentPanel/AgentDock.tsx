@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -112,7 +111,7 @@ export function AgentDock({
     }
   }, [applyLayout])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
     setMounted(true)
     const current = layoutRef.current
@@ -266,6 +265,10 @@ export function AgentDock({
             if (suppressOrbClickRef.current) {
               suppressOrbClickRef.current = false
               return
+            }
+            const current = layoutRef.current
+            if (current) {
+              applyLayout(openAgentPanel(current, measureCanvasWorkArea()))
             }
             onOpenChange(true)
           }}

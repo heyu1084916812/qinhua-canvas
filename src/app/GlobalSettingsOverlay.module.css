@@ -232,12 +232,107 @@
  * 在这一层里高度仍是确定的。
  */
 .content {
+  --settings-title-size: 24px;
+  --settings-title-weight: 600;
+  --settings-label-size: 14px;
+  --settings-label-weight: 500;
+  --settings-body-size: 13px;
+  --settings-body-weight: 400;
+
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.sectionHead {
+  flex: none;
+  padding: var(--space-5) var(--space-6) var(--space-4);
+  border-bottom: var(--border);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--settings-title-size);
+  font-weight: var(--settings-title-weight);
+  line-height: 1.25;
+}
+
+.sectionIntro {
+  max-width: 72ch;
+  margin: var(--space-1) 0 0;
+  color: var(--text-3);
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+  line-height: 1.55;
+}
+
+.sectionBody {
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+}
+
+/*
+ * 右栏只保留三档文字：栏目标题、分组 / 控件标签、正文。
+ * 子面板可以继续用颜色表达状态，但字号与字重由这里统一收口。
+ */
+.sectionBody :is(h2, h3, h4) {
+  font-size: var(--settings-label-size);
+  font-weight: var(--settings-label-weight);
+}
+
+.sectionBody :is(p, small) {
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+}
+
+.sectionBody :is(button, [role='button']) {
+  font-size: var(--settings-label-size);
+  font-weight: var(--settings-label-weight);
+}
+
+.sectionBody :is(input, select, textarea) {
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+}
+
+.sectionBody :is(
+  dt,
+  code,
+  [class*="_badge_"],
+  [class*="_caption_"],
+  [class*="_count_"],
+  [class*="_current_"],
+  [class*="_fieldHint_"],
+  [class*="_hint_"],
+  [class*="_itemHint_"],
+  [class*="_meta_"],
+  [class*="_status_"],
+  [class*="_sub_"]
+) {
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+}
+
+.sectionBody :is(
+  dd,
+  [class*="_cardTitle_"],
+  [class*="_fieldLabel_"],
+  [class*="_itemName_"],
+  [class*="_label_"],
+  [class*="_rowLabel_"]
+) {
+  font-size: var(--settings-label-size);
+  font-weight: var(--settings-label-weight);
+}
+
+.sectionBody strong,
+.sectionBody b {
+  font-weight: var(--settings-label-weight);
 }
 
 /*
@@ -254,5 +349,5 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  padding: var(--space-5) var(--space-6) var(--space-8);
+  padding: 0 var(--space-6) var(--space-8);
 }

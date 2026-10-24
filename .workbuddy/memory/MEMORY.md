@@ -1,5 +1,25 @@
 # CanvasFlow（轻画）项目记忆
 
+### 全局设置三档文字、存储口径与 Agent 首帧定位（2026-10-25 → 对账 #744）
+
+- **右栏结构 = 固定标题区 + 独立滚动正文**：`GlobalSettingsOverlay` 的 `.content` 用
+  `grid-template-rows: auto minmax(0,1fr)`，标题和一行简介不随正文滚。不要再把 `overflow-y`
+  放回 `.content`；那会让标题跟着内容消失，也会破坏文字区域的空间约定。
+- **右栏只有三档文字**：`24px/600` 栏目标题、`14px/500` 分组标题 / 控件标签、`13px/400`
+  正文与说明。通过 `.content` 的自定义属性统一收口，子面板可继续用颜色表达状态，但不再各自发明字号。
+- **存储概览不能数 `assets` 文件行**：素材页的“全部素材”是 `runRecords ∪ assetLibrary`
+  按 hash 去重，并排除 `assetRecordsHidden:v1` 里的隐藏记录。存储面板必须复用同一口径；
+  真实库素材页 `222` 与存储概览曾出现 `222 vs 478` 的差异，修后同源验证 `222 = 222`。
+- **默认参数必须三分类**：图片 / 视频 / 对话，分别把 `image` / `video` / `chat` 传给
+  `defaultForNewNode()`；不要再把图片和视频合成“生成”一档。
+- **Agent 首帧闪旧位置的根因**：面板用 `hidden` 保留挂载，旧 `layout.panel` 先取消隐藏，
+  定位 effect 晚于绘制。必须在打开按钮事件里先用当前 `orb` 调 `openAgentPanel()`，
+  并把 `open` 监听改为 `useLayoutEffect`；验证同时比首帧和稳定态坐标。
+- **冒烟里的 ChoicePicker 不能再用 `selectOption`**：默认参数已统一使用 `ChoicePicker`，
+  应操作 `[data-choice-picker="..."] button` 与 `[data-choice-option="..."]`。
+- **验证**：G97 **32/32** 浅色 + 深色、G119 **8/8**、G735 **8/8**；
+  Vitest **3085 passed / 1 skipped**；类型检测无发现。
+
 ### v0.1.8 自动迁移交付与发布门禁隔离（2026-10-24）
 
 - **三条真实链路已交付**：V1 启动后自动迁移并清理旧库；完整 V2 复制到空目录后切换并删旧根；

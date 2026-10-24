@@ -28,6 +28,7 @@ import {
 } from './SettingsIcons'
 import {
   GLOBAL_SETTINGS_GROUPS,
+  GLOBAL_SETTINGS_SECTIONS,
   closeGlobalSettings,
   getGlobalSettings,
   matchSettingsSections,
@@ -56,6 +57,20 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
   notify: IconNotify,
   help: IconHelp,
   about: IconAbout,
+}
+
+const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
+  channels: '管理服务地址、令牌与可用模型。',
+  cli: '管理本机命令与运行环境。',
+  hosting: '设置素材上传与公网访问。',
+  storage: '查看资源占用并管理存储位置。',
+  appearance: '调整界面、主题与画布显示。',
+  backup: '导出、导入和恢复本地数据。',
+  defaults: '设置新建节点的默认模型与参数。',
+  packs: '安装和管理数据型扩展包。',
+  notify: '选择任务完成与失败时的提醒方式。',
+  help: '查看快捷键、常见问题与新手引导。',
+  about: '查看版本、更新与隐私说明。',
 }
 
 /**
@@ -98,6 +113,7 @@ export function GlobalSettingsOverlay() {
    */
   const [query, setQuery] = useState('')
   const visible = matchSettingsSections(query)
+  const currentSection = GLOBAL_SETTINGS_SECTIONS.find((item) => item.id === section)
 
   useEffect(() => {
     if (!open) return
@@ -229,35 +245,45 @@ export function GlobalSettingsOverlay() {
             `key` 让切栏时重新挂载：两页各自的状态不该跨栏串味。
           */}
           <div className={styles.content} data-global-settings-content>
-            {section === 'channels' && <SettingsPage key="channels" />}
-            {section === 'cli' && <CliPanel key="cli" />}
-            {section === 'hosting' && <HostingPage key="hosting" />}
-            {section === 'storage' && <StoragePanel key="storage" />}
-            {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
-                它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
-            {section === 'appearance' && (
-              <div key="appearance" className={styles.sectionStack}>
-                <FontManagerPanel />
-                {/* 主题 / 强调色 / 动效 / 小地图：也都是**本机偏好**（与字体同一层） */}
-                <InterfacePanel />
-                {/* 画布底色 / 节点内容字号：**项目偏好**，与上面那块本机字体分开摆，
-                    免得用户以为"改了字体就一起改了节点里的字"。 */}
-                <CanvasLookPanel />
-              </div>
-            )}
-            {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
-                与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
-            {section === 'backup' && <BackupPanel key="backup" />}
-            {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
-            {section === 'packs' && <PackPanel key="packs" />}
-            {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
-            {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
-            {/* 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明 */}
-            {section === 'notify' && <NotifyPanel key="notify" />}
-            {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
-            {section === 'help' && <HelpPanel key="help" />}
-            {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}
-            {section === 'about' && <AboutPanel key="about" />}
+            <header className={styles.sectionHead} data-settings-section-head>
+              <h2 className={styles.sectionTitle} data-settings-section-title>
+                {currentSection?.label ?? '全局设置'}
+              </h2>
+              <p className={styles.sectionIntro} data-settings-section-intro>
+                {SECTION_INTROS[section]}
+              </p>
+            </header>
+            <div className={styles.sectionBody} data-settings-section-body>
+              {section === 'channels' && <SettingsPage key="channels" />}
+              {section === 'cli' && <CliPanel key="cli" />}
+              {section === 'hosting' && <HostingPage key="hosting" />}
+              {section === 'storage' && <StoragePanel key="storage" />}
+              {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
+                  它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
+              {section === 'appearance' && (
+                <div key="appearance" className={styles.sectionStack}>
+                  <FontManagerPanel />
+                  {/* 主题 / 强调色 / 动效 / 小地图：也都是**本机偏好**（与字体同一层） */}
+                  <InterfacePanel />
+                  {/* 画布底色 / 节点内容字号：**项目偏好**，与上面那块本机字体分开摆，
+                      免得用户以为"改了字体就一起改了节点里的字"。 */}
+                  <CanvasLookPanel />
+                </div>
+              )}
+              {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
+                  与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
+              {section === 'backup' && <BackupPanel key="backup" />}
+              {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
+              {section === 'packs' && <PackPanel key="packs" />}
+              {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
+              {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
+              {/* 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明 */}
+              {section === 'notify' && <NotifyPanel key="notify" />}
+              {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
+              {section === 'help' && <HelpPanel key="help" />}
+              {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}
+              {section === 'about' && <AboutPanel key="about" />}
+            </div>
           </div>
         </div>
       </div>

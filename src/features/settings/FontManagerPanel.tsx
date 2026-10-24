@@ -105,8 +105,7 @@ export function FontManagerPanel() {
           —— 这一段就是**如实回答**：管什么、不管什么，一次写清（不是"介绍文字"）。
         */}
         <p className={styles.caption} data-font-scope>
-          控制侧栏 / 页面 / 面板 / 按钮与输入框里的文字，以及画布节点里的字族。
-          不跟随的：命令与日志这类等宽区域（故意用等宽体）、画布里的字号（那是项目设置）、生成出来的图。
+          控制界面与节点字族；命令日志和生成图片不使用。
         </p>
 
         <div className={styles.list} role="radiogroup" aria-label="界面字体">
@@ -233,9 +232,7 @@ export function FontManagerPanel() {
 
         {/* 用户 2026-10-09 的第三个问题：「他只有一份字体怎么控制粗细呢？」 */}
         <p className={styles.hint} data-font-weight-note>
-          粗细怎么来：一份字体文件只承载一个字重 —— 只导入常规体时，加粗由浏览器合成（能看出层次，
-          边缘会发虚）；点「加粗体…」给同一个字族补一份粗体文件后就是真字形。可变字体（一个文件含全部字重）
-          一份就够，不用再补。
+          同字族补一份粗体文件可获得真粗体；可变字体无需补。
         </p>
 
         {status && (
@@ -247,7 +244,7 @@ export function FontManagerPanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>界面字号</h3>
-        <p className={styles.caption}>整档缩放界面文字；不改变画布缩放，也不改变节点里的字号设置。</p>
+        <p className={styles.caption}>只缩放界面文字，不改变画布。</p>
         <div className={styles.segRow}>
           <div className={styles.seg} role="radiogroup" aria-label="界面字号">
             {UI_SCALES.map((scale) => (

@@ -146,11 +146,7 @@ export function HostingPage() {
 
   return (
     <div className={styles.page} data-hosting-page>
-      <h1 className={styles.title}>素材传输</h1>
-      <p className={styles.lead}>
-        参考图 / 首尾帧要发给上游。默认**不上传**：素材以 Base64 内联进请求（实测上游认）。
-        配了图床则先上传、改用公网直链 —— 请求体更小，链接也能给别处复用。
-      </p>
+      <p className={styles.lead}>默认以内联方式发送；配置图床后改用公网直链。</p>
 
       <section className={styles.card} data-hosting-card>
         <div className={styles.row}>

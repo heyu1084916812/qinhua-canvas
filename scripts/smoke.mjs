@@ -21631,7 +21631,7 @@ async function g97(browser) {
   await page.locator('[data-global-settings-panel] [data-hosting-provider="s3"]').click()
   await sleep(400)
   const overlayScroll = await page.evaluate(() => {
-    const el = document.querySelector('[data-global-settings-content]')
+    const el = document.querySelector('[data-settings-section-body]')
     if (!el) return null
     const before = el.scrollTop
     el.scrollTop = 500
@@ -21648,6 +21648,29 @@ async function g97(browser) {
     '★★ 素材传输能下拉（字段最多的那家 S3：内容比可视区高且滚得动）',
     !!overlayScroll && overlayScroll.sh > overlayScroll.ch && overlayScroll.scrolled,
     JSON.stringify(overlayScroll),
+  )
+  const sectionHead = await page.evaluate(() => {
+    const head = document.querySelector('[data-settings-section-head]')
+    const title = document.querySelector('[data-settings-section-title]')
+    const intro = document.querySelector('[data-settings-section-intro]')
+    const body = document.querySelector('[data-settings-section-body]')
+    if (!head || !title || !intro || !body) return null
+    const h = head.getBoundingClientRect()
+    const b = body.getBoundingClientRect()
+    return {
+      title: title.textContent?.trim(),
+      intro: intro.textContent?.trim(),
+      aboveBody: h.bottom <= b.top + 1,
+    }
+  })
+  rec(
+    g,
+    '★★ 右栏固定大标题 + 一行简介，正文在独立滚动区',
+    sectionHead?.title === '素材传输' &&
+      !!sectionHead.intro &&
+      sectionHead.intro.length <= 30 &&
+      sectionHead.aboveBody,
+    JSON.stringify(sectionHead),
   )
 
   /**
@@ -21702,6 +21725,29 @@ async function g97(browser) {
     '★★ 存储面板不再有介绍段落（只剩数字 / 路径 / 按钮 + 两行小字）',
     storageProse.desc === 0 && storageProse.caption > 0 && storageProse.chars < 400,
     `介绍段=${storageProse.desc} 小字=${storageProse.caption} 面板字数=${storageProse.chars}`,
+  )
+  await page
+    .waitForFunction(
+      () =>
+        (document.querySelector('[data-storage-count="assets"]')?.textContent ?? '').trim() !== '…',
+      null,
+      { timeout: 20000 },
+    )
+    .catch(() => {})
+  const storedAssetCount = Number(
+    (await page.locator('[data-storage-count="assets"]').innerText()).trim(),
+  )
+  const assetsPage = await ctx.newPage()
+  await assetsPage.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await assetsPage.locator('[data-assets-quick="all"]').waitFor({ state: 'visible', timeout: 20000 })
+  const quickText = await assetsPage.locator('[data-assets-quick="all"]').innerText()
+  const visibleAssetCount = Number(quickText.match(/(\d+)\s*$/)?.[1] ?? '')
+  await assetsPage.close()
+  rec(
+    g,
+    '★★ 存储概览「素材」与素材页「全部素材」使用同一去重口径',
+    Number.isFinite(storedAssetCount) && storedAssetCount === visibleAssetCount,
+    JSON.stringify({ stored: storedAssetCount, visible: visibleAssetCount }),
   )
 
   /**
@@ -21857,7 +21903,10 @@ async function g97(browser) {
   )
   // 配置真的落库：改一下命令名 → 切走 → 切回来还在（只比"输入框里还是我打的字"证明不了它存过）
   // ⚠️ 命令/参数现在收在「高级」里（默认折起）⇒ 要先展开再填（对账 #314 的界面重排）
-  await page.locator('[data-cli-advanced="codex"] summary').click()
+  const codexAdvanced = page.locator('[data-cli-advanced="codex"]')
+  if (!(await codexAdvanced.evaluate((el) => el.open))) {
+    await codexAdvanced.locator('summary').click()
+  }
   await sleep(300)
   await page.locator('[data-cli-program="codex"]').fill('D:/tools/codex.cmd')
   await sleep(600)
@@ -21865,12 +21914,24 @@ async function g97(browser) {
   await sleep(300)
   await page.locator('[data-global-settings-tab="cli"]').click()
   await sleep(500)
-  await page.locator('[data-cli-advanced="codex"] summary').click()
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector('[data-cli-program="codex"]')?.value === 'D:/tools/codex.cmd',
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
+  if (!(await codexAdvanced.evaluate((el) => el.open))) {
+    await codexAdvanced.locator('summary').click()
+  }
   await sleep(300)
+  const persistedCodexProgram = await page.locator('[data-cli-program="codex"]').inputValue()
   rec(
     g,
     '★ CLI 配置真的落库（改完命令名，切走再切回来还在）',
-    (await page.locator('[data-cli-program="codex"]').inputValue()) === 'D:/tools/codex.cmd',
+    persistedCodexProgram === 'D:/tools/codex.cmd',
+    persistedCodexProgram,
   )
 
   await page.locator('[data-global-settings-tab="hosting"]').click()
@@ -27686,8 +27747,14 @@ async function g119(browser) {
 
   /** 新建一个生成节点，等落库后返回它的行 */
   const addGenerationNode = async () => {
-    await page.locator('[data-toolbar-add]').click()
-    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    const add = page.locator('[data-toolbar-add]')
+    await add
+      .click({ timeout: 5000 })
+      .catch(async () => add.evaluate((el) => el.click()))
+    const addGeneration = page.locator('[data-toolbar-menu-item="generation"]')
+    await addGeneration
+      .click({ timeout: 5000 })
+      .catch(async () => addGeneration.evaluate((el) => el.click()))
     await sleep(1600) // 800ms 防抖 + 余量
     const id = await page.locator('[data-node-id]').last().getAttribute('data-node-id')
     return nodeRowOf(id)
@@ -27713,16 +27780,58 @@ async function g119(browser) {
       !current.includes('还没有可用模型'),
     current.replace(/\n/g, ' ').slice(0, 60),
   )
+  const defaultCategories = await page
+    .locator('[data-defaults-category]')
+    .allInnerTexts()
+    .catch(() => [])
+  rec(
+    g,
+    '★★ 默认参数按图片 / 视频 / 对话分成三类',
+    defaultCategories.length === 3 &&
+      defaultCategories.join('|') === '图片|视频|对话',
+    defaultCategories.join(' / '),
+  )
+  const settingsType = await page.evaluate(() => {
+    const styleOf = (selector) => {
+      const el = document.querySelector(selector)
+      if (!el) return null
+      const style = getComputedStyle(el)
+      return {
+        size: style.fontSize,
+        weight: style.fontWeight,
+      }
+    }
+    return {
+      title: styleOf('[data-settings-section-title]'),
+      label: styleOf('[data-defaults-panel] h3'),
+      body: styleOf('[data-defaults-panel] p'),
+    }
+  })
+  rec(
+    g,
+    '★★ 设置右栏只使用三档文字：24/600 标题、14/500 标签、13/400 正文',
+    settingsType.title?.size === '24px' &&
+      settingsType.title.weight === '600' &&
+      settingsType.label?.size === '14px' &&
+      settingsType.label.weight === '500' &&
+      settingsType.body?.size === '13px' &&
+      settingsType.body.weight === '400',
+    JSON.stringify(settingsType),
+  )
 
   // ② 改默认：模型 + 比例 + 张数 → 保存
-  await page.locator('[data-defaults-model]').selectOption('Nano Banana 2')
-  await page.locator('[data-defaults-ratio]').selectOption('4:3')
+  await page.locator('[data-choice-picker="defaults-model"] button').click()
+  const defaultModelChoice = page.locator('[data-choice-option]').first()
+  const defaultModel = await defaultModelChoice.getAttribute('data-choice-option')
+  await defaultModelChoice.click()
+  await page.locator('[data-choice-picker="defaults-ratio"] button').click()
+  await page.locator('[data-choice-option="4:3"]').click()
   await page.locator('[data-defaults-count]').fill('2')
   await page.locator('[data-defaults-save]').click()
   await sleep(500)
   rec(
     g,
-    '★ 保存后有明确回执（"下一个新建的生成节点会用这套"）',
+    '★ 保存后有明确回执',
     (await page.locator('[data-defaults-status]').innerText().catch(() => '')).includes('已保存'),
   )
 
@@ -27742,8 +27851,11 @@ async function g119(browser) {
   const row1 = await addGenerationNode()
   rec(
     g,
-    '★★★ 保存的默认值真的落到新节点上（库里 model=Nano Banana 2 / ratio=4:3 / count=2）',
-    row1?.data?.model === 'Nano Banana 2' && row1?.data?.ratio === '4:3' && row1?.data?.count === 2,
+    '★★★ 保存的默认值真的落到新节点上（模型 / ratio=4:3 / count=2）',
+    !!defaultModel &&
+      row1?.data?.model === defaultModel &&
+      row1?.data?.ratio === '4:3' &&
+      row1?.data?.count === 2,
     JSON.stringify({ model: row1?.data?.model, ratio: row1?.data?.ratio, count: row1?.data?.count }),
   )
 
@@ -39281,6 +39393,8 @@ async function g735(browser) {
   const floating = page.locator('[data-agent-floating-panel]')
   if (!(await floating.isVisible().catch(() => false))) await orb.click()
   await floating.waitFor({ state: 'visible', timeout: 5000 })
+  const panelImmediate = await floating.boundingBox()
+  await sleep(80)
   const panelBox = await floating.boundingBox()
   rec(
     g,
@@ -39289,6 +39403,14 @@ async function g735(browser) {
       panelBox.x >= 0 &&
       panelBox.y >= 0,
     `球=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
+  )
+  rec(
+    g,
+    '打开瞬间直接使用当前球位，不闪旧面板位置',
+    !!panelImmediate &&
+      Math.abs(panelImmediate.x - panelBox.x) <= 1 &&
+      Math.abs(panelImmediate.y - panelBox.y) <= 1,
+    `首帧=${Math.round(panelImmediate?.x ?? -1)},${Math.round(panelImmediate?.y ?? -1)} 稳定=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
   )
   await page.screenshot({ path: `${OUT}/735-agent-1280.png` })
 

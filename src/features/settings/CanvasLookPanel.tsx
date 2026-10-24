@@ -47,9 +47,7 @@ export function CanvasLookPanel() {
             恢复默认
           </button>
         </div>
-        <p className={styles.caption}>
-          这一块<b>随项目走</b>（存在项目里，导出 / 导入跟着走）；只影响画布本身，不动节点卡片，也不进出图结果。
-        </p>
+        <p className={styles.caption}>随项目保存，只影响画布背景。</p>
 
         <div className={styles.row}>
           <span className={styles.rowLabel}>背景样式</span>
@@ -96,9 +94,7 @@ export function CanvasLookPanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>节点内容显示</h3>
-        <p className={styles.caption}>
-          只改<b>画布上节点的显示</b>：不改变生成结果里的文字，也不重排已经摆好的节点。
-        </p>
+        <p className={styles.caption}>只影响节点显示，不改变生成结果。</p>
 
         <div className={styles.row}>
           <span className={styles.rowLabel}>节点标题字号</span>
@@ -165,7 +161,7 @@ export function CanvasLookPanel() {
 
       {disabled ? (
         <p className={styles.hint} data-canvas-look-hint>
-          打开一个项目后可以调这里 —— 这几项跟着项目走，项目页上没有"当前项目"可改。
+          打开项目后可调整。
         </p>
       ) : null}
     </div>
