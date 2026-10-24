@@ -1,12 +1,14 @@
+use crate::hash::sha1_hex;
 use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Map, Value};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -43,18 +45,9 @@ pub struct SqliteStore {
 
 #[derive(Clone)]
 pub enum SqliteOp {
-    Put {
-        table: String,
-        row: Value,
-    },
-    BulkPut {
-        table: String,
-        rows: Vec<Value>,
-    },
-    Delete {
-        table: String,
-        id: String,
-    },
+    Put { table: String, row: Value },
+    BulkPut { table: String, rows: Vec<Value> },
+    Delete { table: String, id: String },
 }
 
 impl SqliteStore {
@@ -99,8 +92,7 @@ impl SqliteStore {
         for row in rows {
             put_on(&tx, self.root.as_path(), table, row)?;
         }
-        tx.commit()
-            .map_err(|err| format!("commit bulkPut: {err}"))
+        tx.commit().map_err(|err| format!("commit bulkPut: {err}"))
     }
 
     pub fn delete(&self, table: &str, id: &str) -> Result<(), String> {
@@ -160,10 +152,15 @@ impl SqliteStore {
     ) -> Result<(Vec<Value>, u64), String> {
         validate_table(table)?;
         let conn = self.connection()?;
+        if table == "assets" {
+            return scan_asset_page(&conn, self.root.as_path(), offset, limit, include_payload);
+        }
         let total: i64 = conn
-            .query_row("SELECT COUNT(*) FROM rows WHERE table_name = ?1", params![table], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM rows WHERE table_name = ?1",
+                params![table],
+                |row| row.get(0),
+            )
             .map_err(|err| format!("count rows: {err}"))?;
         let mut stmt = conn
             .prepare(
@@ -180,8 +177,7 @@ impl SqliteStore {
             .map_err(|err| format!("query row page: {err}"))?
             .map(|value| {
                 let raw = value.map_err(|err| format!("decode row page: {err}"))?;
-                serde_json::from_str::<Value>(&raw)
-                    .map_err(|err| format!("parse row page: {err}"))
+                serde_json::from_str::<Value>(&raw).map_err(|err| format!("parse row page: {err}"))
             })
             .map(|value| value.map(|row| project_fields(row, include_payload, None)))
             .collect::<Result<Vec<_>, _>>()?;
@@ -189,7 +185,44 @@ impl SqliteStore {
     }
 
     pub fn usage(&self) -> u64 {
-        dir_size(self.root.as_path())
+        let mut total = ["", "-wal", "-shm"]
+            .into_iter()
+            .filter_map(|suffix| {
+                let path = if suffix.is_empty() {
+                    self.db_path.as_path().to_path_buf()
+                } else {
+                    PathBuf::from(format!("{}{}", self.db_path.display(), suffix))
+                };
+                fs::metadata(path).ok().map(|meta| meta.len())
+            })
+            .sum::<u64>();
+        let Ok(conn) = self.connection() else {
+            return total;
+        };
+        let Ok(mut stmt) =
+            conn.prepare("SELECT byte_size, thumb_rel_path, preview_rel_path FROM assets")
+        else {
+            return total;
+        };
+        let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        }) else {
+            return total;
+        };
+        for row in rows.flatten() {
+            total = total.saturating_add(row.0.max(0) as u64);
+            if let Some(path) = row.1 {
+                total = total.saturating_add(file_len(self.root.as_path(), &path));
+            }
+            if let Some(path) = row.2 {
+                total = total.saturating_add(file_len(self.root.as_path(), &path));
+            }
+        }
+        total
     }
 
     pub fn kv_get(&self, key: &str) -> Result<Value, String> {
@@ -241,8 +274,8 @@ impl SqliteStore {
         let path = found
             .1
             .ok_or_else(|| "asset has no local bytes".to_string())?;
-        let bytes = fs::read(self.root.join(path))
-            .map_err(|err| format!("read asset bytes: {err}"))?;
+        let path = resolve_media_path(self.root.as_path(), &path)?;
+        let bytes = fs::read(path).map_err(|err| format!("read asset bytes: {err}"))?;
         Ok((bytes, found.0))
     }
 
@@ -263,7 +296,8 @@ impl SqliteStore {
             .map_err(|err| format!("query asset variant: {err}"))?
             .flatten()
             .ok_or_else(|| "asset variant not found".to_string())?;
-        fs::read(self.root.join(rel)).map_err(|err| format!("read asset variant: {err}"))
+        let path = resolve_media_path(self.root.as_path(), &rel)?;
+        fs::read(path).map_err(|err| format!("read asset variant: {err}"))
     }
 }
 
@@ -287,6 +321,7 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
            ON rows(table_name, updated_at DESC);
          CREATE TABLE IF NOT EXISTS assets (
            hash TEXT PRIMARY KEY,
+           content_sha1 TEXT,
            mime TEXT NOT NULL,
            metadata_json TEXT NOT NULL,
            media_rel_path TEXT,
@@ -304,6 +339,7 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
          );",
     )
     .map_err(|err| format!("initialize sqlite schema: {err}"))?;
+    ensure_column(conn, "assets", "content_sha1", "TEXT")?;
 
     let existing = conn
         .query_row(
@@ -313,22 +349,57 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
         )
         .optional()
         .map_err(|err| format!("read schema version: {err}"))?;
-    if let Some(version) = existing {
-        let parsed = version
+    let version = if let Some(version) = existing {
+        version
             .parse::<i64>()
-            .map_err(|err| format!("invalid schema version: {err}"))?;
-        if parsed != SCHEMA_VERSION {
-            return Err(format!(
-                "unsupported sqlite schema version {parsed}, expected {SCHEMA_VERSION}"
-            ));
-        }
+            .map_err(|err| format!("invalid schema version: {err}"))?
     } else {
+        0
+    };
+
+    if version == 0 {
         conn.execute(
             "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
         )
         .map_err(|err| format!("write schema version: {err}"))?;
+    } else if version == 1 && SCHEMA_VERSION == 2 {
+        conn.execute(
+            "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+            params![SCHEMA_VERSION.to_string()],
+        )
+        .map_err(|err| format!("upgrade schema version: {err}"))?;
+    } else if version != SCHEMA_VERSION {
+        return Err(format!(
+            "unsupported sqlite schema version {version}, expected {SCHEMA_VERSION}"
+        ));
     }
+    Ok(())
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    declaration: &str,
+) -> Result<(), String> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|err| format!("prepare table info for {table}: {err}"))?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| format!("read table info for {table}: {err}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("decode table info for {table}: {err}"))?;
+    if names.iter().any(|name| name == column) {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {declaration}"),
+        [],
+    )
+    .map_err(|err| format!("add {table}.{column}: {err}"))?;
     Ok(())
 }
 
@@ -407,7 +478,9 @@ fn query_rows(
     let id = filter.get("id").and_then(Value::as_str);
     let project_id = filter.get("projectId").and_then(Value::as_str);
     let rows = stmt
-        .query_map(params![table, id, project_id], |row| row.get::<_, String>(0))
+        .query_map(params![table, id, project_id], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(|err| format!("query rows: {err}"))?
         .map(|value| {
             let raw = value.map_err(|err| format!("decode row: {err}"))?;
@@ -429,8 +502,8 @@ fn query_assets(
 ) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT hash, mime, metadata_json, media_rel_path, thumb_rel_path,
-                    preview_rel_path, remote_url, byte_size
+            "SELECT hash, content_sha1, mime, metadata_json, media_rel_path,
+                    thumb_rel_path, preview_rel_path, remote_url, byte_size
              FROM assets
              WHERE (?1 IS NULL OR hash = ?1)
                AND (?2 IS NULL OR project_id = ?2)
@@ -440,18 +513,7 @@ fn query_assets(
     let id = filter.get("id").and_then(Value::as_str);
     let project_id = filter.get("projectId").and_then(Value::as_str);
     let rows = stmt
-        .query_map(params![id, project_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, i64>(7)?,
-            ))
-        })
+        .query_map(params![id, project_id], read_asset_columns)
         .map_err(|err| format!("query assets: {err}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|err| format!("decode assets: {err}"))?;
@@ -463,54 +525,123 @@ fn query_assets(
             .collect::<Vec<_>>()
     });
     let mut out = Vec::new();
-    for (hash, mime, metadata, media, thumb, preview, remote, byte_size) in rows {
-        let mut row: Value = serde_json::from_str(&metadata)
-            .map_err(|err| format!("parse asset metadata: {err}"))?;
+    for stored in rows {
+        let mut row = asset_value(root, stored, include_payload)?;
         let fields_wanted = |name: &str| {
             requested
                 .as_ref()
                 .is_none_or(|fields| fields.contains(&name))
         };
-        if include_payload {
-            if let Some(rel) = media {
-                let bytes = fs::read(root.join(rel))
-                    .map_err(|err| format!("read asset payload: {err}"))?;
-                row["bytes"] = binary_marker(&bytes);
-            }
-            if let Some(rel) = thumb {
-                let bytes = fs::read(root.join(rel))
-                    .map_err(|err| format!("read asset thumb: {err}"))?;
-                row["thumb"] = binary_marker(&bytes);
-            }
-            if let Some(rel) = preview {
-                let bytes = fs::read(root.join(rel))
-                    .map_err(|err| format!("read asset preview: {err}"))?;
-                row["preview"] = binary_marker(&bytes);
-            }
-        } else {
-            row["bytesLength"] = json!(byte_size);
-            if let Some(rel) = thumb {
-                row["thumbLength"] = json!(file_len(root, &rel));
-            }
-            if let Some(rel) = preview {
-                row["previewLength"] = json!(file_len(root, &rel));
-            }
-        }
-        if remote.is_some() && fields_wanted("url") {
-            row["url"] = json!(remote);
-        }
         if !matches_filter(&row, filter) {
             continue;
         }
-        if row.get("id").and_then(Value::as_str) != Some(hash.as_str()) {
-            row["id"] = json!(hash);
-        }
-        if row.get("mime").and_then(Value::as_str).is_none() {
-            row["mime"] = json!(mime);
+        if !fields_wanted("url") {
+            if let Value::Object(fields) = &mut row {
+                fields.remove("url");
+            }
         }
         out.push(row);
     }
     Ok(out)
+}
+
+type AssetColumns = (
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+);
+
+fn read_asset_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetColumns> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+    ))
+}
+
+fn asset_value(root: &Path, stored: AssetColumns, include_payload: bool) -> Result<Value, String> {
+    let (hash, sha1, mime, metadata, media, thumb, preview, remote, byte_size) = stored;
+    let mut row: Value =
+        serde_json::from_str(&metadata).map_err(|err| format!("parse asset metadata: {err}"))?;
+    if include_payload {
+        if let Some(rel) = media {
+            let bytes = fs::read(resolve_media_path(root, &rel)?)
+                .map_err(|err| format!("read asset payload: {err}"))?;
+            row["bytes"] = binary_marker(&bytes);
+        }
+        if let Some(rel) = thumb {
+            let bytes = fs::read(resolve_media_path(root, &rel)?)
+                .map_err(|err| format!("read asset thumb: {err}"))?;
+            row["thumb"] = binary_marker(&bytes);
+        }
+        if let Some(rel) = preview {
+            let bytes = fs::read(resolve_media_path(root, &rel)?)
+                .map_err(|err| format!("read asset preview: {err}"))?;
+            row["preview"] = binary_marker(&bytes);
+        }
+    } else {
+        row["bytesLength"] = json!(byte_size);
+        if let Some(rel) = thumb {
+            row["thumbLength"] = json!(file_len(root, &rel));
+        }
+        if let Some(rel) = preview {
+            row["previewLength"] = json!(file_len(root, &rel));
+        }
+    }
+    if let Some(remote) = remote {
+        row["url"] = json!(remote);
+    }
+    row["id"] = json!(hash);
+    if row.get("mime").and_then(Value::as_str).is_none() {
+        row["mime"] = json!(mime);
+    }
+    if let Some(sha1) = sha1 {
+        row["contentSha1"] = json!(sha1);
+    }
+    Ok(row)
+}
+
+fn scan_asset_page(
+    conn: &Connection,
+    root: &Path,
+    offset: usize,
+    limit: usize,
+    include_payload: bool,
+) -> Result<(Vec<Value>, u64), String> {
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))
+        .map_err(|err| format!("count assets: {err}"))?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT hash, content_sha1, mime, metadata_json, media_rel_path,
+                    thumb_rel_path, preview_rel_path, remote_url, byte_size
+             FROM assets
+             ORDER BY hash
+             LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|err| format!("prepare asset page: {err}"))?;
+    let stored = stmt
+        .query_map(params![limit as i64, offset as i64], read_asset_columns)
+        .map_err(|err| format!("query asset page: {err}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("decode asset page: {err}"))?;
+    let rows = stored
+        .into_iter()
+        .map(|asset| asset_value(root, asset, include_payload))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, total.max(0) as u64))
 }
 
 fn put_asset(conn: &Connection, root: &Path, row: &Value) -> Result<(), String> {
@@ -522,24 +653,56 @@ fn put_asset(conn: &Connection, root: &Path, row: &Value) -> Result<(), String> 
         .unwrap_or("application/octet-stream")
         .to_string();
     let mut metadata = row.clone();
-    let payload = binary_marker_bytes(row.get("bytes"));
-    let thumb = binary_marker_bytes(row.get("thumb").or_else(|| row.get("thumbnail")));
-    let preview = binary_marker_bytes(row.get("preview"));
+    let payload = binary_marker_bytes_checked(row.get("bytes"), "assets.bytes")?;
+    let thumb = binary_marker_bytes_checked(
+        row.get("thumb").or_else(|| row.get("thumbnail")),
+        "assets.thumb",
+    )?;
+    let preview = binary_marker_bytes_checked(row.get("preview"), "assets.preview")?;
+    let full_sha1 = payload.as_deref().map(content_sha1);
+    if let Some(sha1) = full_sha1.as_deref() {
+        if !sha1.starts_with(&hash) {
+            return Err(format!(
+                "asset hash {hash} does not match content SHA-1 {sha1}"
+            ));
+        }
+    }
+    let existing = conn
+        .query_row(
+            "SELECT content_sha1 FROM assets WHERE hash = ?1",
+            params![hash],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|err| format!("query existing asset: {err}"))?
+        .flatten();
+    if let (Some(existing), Some(next)) = (existing.as_deref(), full_sha1.as_deref()) {
+        if existing != next {
+            return Err(format!(
+                "asset hash collision for {hash}: existing {existing}, incoming {next}"
+            ));
+        }
+    }
     if let Value::Object(fields) = &mut metadata {
         fields.remove("bytes");
         fields.remove("thumb");
         fields.remove("thumbnail");
         fields.remove("preview");
+        fields.remove("contentSha1");
+        fields.remove("content_sha1");
     }
-    let media_rel = payload.as_ref().map(|bytes| {
-        write_media(root, &hash, &mime, bytes)
-    }).transpose()?;
-    let thumb_rel = thumb.as_ref().map(|bytes| {
-        write_variant(root, "thumbs", &hash, bytes)
-    }).transpose()?;
-    let preview_rel = preview.as_ref().map(|bytes| {
-        write_variant(root, "previews", &hash, bytes)
-    }).transpose()?;
+    let media_rel = payload
+        .as_ref()
+        .map(|bytes| write_media(root, &hash, &mime, bytes))
+        .transpose()?;
+    let thumb_rel = thumb
+        .as_ref()
+        .map(|bytes| write_variant(root, "thumbs", &hash, bytes))
+        .transpose()?;
+    let preview_rel = preview
+        .as_ref()
+        .map(|bytes| write_variant(root, "previews", &hash, bytes))
+        .transpose()?;
     let remote_url = row.get("url").and_then(Value::as_str);
     let project_id = row.get("projectId").and_then(Value::as_str);
     let updated_at = row
@@ -551,21 +714,23 @@ fn put_asset(conn: &Connection, root: &Path, row: &Value) -> Result<(), String> 
         serde_json::to_string(&metadata).map_err(|err| format!("encode asset metadata: {err}"))?;
     conn.execute(
         "INSERT INTO assets (
-           hash, mime, metadata_json, media_rel_path, thumb_rel_path,
+           hash, content_sha1, mime, metadata_json, media_rel_path, thumb_rel_path,
            preview_rel_path, remote_url, byte_size, project_id, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT(hash) DO UPDATE SET
+           content_sha1 = COALESCE(excluded.content_sha1, assets.content_sha1),
            mime = excluded.mime,
            metadata_json = excluded.metadata_json,
            media_rel_path = COALESCE(excluded.media_rel_path, assets.media_rel_path),
            thumb_rel_path = COALESCE(excluded.thumb_rel_path, assets.thumb_rel_path),
            preview_rel_path = COALESCE(excluded.preview_rel_path, assets.preview_rel_path),
-           remote_url = excluded.remote_url,
+           remote_url = COALESCE(excluded.remote_url, assets.remote_url),
            byte_size = CASE WHEN excluded.byte_size > 0 THEN excluded.byte_size ELSE assets.byte_size END,
-           project_id = excluded.project_id,
-           updated_at = excluded.updated_at",
+           project_id = COALESCE(excluded.project_id, assets.project_id),
+           updated_at = COALESCE(excluded.updated_at, assets.updated_at)",
         params![
             hash,
+            full_sha1,
             mime,
             metadata_json,
             media_rel,
@@ -599,7 +764,11 @@ fn project_fields(row: Value, include_payload: bool, fields: Option<&str>) -> Va
         return row;
     };
     let mut projected = Map::new();
-    for field in fields.split(',').map(str::trim).filter(|field| !field.is_empty()) {
+    for field in fields
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+    {
         if let Some(value) = object.get(field) {
             projected.insert(field.to_string(), value.clone());
         }
@@ -650,15 +819,36 @@ fn binary_marker_bytes(value: Option<&Value>) -> Option<Vec<u8>> {
         return None;
     }
     let encoded = value.get("base64").and_then(Value::as_str)?;
-    base64::engine::general_purpose::STANDARD.decode(encoded).ok()
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()
+}
+
+fn binary_marker_bytes_checked(
+    value: Option<&Value>,
+    field: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    if value.get("__qhType").and_then(Value::as_str) != Some("u8") {
+        return Err(format!("{field} must be a binary marker"));
+    }
+    let encoded = value
+        .get("base64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{field}.base64 must be a string"))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|err| format!("decode {field}: {err}"))?;
+    Ok(Some(bytes))
 }
 
 fn safe_hash(hash: &str) -> Result<(), String> {
-    if hash.len() < 2
-        || !hash
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-    {
+    if hash.len() != 16 || !hash.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return Err(format!("unsafe asset hash: {hash}"));
     }
     Ok(())
@@ -716,13 +906,17 @@ fn write_variant(root: &Path, kind: &str, hash: &str, bytes: &[u8]) -> Result<St
 }
 
 fn write_content_addressed(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String> {
-    let path = root.join(rel);
+    let path = resolve_media_path(root, rel)?;
     if path.is_file() {
         let existing = fs::read(&path)
             .map_err(|err| format!("read existing media {}: {err}", path.display()))?;
         if existing == bytes {
             return Ok(());
         }
+        return Err(format!(
+            "content-addressed media collision: {}",
+            path.display()
+        ));
     }
     let parent = path
         .parent()
@@ -736,34 +930,59 @@ fn write_content_addressed(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), S
             .unwrap_or("media"),
         sequence
     ));
-    fs::write(&temporary, bytes).map_err(|err| format!("write media temp: {err}"))?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|err| format!("replace media: {err}"))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|err| format!("create media temp: {err}"))?;
+    file.write_all(bytes)
+        .map_err(|err| format!("write media temp: {err}"))?;
+    file.sync_all()
+        .map_err(|err| format!("sync media temp: {err}"))?;
+    drop(file);
+    if let Err(error) = fs::rename(&temporary, &path) {
+        let existing = fs::read(&path).ok();
+        let _ = fs::remove_file(&temporary);
+        if existing.as_deref() != Some(bytes) {
+            return Err(format!("rename media: {error}"));
+        }
     }
-    fs::rename(&temporary, &path).map_err(|err| format!("rename media: {err}"))?;
     Ok(())
 }
 
 fn file_len(root: &Path, rel: &str) -> u64 {
-    fs::metadata(root.join(rel))
+    resolve_media_path(root, rel)
+        .ok()
+        .and_then(|path| fs::metadata(path).ok())
         .map(|meta| meta.len())
         .unwrap_or(0)
 }
 
-fn dir_size(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-    let mut total = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            total += dir_size(&path);
-        } else {
-            total += entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+fn resolve_media_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(rel);
+    if relative.is_absolute() {
+        return Err(format!("absolute media path rejected: {rel}"));
+    }
+    let mut safe = PathBuf::new();
+    for component in relative.components() {
+        match component {
+            std::path::Component::Normal(value) => safe.push(value),
+            std::path::Component::CurDir => {}
+            _ => return Err(format!("unsafe media path rejected: {rel}")),
         }
     }
-    total
+    if safe.components().next().and_then(|part| match part {
+        std::path::Component::Normal(value) => value.to_str(),
+        _ => None,
+    }) != Some("media")
+    {
+        return Err(format!("media path must stay under media/: {rel}"));
+    }
+    Ok(root.join(safe))
+}
+
+fn content_sha1(bytes: &[u8]) -> String {
+    sha1_hex(bytes)
 }
 
 #[cfg(test)]
@@ -779,6 +998,17 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    fn hash_for(bytes: &[u8]) -> String {
+        content_sha1(bytes)[..16].to_string()
+    }
+
+    fn binary(bytes: &[u8]) -> Value {
+        json!({
+            "__qhType": "u8",
+            "base64": base64::engine::general_purpose::STANDARD.encode(bytes)
+        })
     }
 
     #[test]
@@ -798,9 +1028,17 @@ mod tests {
             )
             .unwrap();
         let rows = store
-            .query("nodes", &Map::from_iter([("projectId".into(), json!("p1"))]), true, None)
+            .query(
+                "nodes",
+                &Map::from_iter([("projectId".into(), json!("p1"))]),
+                true,
+                None,
+            )
             .unwrap();
-        assert_eq!(rows, vec![json!({"id":"n1","projectId":"p1","title":"A","x":1})]);
+        assert_eq!(
+            rows,
+            vec![json!({"id":"n1","projectId":"p1","title":"A","x":1})]
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -831,27 +1069,25 @@ mod tests {
         let root = temp_root("assets");
         let store = SqliteStore::open(&root).unwrap();
         let image = b"fake png bytes";
+        let hash = hash_for(image);
         store
             .put(
                 "assets",
                 &json!({
-                    "id":"a1b2c3",
+                    "id":hash,
                     "projectId":"p1",
                     "mime":"image/png",
                     "width":10,
                     "height":20,
-                    "bytes": {
-                        "__qhType":"u8",
-                        "base64": base64::engine::general_purpose::STANDARD.encode(image)
-                    }
+                    "bytes": binary(image)
                 }),
             )
             .unwrap();
-        assert_eq!(store.asset_bytes("a1b2c3").unwrap().0, image);
+        assert_eq!(store.asset_bytes(&hash).unwrap().0, image);
         let projected = store
             .query(
                 "assets",
-                &Map::from_iter([("id".into(), json!("a1b2c3"))]),
+                &Map::from_iter([("id".into(), json!(hash))]),
                 false,
                 None,
             )
@@ -861,7 +1097,7 @@ mod tests {
         let with_payload = store
             .query(
                 "assets",
-                &Map::from_iter([("id".into(), json!("a1b2c3"))]),
+                &Map::from_iter([("id".into(), json!(hash))]),
                 true,
                 Some("id,mime,bytes"),
             )
@@ -870,6 +1106,135 @@ mod tests {
             binary_marker_bytes(with_payload[0].get("bytes")),
             Some(image.to_vec())
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn asset_hash_must_match_content_sha1_prefix() {
+        let root = temp_root("asset-mismatch");
+        let store = SqliteStore::open(&root).unwrap();
+        let result = store.put(
+            "assets",
+            &json!({
+                "id":"0000000000000000",
+                "mime":"image/png",
+                "bytes":binary(b"not that hash")
+            }),
+        );
+        assert!(result.unwrap_err().contains("does not match content SHA-1"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn same_hash_cannot_replace_different_bytes() {
+        let root = temp_root("asset-collision");
+        let store = SqliteStore::open(&root).unwrap();
+        let original = b"first payload";
+        let hash = hash_for(original);
+        store
+            .put(
+                "assets",
+                &json!({"id":hash,"mime":"image/png","bytes":binary(original)}),
+            )
+            .unwrap();
+        let result = store.put(
+            "assets",
+            &json!({"id":hash,"mime":"image/png","bytes":binary(b"second payload")}),
+        );
+        assert!(result.is_err());
+        assert_eq!(store.asset_bytes(&hash).unwrap().0, original);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn asset_scan_page_uses_assets_table_and_preserves_total() {
+        let root = temp_root("asset-page");
+        let store = SqliteStore::open(&root).unwrap();
+        let first = b"first";
+        let second = b"second";
+        for bytes in [first.as_slice(), second.as_slice()] {
+            store
+                .put(
+                    "assets",
+                    &json!({
+                        "id":hash_for(bytes),
+                        "mime":"image/png",
+                        "bytes":binary(bytes)
+                    }),
+                )
+                .unwrap();
+        }
+        let (page, total) = store.scan_page("assets", 0, 1, false).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(page.len(), 1);
+        assert!(page[0].get("bytes").is_none());
+        let (second_page, total) = store.scan_page("assets", 1, 1, true).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(second_page.len(), 1);
+        assert!(binary_marker_bytes(second_page[0].get("bytes")).is_some());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn media_paths_cannot_escape_the_media_directory() {
+        let root = temp_root("asset-path");
+        let store = SqliteStore::open(&root).unwrap();
+        let image = b"safe image";
+        let hash = hash_for(image);
+        store
+            .put(
+                "assets",
+                &json!({"id":hash,"mime":"image/png","bytes":binary(image)}),
+            )
+            .unwrap();
+        store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE assets SET preview_rel_path = ?1 WHERE hash = ?2",
+                params!["../outside.webp", hash],
+            )
+            .unwrap();
+        assert!(store.asset_preview(&hash).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn schema_v1_upgrade_adds_content_sha1_column() {
+        let root = temp_root("schema-upgrade");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("manifest.sqlite");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_meta (key, value) VALUES ('schema_version', '1');
+             CREATE TABLE assets (
+               hash TEXT PRIMARY KEY,
+               mime TEXT NOT NULL,
+               metadata_json TEXT NOT NULL,
+               media_rel_path TEXT,
+               thumb_rel_path TEXT,
+               preview_rel_path TEXT,
+               remote_url TEXT,
+               byte_size INTEGER NOT NULL DEFAULT 0,
+               project_id TEXT,
+               updated_at INTEGER
+             );",
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = SqliteStore::open(&root).unwrap();
+        let version: String = store
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION.to_string());
         let _ = fs::remove_dir_all(root);
     }
 }

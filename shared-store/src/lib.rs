@@ -3,12 +3,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
+mod hash;
 pub mod sqlite;
 
 pub const PORT: u16 = 18765;
@@ -89,8 +90,7 @@ fn thumb_path(root: &Path, id: &str) -> PathBuf {
 }
 
 fn preview_path(root: &Path, id: &str) -> PathBuf {
-    root.join("_previews")
-        .join(format!("{}.webp", hex_id(id)))
+    root.join("_previews").join(format!("{}.webp", hex_id(id)))
 }
 
 fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), String> {
@@ -151,10 +151,15 @@ fn read_json(path: &Path) -> Result<Value, String> {
     let deadline = Instant::now() + Duration::from_millis(500);
     loop {
         match fs::read_to_string(path) {
-            Ok(raw) => {
-                return serde_json::from_str(&raw)
-                    .map_err(|error| format!("parse {}: {error}", path.display()))
-            }
+            Ok(raw) => match serde_json::from_str(&raw) {
+                Ok(value) => return Ok(value),
+                Err(_error) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    return Err(format!("parse {}: {error}", path.display()));
+                }
+            },
             Err(error)
                 if matches!(
                     error.kind(),
@@ -490,8 +495,14 @@ fn origin_allowed(origin: &str) -> bool {
     )
 }
 
-fn respond_json(request: Request, status: StatusCode, value: Value, origin: Option<&str>) -> Result<(), String> {
-    let body = serde_json::to_string(&value).map_err(|error| format!("serialize response: {error}"))?;
+fn respond_json(
+    request: Request,
+    status: StatusCode,
+    value: Value,
+    origin: Option<&str>,
+) -> Result<(), String> {
+    let body =
+        serde_json::to_string(&value).map_err(|error| format!("serialize response: {error}"))?;
     let mut response = Response::from_string(body)
         .with_status_code(status)
         .with_header(header("content-type", "application/json; charset=utf-8"))
@@ -501,7 +512,9 @@ fn respond_json(request: Request, status: StatusCode, value: Value, origin: Opti
     if let Some(origin) = origin.filter(|origin| origin_allowed(origin)) {
         response = response.with_header(header("access-control-allow-origin", origin));
     }
-    request.respond(response).map_err(|error| format!("respond: {error}"))
+    request
+        .respond(response)
+        .map_err(|error| format!("respond: {error}"))
 }
 
 fn respond_bytes(
@@ -514,11 +527,16 @@ fn respond_bytes(
     let mut response = Response::from_data(body)
         .with_status_code(status)
         .with_header(header("content-type", content_type))
-        .with_header(header("cache-control", "public, max-age=31536000, immutable"));
+        .with_header(header(
+            "cache-control",
+            "public, max-age=31536000, immutable",
+        ));
     if let Some(origin) = origin.filter(|origin| origin_allowed(origin)) {
         response = response.with_header(header("access-control-allow-origin", origin));
     }
-    request.respond(response).map_err(|error| format!("respond: {error}"))
+    request
+        .respond(response)
+        .map_err(|error| format!("respond: {error}"))
 }
 
 fn load_thumb(root: &Path, id: &str) -> Result<Vec<u8>, String> {
@@ -587,7 +605,10 @@ fn handle(store: &Store, mut request: Request) {
                 .with_header(header("access-control-allow-headers", "content-type"))
                 .with_header(header(
                     "access-control-allow-origin",
-                    origin.as_deref().filter(|value| origin_allowed(value)).unwrap_or("null"),
+                    origin
+                        .as_deref()
+                        .filter(|value| origin_allowed(value))
+                        .unwrap_or("null"),
                 )),
         );
         return;
@@ -599,13 +620,7 @@ fn handle(store: &Store, mut request: Request) {
         let _guard = store.lock.lock().expect("store lock poisoned");
         match load_asset(root, id) {
             Ok((bytes, mime)) => {
-                let _ = respond_bytes(
-                    request,
-                    StatusCode(200),
-                    bytes,
-                    &mime,
-                    origin.as_deref(),
-                );
+                let _ = respond_bytes(request, StatusCode(200), bytes, &mime, origin.as_deref());
             }
             Err(error) => {
                 let _ = respond_json(
@@ -623,7 +638,13 @@ fn handle(store: &Store, mut request: Request) {
         let _guard = store.lock.lock().expect("store lock poisoned");
         match load_thumb(root, id) {
             Ok(bytes) => {
-                let _ = respond_bytes(request, StatusCode(200), bytes, "image/webp", origin.as_deref());
+                let _ = respond_bytes(
+                    request,
+                    StatusCode(200),
+                    bytes,
+                    "image/webp",
+                    origin.as_deref(),
+                );
             }
             Err(error) => {
                 let _ = respond_json(
@@ -641,7 +662,13 @@ fn handle(store: &Store, mut request: Request) {
         let _guard = store.lock.lock().expect("store lock poisoned");
         match load_preview(root, id) {
             Ok(bytes) => {
-                let _ = respond_bytes(request, StatusCode(200), bytes, "image/webp", origin.as_deref());
+                let _ = respond_bytes(
+                    request,
+                    StatusCode(200),
+                    bytes,
+                    "image/webp",
+                    origin.as_deref(),
+                );
             }
             Err(error) => {
                 let _ = respond_json(
@@ -773,23 +800,41 @@ fn handle(store: &Store, mut request: Request) {
         if request.method() == &Method::Post && path == "/kv/put" {
             let body: Map<String, Value> = body_json(&mut request)?;
             let _guard = store.lock.lock().expect("store lock poisoned");
-            let key = body.get("key").and_then(Value::as_str).ok_or("key missing")?;
+            let key = body
+                .get("key")
+                .and_then(Value::as_str)
+                .ok_or("key missing")?;
             let value = body.get("value").cloned().unwrap_or(Value::Null);
             let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
-            write_atomic(&path, serde_json::to_vec(&value).map_err(|error| error.to_string())?.as_slice())?;
+            write_atomic(
+                &path,
+                serde_json::to_vec(&value)
+                    .map_err(|error| error.to_string())?
+                    .as_slice(),
+            )?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/kv/get" {
             let body: Map<String, Value> = body_json(&mut request)?;
-            let key = body.get("key").and_then(Value::as_str).ok_or("key missing")?;
+            let key = body
+                .get("key")
+                .and_then(Value::as_str)
+                .ok_or("key missing")?;
             let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
-            let value = if path.exists() { read_json(&path)? } else { Value::Null };
+            let value = if path.exists() {
+                read_json(&path)?
+            } else {
+                Value::Null
+            };
             return Ok(json!({ "value": value }));
         }
         if request.method() == &Method::Post && path == "/kv/delete" {
             let body: Map<String, Value> = body_json(&mut request)?;
             let _guard = store.lock.lock().expect("store lock poisoned");
-            let key = body.get("key").and_then(Value::as_str).ok_or("key missing")?;
+            let key = body
+                .get("key")
+                .and_then(Value::as_str)
+                .ok_or("key missing")?;
             let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
             if path.exists() {
                 fs::remove_file(path).map_err(|error| error.to_string())?;
@@ -855,7 +900,10 @@ pub fn start_in_background() {
     let _ = STARTED.get_or_init(|| {
         let data_dir = default_data_dir();
         match start(&data_dir, PORT) {
-            Ok(()) => eprintln!("[shared-store] http://127.0.0.1:{PORT} {}", data_dir.display()),
+            Ok(()) => eprintln!(
+                "[shared-store] http://127.0.0.1:{PORT} {}",
+                data_dir.display()
+            ),
             Err(error) => eprintln!("[shared-store] {error}"),
         }
     });
@@ -888,15 +936,18 @@ mod tests {
         let row = json!({ "id": "p1", "name": "项目一", "updatedAt": 1 });
         write_row(&root, "projects", &row).unwrap();
         assert_eq!(
-            query_rows(&root, "projects", &Map::from_iter([(
-                "id".to_string(),
-                Value::String("p1".to_string())
-            )]))
+            query_rows(
+                &root,
+                "projects",
+                &Map::from_iter([("id".to_string(), Value::String("p1".to_string()))])
+            )
             .unwrap(),
             vec![row.clone()]
         );
         delete_row(&root, "projects", "p1").unwrap();
-        assert!(query_rows(&root, "projects", &Map::new()).unwrap().is_empty());
+        assert!(query_rows(&root, "projects", &Map::new())
+            .unwrap()
+            .is_empty());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -969,7 +1020,10 @@ mod tests {
         assert_eq!(row.get("bytesLength").and_then(Value::as_u64), Some(4));
         assert_eq!(row.get("previewLength").and_then(Value::as_u64), Some(4));
         project_fields(&mut row, Some("id,mime,bytesLength"));
-        assert_eq!(row, json!({ "id": "a1", "mime": "image/png", "bytesLength": 4 }));
+        assert_eq!(
+            row,
+            json!({ "id": "a1", "mime": "image/png", "bytesLength": 4 })
+        );
     }
 
     #[test]
@@ -1082,12 +1136,10 @@ mod tests {
             handle.join().unwrap();
         }
         assert!(read_json(&path).unwrap().get("id").is_some());
-        assert!(
-            fs::read_dir(&root)
-                .unwrap()
-                .flatten()
-                .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
-        );
+        assert!(fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp")));
         let _ = fs::remove_dir_all(root);
     }
 }
