@@ -22,6 +22,16 @@ describe('channelRepository', () => {
     expect(rows.some((channel) => channel.id === 'ch_builtin_65535_task')).toBe(false)
   })
 
+  it('内置渠道可由资料抽屉改名，重新 seed 后名称不会被覆盖', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await repo.seedBuiltins()
+    await repo.update('ch_builtin_modelscope', { name: '我的 ModelScope' })
+    await repo.seedBuiltins()
+    expect((await repo.get('ch_builtin_modelscope'))?.name).toBe('我的 ModelScope')
+    expect((await repo.get('ch_builtin_modelscope'))?.protocol).toBe('modelscope')
+  })
+
   it('退役的 65535 任务内置行在未配置时清理，配置过的保留', async () => {
     const p = createMemoryPlatform()
     const repo = createChannelRepository(p.storage, p.credentials)

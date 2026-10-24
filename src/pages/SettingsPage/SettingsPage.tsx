@@ -43,10 +43,6 @@ import type { ModelCapability } from '../../domain/shared/capability'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
 import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
-import {
-  defaultToIcon,
-  fetchSiteIcon,
-} from '../../features/shared/channelIcon/siteIcon'
 import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { usePlatform } from '../../app/providers/PlatformProvider'
@@ -54,9 +50,17 @@ import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 import {
   IconDelete,
   IconEdit,
+  IconFilter,
+  IconGear,
   IconGrip,
+  IconImageUpload,
   IconMoreVertical,
+  IconResetAvatar,
+  IconSearch,
+  IconClose,
+  IconChannels,
 } from '../../app/SettingsIcons'
+import { hasChannelBrandIcon } from '../../features/shared/channelIcon/ChannelIcon'
 
 /**
  * 模型映射区的**五个筛选**（用户 2026-10-08 第 1 条：「图一这个模型映射的地方换成五个筛选吧，
@@ -78,6 +82,24 @@ const MAP_FILTERS = [
 ] as const
 
 type MapFilterKey = (typeof MAP_FILTERS)[number]['key']
+
+type ChannelFilterKey = 'all' | 'enabled' | 'disabled'
+
+const CHANNEL_FILTER_OPTIONS: { value: ChannelFilterKey; label: string }[] = [
+  { value: 'all', label: '全部服务商' },
+  { value: 'enabled', label: '仅已启用' },
+  { value: 'disabled', label: '仅已禁用' },
+]
+
+function channelInitial(name: string): string {
+  return Array.from(name.trim())[0]?.toUpperCase() ?? '?'
+}
+
+function channelMonogramTone(name: string): number {
+  let hash = 0
+  for (const char of name) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0
+  return hash % 6
+}
 
 const GLOBAL_MODEL_VENDORS: { value: PresetVendor; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
@@ -325,6 +347,34 @@ function ChannelTokenField({
   )
 }
 
+function SettingsChannelAvatar({
+  channelId,
+  protocol,
+  icon,
+  name,
+  size,
+}: {
+  channelId?: string
+  protocol: string
+  icon?: string | null
+  name: string
+  size: number
+}) {
+  if (icon || hasChannelBrandIcon(protocol)) {
+    return <ChannelIcon protocol={protocol} icon={icon} size={size} />
+  }
+  return (
+    <span
+      className={`${styles.channelMonogram} ${styles[`monogramTone${channelMonogramTone(name)}`]}`}
+      data-channel-monogram={channelId}
+      style={{ width: size, height: size, fontSize: Math.max(12, Math.round(size * 0.4)) }}
+      aria-hidden
+    >
+      {channelInitial(name)}
+    </span>
+  )
+}
+
 export function SettingsPage() {
   const channels = useChannels()
   const channelsList = useSyncExternalStore(
@@ -385,6 +435,14 @@ export function SettingsPage() {
   } | null>(null)
   const [menuConfirmDelete, setMenuConfirmDelete] = useState(false)
   const channelMenuRef = useRef<HTMLDivElement | null>(null)
+  const [channelSearch, setChannelSearch] = useState('')
+  const [channelFilter, setChannelFilter] = useState<ChannelFilterKey>('all')
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
+  const [profileNameDraft, setProfileNameDraft] = useState('')
+  const [profileIconDraft, setProfileIconDraft] = useState<string | null>(null)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const profileFileRef = useRef<HTMLInputElement | null>(null)
+  const profileReturnFocusRef = useRef<HTMLElement | null>(null)
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState('mock')
   const [baseUrl, setBaseUrl] = useState('')
@@ -395,7 +453,6 @@ export function SettingsPage() {
    * 图标那一行的**结果话术**（对账 #396）：抓成功说抓到哪儿了，失败说为什么、
    * 下一步做什么。失败时不弹窗 —— 用户就在这一行上，话就该留在这儿。
    */
-  const [iconNote, setIconNote] = useState<string | null>(null)
   /**
    * 上一次「验证地址 / 拉取模型 / 验证协议」是对**哪条渠道、哪个协议**做的。
    * 状态行据此显示协议名——否则「✓ 验证通过」在 mock 下与在真实中转下
@@ -460,7 +517,6 @@ export function SettingsPage() {
   /** 桌面壳里才有本机命令（对账 #308）：状态行文案据此区分"本机命令"与"地址" */
   const hasLocalCli = platform.cli != null
   /** 抓站点图标要原生 HTTP（对账 #396）：浏览器里跨域读不到，按钮据此如实禁用 */
-  const hasRemoteBytes = platform.remoteBytes != null
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
   const protocolOptions = catalog.all
   /** 当前所选协议的说明（CLI 网关等有前提的协议必须显示出来，否则用户会填错地址） */
@@ -509,14 +565,18 @@ export function SettingsPage() {
     () => channelsList.find((c) => c.id === selectedId) ?? null,
     [channelsList, selectedId],
   )
-  const builtinChannels = useMemo(
-    () => channelsList.filter((channel) => isBuiltinChannelId(channel.id)),
-    [channelsList],
-  )
-  const userChannels = useMemo(
-    () => channelsList.filter((channel) => !isBuiltinChannelId(channel.id)),
-    [channelsList],
-  )
+  const visibleChannels = useMemo(() => {
+    const keyword = channelSearch.trim().toLocaleLowerCase()
+    return channelsList.filter((channel) => {
+      if (channelFilter === 'enabled' && !channel.enabled) return false
+      if (channelFilter === 'disabled' && channel.enabled) return false
+      if (!keyword) return true
+      return (
+        channel.name.toLocaleLowerCase().includes(keyword) ||
+        protocolShort(channel.protocol, catalog).toLocaleLowerCase().includes(keyword)
+      )
+    })
+  }, [catalog, channelFilter, channelSearch, channelsList])
   const selectedKeyGroups = useMemo(
     () =>
       [...(selected?.credentialGroups ?? [])].sort(
@@ -593,6 +653,44 @@ export function SettingsPage() {
   }, [channelMenu, menuConfirmDelete])
 
   useEffect(() => {
+    if (!profileDrawerOpen) return
+    const focusTimer = window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('[data-settings-profile-name]')?.focus()
+    }, 0)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setProfileDrawerOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const drawer = document.querySelector<HTMLElement>('[data-settings-profile-drawer]')
+      if (!drawer) return
+      const focusable = Array.from(
+        drawer.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.clearTimeout(focusTimer)
+      document.removeEventListener('keydown', onKeyDown)
+      profileReturnFocusRef.current?.focus()
+    }
+  }, [profileDrawerOpen])
+
+  useEffect(() => {
     if (mapSaveNotice?.tone !== 'ok') return
     const timer = window.setTimeout(() => setMapSaveNotice(null), 1200)
     return () => window.clearTimeout(timer)
@@ -608,6 +706,8 @@ export function SettingsPage() {
 
   const handleCreate = async () => {
     const ch = await channels.create({ name: '新建服务', protocol: 'mock', baseUrl: '' })
+    setChannelFilter('all')
+    setChannelSearch('')
     setSelectedId(ch.id)
   }
 
@@ -622,56 +722,34 @@ export function SettingsPage() {
     }
   }
 
-  /** 上传渠道图标（用户第 19 批 #4/#5）：读图 → 压到 ≤128px → 落库 */
-  const handlePickIcon = async (file: File | undefined) => {
-    if (!file || !selectedId) return
-    setBusy(true)
-    setIconNote(null)
+  /** 图片上传进入抽屉草稿，只有点“保存”才写库。 */
+  const handleProfileIconFile = async (file: File | undefined) => {
+    if (!file) return
     try {
-      const icon = await readChannelIconFile(file)
-      await channels.update(selectedId, { icon })
+      setProfileIconDraft(await readChannelIconFile(file))
     } catch {
-      /* 读图失败（不是图片 / 画布不可用）：如实提示，不改动已有图标 */
       alert('这张图片读不出来，换一张试试')
-    } finally {
-      setBusy(false)
     }
   }
 
-  /**
-   * **从网站抓站点图标**（对账 #396）。
-   *
-   * 顺序刻意是「先抓 → 抓到了才落库」：抓不到时**不动**现有图标，
-   * 只在那一行留句话，用户还能接着手动上传。抓的地址来自「地址」输入框
-   * 里的站点 origin —— 用户改了地址但没保存时，抓的是他**眼前**那个地址，
-   * 与"保存配置"这种落库动作分开，不必先保存再抓。
-   */
-  const handleFetchIcon = async () => {
-    const port = platform.remoteBytes
-    if (!port || !selectedId) return
-    setBusy(true)
-    setIconNote(null)
-    try {
-      const out = await fetchSiteIcon(baseUrl, {
-        get: (req) => port.get(req),
-        toIcon: defaultToIcon,
-      })
-      if (!out.ok) {
-        setIconNote(out.message)
-        return
-      }
-      await channels.update(selectedId, { icon: out.dataUrl })
-      setIconNote(`已从 ${out.sourceUrl} 抓到`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /** 恢复默认矢量图标 */
-  const handleClearIcon = async () => {
+  const saveProfileDrawer = async () => {
     if (!selectedId) return
-    setIconNote(null)
-    await channels.update(selectedId, { icon: null })
+    setProfileSaving(true)
+    try {
+      const nextName = profileNameDraft.trim() || selected?.name || '未命名服务'
+      const saved = await channels.update(selectedId, {
+        name: nextName,
+        icon: profileIconDraft,
+      })
+      setName(saved.name)
+      setProfileNameDraft(saved.name)
+      setProfileIconDraft(saved.icon)
+      setProfileDrawerOpen(false)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setProfileSaving(false)
+    }
   }
 
   /** 表单字段 → 落库值（名兜底、地址去空白以库为准） */
@@ -680,8 +758,6 @@ export function SettingsPage() {
     setProtocol(ch.protocol)
     setBaseUrl(ch.baseUrl)
     setEnabled(ch.enabled)
-    /** 换了一条渠道：上一条的抓取结果不再适用于这一条 */
-    setIconNote(null)
   }
 
   /** 把表单**当前内容**落库，返回落库后的渠道。 */
@@ -760,16 +836,16 @@ export function SettingsPage() {
   }
 
   const editChannel = (channelId: string) => {
+    const channel = channels.getState().channels.find((item) => item.id === channelId)
+    if (!channel) return
+    profileReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
     setSelectedId(channelId)
+    setProfileNameDraft(channel.name)
+    setProfileIconDraft(channel.icon)
+    setProfileDrawerOpen(true)
     setChannelMenu(null)
     setMenuConfirmDelete(false)
-    window.requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>('[data-settings-editor]')?.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      })
-      document.querySelector<HTMLInputElement>('[data-settings-name]')?.focus()
-    })
   }
 
   const handleRemove = async (channelId: string) => {
@@ -1179,144 +1255,157 @@ export function SettingsPage() {
 
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar} data-settings-sidebar>
-          {/* `data-channel-list` 是滚动条位置断言的锚点（贴左栏最右沿，见 CSS 的 `.list`） */}
-          <ul className={styles.list} data-channel-list>
-            {[
-              { kind: 'builtin', label: '内置服务', items: builtinChannels },
-              { kind: 'custom', label: '我的服务', items: userChannels },
-            ].flatMap((group) => [
-              group.items.length > 0 ? (
-                <li
-                  key={`channel-group-${group.kind}`}
-                  className={styles.channelGroupLabel}
-                  data-channel-group={group.kind}
-                >
-                  {group.label}
-                </li>
-              ) : null,
-              ...group.items.map((ch: Channel) => {
+            <div className={styles.sidebarTools} data-channel-tools>
+              <label className={styles.channelSearch}>
+                <IconSearch size={16} />
+                <input
+                  value={channelSearch}
+                  data-channel-search
+                  placeholder="搜索模型平台..."
+                  aria-label="搜索模型服务"
+                  onChange={(event) => setChannelSearch(event.target.value)}
+                />
+              </label>
+              <ChoicePicker
+                name="channel-filter"
+                value={channelFilter}
+                compact
+                iconOnly
+                alignEnd
+                triggerIcon={<IconFilter size={16} />}
+                ariaLabel="筛选模型服务"
+                options={CHANNEL_FILTER_OPTIONS}
+                onChange={(value) => setChannelFilter(value as ChannelFilterKey)}
+                className={styles.channelFilterPicker}
+              />
+            </div>
+            <ul className={styles.list} data-channel-list>
+              {visibleChannels.map((ch: Channel) => {
                 const caps = channelCapabilities(
                   ch,
                   protocolById(ch.protocol, catalog)?.capabilities ?? [],
                 )
                 return (
-              <li key={ch.id}>
-                <div
-                  className={
-                    ch.id === selectedId
-                      ? `${styles.item} ${styles.itemActive}`
-                      : styles.item
-                  }
-                  data-channel-item
-                  data-channel-id={ch.id}
-                  data-channel-selected={ch.id === selectedId ? 'true' : undefined}
-                  data-channel-proto={protocolShort(ch.protocol, catalog)}
-                  data-channel-caps={(['chat', 'image', 'video'] as const)
-                    .filter((key) => caps[key])
-                    .join(',')}
-                  data-channel-fixed={isBuiltinChannelId(ch.id) ? 'true' : undefined}
-                  data-dragging={dragId === ch.id ? 'true' : undefined}
-                  data-menu-open={channelMenu?.channelId === ch.id ? 'true' : undefined}
-                  onContextMenu={(event) => {
-                    event.preventDefault()
-                    openChannelMenu(ch.id, event.clientX, event.clientY)
-                  }}
-                  onDragOver={(event) => {
-                    if (!dragId) return
-                    event.preventDefault()
-                  }}
-                  onDrop={(event) => {
-                    if (!dragId) return
-                    event.preventDefault()
-                    void dropOnChannel(ch.id)
-                  }}
-                >
-                  <span className={styles.dragHandleSlot}>
-                    {!isBuiltinChannelId(ch.id) ? (
+                  <li key={ch.id}>
+                    <div
+                      className={
+                        ch.id === selectedId
+                          ? `${styles.item} ${styles.itemActive}`
+                          : styles.item
+                      }
+                      data-channel-item
+                      data-channel-id={ch.id}
+                      data-channel-selected={ch.id === selectedId ? 'true' : undefined}
+                      data-channel-proto={protocolShort(ch.protocol, catalog)}
+                      data-channel-caps={(['chat', 'image', 'video'] as const)
+                        .filter((key) => caps[key])
+                        .join(',')}
+                      data-channel-fixed={isBuiltinChannelId(ch.id) ? 'true' : undefined}
+                      data-dragging={dragId === ch.id ? 'true' : undefined}
+                      data-menu-open={channelMenu?.channelId === ch.id ? 'true' : undefined}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        openChannelMenu(ch.id, event.clientX, event.clientY)
+                      }}
+                      onDragOver={(event) => {
+                        if (!dragId) return
+                        event.preventDefault()
+                      }}
+                      onDrop={(event) => {
+                        if (!dragId) return
+                        event.preventDefault()
+                        void dropOnChannel(ch.id)
+                      }}
+                    >
+                      <span className={styles.dragHandleSlot}>
+                        {!isBuiltinChannelId(ch.id) ? (
+                          <button
+                            type="button"
+                            className={styles.dragHandle}
+                            draggable
+                            aria-label={`拖动 ${ch.name} 排序`}
+                            title="拖动排序"
+                            data-channel-drag-handle={ch.id}
+                            onDragStart={(event) => {
+                              event.stopPropagation()
+                              setDragId(ch.id)
+                            }}
+                            onDragEnd={() => setDragId(null)}
+                          >
+                            <IconGrip size={15} />
+                          </button>
+                        ) : null}
+                      </span>
                       <button
                         type="button"
-                        className={styles.dragHandle}
-                        draggable
-                        aria-label={`拖动 ${ch.name} 排序`}
-                        title="拖动排序"
-                        data-channel-drag-handle={ch.id}
-                        onDragStart={(event) => {
-                          event.stopPropagation()
-                          setDragId(ch.id)
+                        className={styles.itemMain}
+                        onPointerDown={(event) => {
+                          if (event.button === 0) setSelectedId(ch.id)
                         }}
-                        onDragEnd={() => setDragId(null)}
+                        onClick={() => setSelectedId(ch.id)}
+                        onKeyDown={(event) => {
+                          const menuKey =
+                            event.key === 'ContextMenu' ||
+                            (event.shiftKey && event.key === 'F10')
+                          if (!menuKey) return
+                          event.preventDefault()
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          openChannelMenu(ch.id, rect.right - 8, rect.top + rect.height)
+                        }}
                       >
-                        <IconGrip size={15} />
+                        <span className={styles.itemIcon} data-channel-icon-box>
+                          <SettingsChannelAvatar
+                            channelId={ch.id}
+                            protocol={ch.protocol}
+                            icon={ch.icon}
+                            name={ch.name}
+                            size={24}
+                          />
+                        </span>
+                        <span className={styles.itemBody} data-channel-body>
+                          <span className={styles.itemName}>{ch.name}</span>
+                        </span>
                       </button>
-                    ) : null}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.itemMain}
-                    onPointerDown={(event) => {
-                      if (event.button === 0) setSelectedId(ch.id)
-                    }}
-                    onClick={() => setSelectedId(ch.id)}
-                    onKeyDown={(event) => {
-                      const menuKey = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
-                      if (!menuKey) return
-                      event.preventDefault()
-                      const rect = event.currentTarget.getBoundingClientRect()
-                      openChannelMenu(ch.id, rect.right - 8, rect.top + rect.height)
-                    }}
-                  >
-                    <span className={styles.itemIcon} data-channel-icon-box>
-                      <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={22} />
-                    </span>
-                    <span className={styles.itemBody} data-channel-body>
-                      <span className={styles.itemName}>{ch.name}</span>
-                    </span>
-                  </button>
-                  <span className={styles.itemTrailing}>
-                    <span
-                      className={styles.itemEnabledDot}
-                      data-channel-state-dot={ch.id}
-                      data-enabled={ch.enabled ? 'true' : 'false'}
-                      title={ch.enabled ? '已启用' : '未启用'}
-                      aria-label={ch.enabled ? '已启用' : '未启用'}
-                    />
-                    <button
-                      type="button"
-                      className={styles.itemMenuTrigger}
-                      data-channel-menu-trigger={ch.id}
-                      aria-label={`打开 ${ch.name} 菜单`}
-                      aria-haspopup="menu"
-                      aria-expanded={channelMenu?.channelId === ch.id}
-                      title="更多操作"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => openChannelMenuFromButton(event, ch.id)}
-                    >
-                      <IconMoreVertical size={17} />
-                    </button>
-                  </span>
-                </div>
-              </li>
+                      <span className={styles.itemTrailing}>
+                        <span
+                          className={styles.itemEnabledDot}
+                          data-channel-state-dot={ch.id}
+                          data-enabled={ch.enabled ? 'true' : 'false'}
+                          title={ch.enabled ? '已启用' : '未启用'}
+                          aria-label={ch.enabled ? '已启用' : '未启用'}
+                        />
+                        <button
+                          type="button"
+                          className={styles.itemMenuTrigger}
+                          data-channel-menu-trigger={ch.id}
+                          aria-label={`打开 ${ch.name} 菜单`}
+                          aria-haspopup="menu"
+                          aria-expanded={channelMenu?.channelId === ch.id}
+                          title="更多操作"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => openChannelMenuFromButton(event, ch.id)}
+                        >
+                          <IconMoreVertical size={17} />
+                        </button>
+                      </span>
+                    </div>
+                  </li>
                 )
-              }),
-            ])}
-            {channelsList.length === 0 && (
-              <li className={styles.empty}>还没有模型服务，点下方「+ 新增服务」</li>
-            )}
-
-            {/* 列表级操作跟在**最后一条渠道**后面（用户 2026-09-28）：
-                它们此前被 `flex: 1` 的滚动列表挤到左栏最底部，渠道少时离条目很远；
-                放回列表尾部后，新增/删除仍是同一组操作，但视线不用跨越空白。
-                删除不可逆，所以继续走就地二次确认。 */}
-            <li className={styles.listActions} data-channel-actions>
-              {channelsList.length > 0 && (
-                <p className={styles.dragHint}>悬停服务行，从左侧把手上下拖动排序</p>
+              })}
+              {visibleChannels.length === 0 && (
+                <li className={styles.empty}>
+                  {channelsList.length === 0
+                    ? '还没有模型服务，点下方「添加服务商」'
+                    : '没有符合搜索或筛选条件的模型服务'}
+                </li>
               )}
+            </ul>
+            <div className={styles.sidebarFoot}>
               <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
-                + 新增服务
+                + 添加服务商
               </button>
-            </li>
-          </ul>
-        </aside>
+            </div>
+          </aside>
 
         <section className={styles.editor} data-settings-editor>
           {!selected ? (
@@ -1324,16 +1413,27 @@ export function SettingsPage() {
           ) : (
             <div className={styles.form} data-settings-form>
               <div className={styles.providerEditorHead} data-settings-provider-head>
-                <ChannelIcon protocol={protocol} icon={selected.icon} size={34} />
-                <input
-                  className={styles.providerNameInput}
-                  data-settings-name
-                  aria-label="模型服务名称"
-                  disabled={builtinSelected}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onBlur={() => void persistForm()}
+                <SettingsChannelAvatar
+                  protocol={protocol}
+                  icon={selected.icon}
+                  name={name}
+                  size={34}
                 />
+                <div className={styles.providerNameGroup}>
+                  <span className={styles.providerNameText} data-settings-name>
+                    {name}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.providerGear}
+                    data-settings-profile-edit
+                    aria-label="编辑服务资料"
+                    title="编辑服务资料"
+                    onClick={() => editChannel(selected.id)}
+                  >
+                    <IconGear size={16} />
+                  </button>
+                </div>
                 <label
                   className={styles.switch}
                   title={enabled ? '停用模型服务' : '启用模型服务'}
@@ -1349,95 +1449,6 @@ export function SettingsPage() {
                   <span className={styles.switchTrack} aria-hidden="true" />
                 </label>
               </div>
-              {/* —— 基本信息（§7.2）—— */}
-              <section className={styles.editorSection} data-settings-basics>
-                {/*
-                  卡片标题下面那行小字「这条渠道在画布里显示的名字」**已删**
-                  （用户 2026-10-08 第 2 条：「第二个框，不需要这个小字」）——
-                  卡片里就一个"名称"输入框，它是什么不用再解释一遍。
-                */}
-                <div className={styles.cardHead}>
-                  <span className={styles.cardTitle}>服务图标</span>
-                </div>
-
-                {/*
-                  渠道图标（用户第 19 批 #4/#5）：
-                  默认是**内置矢量标记**（按协议给，认不出给通用标记），
-                  也可以**上传一张图**盖掉它 —— 上传功能刻意做成一个小方块，
-                  以后要换成别的图标来源只动这一个区块与 `readChannelIconFile`。
-                */}
-                <div className={styles.fieldRow} data-channel-icon-row>
-                  <span className={styles.label}>图标</span>
-                  <ChannelIcon protocol={protocol} icon={selected.icon} size={28} />
-                  {/*
-                    三段分清楚（用户 2026-10-08 第 2 条：「直接分为当前图标 | 上传的按钮 |
-                    支持什么什么格式，不需要后面缩的自动缩到 128px」）：
-                    **当前图标 → 上传按钮 → 支持格式**，三者靠 `.fieldRow` 的 gap 分开。
-                  */}
-                  <label className={styles.ghostBtn} data-channel-icon-upload>
-                    上传图标
-                    <input
-                      className={styles.fileInput}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => void handlePickIcon(e.target.files?.[0])}
-                    />
-                  </label>
-                  {/*
-                    从网站抓图标（对账 #396）：抓的是「地址」那个站点的 /favicon.ico，
-                    没有就试 /apple-touch-icon.png（见 `channelIcon/siteIcon.ts`）。
-                    地址空着 / 浏览器里没有原生 HTTP 时**禁用**，并如实说为什么 ——
-                    浏览器里跨域根本读不到字节，装成能点只会每次都失败。
-                  */}
-                  <button
-                    className={styles.ghostBtn}
-                    data-channel-icon-fetch
-                    disabled={busy || !hasRemoteBytes || !baseUrl.trim()}
-                    title={
-                      hasRemoteBytes
-                        ? '从「地址」那个网站的 /favicon.ico 抓一张'
-                        : '仅在桌面应用可用：浏览器里跨域读不到站点图标'
-                    }
-                    onClick={() => void handleFetchIcon()}
-                  >
-                    从网站抓取
-                  </button>
-                  {selected.icon && (
-                    <button
-                      className={styles.ghostBtn}
-                      data-channel-icon-reset
-                      onClick={() => void handleClearIcon()}
-                    >
-                      恢复默认
-                    </button>
-                  )}
-                  {/* 只留"支持什么格式"；"自动缩到 128px"是实现细节，用户明确不要它 */}
-                  <span className={styles.cardSub} data-channel-icon-formats>
-                    PNG / JPG
-                  </span>
-                  {/*
-                    结果话术：抓到哪儿 / 为什么没抓到 + 下一步。没有结果时，
-                    浏览器里座位换成"仅在桌面应用可用"（与存储、CLI 两块同一套如实说法）。
-                  */}
-                  {!(hasRemoteBytes || iconNote) && (
-                    <span className={styles.cardSub} data-channel-icon-fetch-note>
-                      从网站抓取仅在桌面应用可用
-                    </span>
-                  )}
-                  {iconNote && (
-                    <span className={styles.cardSub} data-channel-icon-fetch-note>
-                      {iconNote}
-                    </span>
-                  )}
-                </div>
-
-                {/*
-                  启用开关**已搬到左栏每条渠道的下方**（用户第 21 批第 2 条）。
-                  这里不再放第二个开关：同一个事实两处可切，迟早出现"哪边是准的"。
-                  `enabled` 这个表单状态仍在用（保存配置时会一起落库），故 `handleToggleEnabled` 保留。
-                */}
-              </section>
-
               {/* —— 连接与鉴权（§7.3）—— */}
               <section className={styles.editorSection} data-settings-connection>
                 <div className={styles.cardHead}>
@@ -2063,7 +2074,7 @@ export function SettingsPage() {
                     <div className={styles.modelAddRow}>
                       <span className={styles.label}>分类</span>
                       <div className={styles.mapFilters}>
-                        {(['image', 'video', 'audio'] as const).map((category) => (
+                        {(['image', 'chat', 'video', 'audio'] as const).map((category) => (
                           <button
                             key={category}
                             type="button"
@@ -2345,6 +2356,116 @@ export function SettingsPage() {
         </div>
       </div>
       )}
+      {profileDrawerOpen && selected
+        ? createPortal(
+            <div className={styles.profileDrawerLayer}>
+              <div
+                className={styles.profileDrawerBackdrop}
+                aria-hidden
+                onPointerDown={() => setProfileDrawerOpen(false)}
+              />
+              <aside
+                className={styles.profileDrawer}
+                data-settings-profile-drawer
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="settings-profile-drawer-title"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <header className={styles.profileDrawerHead}>
+                  <h2 id="settings-profile-drawer-title">编辑</h2>
+                  <button
+                    type="button"
+                    className={styles.profileDrawerClose}
+                    data-settings-profile-close
+                    aria-label="关闭编辑"
+                    title="关闭"
+                    onClick={() => setProfileDrawerOpen(false)}
+                  >
+                    <IconClose size={18} />
+                  </button>
+                </header>
+                <div className={styles.profileDrawerBody}>
+                  <div className={styles.profileAvatarPreview}>
+                    <SettingsChannelAvatar
+                      protocol={selected.protocol}
+                      icon={profileIconDraft}
+                      name={profileNameDraft}
+                      size={76}
+                    />
+                  </div>
+                  <div className={styles.profileAvatarActions}>
+                    <label
+                      className={styles.profileAvatarButton}
+                      data-settings-profile-upload
+                    >
+                      <IconImageUpload size={16} />
+                      图片上传
+                      <input
+                        ref={profileFileRef}
+                        className={styles.fileInput}
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          void handleProfileIconFile(event.target.files?.[0])
+                          event.target.value = ''
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className={styles.profileAvatarButton}
+                      data-settings-profile-builtin
+                      onClick={() => setProfileIconDraft(null)}
+                    >
+                      <IconChannels size={16} />
+                      内置头像
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.profileAvatarButton}
+                      data-settings-profile-reset
+                      onClick={() => setProfileIconDraft(selected.icon)}
+                    >
+                      <IconResetAvatar size={16} />
+                      重置头像
+                    </button>
+                  </div>
+                  <label className={styles.profileField}>
+                    <span>
+                      服务商名称 <b aria-hidden>*</b>
+                    </span>
+                    <input
+                      className={styles.profileInput}
+                      data-settings-profile-name
+                      value={profileNameDraft}
+                      onChange={(event) => setProfileNameDraft(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <footer className={styles.profileDrawerFoot}>
+                  <button
+                    type="button"
+                    className={styles.profileCancel}
+                    onClick={() => setProfileDrawerOpen(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.profileSave}
+                    data-settings-profile-save
+                    disabled={profileSaving || !profileNameDraft.trim()}
+                    onClick={() => void saveProfileDrawer()}
+                  >
+                    {profileSaving ? '保存中' : '保存'}
+                  </button>
+                </footer>
+              </aside>
+            </div>,
+            document.body,
+          )
+        : null}
       {channelMenu && menuChannel
         ? createPortal(
             <div

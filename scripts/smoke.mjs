@@ -1408,7 +1408,7 @@ async function configureMockChannel(
     }
   }
   const beforeIds = new Set((await sharedRows(page, 'channels')).map((row) => String(row.id)))
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   const created = (await sharedRows(page, 'channels'))
     .filter((row) => !beforeIds.has(String(row.id)))
@@ -2240,7 +2240,7 @@ async function g7(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G8 设置页：新增服务 → 验证地址 → 拉取/选择模型 → 已选模型持久化（M2-1 + §7.4 真机验收）
+// G8 设置页：添加服务商 → 验证地址 → 拉取/选择模型 → 已选模型持久化（M2-1 + §7.4 真机验收）
 // ────────────────────────────────────────────────────────────
 async function g8(browser) {
   const g = 'G8 设置页'
@@ -2252,10 +2252,10 @@ async function g8(browser) {
   await sleep(400)
 
   // 新增一个 mock 渠道
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   const created = await page.getByText('新建服务').first().isVisible().catch(() => false)
-  rec(g, '新增服务出现在列表', created)
+  rec(g, '添加服务商出现在列表', created)
   /**
    * ⚠️ 定位到**正在编辑的那条**（`data-channel-selected`），不是 `.first()`。
    * 2026-10-08：列表最前常驻内置渠道，`.first()` 拿到的是 ModelScope（MS）——
@@ -6221,7 +6221,7 @@ async function g42(browser) {
 
   // 6) 建渠道但**不启用** → 文案必须切换。
   //    这两种情况用户最容易混淆：以为「建过」就等于「配好了」。
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(500)
   await page.getByText('新建服务').first().click()
   await sleep(300)
@@ -6415,7 +6415,7 @@ async function g43(browser) {
 
   await gotoSettings(page)
   await sleep(400)
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(500)
 
   // A) mock 基线：通过，但状态行必须点明协议、并说清「没出网」
@@ -6494,13 +6494,13 @@ async function g44(browser) {
   const emptyHint = await page.locator(USER_CHANNEL).count()
   rec(g, '起始：内置渠道常驻 + 用户侧无渠道（本组自带状态）', builtinRows === 4 && emptyHint === 0, `内置=${builtinRows} 用户=${emptyHint}`)
 
-  // ① 建两条：新渠道排在**末尾**（与下方「+ 新增服务」按钮的位置一致）
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  // ① 建两条：新渠道排在**末尾**（与下方「+ 添加服务商」按钮的位置一致）
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   await page.locator('[data-settings-name]').fill('渠道甲')
   await page.getByRole('button', { name: '保存配置' }).click()
   await sleep(350)
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   await page.locator('[data-settings-name]').fill('渠道乙')
   await page.getByRole('button', { name: '保存配置' }).click()
@@ -6883,7 +6883,7 @@ async function g45(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
 
   /**
@@ -6989,7 +6989,7 @@ async function g45(browser) {
   )
 
   // ③ 右键菜单删除：二次确认后才删
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   const before = await page.locator(USER_CHANNEL).count()
   const removableRow = page.locator(USER_CHANNEL).nth(0)
@@ -11848,7 +11848,7 @@ async function g69(browser) {
   /**
    * 再建第二条渠道，形成「多渠道」场景。
    *
-   * 这里不走 `configureMockChannel`：它用 `getByText('新建服务').first()` 定位「+ 新增服务」，
+   * 这里不走 `configureMockChannel`：它用 `getByText('新建服务').first()` 定位「+ 添加服务商」，
    * 而第一条渠道建完以后左栏已经有一个叫「新建服务」的列表项，`.first()` 会点中那一条，
    * 于是第二条根本建不出来（实测：面板里的渠道数恒为 1）。
    * 改用稳定的 `data-channel-add` 锚点。
@@ -12774,21 +12774,69 @@ async function g74(browser) {
     !!centered && Math.abs(centered.formCenter - centered.editorCenter) <= 2,
     centered ? `表单中心=${centered.formCenter} 工作区中心=${centered.editorCenter} 宽=${centered.formW}px` : 'missing',
   )
-  const serviceGroups = await page
-    .locator('[data-channel-group]')
+  const sidebarChrome = await page.evaluate(() => {
+    const list = document.querySelector('[data-channel-list]')
+    const add = document.querySelector('[data-channel-add]')
+    return {
+      search: document.querySelectorAll('[data-channel-search]').length,
+      groupLabels: document.querySelectorAll('[data-channel-group]').length,
+      inListAdd: list?.querySelectorAll('[data-channel-add]').length ?? -1,
+      fixedAdd:
+        Array.from(add?.parentElement?.classList ?? []).some((name) =>
+          name.includes('sidebarFoot'),
+        ),
+      listScrollable: !!list && list.scrollHeight > list.clientHeight,
+    }
+  })
+  rec(
+    g,
+    '左栏改为搜索 + 可滚动列表 + 固定底部添加',
+    sidebarChrome.search === 1 &&
+      sidebarChrome.groupLabels === 0 &&
+      sidebarChrome.inListAdd === 0 &&
+      sidebarChrome.listScrollable &&
+      sidebarChrome.fixedAdd,
+    JSON.stringify(sidebarChrome),
+  )
+  const totalRows = await page.locator('[data-channel-item]').count()
+  await page.locator('[data-channel-search]').fill('ModelScope')
+  await sleep(200)
+  const searchedRows = await page.locator('[data-channel-item]').count()
+  await page.locator('[data-channel-search]').fill('')
+  await sleep(200)
+  rec(
+    g,
+    '搜索框按服务名称实时过滤',
+    searchedRows > 0 && searchedRows < totalRows,
+    `${totalRows} → ${searchedRows}`,
+  )
+  await page.locator('[data-choice-picker="channel-filter"] button').click()
+  const filterLabels = await page
+    .locator('[data-choice-option]')
     .evaluateAll((els) =>
-      els.map((el) => ({
-        kind: el.getAttribute('data-channel-group'),
-        text: el.textContent?.trim() ?? '',
-      })),
+      els.map((el) => (el.textContent ?? '').replace('✓', '').trim()),
     )
   rec(
     g,
-    '模型服务列表分为内置服务与我的服务',
-    serviceGroups.some((item) => item.kind === 'builtin' && item.text.includes('内置服务')) &&
-      serviceGroups.some((item) => item.kind === 'custom' && item.text.includes('我的服务')),
-    JSON.stringify(serviceGroups),
+    '筛选只有全部 / 已启用 / 已禁用三项',
+    JSON.stringify(filterLabels) ===
+      JSON.stringify(['全部服务商', '仅已启用', '仅已禁用']),
+    filterLabels.join(' · '),
   )
+  await page.locator('[data-choice-option="enabled"]').click()
+  await sleep(200)
+  const enabledFilter = await page
+    .locator('[data-channel-state-dot]')
+    .evaluateAll((els) => els.every((el) => el.getAttribute('data-enabled') === 'true'))
+  await page.locator('[data-choice-picker="channel-filter"] button').click()
+  await page.locator('[data-choice-option="disabled"]').click()
+  await sleep(200)
+  const disabledFilter = await page
+    .locator('[data-channel-state-dot]')
+    .evaluateAll((els) => els.every((el) => el.getAttribute('data-enabled') === 'false'))
+  await page.locator('[data-choice-picker="channel-filter"] button').click()
+  await page.locator('[data-choice-option="all"]').click()
+  rec(g, '启用状态筛选正确', enabledFilter && disabledFilter, `${enabledFilter}/${disabledFilter}`)
   const rowInteraction = await page.evaluate(() => {
     const selected = document.querySelector('[data-channel-selected="true"]')
     if (!selected) return null
@@ -12810,6 +12858,31 @@ async function g74(browser) {
       rowInteraction.menuTrigger === 1 &&
       rowInteraction.removeButton === 0,
     JSON.stringify(rowInteraction),
+  )
+  const rowAvatars = await page.locator('[data-channel-icon-box]').evaluateAll((els) =>
+    els.map((box) => {
+      const visual = box.querySelector('[data-channel-icon], [data-channel-monogram]')
+      const rect = visual?.getBoundingClientRect()
+      return {
+        kind: visual?.hasAttribute('data-channel-monogram') ? 'monogram' : 'brand',
+        width: rect ? Math.round(rect.width) : 0,
+        height: rect ? Math.round(rect.height) : 0,
+        radius: visual ? getComputedStyle(visual).borderRadius : '',
+      }
+    }),
+  )
+  rec(
+    g,
+    '服务图标统一为 24px 圆角矩形，无图标时显示名称首字',
+    rowAvatars.length > 0 &&
+      rowAvatars.every(
+        (icon) =>
+          icon.width === 24 &&
+          icon.height === 24 &&
+          parseFloat(icon.radius) >= 5,
+      ) &&
+      rowAvatars.some((icon) => icon.kind === 'monogram'),
+    JSON.stringify(rowAvatars.slice(0, 6)),
   )
   const selectedRow = page.locator('[data-channel-selected="true"]')
   await selectedRow.hover()
@@ -12869,6 +12942,32 @@ async function g74(browser) {
       builtinId,
     builtinId,
   )
+  const profileDrawerOpen = await page
+    .locator('[data-settings-profile-drawer]')
+    .isVisible()
+    .catch(() => false)
+  rec(g, '右键“编辑”打开右侧资料浮层', profileDrawerOpen)
+  await page.locator('[data-settings-profile-close]').click()
+  const compactHeader = await page.evaluate(() => {
+    const name = document.querySelector('[data-settings-name]')
+    return {
+      nameTag: name?.tagName ?? '',
+      fontSize: name ? parseFloat(getComputedStyle(name).fontSize) : 0,
+      gear: document.querySelectorAll('[data-settings-profile-edit]').length,
+      legacyIconBlock: document.querySelectorAll('[data-channel-icon-row]').length,
+      basicsSection: document.querySelectorAll('[data-settings-basics]').length,
+    }
+  })
+  rec(
+    g,
+    '主编辑区名称放大并带设置齿轮，旧服务图标块已移除',
+    compactHeader.nameTag === 'SPAN' &&
+      compactHeader.fontSize >= 20 &&
+      compactHeader.gear === 1 &&
+      compactHeader.legacyIconBlock === 0 &&
+      compactHeader.basicsSection === 0,
+    JSON.stringify(compactHeader),
+  )
   const editorChrome = await page.evaluate(() => {
     const selected = document.querySelector('[data-channel-selected="true"]')
     const head = document.querySelector('[data-settings-provider-head]')
@@ -12888,9 +12987,52 @@ async function g74(browser) {
       editorChrome.nativeSelects === 0,
     JSON.stringify(editorChrome),
   )
+  const originalHeaderName = (await page.locator('[data-settings-name]').innerText()).trim()
+  await page.locator('[data-settings-profile-edit]').click()
+  await page.locator('[data-settings-profile-drawer]').waitFor({ state: 'visible', timeout: 5000 })
+  await page.screenshot({ path: `${OUT}/736-profile-drawer.png` })
+  const drawerGeometry = await page.locator('[data-settings-profile-drawer]').evaluate((el) => {
+    const rect = el.getBoundingClientRect()
+    return {
+      width: Math.round(rect.width),
+      right: Math.round(window.innerWidth - rect.right),
+      upload: el.querySelectorAll('[data-settings-profile-upload]').length,
+      builtin: el.querySelectorAll('[data-settings-profile-builtin]').length,
+      reset: el.querySelectorAll('[data-settings-profile-reset]').length,
+      save: el.querySelectorAll('[data-settings-profile-save]').length,
+    }
+  })
+  rec(
+    g,
+    '齿轮打开右侧编辑抽屉，包含头像操作、名称与保存',
+    drawerGeometry.width === 420 &&
+      drawerGeometry.right === 0 &&
+      drawerGeometry.upload === 1 &&
+      drawerGeometry.builtin === 1 &&
+      drawerGeometry.reset === 1 &&
+      drawerGeometry.save === 1,
+    JSON.stringify(drawerGeometry),
+  )
+  const editedName = `${originalHeaderName} 编辑`
+  await page.locator('[data-settings-profile-name]').fill(editedName)
+  await page.locator('[data-settings-profile-save]').click()
+  await page.locator('[data-settings-profile-drawer]').waitFor({ state: 'detached', timeout: 5000 })
+  rec(
+    g,
+    '资料抽屉保存后主界面名称同步更新',
+    (await page.locator('[data-settings-name]').innerText()).trim() === editedName,
+    editedName,
+  )
+  await page.locator('[data-settings-profile-edit]').click()
+  await page.locator('[data-settings-profile-name]').fill(originalHeaderName)
+  await page.locator('[data-settings-profile-save]').click()
+  await page.locator('[data-settings-profile-drawer]').waitFor({ state: 'detached', timeout: 5000 })
   await page.locator('[data-global-model-add-toggle]').click()
   await page.locator('[data-global-model-form]').waitFor({ state: 'visible', timeout: 5000 })
   const vendorCount = await page.locator('[data-global-model-vendor]').count()
+  const categoryValues = await page
+    .locator('[data-global-model-category]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-global-model-category')))
   const hasUnknownCategory = await page
     .locator('[data-settings-card]')
     .getByText('未分类', { exact: true })
@@ -12898,8 +13040,10 @@ async function g74(browser) {
   rec(
     g,
     '前端模型图标库完整，不再出现未分类',
-    vendorCount >= 36 && hasUnknownCategory === 0,
-    `图标厂商=${vendorCount} 未分类=${hasUnknownCategory}`,
+    vendorCount >= 36 &&
+      hasUnknownCategory === 0 &&
+      JSON.stringify(categoryValues) === JSON.stringify(['image', 'chat', 'video', 'audio']),
+    `图标厂商=${vendorCount} 分类=${categoryValues.join(',')} 未分类=${hasUnknownCategory}`,
   )
   await page.locator('[data-global-model-add-toggle]').click()
   const firstMapRow = page.locator('[data-route-map-row]').first()
@@ -12961,39 +13105,28 @@ async function g74(browser) {
   )
   rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
-  /**
-   * ★★ 用户 2026-09-28：「新增服务和删除渠道这两个功能不要放在最底部了，
-   * 跟随渠道选择的最后一个即可」。
-   *
-   * 之前列表 `flex:1` 把这一组挤到左栏底部，渠道少时跟条目之间隔着大片空白，
-   * 视线要跨越整个列表。判据：`[data-channel-actions]` 是渠道列表的**最后一个**
-   * 子节点，且排在最后一条 `[data-channel-item]` 之后 —— 这样「新增 / 删除」
-   * 永远贴着最后一条渠道，新增一条就自动跟着往下走。
-   *
-   * 注意复用上面已经选中的渠道状态，**不要再次导航**：重复 `goto('/settings')`
-   * 会重置 `selectedId`，并让后续「改预设词 → 画布优化」流程出现时序漂移。
-   */
-  const listActionsOrder = await page.evaluate(() => {
-    const actions = document.querySelector('[data-channel-actions]')
-    const list = actions?.parentElement
-    if (!actions || !list) return null
-    const kids = Array.from(list.children)
-    const items = list.querySelectorAll('[data-channel-item]')
+  const fixedSidebar = await page.evaluate(() => {
+    const sidebar = document.querySelector('[data-settings-sidebar]')
+    const tools = document.querySelector('[data-channel-tools]')
+    const list = document.querySelector('[data-channel-list]')
+    const add = document.querySelector('[data-channel-add]')
+    if (!sidebar || !tools || !list || !add) return null
+    const children = Array.from(sidebar.children)
     return {
-      isLast: kids[kids.length - 1] === actions,
-      itemCount: items.length,
-      afterLastItem:
-        items.length > 0 &&
-        items[items.length - 1].compareDocumentPosition(actions) === Node.DOCUMENT_POSITION_FOLLOWING,
+      order: children.indexOf(tools) < children.indexOf(list) &&
+        children.indexOf(list) < children.indexOf(add.parentElement),
+      addOutsideList: !list.contains(add),
+      listOverflow: getComputedStyle(list).overflowY,
     }
   })
   rec(
     g,
-    '★★ 新增/删除渠道跟在最后一条渠道后面（不再是列表底部孤零零一组）',
-    !!listActionsOrder && listActionsOrder.isLast && listActionsOrder.afterLastItem,
-    listActionsOrder
-      ? `是列表最后子节点=${listActionsOrder.isLast} 渠道数=${listActionsOrder.itemCount} 在末条之后=${listActionsOrder.afterLastItem}`
-      : 'missing',
+    '搜索筛选固定在上、服务列表独立滚动、添加服务商固定在底部',
+    !!fixedSidebar &&
+      fixedSidebar.order &&
+      fixedSidebar.addOutsideList &&
+      fixedSidebar.listOverflow === 'auto',
+    JSON.stringify(fixedSidebar),
   )
 
   /**
@@ -13015,7 +13148,6 @@ async function g74(browser) {
     const layout = document.querySelector('[data-settings-card]')
     const globalCard = document.querySelector('[data-settings-global-route]')
     const sel = [
-      '[data-settings-basics]',
       '[data-settings-connection]',
       '[data-settings-models]',
       '[data-settings-channel-route]',
@@ -13046,7 +13178,7 @@ async function g74(browser) {
   })
   rec(
     g,
-    '★★ 模型服务分段（基本信息 / 连接与鉴权 / 模型列表 / 渠道权重与模型映射）',
+    '★★ 模型服务分段（连接与鉴权 / 模型列表 / 渠道权重与模型映射）',
     !!cardOrder && cardOrder.counts.every((n) => n === 1) && cardOrder.ordered,
     cardOrder ? `各卡片数=${cardOrder.counts.join(',')} 顺序正确=${cardOrder.ordered}` : 'missing',
   )
@@ -13064,28 +13196,11 @@ async function g74(browser) {
       : 'missing',
   )
 
-  /**
-   * 浏览器批注（用户 2026-09-29）：「按住条目上下拖动这个提示文字放在新增服务的上方」。
-   * 判据：提示文字与 `[data-channel-add]` 同容器，且出现在它**之前**。
-   */
-  const dragHintOrder = await page.evaluate(() => {
-    const hint = Array.from(document.querySelectorAll('[data-channel-actions] p')).find((p) =>
-      (p.textContent ?? '').includes('拖动排序'),
-    )
-    const add = document.querySelector('[data-channel-add]')
-    if (!hint || !add) return null
-    return {
-      sharesContainer: hint.parentElement === add.parentElement,
-      beforeAdd: hint.compareDocumentPosition(add) === Node.DOCUMENT_POSITION_FOLLOWING,
-    }
-  })
   rec(
     g,
-    '★★ 拖动提示文字在「+ 新增服务」上方（浏览器批注）',
-    !!dragHintOrder && dragHintOrder.sharesContainer && dragHintOrder.beforeAdd,
-    dragHintOrder
-      ? `同一容器=${dragHintOrder.sharesContainer} 在新增之前=${dragHintOrder.beforeAdd}`
-      : 'missing',
+    '拖动说明小字已移除，把手只在服务行悬停时出现',
+    (await page.locator('[data-channel-actions]').count()) === 0 &&
+      (await page.getByText('拖动排序', { exact: false }).count()) === 0,
   )
 
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
@@ -16474,7 +16589,7 @@ async function g88(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   await page.getByText('新建服务').first().click()
   await sleep(300)
@@ -16595,7 +16710,7 @@ async function g89(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增服务/ }).click()
+  await page.getByRole('button', { name: /添加服务商/ }).click()
   await sleep(400)
   await page.getByText('新建服务').first().click()
   await sleep(300)

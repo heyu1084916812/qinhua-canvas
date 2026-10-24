@@ -314,6 +314,65 @@
   min-height: 0;
 }
 
+.sidebarTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.channelSearch {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-app);
+  color: var(--text-3);
+}
+
+.channelSearch:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.channelSearch input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+}
+
+.channelSearch input::placeholder {
+  color: var(--text-3);
+}
+
+.channelFilterPicker {
+  flex: 0 0 34px;
+  width: 34px;
+}
+
+.sidebarFoot {
+  flex: 0 0 auto;
+  padding-top: var(--space-2);
+}
+
+.sidebarFoot .addBtn {
+  width: 100%;
+  min-height: 34px;
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
 .addBtn {
   border: var(--border);
   border-radius: var(--radius-control);
@@ -514,6 +573,46 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.channelMonogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  font-weight: var(--fw-title);
+  line-height: 1;
+}
+
+.monogramTone0 {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.monogramTone1 {
+  background: var(--success);
+  color: var(--accent-text);
+}
+
+.monogramTone2 {
+  background: var(--danger);
+  color: var(--accent-text);
+}
+
+.monogramTone3 {
+  background: var(--focus-ring);
+  color: var(--accent-text);
+}
+
+.monogramTone4 {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.monogramTone5 {
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 /** 右：名称 + 启用开关两排，整体在方块那个高度（56px）里垂直居中 */
 .itemBody {
@@ -874,37 +973,48 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 44px;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border);
 }
 
-.providerNameInput {
+.providerNameGroup {
   min-width: 0;
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.providerNameText {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-1);
-  font: inherit;
-  font-size: var(--fs-panel-title);
+  font-size: 20px;
   font-weight: var(--fw-panel-title);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.providerNameInput:hover:not(:disabled) {
-  background: var(--bg-subtle);
+.providerGear {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
 }
 
-.providerNameInput:focus {
-  outline: none;
-  border-color: var(--stroke-focus);
-  background: var(--bg-surface);
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-
-.providerNameInput:disabled {
+.providerGear:hover {
+  background: var(--bg-hover);
   color: var(--text-1);
-  cursor: default;
 }
 
 .editorSection {
@@ -913,6 +1023,182 @@
   gap: var(--space-3);
   padding: var(--space-1) 0 var(--space-5);
   border-bottom: var(--border);
+}
+
+.profileDrawerLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.profileDrawerBackdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text-1) 20%, transparent);
+}
+
+.profileDrawer {
+  position: relative;
+  z-index: 1;
+  width: min(420px, calc(100vw - 24px));
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-left: var(--border);
+  border-radius: var(--radius-node) 0 0 var(--radius-node);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+.profileDrawerHead {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+}
+
+.profileDrawerHead h2 {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+}
+
+.profileDrawerClose {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.profileDrawerClose:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.profileDrawerBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-5);
+}
+
+.profileAvatarPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profileAvatarActions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.profileAvatarButton {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-app);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.profileAvatarButton:hover {
+  background: var(--bg-hover);
+}
+
+.profileField {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.profileField b {
+  color: var(--danger);
+  font-weight: var(--fw-chip);
+}
+
+.profileInput {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-app);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-body);
+}
+
+.profileInput:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.profileDrawerFoot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border);
+}
+
+.profileCancel,
+.profileSave {
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.profileCancel {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.profileSave {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.profileSave:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .editorSection:last-child {

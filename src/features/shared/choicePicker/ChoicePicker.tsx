@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import styles from './ChoicePicker.module.css'
 
 export interface ChoiceOption {
@@ -19,6 +19,9 @@ export interface ChoicePickerProps {
   disabled?: boolean
   className?: string
   compact?: boolean
+  triggerIcon?: ReactNode
+  iconOnly?: boolean
+  alignEnd?: boolean
 }
 
 const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
@@ -33,6 +36,9 @@ export function ChoicePicker({
   disabled = false,
   className,
   compact = false,
+  triggerIcon,
+  iconOnly = false,
+  alignEnd = false,
 }: ChoicePickerProps) {
   const [open, setOpen] = useState(false)
   const [above, setAbove] = useState(false)
@@ -81,6 +87,7 @@ export function ChoicePicker({
         className={[
           styles.trigger,
           compact ? styles.compact : '',
+          iconOnly ? styles.iconOnly : '',
           open ? styles.triggerOpen : '',
         ]
           .filter(Boolean)
@@ -89,28 +96,41 @@ export function ChoicePicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
+        title={iconOnly ? current?.label ?? ariaLabel : undefined}
         onClick={() => setOpen((next) => !next)}
       >
-        <span className={styles.triggerLabel}>{current?.label ?? placeholder}</span>
-        <svg
-          className={open ? `${styles.chevron} ${styles.chevronOpen}` : styles.chevron}
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M3.5 5.25 7 8.75l3.5-3.5" />
-        </svg>
+        {iconOnly && triggerIcon ? (
+          <span className={styles.triggerIcon}>{triggerIcon}</span>
+        ) : (
+          <>
+            <span className={styles.triggerLabel}>{current?.label ?? placeholder}</span>
+            <svg
+              className={open ? `${styles.chevron} ${styles.chevronOpen}` : styles.chevron}
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M3.5 5.25 7 8.75l3.5-3.5" />
+            </svg>
+          </>
+        )}
       </button>
       {open && (
         <div
           ref={popRef}
-          className={[styles.popup, above ? styles.above : styles.below].join(' ')}
+          className={[
+            styles.popup,
+            above ? styles.above : styles.below,
+            alignEnd ? styles.alignEnd : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           role="listbox"
           aria-label={ariaLabel}
         >

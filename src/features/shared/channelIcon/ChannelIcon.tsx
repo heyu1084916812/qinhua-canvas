@@ -23,6 +23,10 @@ const LOGOS: Record<string, string> = {
   '65535-image-sync': logo65535,
 }
 
+export function hasChannelBrandIcon(protocol: string): boolean {
+  return Boolean(LOGOS[protocol])
+}
+
 /**
  * 渠道图标（用户第 19 批 #4/#5）。
  *

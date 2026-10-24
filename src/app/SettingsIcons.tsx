@@ -186,3 +186,65 @@ export function IconGrip({ size = 16 }: IconProps) {
     </svg>
   )
 }
+
+/** 搜索模型服务。 */
+export function IconSearch({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <circle cx="10.8" cy="10.8" r="6.3" />
+      <path d="m15.5 15.5 4 4" />
+    </svg>
+  )
+}
+
+/** 按启用状态筛选。 */
+export function IconFilter({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M4.5 5.5h15l-6 7v5.2l-3 1.3v-6.5Z" />
+      <path d="M8 9h8M10 12h4" />
+    </svg>
+  )
+}
+
+/** 上传渠道头像。 */
+export function IconImageUpload({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="8.5" cy="9" r="1.4" />
+      <path d="m5.5 17 4.4-4.2 3.2 2.8 2.5-2.2 2.9 3.6M17 3.5v5M14.5 6h5" />
+    </svg>
+  )
+}
+
+/** 恢复内置头像。 */
+export function IconResetAvatar({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M5.2 8.2A7.5 7.5 0 1 1 4.5 13" />
+      <path d="M4.5 4.8v3.8h3.8" />
+      <circle cx="12" cy="10" r="2.2" />
+      <path d="M8.4 17a4.2 4.2 0 0 1 7.2 0" />
+    </svg>
+  )
+}
+
+/** 打开服务资料编辑。 */
+export function IconGear({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.2 13.2a7.6 7.6 0 0 0 0-2.4l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2-1.2L14.5 3h-4l-.3 2.7a8 8 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2.4l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2 1.2l.3 2.7h4l.3-2.7a8 8 0 0 0 2-1.2l2.4 1 2-3.4Z" />
+    </svg>
+  )
+}
+
+/** 关闭浮层。 */
+export function IconClose({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
+  )
+}

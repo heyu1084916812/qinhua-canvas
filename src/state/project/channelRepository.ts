@@ -270,15 +270,14 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     current = await list()
 
     /**
-     * 内置渠道的名称与协议是固定契约；旧版本可能把同一个 id 写成拆分协议
-     * （例如 `65535-chat`），这里同步回当前目录。**地址不动**——那是用户可改项。
+     * 内置渠道只固定 id 与协议；名称和头像是用户可以编辑的资料。
+     * 旧版本可能把同一个 id 写成拆分协议（例如 `65535-chat`），这里同步回当前目录。
      */
     for (const spec of BUILTIN_CHANNELS) {
       const existing = current.find((channel) => channel.id === spec.id)
-      if (!existing || (existing.name === spec.name && existing.protocol === spec.protocol)) continue
+      if (!existing || existing.protocol === spec.protocol) continue
       await storage.put('channels', {
         ...existing,
-        name: spec.name,
         protocol: spec.protocol,
       } as unknown as RowOf<TableName>)
     }
@@ -343,12 +342,8 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     const existing = await get(id)
     if (!existing) throw new Error(`[channelRepo] 渠道不存在：${id}`)
     const spec = builtinSpecOf(id)
-    /**
-     * 内置渠道的**名称与协议固定**（用户第 20 批：「固定字段是的」）：
-     * 把这两键从补丁里剔掉，谁调 `update` 都改不动它们 —— 界面禁用只是第一道，
-     * 拦在这里才是"改不动"本身。**地址不剔**（用户：「站点地址留口子」）。
-     */
-    const safe: Partial<Channel> = spec ? { ...patch, name: spec.name, protocol: spec.protocol } : patch
+    /** 内置渠道仍固定协议；名称和头像允许在资料抽屉里编辑。 */
+    const safe: Partial<Channel> = spec ? { ...patch, protocol: spec.protocol } : patch
     const next: Channel = withGroupAggregates({ ...existing, ...safe, id })
     await storage.put('channels', next as unknown as RowOf<TableName>)
     return next
