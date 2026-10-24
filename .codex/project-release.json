@@ -20,7 +20,7 @@
       "npm run check",
       "npm run build"
     ],
-    "artifact": "release/0.1.7/qinghua_0.1.7_x64-setup.exe"
+    "artifact": "release/0.1.8/qinghua_0.1.8_x64-setup.exe"
   },
   "github": {
     "repository": "heyu1084916812/qinhua-canvas",
@@ -29,7 +29,7 @@
   },
   "local_mirrors": {
     "current": [
-      "release/0.1.7"
+      "release/0.1.8"
     ],
     "history": "release",
     "archive_superseded": false

@@ -737,9 +737,11 @@ mod tests {
         assert_eq!(report.assets_local, 1);
         assert!(target.join("manifest.json").is_file());
         assert!(target.join("migration-report.json").is_file());
-        assert!(std::fs::read_to_string(target.join(".migration-state.json"))
-            .unwrap()
-            .contains("\"complete\""));
+        assert!(
+            std::fs::read_to_string(target.join(".migration-state.json"))
+                .unwrap()
+                .contains("\"complete\"")
+        );
         let store = SqliteStore::open(&target).unwrap();
         assert_eq!(
             store.asset_bytes(&hash).unwrap().0,

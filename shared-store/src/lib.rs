@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
@@ -12,11 +12,13 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 mod hash;
 pub mod migration;
 pub mod sqlite;
+pub mod v2_admin;
 
 pub const PORT: u16 = 18765;
 
 static STARTED: OnceLock<()> = OnceLock::new();
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static ACTIVE_BACKEND: OnceLock<Arc<RwLock<Arc<dyn StoreBackend>>>> = OnceLock::new();
 
 #[derive(Clone)]
 struct Store {
@@ -873,6 +875,30 @@ fn select_backend(data_dir: &Path) -> Result<Arc<dyn StoreBackend>, String> {
     }
 }
 
+fn open_backend(data_dir: &Path, requested: &str) -> Result<Arc<dyn StoreBackend>, String> {
+    match requested.trim().to_ascii_lowercase().as_str() {
+        "json" | "json-v1" | "v1" => Ok(Arc::new(Store {
+            root: Arc::new(data_dir.to_path_buf()),
+            lock: Arc::new(Mutex::new(())),
+            maintenance: Arc::new(AtomicBool::new(false)),
+        })),
+        "sqlite" | "sqlite-v2" | "v2" => Ok(Arc::new(sqlite::SqliteStore::open(data_dir)?)),
+        other => Err(format!("unsupported storage backend: {other}")),
+    }
+}
+
+pub fn switch_backend(data_dir: &Path, backend: &str) -> Result<(), String> {
+    let next = open_backend(data_dir, backend)?;
+    let active = ACTIVE_BACKEND
+        .get()
+        .ok_or_else(|| "shared-store has not started".to_string())?;
+    let mut guard = active
+        .write()
+        .map_err(|_| "shared-store backend lock poisoned".to_string())?;
+    *guard = next;
+    Ok(())
+}
+
 fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, String> {
     let mut raw = Vec::new();
     request
@@ -882,7 +908,7 @@ fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, S
     serde_json::from_slice(&raw).map_err(|error| format!("parse body: {error}"))
 }
 
-fn handle(store: Arc<dyn StoreBackend>, mut request: Request) {
+fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
     let origin = request
         .headers()
         .iter()
@@ -904,6 +930,10 @@ fn handle(store: Arc<dyn StoreBackend>, mut request: Request) {
         );
         return;
     }
+    let store = backends
+        .read()
+        .expect("shared-store backend lock poisoned")
+        .clone();
 
     if request.method() == &Method::Get && path.starts_with("/asset/") {
         let id = path.trim_start_matches("/asset/");
@@ -1113,12 +1143,16 @@ pub fn start(data_dir: &Path, port: u16) -> Result<(), String> {
         Server::http(("127.0.0.1", port))
             .map_err(|error| format!("start shared store on {port}: {error}"))?,
     );
-    let store = select_backend(data_dir)?;
+    let backend = select_backend(data_dir)?;
     eprintln!(
         "[shared-store] backend={} data={}",
-        store.kind(),
-        store.root().display()
+        backend.kind(),
+        backend.root().display()
     );
+    let store = Arc::new(RwLock::new(backend));
+    ACTIVE_BACKEND
+        .set(Arc::clone(&store))
+        .map_err(|_| "shared-store already started".to_string())?;
     for _ in 0..4 {
         let server = Arc::clone(&server);
         let store = Arc::clone(&store);

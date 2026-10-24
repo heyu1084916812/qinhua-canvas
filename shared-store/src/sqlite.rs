@@ -278,6 +278,12 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn checkpoint(&self) -> Result<(), String> {
+        self.connection()?
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|err| format!("checkpoint manifest.sqlite: {err}"))
+    }
+
     pub fn set_maintenance(&self, enabled: bool) {
         self.maintenance.store(enabled, Ordering::SeqCst);
     }

@@ -15,6 +15,7 @@
  *   node scripts/release-desktop.mjs                     # 构建 + 出品
  *   node scripts/release-desktop.mjs --skip-build        # 复用已有产物，只出品
  *   node scripts/release-desktop.mjs --notes "改了啥"     # 写进清单，客户端会看到
+ *   node scripts/release-desktop.mjs --notes-file x.txt  # 从 UTF-8 文件读取，避免 PowerShell 中文编码坑
  *   node scripts/release-desktop.mjs --base-url <地址>    # 覆盖下载地址前缀
  *   node scripts/release-desktop.mjs --no-shell-check    # 跳过启动自检（不推荐）
  */
@@ -31,6 +32,18 @@ const has = (name) => args.includes(name)
 const valueOf = (name) => {
   const i = args.indexOf(name)
   return i >= 0 ? args[i + 1] : null
+}
+
+function releaseNotesFor(version) {
+  const lines = readFileSync(path.join(ROOT, 'RELEASE_NOTES.md'), 'utf8').split(/\r?\n/)
+  const start = lines.findIndex((line) => line.startsWith(`## ${version} `))
+  if (start < 0) return `轻画 ${version}`
+  const section = []
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === '---') break
+    section.push(line)
+  }
+  return section.join('\n').trim() || `轻画 ${version}`
 }
 
 /** 产物名**必须 ASCII**：中文名在 URL 里要百分号编码，换一个宿主就可能取不到文件 */
@@ -203,6 +216,10 @@ const versions = readVersions()
 const version = assertVersionsAligned(versions)
 console.log(`[release] 版本 ${version}（三处一致）`)
 assertUpdaterEndpointWired(versions.conf_json)
+const notesFile = valueOf('--notes-file')
+const notes = notesFile
+  ? readFileSync(path.resolve(ROOT, notesFile), 'utf8').trim()
+  : (valueOf('--notes') ?? releaseNotesFor(version))
 
 const key = privateKeyPath()
 if (!has('--skip-build')) runBuild(key)
@@ -271,7 +288,7 @@ copyFileSync(sigPath, path.join(outDir, `${asset}.sig`))
 
 const manifest = {
   version,
-  notes: valueOf('--notes') ?? `轻画 ${version}`,
+  notes,
   pub_date: new Date().toISOString(),
   platforms: {
     [TARGET]: { signature: readFileSync(sigPath, 'utf8').trim(), url: `${base}/${asset}` },

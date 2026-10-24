@@ -93,8 +93,8 @@ export function StoragePanel() {
         return
       }
       const info = await admin.inspectRoot?.(next)
-      if (!info?.ready) {
-        setStatus(info?.reason || '该目录不是可识别的 V1 / V2 资源目录')
+      if (info?.kind !== 'empty') {
+        setStatus(info?.reason || '新位置必须是空目录')
         return
       }
       setPendingDataDir(next)
@@ -105,15 +105,19 @@ export function StoragePanel() {
   }
 
   const applyDataDir = async () => {
-    if (!admin?.setDataDir || !pendingDataDir) return
+    if (!admin?.replaceDataDir || !pendingDataDir) return
     setSwitchingDir(true)
     try {
-      const saved = await admin.setDataDir(pendingDataDir)
+      const replaced = await admin.replaceDataDir(pendingDataDir)
       setPendingDataDir('')
-      setRootInfo((await admin.inspectRoot?.(saved)) ?? null)
-      setStatus(`资源目录已保存为「${saved}」，关闭并重新打开轻画后生效`)
+      setStatus(
+        replaced.sourceDeleted
+          ? `资源已移动到「${replaced.targetRoot}」，正在重新载入`
+          : `资源已复制并校验到「${replaced.targetRoot}」，旧位置暂未删除，正在重新载入`,
+      )
+      window.setTimeout(() => window.location.reload(), 500)
     } catch (error) {
-      setStatus(`切换资源目录失败：${String(error)}`)
+      setStatus(`更换位置失败：${String(error)}`)
     } finally {
       setSwitchingDir(false)
     }
@@ -185,7 +189,12 @@ export function StoragePanel() {
   }
 
   const usagePercent = storageUsagePercent(usage)
-  const canSwitchRoot = Boolean(admin?.pickDataDir && admin?.setDataDir && admin?.inspectRoot)
+  const canSwitchRoot = Boolean(
+    admin?.pickDataDir &&
+      admin?.replaceDataDir &&
+      admin?.inspectRoot &&
+      rootInfo?.kind === 'v2',
+  )
   const canMigrate = Boolean(
     admin?.migrateDataDir && admin?.inspectRoot && rootInfo?.kind === 'v1',
   )
@@ -296,7 +305,7 @@ export function StoragePanel() {
                   disabled={busy || switchingDir || migrationPhase !== 'idle'}
                   onClick={() => void chooseDataDir()}
                 >
-                  切换已有目录
+                  更换位置
                 </button>
               )}
               {canMigrate && (
@@ -335,7 +344,7 @@ export function StoragePanel() {
                 {pendingDataDir}
               </code>
               <p className={styles.caption}>
-                只切换当前根，不复制、不合并、不删除原目录；之后可以再切回来。
+                将完整资源根移动到新位置；校验通过后才切换，成功后删除旧位置。
               </p>
             </div>
             <div className={styles.headActions}>
@@ -357,7 +366,7 @@ export function StoragePanel() {
                 disabled={switchingDir}
                 onClick={() => void applyDataDir()}
               >
-                {switchingDir ? '正在保存…' : '保存更改'}
+                {switchingDir ? '正在移动并校验…' : '开始更换'}
               </button>
             </div>
           </div>

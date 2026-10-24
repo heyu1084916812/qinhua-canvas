@@ -583,11 +583,41 @@ const CACHE_DIR_NAMES: [&str; 8] = [
 ];
 
 const DATA_DIR_CONFIG_NAME: &str = "storage-location.json";
+const MISSING_DATA_DIR_ENV: &str = "QINGHUA_MISSING_DATA_DIR";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DataDirConfig {
     data_dir: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageStartupState {
+    kind: String,
+    current_root: Option<String>,
+    source_root: Option<String>,
+    target_root: Option<String>,
+    reason: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageUpgradeResult {
+    source_root: String,
+    target_root: String,
+    migration: Option<qinghua_shared_store::migration::MigrationReport>,
+    verification: qinghua_shared_store::v2_admin::V2Verification,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageReplaceResult {
+    mode: String,
+    source_root: String,
+    target_root: String,
+    source_deleted: bool,
+    verification: qinghua_shared_store::v2_admin::V2Verification,
 }
 
 #[derive(serde::Serialize)]
@@ -641,8 +671,8 @@ fn storage_root_info(path: &Path) -> Result<StorageRootInfo, String> {
             .get("schemaVersion")
             .and_then(serde_json::Value::as_u64)
             .map(|value| value as u32);
-        let complete = manifest.get("status").and_then(serde_json::Value::as_str)
-            == Some("complete");
+        let complete =
+            manifest.get("status").and_then(serde_json::Value::as_str) == Some("complete");
         let has_store = path.join("manifest.sqlite").is_file();
         let has_media = path.join("media").is_dir();
         let ready = complete && has_store && has_media;
@@ -674,8 +704,7 @@ fn storage_root_info(path: &Path) -> Result<StorageRootInfo, String> {
         });
     }
 
-    if path.join(".migration-state.json").is_file()
-        || path.join("migration-report.json").is_file()
+    if path.join(".migration-state.json").is_file() || path.join("migration-report.json").is_file()
     {
         return Ok(StorageRootInfo {
             path: path_text,
@@ -742,23 +771,96 @@ fn configured_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     parse_data_dir_config(&raw)
 }
 
+fn missing_data_dir() -> Option<PathBuf> {
+    std::env::var_os(MISSING_DATA_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 fn apply_data_dir_config(app: &tauri::AppHandle) {
+    std::env::remove_var(MISSING_DATA_DIR_ENV);
     if let Some(path) = configured_data_dir(app) {
-        std::env::set_var("QINGHUA_DATA_DIR", &path);
-        set_storage_backend_env(&path);
-        eprintln!("[data] 自定义主库目录：{}", path.display());
+        if path.is_dir() {
+            std::env::set_var("QINGHUA_DATA_DIR", &path);
+            set_storage_backend_env(&path);
+            eprintln!("[data] 自定义主库目录：{}", path.display());
+        } else {
+            let recovery = app
+                .path()
+                .app_local_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("storage-recovery")
+                .join(std::process::id().to_string());
+            std::env::set_var("QINGHUA_DATA_DIR", &recovery);
+            std::env::set_var("QINGHUA_STORE_BACKEND", "v1");
+            std::env::set_var(MISSING_DATA_DIR_ENV, &path);
+            eprintln!(
+                "[data] 配置的资源目录不存在：{}；进入恢复模式",
+                path.display()
+            );
+        }
         return;
     }
     let Some(exe) = std::env::current_exe().ok() else {
         return;
     };
-    if let Some(path) =
-        preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable)
-    {
+    if let Some(path) = preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable) {
         std::env::set_var("QINGHUA_DATA_DIR", &path);
         set_storage_backend_env(&path);
         eprintln!("[data] 安装目录主库：{}", path.display());
     }
+}
+
+fn v2_sibling_path(base: &Path) -> Result<PathBuf, String> {
+    let name = base
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("无法从资源目录推导 V2 路径：{}", base.display()))?;
+    let next = if let Some(prefix) = name.strip_suffix("-v1") {
+        format!("{prefix}-v2")
+    } else {
+        format!("{name}-v2")
+    };
+    let parent = base
+        .parent()
+        .ok_or_else(|| format!("资源目录没有上级目录：{}", base.display()))?;
+    Ok(parent.join(next))
+}
+
+fn automatic_v2_target(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Ok(custom) = std::env::var("QINGHUA_AUTO_V2_TARGET") {
+        let path = PathBuf::from(custom.trim());
+        if path.is_absolute() {
+            return Ok(path);
+        }
+    }
+    let exe = std::env::current_exe().map_err(|error| format!("读取程序位置失败：{error}"))?;
+    let base = preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable)
+        .unwrap_or_else(qinghua_shared_store::default_data_dir);
+    v2_sibling_path(&base)
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    left == right
+}
+
+fn target_belongs_to_v1(target: &Path, source: &Path) -> Result<bool, String> {
+    for name in ["manifest.json", "migration-report.json"] {
+        let path = target.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+        let value: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|error| format!("解析 {} 失败：{error}", path.display()))?;
+        if let Some(root) = value.get("sourceRoot").and_then(serde_json::Value::as_str) {
+            return Ok(paths_equal(Path::new(root), source));
+        }
+    }
+    Ok(false)
 }
 
 /// 选择一个新主库目录。这里只返回路径，不授权素材文件作用域。
@@ -777,6 +879,247 @@ async fn pick_data_dir(app: tauri::AppHandle) -> Option<String> {
 #[tauri::command]
 fn inspect_data_dir(path: String) -> Result<StorageRootInfo, String> {
     storage_root_info(&PathBuf::from(path.trim()))
+}
+
+#[tauri::command]
+fn storage_startup_state(app: tauri::AppHandle) -> Result<StorageStartupState, String> {
+    if let Some(missing) = missing_data_dir() {
+        return Ok(StorageStartupState {
+            kind: "missing".into(),
+            current_root: Some(missing.to_string_lossy().to_string()),
+            source_root: Some(missing.to_string_lossy().to_string()),
+            target_root: None,
+            reason: Some("原资源目录不存在，可能已被手动移动".into()),
+        });
+    }
+    let root = current_data_dir(&app).ok_or_else(|| "无法定位当前资源目录".to_string())?;
+    let info = storage_root_info(&root)?;
+    if info.kind == "v2" {
+        if let Some(pending) = qinghua_shared_store::v2_admin::read_pending_v1_cleanup(&root)? {
+            return Ok(StorageStartupState {
+                kind: "cleanupPending".into(),
+                current_root: Some(root.to_string_lossy().to_string()),
+                source_root: Some(pending.source_root),
+                target_root: Some(root.to_string_lossy().to_string()),
+                reason: None,
+            });
+        }
+        return Ok(StorageStartupState {
+            kind: "ready".into(),
+            current_root: Some(root.to_string_lossy().to_string()),
+            source_root: None,
+            target_root: None,
+            reason: None,
+        });
+    }
+    if info.kind == "v1" {
+        let target = automatic_v2_target(&app)?;
+        if target == root {
+            return Ok(StorageStartupState {
+                kind: "blocked".into(),
+                current_root: Some(root.to_string_lossy().to_string()),
+                source_root: Some(root.to_string_lossy().to_string()),
+                target_root: Some(target.to_string_lossy().to_string()),
+                reason: Some("自动 V2 目标与原 V1 目录相同".into()),
+            });
+        }
+        let target_info = storage_root_info(&target)?;
+        if !matches!(target_info.kind.as_str(), "empty" | "partial" | "v2") {
+            return Ok(StorageStartupState {
+                kind: "blocked".into(),
+                current_root: Some(root.to_string_lossy().to_string()),
+                source_root: Some(root.to_string_lossy().to_string()),
+                target_root: Some(target.to_string_lossy().to_string()),
+                reason: target_info.reason,
+            });
+        }
+        if matches!(target_info.kind.as_str(), "partial" | "v2")
+            && !target_belongs_to_v1(&target, &root)?
+        {
+            return Ok(StorageStartupState {
+                kind: "blocked".into(),
+                current_root: Some(root.to_string_lossy().to_string()),
+                source_root: Some(root.to_string_lossy().to_string()),
+                target_root: Some(target.to_string_lossy().to_string()),
+                reason: Some("自动 V2 目标已存在，但不属于当前 V1 数据".into()),
+            });
+        }
+        return Ok(StorageStartupState {
+            kind: "v1Upgrade".into(),
+            current_root: Some(root.to_string_lossy().to_string()),
+            source_root: Some(root.to_string_lossy().to_string()),
+            target_root: Some(target.to_string_lossy().to_string()),
+            reason: None,
+        });
+    }
+    Ok(StorageStartupState {
+        kind: if info.ready { "ready" } else { "blocked" }.into(),
+        current_root: Some(root.to_string_lossy().to_string()),
+        source_root: None,
+        target_root: None,
+        reason: info.reason,
+    })
+}
+
+#[tauri::command]
+async fn auto_upgrade_storage(app: tauri::AppHandle) -> Result<StorageUpgradeResult, String> {
+    let state = storage_startup_state(app.clone())?;
+    if state.kind != "v1Upgrade" {
+        return Err("当前资源目录不需要自动 V1 → V2 升级".into());
+    }
+    let source = PathBuf::from(state.source_root.ok_or("缺少 V1 源目录")?);
+    let target = PathBuf::from(state.target_root.ok_or("缺少 V2 目标目录")?);
+    set_storage_maintenance(true).await?;
+    let outcome: Result<StorageUpgradeResult, String> = async {
+        let target_info = storage_root_info(&target)?;
+        let (migration, verification) = if target_info.kind == "v2" {
+            let verification = tauri::async_runtime::spawn_blocking({
+                let target = target.clone();
+                move || qinghua_shared_store::v2_admin::verify_v2_root(&target)
+            })
+            .await
+            .map_err(|error| format!("V2 校验任务异常结束：{error}"))??;
+            (None, verification)
+        } else {
+            let migration = tauri::async_runtime::spawn_blocking({
+                let source = source.clone();
+                let target = target.clone();
+                move || qinghua_shared_store::migration::migrate_v1_to_v2(&source, &target, false)
+            })
+            .await
+            .map_err(|error| format!("自动迁移任务异常结束：{error}"))??;
+            let verification = tauri::async_runtime::spawn_blocking({
+                let target = target.clone();
+                move || qinghua_shared_store::v2_admin::verify_v2_root(&target)
+            })
+            .await
+            .map_err(|error| format!("V2 校验任务异常结束：{error}"))??;
+            (Some(migration), verification)
+        };
+        if !verification.ok {
+            return Err(format!(
+                "V2 校验发现 {} 个缺失项，已保留 V1",
+                verification.failures.len()
+            ));
+        }
+        qinghua_shared_store::v2_admin::write_pending_v1_cleanup(&target, &source)?;
+        qinghua_shared_store::switch_backend(&target, "v2")?;
+        if let Err(error) = save_data_dir_config(&app, &target) {
+            let _ = qinghua_shared_store::v2_admin::clear_pending_v1_cleanup(&target);
+            let _ = qinghua_shared_store::switch_backend(&source, "v1");
+            return Err(error);
+        }
+        Ok(StorageUpgradeResult {
+            source_root: source.to_string_lossy().to_string(),
+            target_root: target.to_string_lossy().to_string(),
+            migration,
+            verification,
+        })
+    }
+    .await;
+    if outcome.is_err() {
+        let _ = set_storage_maintenance(false).await;
+    }
+    outcome
+}
+
+#[tauri::command]
+async fn finalize_storage_upgrade(
+    app: tauri::AppHandle,
+) -> Result<qinghua_shared_store::v2_admin::V2Verification, String> {
+    let root = current_data_dir(&app).ok_or_else(|| "无法定位当前资源目录".to_string())?;
+    set_storage_maintenance(true).await?;
+    let verification = tauri::async_runtime::spawn_blocking({
+        let root = root.clone();
+        move || qinghua_shared_store::v2_admin::finalize_v1_cleanup(&root)
+    })
+    .await
+    .map_err(|error| format!("V1 清理任务异常结束：{error}"))?;
+    let release = set_storage_maintenance(false).await;
+    let verification = verification?;
+    release?;
+    Ok(verification)
+}
+
+#[tauri::command]
+async fn replace_storage_root(
+    app: tauri::AppHandle,
+    target: String,
+) -> Result<StorageReplaceResult, String> {
+    let target = PathBuf::from(target.trim());
+    if !target.is_absolute() {
+        return Err("新的资源目录必须是绝对路径".into());
+    }
+    if let Some(missing) = missing_data_dir() {
+        let recovery_root =
+            current_data_dir(&app).ok_or_else(|| "无法定位恢复模式目录".to_string())?;
+        set_storage_maintenance(true).await?;
+        let outcome: Result<StorageReplaceResult, String> = async {
+            let verification = tauri::async_runtime::spawn_blocking({
+                let target = target.clone();
+                move || qinghua_shared_store::v2_admin::adopt_manually_moved_v2(&target)
+            })
+            .await
+            .map_err(|error| format!("手动移动校验任务异常结束：{error}"))??;
+            qinghua_shared_store::switch_backend(&target, "v2")?;
+            if let Err(error) = save_data_dir_config(&app, &target) {
+                let _ = qinghua_shared_store::switch_backend(&recovery_root, "v1");
+                return Err(error);
+            }
+            Ok(StorageReplaceResult {
+                mode: "adopted".into(),
+                source_root: missing.to_string_lossy().to_string(),
+                target_root: target.to_string_lossy().to_string(),
+                source_deleted: !missing.exists(),
+                verification,
+            })
+        }
+        .await;
+        if outcome.is_err() {
+            let _ = set_storage_maintenance(false).await;
+        }
+        return outcome;
+    }
+
+    let source = current_data_dir(&app).ok_or_else(|| "无法定位当前资源目录".to_string())?;
+    let source_info = storage_root_info(&source)?;
+    if source_info.kind != "v2" || !source_info.ready {
+        return Err("只有完整 V2 资源根可以更换位置".into());
+    }
+    set_storage_maintenance(true).await?;
+    let outcome: Result<StorageReplaceResult, String> = async {
+        let copy = tauri::async_runtime::spawn_blocking({
+            let source = source.clone();
+            let target = target.clone();
+            move || qinghua_shared_store::v2_admin::copy_v2_root(&source, &target)
+        })
+        .await
+        .map_err(|error| format!("复制校验任务异常结束：{error}"))??;
+        qinghua_shared_store::switch_backend(&target, "v2")?;
+        if let Err(error) = save_data_dir_config(&app, &target) {
+            let _ = qinghua_shared_store::switch_backend(&source, "v2");
+            return Err(error);
+        }
+        let source_deleted = tauri::async_runtime::spawn_blocking({
+            let source = source.clone();
+            move || qinghua_shared_store::v2_admin::remove_checked_v2_root(&source)
+        })
+        .await
+        .map_err(|error| format!("旧位置清理任务异常结束：{error}"))?
+        .is_ok();
+        Ok(StorageReplaceResult {
+            mode: "moved".into(),
+            source_root: source.to_string_lossy().to_string(),
+            target_root: target.to_string_lossy().to_string(),
+            source_deleted,
+            verification: copy.target,
+        })
+    }
+    .await;
+    if outcome.is_err() {
+        let _ = set_storage_maintenance(false).await;
+    }
+    outcome
 }
 
 /// V1 → V2 迁移是大文件 IO 与哈希计算，必须离开 Tauri 主线程。
@@ -821,6 +1164,28 @@ async fn set_storage_maintenance(enabled: bool) -> Result<(), String> {
 }
 
 /// 保存新主库位置。只验证可写并落配置，不复制 / 移动 / 删除任何现有数据。
+fn save_data_dir_config(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
+    let config_path =
+        data_dir_config_path(app).ok_or_else(|| "无法定位应用配置目录".to_string())?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败：{err}"))?;
+    }
+    let payload = serde_json::to_vec_pretty(&DataDirConfig {
+        data_dir: dir.to_string_lossy().to_string(),
+    })
+    .map_err(|err| format!("序列化数据目录配置失败：{err}"))?;
+    let temporary = config_path.with_extension("json.tmp");
+    std::fs::write(&temporary, payload).map_err(|err| format!("写配置临时文件失败：{err}"))?;
+    if config_path.exists() {
+        std::fs::remove_file(&config_path).map_err(|err| format!("替换旧配置失败：{err}"))?;
+    }
+    std::fs::rename(&temporary, &config_path).map_err(|err| format!("保存配置失败：{err}"))?;
+    std::env::set_var("QINGHUA_DATA_DIR", dir);
+    set_storage_backend_env(dir);
+    std::env::remove_var(MISSING_DATA_DIR_ENV);
+    Ok(())
+}
+
 #[tauri::command]
 fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let dir = PathBuf::from(path.trim());
@@ -836,23 +1201,7 @@ fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
             .reason
             .unwrap_or_else(|| "不是可用的资源目录".to_string()));
     }
-    let config_path =
-        data_dir_config_path(&app).ok_or_else(|| "无法定位应用配置目录".to_string())?;
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败：{err}"))?;
-    }
-    let payload = serde_json::to_vec_pretty(&DataDirConfig {
-        data_dir: dir.to_string_lossy().to_string(),
-    })
-    .map_err(|err| format!("序列化数据目录配置失败：{err}"))?;
-    let temporary = config_path.with_extension("json.tmp");
-    std::fs::write(&temporary, payload).map_err(|err| format!("写配置临时文件失败：{err}"))?;
-    if config_path.exists() {
-        std::fs::remove_file(&config_path).map_err(|err| format!("替换旧配置失败：{err}"))?;
-    }
-    std::fs::rename(&temporary, &config_path).map_err(|err| format!("保存配置失败：{err}"))?;
-    std::env::set_var("QINGHUA_DATA_DIR", &dir);
-    set_storage_backend_env(&dir);
+    save_data_dir_config(&app, &dir)?;
     Ok(dir.to_string_lossy().to_string())
 }
 
@@ -1880,8 +2229,16 @@ fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
         }
         let a = digit(chunk[0])? as u32;
         let b = digit(chunk[1])? as u32;
-        let c = if chunk[2] == b'=' { 0 } else { digit(chunk[2])? as u32 };
-        let d = if chunk[3] == b'=' { 0 } else { digit(chunk[3])? as u32 };
+        let c = if chunk[2] == b'=' {
+            0
+        } else {
+            digit(chunk[2])? as u32
+        };
+        let d = if chunk[3] == b'=' {
+            0
+        } else {
+            digit(chunk[3])? as u32
+        };
         if chunk[2] == b'=' && chunk[3] != b'=' {
             return Err("base64 填充格式错误".into());
         }
@@ -2113,7 +2470,9 @@ mod cli_out_tests {
         assert!(text.contains("gpt-image-2"));
         assert!(text.contains("filename=\"reference.png\""));
         assert!(text.contains("Content-Type: image/png"));
-        assert!(body.windows(4).any(|window| window == [0x89, 0x50, 0x4e, 0x47]));
+        assert!(body
+            .windows(4)
+            .any(|window| window == [0x89, 0x50, 0x4e, 0x47]));
     }
 
     #[test]
@@ -2739,6 +3098,10 @@ pub fn run() {
             pick_data_dir,
             set_data_dir,
             inspect_data_dir,
+            storage_startup_state,
+            auto_upgrade_storage,
+            finalize_storage_upgrade,
+            replace_storage_root,
             migrate_data_dir,
             open_dir,
             cache_usage,
@@ -2879,7 +3242,10 @@ mod data_dir_tests {
             parse_data_dir_config(r#"{"dataDir":"D:\\轻画数据"}"#),
             Some(PathBuf::from("D:\\轻画数据"))
         );
-        assert_eq!(parse_data_dir_config(r#"{"dataDir":"relative\\data"}"#), None);
+        assert_eq!(
+            parse_data_dir_config(r#"{"dataDir":"relative\\data"}"#),
+            None
+        );
         assert_eq!(parse_data_dir_config("not json"), None);
     }
 
@@ -2919,11 +3285,7 @@ mod data_dir_tests {
             None
         );
         assert_eq!(
-            preferred_business_data_dir(
-                Path::new("D:\\qinghua.exe"),
-                &none_roots(),
-                &always,
-            ),
+            preferred_business_data_dir(Path::new("D:\\qinghua.exe"), &none_roots(), &always,),
             None
         );
     }
@@ -3060,5 +3422,41 @@ mod data_dir_tests {
         let _ = std::fs::remove_dir_all(v2);
         let _ = std::fs::remove_dir_all(empty);
         let _ = std::fs::remove_dir_all(unknown);
+    }
+
+    #[test]
+    fn automatic_v2_target_is_a_sibling_without_temporary_new_name() {
+        assert_eq!(
+            v2_sibling_path(Path::new("E:\\轻画\\data")).unwrap(),
+            PathBuf::from("E:\\轻画\\data-v2")
+        );
+        assert_eq!(
+            v2_sibling_path(Path::new("C:\\data\\shared-store-v1")).unwrap(),
+            PathBuf::from("C:\\data\\shared-store-v2")
+        );
+    }
+
+    #[test]
+    fn existing_v2_target_must_declare_the_same_v1_source() {
+        let source = temp_dir("source");
+        let target = temp_dir("target");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            target.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "status":"complete",
+                "sourceRoot":source.to_string_lossy()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(target_belongs_to_v1(&target, &source).unwrap());
+        let other = temp_dir("other");
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(!target_belongs_to_v1(&target, &other).unwrap());
+        let _ = std::fs::remove_dir_all(source);
+        let _ = std::fs::remove_dir_all(target);
+        let _ = std::fs::remove_dir_all(other);
     }
 }

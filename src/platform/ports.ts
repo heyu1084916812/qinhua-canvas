@@ -386,6 +386,10 @@ export interface StorageAdminPort {
     target: string,
     dryRun: boolean,
   ): Promise<StorageMigrationReport>
+  startupStorageState?(): Promise<StorageStartupState>
+  autoUpgradeStorage?(): Promise<StorageUpgradeResult>
+  finalizeStorageUpgrade?(): Promise<StorageV2Verification>
+  replaceDataDir?(target: string): Promise<StorageReplaceResult>
   /** 在系统文件管理器里打开一个目录（目录没了就抛错，由调用方如实展示） */
   openDir(path: string): Promise<void>
   /** 网页缓存占用（字节） */
@@ -432,6 +436,52 @@ export interface StorageMigrationReport {
   warnings: string[]
   failures: string[]
   manifestWritten: boolean
+}
+
+export type StorageStartupKind =
+  | 'ready'
+  | 'v1Upgrade'
+  | 'cleanupPending'
+  | 'missing'
+  | 'blocked'
+
+export interface StorageStartupState {
+  kind: StorageStartupKind
+  currentRoot?: string
+  sourceRoot?: string
+  targetRoot?: string
+  reason?: string
+}
+
+export interface StorageV2Verification {
+  ok: boolean
+  root: string
+  tableRows: Record<string, number>
+  assetsTotal: number
+  assetsLocal: number
+  assetsRemote: number
+  assetBytes: number
+  thumbFiles: number
+  previewFiles: number
+  assetReferences: number
+  sourceDanglingReferences: number
+  warnings: string[]
+  failures: string[]
+}
+
+export interface StorageUpgradeResult {
+  sourceRoot: string
+  targetRoot: string
+  migration?: StorageMigrationReport
+  verification: StorageV2Verification
+}
+
+export interface StorageReplaceResult {
+  mode: 'moved' | 'adopted'
+  sourceRoot: string
+  targetRoot: string
+  sourceDeleted: boolean
+  verification: StorageV2Verification
 }
 
 /** 一次本机 CLI 调用的请求（对账 #308） */

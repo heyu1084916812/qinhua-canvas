@@ -31,7 +31,16 @@
  */
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { chromium } from 'playwright'
@@ -45,11 +54,41 @@ const BUILT = path.join(ROOT, 'src-tauri/target/release/qinghua.exe')
 const SCRATCH = path.join(ROOT, '.playwright-verify/install-check')
 const APP = path.join(SCRATCH, 'app')
 const DATA = path.join(SCRATCH, 'data')
+const LOCAL_APP_DATA = path.join(SCRATCH, 'localappdata')
+const USER_STORAGE_CONFIG = process.env.LOCALAPPDATA
+  ? path.join(process.env.LOCALAPPDATA, 'com.qinghua.canvas', 'storage-location.json')
+  : null
+const STORAGE_CONFIG_BACKUP = USER_STORAGE_CONFIG
+  ? `${USER_STORAGE_CONFIG}.installer-gate-${process.pid}.bak`
+  : null
 const PORT = Number(process.env.QH_CDP_PORT ?? 9446)
 const REMEMBER_KEY = 'HKCU\\Software\\qinghua\\轻画'
 const UNINSTALL_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\轻画'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+let storageConfigMoved = false
+
+function restoreStorageConfig() {
+  if (
+    storageConfigMoved &&
+    STORAGE_CONFIG_BACKUP &&
+    USER_STORAGE_CONFIG &&
+    existsSync(STORAGE_CONFIG_BACKUP)
+  ) {
+    renameSync(STORAGE_CONFIG_BACKUP, USER_STORAGE_CONFIG)
+    storageConfigMoved = false
+  }
+}
+
+process.on('exit', restoreStorageConfig)
+process.on('SIGINT', () => {
+  restoreStorageConfig()
+  process.exit(130)
+})
+process.on('SIGTERM', () => {
+  restoreStorageConfig()
+  process.exit(143)
+})
 
 const results = []
 function check(name, ok, detail = '') {
@@ -143,9 +182,14 @@ function findPreviousSetup() {
  */
 async function launchAndRead(exe) {
   if (!existsSync(exe)) return null
+  mkdirSync(LOCAL_APP_DATA, { recursive: true })
   const app = spawn(exe, [], {
     cwd: APP,
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+    env: {
+      ...process.env,
+      LOCALAPPDATA: LOCAL_APP_DATA,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+    },
     stdio: 'ignore',
   })
   const t0 = Date.now()
@@ -185,7 +229,10 @@ async function launchAndRead(exe) {
         .catch(() => {})
       projects = await page.locator('[data-project-workbench]').count().catch(() => -1)
     }
-    out = home ? { ...home, projects } : null
+    const health = await fetch('http://127.0.0.1:18765/health')
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null)
+    out = home ? { ...home, projects, health } : null
     await browser.close().catch(() => {})
   }
   spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
@@ -215,6 +262,13 @@ console.log(`安装到：${APP}`)
 console.log(`记住的位置键（跑前）：${rememberedBefore ?? '（无）'}`)
 
 mkdirSync(SCRATCH, { recursive: true })
+if (USER_STORAGE_CONFIG && existsSync(USER_STORAGE_CONFIG)) {
+  if (existsSync(STORAGE_CONFIG_BACKUP)) {
+    throw new Error(`门禁备份文件已存在，拒绝覆盖：${STORAGE_CONFIG_BACKUP}`)
+  }
+  renameSync(USER_STORAGE_CONFIG, STORAGE_CONFIG_BACKUP)
+  storageConfigMoved = true
+}
 
 /**
  * ── 升级段（本地留着旧包时才跑）：**先装上一版，再用这一版覆盖安装** ──
@@ -288,9 +342,10 @@ if (existsSync(installedExe)) {
   boot = await launchAndRead(installedExe)
   check('装出来的那份能打开（首页渲染 + desktop 平台）', !!boot?.home && boot?.platform === 'desktop', JSON.stringify(boot))
   check(
-    '数据落在同级 data\\（闸门 1–4 在安装布局下生效）',
-    existsSync(path.join(DATA, 'EBWebView')),
-    DATA,
+    '权威资源根落在同级 data\\（shared-store health 与安装布局一致）',
+    boot?.health?.ok === true &&
+      path.resolve(String(boot.health.dataDir ?? '')) === path.resolve(DATA),
+    `health=${JSON.stringify(boot?.health)} 期望目录=${DATA}`,
   )
   if (upgrade) {
     /**
@@ -317,10 +372,17 @@ if (existsSync(uninstaller)) {
   spawnSync(uninstaller, ['/S'], { stdio: 'ignore', windowsHide: true })
   // NSIS 卸载器会把自己拷到临时目录再跑 ⇒ 不是"进程退出 = 卸完"
   const gone = await waitFor(() => !existsSync(installedExe), 90000)
-  check('卸载后 qinghua.exe 消失', gone)
-  check('卸载后 data\\ 与标记文件原封不动', existsSync(marker), marker)
   const desktopLnk = path.join(process.env.USERPROFILE ?? '', 'Desktop/轻画.lnk')
   const startMenu = path.join(process.env.APPDATA ?? '', 'Microsoft/Windows/Start Menu/Programs/轻画')
+  await waitFor(
+    () =>
+      !existsSync(desktopLnk) &&
+      !existsSync(startMenu) &&
+      !regKeyExists(UNINSTALL_KEY),
+    30000,
+  )
+  check('卸载后 qinghua.exe 消失', gone)
+  check('卸载后 data\\ 与标记文件原封不动', existsSync(marker), marker)
   check('桌面快捷方式已清掉', !existsSync(desktopLnk), desktopLnk)
   check('开始菜单条目已清掉', !existsSync(startMenu), startMenu)
   check('卸载登记已清掉', !regKeyExists(UNINSTALL_KEY), UNINSTALL_KEY)
@@ -331,6 +393,7 @@ let restored = true
 if (rememberedBefore !== null) restored = regWriteDefault(REMEMBER_KEY, rememberedBefore)
 const rememberedAfter = regReadDefault(REMEMBER_KEY)
 check('记住的位置键已还原成本次跑之前的值', restored && rememberedAfter === rememberedBefore, `${rememberedAfter ?? '（无）'}`)
+restoreStorageConfig()
 
 const failed = results.filter((r) => !r.ok)
 console.log(`\n结果：${results.length - failed.length}/${results.length} 通过`)
@@ -343,6 +406,7 @@ if (process.env.QH_KEEP_PROFILE !== '1') {
     const opts = { recursive: true, force: true, maxRetries: 10, retryDelay: 400 }
     rmSync(APP, opts)
     rmSync(DATA, opts)
+    rmSync(LOCAL_APP_DATA, opts)
     console.log(`已清掉临时的 app\\ 与 data\\（日志留在 .playwright-verify/）`)
   } catch (err) {
     console.log(`⚠️ 临时目录没清干净（不影响判据）：${String(err).split('\n')[0]}`)

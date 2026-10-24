@@ -2,6 +2,10 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   StorageAdminPort,
   StorageMigrationReport,
+  StorageReplaceResult,
+  StorageStartupState,
+  StorageUpgradeResult,
+  StorageV2Verification,
   StorageRootInfo,
 } from '../ports'
 
@@ -24,6 +28,14 @@ export function createTauriStorageAdmin(): StorageAdminPort {
         target,
         dryRun,
       }),
+    startupStorageState: () =>
+      invoke<StorageStartupState>('storage_startup_state'),
+    autoUpgradeStorage: () =>
+      invoke<StorageUpgradeResult>('auto_upgrade_storage'),
+    finalizeStorageUpgrade: () =>
+      invoke<StorageV2Verification>('finalize_storage_upgrade'),
+    replaceDataDir: (target) =>
+      invoke<StorageReplaceResult>('replace_storage_root', { target }),
     openDir: async (path) => {
       await invoke('open_dir', { path })
     },

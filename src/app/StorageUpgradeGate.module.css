@@ -1,0 +1,128 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--bg-app) 76%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.panel {
+  width: min(560px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--fs-panel-title);
+  font-weight: 700;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-panel-title);
+}
+
+.message {
+  margin: var(--space-2) 0 0;
+  color: var(--text-1);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-body);
+}
+
+.detail,
+.summary {
+  margin: var(--space-2) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+
+.path {
+  display: block;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.primary,
+.secondary {
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: var(--fs-nav);
+  cursor: pointer;
+}
+
+.primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.secondary {
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.primary:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.6s;
+  }
+}
