@@ -223,6 +223,15 @@ pub fn migrate_v1_to_v2(
         });
         write_json_atomic(&target.join("manifest.json"), &manifest)?;
         report.manifest_written = true;
+        write_json_atomic(
+            &target.join(".migration-state.json"),
+            &json!({
+                "status":"complete",
+                "sourceRoot":report.source_root,
+                "finishedAt":report.finished_at,
+                "schemaVersion":SCHEMA_VERSION
+            }),
+        )?;
         write_json_atomic(&report_path, &serde_json::to_value(&report).unwrap())?;
     }
 
@@ -728,6 +737,9 @@ mod tests {
         assert_eq!(report.assets_local, 1);
         assert!(target.join("manifest.json").is_file());
         assert!(target.join("migration-report.json").is_file());
+        assert!(std::fs::read_to_string(target.join(".migration-state.json"))
+            .unwrap()
+            .contains("\"complete\""));
         let store = SqliteStore::open(&target).unwrap();
         assert_eq!(
             store.asset_bytes(&hash).unwrap().0,

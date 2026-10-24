@@ -5,7 +5,7 @@ use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const SCHEMA_VERSION: i64 = 2;
@@ -41,6 +41,7 @@ pub const TABLE_NAMES: [&str; 22] = [
 pub struct SqliteStore {
     root: Arc<PathBuf>,
     db_path: Arc<PathBuf>,
+    maintenance: Arc<AtomicBool>,
 }
 
 #[derive(Clone)]
@@ -57,6 +58,7 @@ impl SqliteStore {
         let store = Self {
             root: Arc::new(root.to_path_buf()),
             db_path: Arc::new(db_path),
+            maintenance: Arc::new(AtomicBool::new(false)),
         };
         let conn = store.connection()?;
         initialize_schema(&conn)?;
@@ -82,17 +84,20 @@ impl SqliteStore {
     }
 
     pub fn put(&self, table: &str, row: &Value) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         validate_table(table)?;
         let conn = self.connection()?;
         put_on(&conn, self.root.as_path(), table, row)
     }
 
     pub fn put_legacy_asset(&self, row: &Value) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         let conn = self.connection()?;
         put_asset_inner(&conn, self.root.as_path(), row, true)
     }
 
     pub fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         validate_table(table)?;
         let mut conn = self.connection()?;
         let tx = conn
@@ -105,12 +110,14 @@ impl SqliteStore {
     }
 
     pub fn delete(&self, table: &str, id: &str) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         validate_table(table)?;
         let conn = self.connection()?;
         delete_on(&conn, table, id)
     }
 
     pub fn transaction(&self, ops: &[SqliteOp]) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         let mut conn = self.connection()?;
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -251,6 +258,7 @@ impl SqliteStore {
     }
 
     pub fn kv_put(&self, key: &str, value: &Value) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         let conn = self.connection()?;
         let raw = serde_json::to_string(value).map_err(|err| format!("encode kv: {err}"))?;
         conn.execute(
@@ -263,10 +271,27 @@ impl SqliteStore {
     }
 
     pub fn kv_delete(&self, key: &str) -> Result<(), String> {
+        self.ensure_write_allowed()?;
         let conn = self.connection()?;
         conn.execute("DELETE FROM kv WHERE key = ?1", params![key])
             .map_err(|err| format!("delete kv: {err}"))?;
         Ok(())
+    }
+
+    pub fn set_maintenance(&self, enabled: bool) {
+        self.maintenance.store(enabled, Ordering::SeqCst);
+    }
+
+    pub fn in_maintenance(&self) -> bool {
+        self.maintenance.load(Ordering::SeqCst)
+    }
+
+    fn ensure_write_allowed(&self) -> Result<(), String> {
+        if self.in_maintenance() {
+            Err("storage is in maintenance mode".into())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn asset_bytes(&self, hash: &str) -> Result<(Vec<u8>, String), String> {

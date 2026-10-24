@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -22,6 +22,7 @@ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 struct Store {
     root: Arc<PathBuf>,
     lock: Arc<Mutex<()>>,
+    maintenance: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -587,6 +588,18 @@ trait StoreBackend: Send + Sync {
     fn asset_bytes(&self, id: &str) -> Result<(Vec<u8>, String), String>;
     fn asset_thumb(&self, id: &str) -> Result<Vec<u8>, String>;
     fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String>;
+    fn set_maintenance(&self, enabled: bool);
+    fn in_maintenance(&self) -> bool;
+}
+
+impl Store {
+    fn ensure_writes_allowed(&self) -> Result<(), String> {
+        if self.maintenance.load(Ordering::SeqCst) {
+            Err("storage is in maintenance mode".into())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl StoreBackend for Store {
@@ -600,11 +613,13 @@ impl StoreBackend for Store {
 
     fn put(&self, table: &str, row: &Value) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         write_row(self.root.as_path(), table, row)
     }
 
     fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         for row in rows {
             write_row(self.root.as_path(), table, row)?;
         }
@@ -613,11 +628,13 @@ impl StoreBackend for Store {
 
     fn delete(&self, table: &str, id: &str) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         delete_row(self.root.as_path(), table, id)
     }
 
     fn transaction(&self, ops: Vec<TxOp>) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         apply_tx(self.root.as_path(), TxRequest { ops })
     }
 
@@ -707,6 +724,7 @@ impl StoreBackend for Store {
 
     fn kv_put(&self, key: &str, value: &Value) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         let path = self.root.join("_kv").join(format!("{}.json", hex_id(key)));
         let payload = serde_json::to_vec(value).map_err(|error| format!("encode kv: {error}"))?;
         write_atomic(&path, &payload)
@@ -714,6 +732,7 @@ impl StoreBackend for Store {
 
     fn kv_delete(&self, key: &str) -> Result<(), String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
+        self.ensure_writes_allowed()?;
         let path = self.root.join("_kv").join(format!("{}.json", hex_id(key)));
         if path.exists() {
             fs::remove_file(path).map_err(|error| error.to_string())?;
@@ -734,6 +753,15 @@ impl StoreBackend for Store {
     fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String> {
         let _guard = self.lock.lock().expect("store lock poisoned");
         load_preview(self.root.as_path(), id)
+    }
+
+    fn set_maintenance(&self, enabled: bool) {
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        self.maintenance.store(enabled, Ordering::SeqCst);
+    }
+
+    fn in_maintenance(&self) -> bool {
+        self.maintenance.load(Ordering::SeqCst)
     }
 }
 
@@ -817,6 +845,14 @@ impl StoreBackend for sqlite::SqliteStore {
     fn asset_preview(&self, id: &str) -> Result<Vec<u8>, String> {
         sqlite::SqliteStore::asset_preview(self, id)
     }
+
+    fn set_maintenance(&self, enabled: bool) {
+        sqlite::SqliteStore::set_maintenance(self, enabled);
+    }
+
+    fn in_maintenance(&self) -> bool {
+        sqlite::SqliteStore::in_maintenance(self)
+    }
 }
 
 fn select_backend(data_dir: &Path) -> Result<Arc<dyn StoreBackend>, String> {
@@ -828,6 +864,7 @@ fn select_backend(data_dir: &Path) -> Result<Arc<dyn StoreBackend>, String> {
         "" | "json" | "json-v1" | "v1" => Ok(Arc::new(Store {
             root: Arc::new(data_dir.to_path_buf()),
             lock: Arc::new(Mutex::new(())),
+            maintenance: Arc::new(AtomicBool::new(false)),
         })),
         "sqlite" | "sqlite-v2" | "v2" => Ok(Arc::new(sqlite::SqliteStore::open(data_dir)?)),
         other => Err(format!(
@@ -938,8 +975,16 @@ fn handle(store: Arc<dyn StoreBackend>, mut request: Request) {
                 "service": "qinghua-shared-store",
                 "version": 5,
                 "backend": store.kind(),
+                "maintenance": store.in_maintenance(),
                 "dataDir": store.root().to_string_lossy(),
             }));
+        }
+        if request.method() == &Method::Post
+            && matches!(path.as_str(), "/maintenance/begin" | "/maintenance/end")
+        {
+            let enabled = path == "/maintenance/begin";
+            store.set_maintenance(enabled);
+            return Ok(json!({ "ok": true, "maintenance": enabled }));
         }
         if request.method() == &Method::Post && path == "/put" {
             let body: PutRequest = body_json(&mut request)?;
@@ -1200,12 +1245,49 @@ mod tests {
         exercise_backend_contract(Arc::new(Store {
             root: Arc::new(json_root.clone()),
             lock: Arc::new(Mutex::new(())),
+            maintenance: Arc::new(AtomicBool::new(false)),
         }));
         let _ = fs::remove_dir_all(json_root);
 
         let sqlite_root = temp_root("contract-sqlite");
         exercise_backend_contract(Arc::new(sqlite::SqliteStore::open(&sqlite_root).unwrap()));
         let _ = fs::remove_dir_all(sqlite_root);
+    }
+
+    #[test]
+    fn maintenance_mode_blocks_new_writes_until_released() {
+        let root = temp_root("maintenance");
+        let store = Store {
+            root: Arc::new(root.clone()),
+            lock: Arc::new(Mutex::new(())),
+            maintenance: Arc::new(AtomicBool::new(false)),
+        };
+        store
+            .put("projects", &json!({"id":"p1","name":"before"}))
+            .unwrap();
+        store.set_maintenance(true);
+        assert!(store.in_maintenance());
+        assert!(store
+            .put("projects", &json!({"id":"p2","name":"blocked"}))
+            .unwrap_err()
+            .contains("maintenance"));
+        assert_eq!(
+            store
+                .query(
+                    "projects",
+                    &Map::from_iter([("id".into(), json!("p2"))]),
+                    false,
+                    None,
+                )
+                .unwrap()
+                .len(),
+            0
+        );
+        store.set_maintenance(false);
+        store
+            .put("projects", &json!({"id":"p3","name":"after"}))
+            .unwrap();
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
