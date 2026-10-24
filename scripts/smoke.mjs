@@ -12777,24 +12777,33 @@ async function g74(browser) {
   const sidebarChrome = await page.evaluate(() => {
     const list = document.querySelector('[data-channel-list]')
     const add = document.querySelector('[data-channel-add]')
+    const search = document.querySelector('[data-channel-search]')?.parentElement
+    const filter = document.querySelector('[data-choice-picker="channel-filter"]')
     return {
       search: document.querySelectorAll('[data-channel-search]').length,
+      searchRadius: search ? parseFloat(getComputedStyle(search).borderRadius) : 0,
+      ruleRadius: parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--radius-control'),
+      ),
+      filterInsideSearch: !!search && !!filter && search.contains(filter),
       groupLabels: document.querySelectorAll('[data-channel-group]').length,
       inListAdd: list?.querySelectorAll('[data-channel-add]').length ?? -1,
       fixedAdd:
         Array.from(add?.parentElement?.classList ?? []).some((name) =>
           name.includes('sidebarFoot'),
         ),
-      listScrollable: !!list && list.scrollHeight > list.clientHeight,
+      listOverflow: list ? getComputedStyle(list).overflowY : '',
     }
   })
   rec(
     g,
     '左栏改为搜索 + 可滚动列表 + 固定底部添加',
     sidebarChrome.search === 1 &&
+      sidebarChrome.searchRadius === sidebarChrome.ruleRadius &&
+      sidebarChrome.filterInsideSearch &&
       sidebarChrome.groupLabels === 0 &&
       sidebarChrome.inListAdd === 0 &&
-      sidebarChrome.listScrollable &&
+      sidebarChrome.listOverflow === 'auto' &&
       sidebarChrome.fixedAdd,
     JSON.stringify(sidebarChrome),
   )
@@ -12825,26 +12834,46 @@ async function g74(browser) {
   )
   await page.locator('[data-choice-option="enabled"]').click()
   await sleep(200)
+  const enabledFilterRows = await page.locator('[data-channel-item]').count()
   const enabledFilter = await page
-    .locator('[data-channel-state-dot]')
-    .evaluateAll((els) => els.every((el) => el.getAttribute('data-enabled') === 'true'))
+    .locator('[data-channel-item]')
+    .evaluateAll((els) =>
+      els.every((el) => el.getAttribute('data-channel-enabled-state') === 'true'),
+    )
   await page.locator('[data-choice-picker="channel-filter"] button').click()
   await page.locator('[data-choice-option="disabled"]').click()
   await sleep(200)
+  const disabledFilterRows = await page.locator('[data-channel-item]').count()
   const disabledFilter = await page
-    .locator('[data-channel-state-dot]')
-    .evaluateAll((els) => els.every((el) => el.getAttribute('data-enabled') === 'false'))
+    .locator('[data-channel-item]')
+    .evaluateAll((els) =>
+      els.every(
+        (el) =>
+          el.getAttribute('data-channel-enabled-state') === 'false' &&
+          el.querySelectorAll('[data-channel-state-dot]').length === 0,
+      ),
+    )
   await page.locator('[data-choice-picker="channel-filter"] button').click()
   await page.locator('[data-choice-option="all"]').click()
-  rec(g, '启用状态筛选正确', enabledFilter && disabledFilter, `${enabledFilter}/${disabledFilter}`)
+  rec(
+    g,
+    '启用状态筛选正确，禁用服务不显示圆点',
+    enabledFilterRows > 0 &&
+      disabledFilterRows > 0 &&
+      enabledFilter &&
+      disabledFilter,
+    `${enabledFilterRows}/${disabledFilterRows} ${enabledFilter}/${disabledFilter}`,
+  )
   const rowInteraction = await page.evaluate(() => {
     const selected = document.querySelector('[data-channel-selected="true"]')
     if (!selected) return null
     return {
       height: Math.round(selected.getBoundingClientRect().height),
+      enabledState: selected.getAttribute('data-channel-enabled-state'),
       deleteCheckboxes: selected.querySelectorAll('[data-channel-delete-select]').length,
       dragHandle: selected.querySelectorAll('[data-channel-drag-handle]').length,
       menuTrigger: selected.querySelectorAll('[data-channel-menu-trigger]').length,
+      dot: selected.querySelectorAll('[data-channel-state-dot]').length,
       removeButton: document.querySelectorAll('[data-channel-remove]').length,
     }
   })
@@ -12856,7 +12885,8 @@ async function g74(browser) {
       rowInteraction.deleteCheckboxes === 0 &&
       rowInteraction.dragHandle === 1 &&
       rowInteraction.menuTrigger === 1 &&
-      rowInteraction.removeButton === 0,
+      rowInteraction.removeButton === 0 &&
+      rowInteraction.dot === (rowInteraction.enabledState === 'true' ? 1 : 0),
     JSON.stringify(rowInteraction),
   )
   const rowAvatars = await page.locator('[data-channel-icon-box]').evaluateAll((els) =>
@@ -12890,11 +12920,26 @@ async function g74(browser) {
     dragVisible: getComputedStyle(el.querySelector('[data-channel-drag-handle]')).opacity === '1',
     menuVisible:
       getComputedStyle(el.querySelector('[data-channel-menu-trigger]')).display !== 'none',
+    dragBackground: getComputedStyle(el.querySelector('[data-channel-drag-handle]')).backgroundColor,
+    iconLeft: Math.round(
+      el.querySelector('[data-channel-icon-box]').getBoundingClientRect().left -
+        el.getBoundingClientRect().left,
+    ),
+    itemPaddingLeft: getComputedStyle(el).paddingLeft,
   }))
   rec(
     g,
     '悬停时左侧出现拖动把手、右侧圆点变成三点按钮',
     hoverTools.dragVisible && hoverTools.menuVisible,
+    JSON.stringify(hoverTools),
+  )
+  rec(
+    g,
+    '拖动图标无额外容器，拖动手柄 / 渠道图标整体左移',
+    (hoverTools.dragBackground === 'rgba(0, 0, 0, 0)' ||
+      hoverTools.dragBackground === 'transparent') &&
+      hoverTools.iconLeft <= 20 &&
+      parseFloat(hoverTools.itemPaddingLeft) === 0,
     JSON.stringify(hoverTools),
   )
   await page.screenshot({ path: `${OUT}/735-service-row-hover.png` })
@@ -12975,6 +13020,7 @@ async function g74(browser) {
       rowSwitch: selected?.querySelectorAll('[data-channel-enabled]').length ?? -1,
       headSwitch: head?.querySelectorAll('[data-channel-enabled]').length ?? 0,
       dot: selected?.querySelectorAll('[data-channel-state-dot]').length ?? 0,
+      enabledState: selected?.getAttribute('data-channel-enabled-state'),
       nativeSelects: document.querySelectorAll('[data-settings-card] select').length,
     }
   })
@@ -12983,7 +13029,7 @@ async function g74(browser) {
     '启用开关在右侧标题栏，左栏仅显示状态圆点',
     editorChrome.rowSwitch === 0 &&
       editorChrome.headSwitch === 1 &&
-      editorChrome.dot === 1 &&
+      editorChrome.dot === (editorChrome.enabledState === 'true' ? 1 : 0) &&
       editorChrome.nativeSelects === 0,
     JSON.stringify(editorChrome),
   )
@@ -12993,9 +13039,11 @@ async function g74(browser) {
   await page.screenshot({ path: `${OUT}/736-profile-drawer.png` })
   const drawerGeometry = await page.locator('[data-settings-profile-drawer]').evaluate((el) => {
     const rect = el.getBoundingClientRect()
+    const editor = document.querySelector('[data-settings-editor]')?.getBoundingClientRect()
     return {
       width: Math.round(rect.width),
-      right: Math.round(window.innerWidth - rect.right),
+      right: editor ? Math.round(editor.right - rect.right) : -1,
+      top: editor ? Math.round(rect.top - editor.top) : -1,
       upload: el.querySelectorAll('[data-settings-profile-upload]').length,
       builtin: el.querySelectorAll('[data-settings-profile-builtin]').length,
       reset: el.querySelectorAll('[data-settings-profile-reset]').length,
@@ -13007,6 +13055,7 @@ async function g74(browser) {
     '齿轮打开右侧编辑抽屉，包含头像操作、名称与保存',
     drawerGeometry.width === 420 &&
       drawerGeometry.right === 0 &&
+      drawerGeometry.top === 0 &&
       drawerGeometry.upload === 1 &&
       drawerGeometry.builtin === 1 &&
       drawerGeometry.reset === 1 &&

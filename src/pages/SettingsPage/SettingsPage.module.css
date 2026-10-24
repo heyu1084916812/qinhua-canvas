@@ -328,9 +328,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
   border: var(--border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   background: var(--bg-app);
   color: var(--text-3);
 }
@@ -357,8 +357,21 @@
 }
 
 .channelFilterPicker {
-  flex: 0 0 34px;
-  width: 34px;
+  flex: 0 0 28px;
+  width: 28px;
+}
+
+.channelFilterPicker > button {
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.channelFilterPicker > button:hover,
+.channelFilterPicker > button:focus-visible {
+  background: var(--bg-hover);
 }
 
 .sidebarFoot {
@@ -661,8 +674,8 @@
 .item {
   --channel-icon-box: 28px;
   min-height: 38px;
-  gap: 4px;
-  padding: 4px 6px 4px 4px;
+  gap: 2px;
+  padding: 4px 6px 4px 0;
   cursor: default;
 }
 
@@ -675,8 +688,8 @@
 }
 
 .dragHandleSlot {
-  flex: 0 0 20px;
-  width: 20px;
+  flex: 0 0 16px;
+  width: 16px;
   height: 24px;
   display: inline-flex;
   align-items: center;
@@ -684,14 +697,14 @@
 }
 
 .dragHandle {
-  width: 20px;
+  width: 16px;
   height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-3);
   opacity: 0;
@@ -711,7 +724,7 @@
 }
 
 .dragHandle:hover {
-  background: var(--bg-surface);
+  background: transparent;
   color: var(--text-1);
 }
 
@@ -721,7 +734,7 @@
   min-height: 30px;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
@@ -1027,10 +1040,10 @@
 
 .profileDrawerLayer {
   position: fixed;
-  inset: 0;
   z-index: 70;
   display: flex;
   justify-content: flex-end;
+  overflow: hidden;
 }
 
 .profileDrawerBackdrop {
@@ -1042,7 +1055,7 @@
 .profileDrawer {
   position: relative;
   z-index: 1;
-  width: min(420px, calc(100vw - 24px));
+  width: min(420px, 100%);
   height: 100%;
   box-sizing: border-box;
   display: flex;

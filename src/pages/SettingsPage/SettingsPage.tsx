@@ -101,6 +101,19 @@ function channelMonogramTone(name: string): number {
   return hash % 6
 }
 
+function measureProfileDrawerBounds() {
+  const rect = document
+    .querySelector<HTMLElement>('[data-settings-editor]')
+    ?.getBoundingClientRect()
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  }
+}
+
 const GLOBAL_MODEL_VENDORS: { value: PresetVendor; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'google', label: 'Google' },
@@ -438,6 +451,12 @@ export function SettingsPage() {
   const [channelSearch, setChannelSearch] = useState('')
   const [channelFilter, setChannelFilter] = useState<ChannelFilterKey>('all')
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
+  const [profileDrawerBounds, setProfileDrawerBounds] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
   const [profileNameDraft, setProfileNameDraft] = useState('')
   const [profileIconDraft, setProfileIconDraft] = useState<string | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
@@ -654,6 +673,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (!profileDrawerOpen) return
+    const syncBounds = () => setProfileDrawerBounds(measureProfileDrawerBounds())
+    syncBounds()
     const focusTimer = window.setTimeout(() => {
       document.querySelector<HTMLInputElement>('[data-settings-profile-name]')?.focus()
     }, 0)
@@ -683,9 +704,11 @@ export function SettingsPage() {
       }
     }
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', syncBounds)
     return () => {
       window.clearTimeout(focusTimer)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', syncBounds)
       profileReturnFocusRef.current?.focus()
     }
   }, [profileDrawerOpen])
@@ -840,6 +863,7 @@ export function SettingsPage() {
     if (!channel) return
     profileReturnFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setProfileDrawerBounds(measureProfileDrawerBounds())
     setSelectedId(channelId)
     setProfileNameDraft(channel.name)
     setProfileIconDraft(channel.icon)
@@ -1256,7 +1280,7 @@ export function SettingsPage() {
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar} data-settings-sidebar>
             <div className={styles.sidebarTools} data-channel-tools>
-              <label className={styles.channelSearch}>
+              <div className={styles.channelSearch}>
                 <IconSearch size={16} />
                 <input
                   value={channelSearch}
@@ -1265,19 +1289,19 @@ export function SettingsPage() {
                   aria-label="搜索模型服务"
                   onChange={(event) => setChannelSearch(event.target.value)}
                 />
-              </label>
-              <ChoicePicker
-                name="channel-filter"
-                value={channelFilter}
-                compact
-                iconOnly
-                alignEnd
-                triggerIcon={<IconFilter size={16} />}
-                ariaLabel="筛选模型服务"
-                options={CHANNEL_FILTER_OPTIONS}
-                onChange={(value) => setChannelFilter(value as ChannelFilterKey)}
-                className={styles.channelFilterPicker}
-              />
+                <ChoicePicker
+                  name="channel-filter"
+                  value={channelFilter}
+                  compact
+                  iconOnly
+                  alignEnd
+                  triggerIcon={<IconFilter size={16} />}
+                  ariaLabel="筛选模型服务"
+                  options={CHANNEL_FILTER_OPTIONS}
+                  onChange={(value) => setChannelFilter(value as ChannelFilterKey)}
+                  className={styles.channelFilterPicker}
+                />
+              </div>
             </div>
             <ul className={styles.list} data-channel-list>
               {visibleChannels.map((ch: Channel) => {
@@ -1297,6 +1321,7 @@ export function SettingsPage() {
                       data-channel-id={ch.id}
                       data-channel-selected={ch.id === selectedId ? 'true' : undefined}
                       data-channel-proto={protocolShort(ch.protocol, catalog)}
+                      data-channel-enabled-state={ch.enabled ? 'true' : 'false'}
                       data-channel-caps={(['chat', 'image', 'video'] as const)
                         .filter((key) => caps[key])
                         .join(',')}
@@ -1367,13 +1392,15 @@ export function SettingsPage() {
                         </span>
                       </button>
                       <span className={styles.itemTrailing}>
-                        <span
-                          className={styles.itemEnabledDot}
-                          data-channel-state-dot={ch.id}
-                          data-enabled={ch.enabled ? 'true' : 'false'}
-                          title={ch.enabled ? '已启用' : '未启用'}
-                          aria-label={ch.enabled ? '已启用' : '未启用'}
-                        />
+                        {ch.enabled ? (
+                          <span
+                            className={styles.itemEnabledDot}
+                            data-channel-state-dot={ch.id}
+                            data-enabled="true"
+                            title="已启用"
+                            aria-label="已启用"
+                          />
+                        ) : null}
                         <button
                           type="button"
                           className={styles.itemMenuTrigger}
@@ -2356,9 +2383,12 @@ export function SettingsPage() {
         </div>
       </div>
       )}
-      {profileDrawerOpen && selected
+      {profileDrawerOpen && selected && profileDrawerBounds
         ? createPortal(
-            <div className={styles.profileDrawerLayer}>
+            <div
+              className={styles.profileDrawerLayer}
+              style={profileDrawerBounds}
+            >
               <div
                 className={styles.profileDrawerBackdrop}
                 aria-hidden
