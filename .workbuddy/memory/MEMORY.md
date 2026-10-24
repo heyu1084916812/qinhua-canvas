@@ -1,5 +1,16 @@
 # CanvasFlow（轻画）项目记忆
 
+### Windows 安装器图标（2026-10-24 → 对账 #737）
+
+- **`bundle.icon` 不等于安装器图标**：Tauri 的 `bundle.icon` 覆盖应用本体与常规 bundle；
+  NSIS 的 setup `.exe` 在资源管理器里的图标还要显式设置
+  `bundle.windows.nsis.installerIcon` 与 `uninstallerIcon`。当前两者均指向
+  `src-tauri/icons/icon.ico`（16 / 24 / 32 / 48 / 64 / 256）。
+- **验证必须从 PE 资源里抽图标**：`npx tauri bundle --bundles nsis` 后，用
+  `[System.Drawing.Icon]::ExtractAssociatedIcon()` 分别读取生成的 setup `.exe` 与
+  `target/release/qinghua.exe`；两张图都应与项目图标一致。只看 `bundle.icon` 配置不算验证。
+- 本地复验包使用 `--no-sign`，没有替换 `release/0.1.5`，也没有 push。
+
 ### 模型服务列表与 Agent 浮球（2026-10-24 → 对账 #735）
 
 - **列表是紧凑单行，不再多选删除**：顶部固定规则圆角搜索框（漏斗与三档启用筛选在框内），
