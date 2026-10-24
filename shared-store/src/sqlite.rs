@@ -12,7 +12,7 @@ pub const SCHEMA_VERSION: i64 = 2;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-const TABLES: [&str; 22] = [
+pub const TABLE_NAMES: [&str; 22] = [
     "projects",
     "projectFolders",
     "nodes",
@@ -85,6 +85,11 @@ impl SqliteStore {
         validate_table(table)?;
         let conn = self.connection()?;
         put_on(&conn, self.root.as_path(), table, row)
+    }
+
+    pub fn put_legacy_asset(&self, row: &Value) -> Result<(), String> {
+        let conn = self.connection()?;
+        put_asset_inner(&conn, self.root.as_path(), row, true)
     }
 
     pub fn bulk_put(&self, table: &str, rows: &[Value]) -> Result<(), String> {
@@ -408,7 +413,7 @@ fn ensure_column(
 }
 
 fn validate_table(table: &str) -> Result<(), String> {
-    if TABLES.contains(&table) {
+    if TABLE_NAMES.contains(&table) {
         Ok(())
     } else {
         Err(format!("unknown table: {table}"))
@@ -425,7 +430,7 @@ fn row_id(row: &Value) -> Result<&str, String> {
 fn put_on(conn: &Connection, root: &Path, table: &str, row: &Value) -> Result<(), String> {
     validate_table(table)?;
     if table == "assets" {
-        return put_asset(conn, root, row);
+        return put_asset_inner(conn, root, row, false);
     }
     if !row.is_object() {
         return Err("row must be a JSON object".into());
@@ -648,9 +653,18 @@ fn scan_asset_page(
     Ok((rows, total.max(0) as u64))
 }
 
-fn put_asset(conn: &Connection, root: &Path, row: &Value) -> Result<(), String> {
+fn put_asset_inner(
+    conn: &Connection,
+    root: &Path,
+    row: &Value,
+    allow_legacy_identity: bool,
+) -> Result<(), String> {
     let hash = row_id(row)?.to_string();
-    safe_hash(&hash)?;
+    if allow_legacy_identity {
+        safe_legacy_asset_id(&hash)?;
+    } else {
+        safe_hash(&hash)?;
+    }
     let mime = row
         .get("mime")
         .and_then(Value::as_str)
@@ -664,11 +678,20 @@ fn put_asset(conn: &Connection, root: &Path, row: &Value) -> Result<(), String> 
     )?;
     let preview = binary_marker_bytes_checked(row.get("preview"), "assets.preview")?;
     let full_sha1 = payload.as_deref().map(content_sha1);
-    if let Some(sha1) = full_sha1.as_deref() {
-        if !sha1.starts_with(&hash) {
-            return Err(format!(
-                "asset hash {hash} does not match content SHA-1 {sha1}"
-            ));
+    let hash_mismatch = full_sha1
+        .as_deref()
+        .is_some_and(|sha1| !sha1.starts_with(&hash));
+    if !allow_legacy_identity {
+        if let Some(sha1) = full_sha1.as_deref() {
+            if hash_mismatch {
+                return Err(format!(
+                    "asset hash {hash} does not match content SHA-1 {sha1}"
+                ));
+            }
+        }
+    } else if hash_mismatch {
+        if let Value::Object(fields) = &mut metadata {
+            fields.insert("legacyHashMismatch".into(), Value::Bool(true));
         }
     }
     let existing = conn
@@ -817,6 +840,7 @@ fn binary_marker(bytes: &[u8]) -> Value {
     })
 }
 
+#[cfg(test)]
 fn binary_marker_bytes(value: Option<&Value>) -> Option<Vec<u8>> {
     let value = value?;
     if value.get("__qhType").and_then(Value::as_str) != Some("u8") {
@@ -854,6 +878,18 @@ fn binary_marker_bytes_checked(
 fn safe_hash(hash: &str) -> Result<(), String> {
     if hash.len() != 16 || !hash.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return Err(format!("unsafe asset hash: {hash}"));
+    }
+    Ok(())
+}
+
+fn safe_legacy_asset_id(id: &str) -> Result<(), String> {
+    if id.len() < 2
+        || id.len() > 128
+        || !id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(format!("unsafe legacy asset id: {id}"));
     }
     Ok(())
 }

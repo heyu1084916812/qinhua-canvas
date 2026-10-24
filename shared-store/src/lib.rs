@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 mod hash;
+pub mod migration;
 pub mod sqlite;
 
 pub const PORT: u16 = 18765;
@@ -39,31 +40,7 @@ fn hex_id(value: &str) -> String {
 }
 
 fn table_dir(root: &Path, table: &str) -> Result<PathBuf, String> {
-    let allowed = [
-        "projects",
-        "projectFolders",
-        "nodes",
-        "edges",
-        "channels",
-        "tasks",
-        "runRecords",
-        "assets",
-        "credentials",
-        "presets",
-        "customProtocols",
-        "assetLibrary",
-        "builtinSkills",
-        "skills",
-        "agentSessions",
-        "fonts",
-        "snapshots",
-        "storyboards",
-        "ecommerceTasks",
-        "ecommerceResults",
-        "ecommerceCanvasItems",
-        "inspirationCache",
-    ];
-    if !allowed.contains(&table) {
+    if !sqlite::TABLE_NAMES.contains(&table) {
         return Err(format!("unknown table: {table}"));
     }
     Ok(root.join(table))
