@@ -9,6 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
+pub mod sqlite;
+
 pub const PORT: u16 = 18765;
 
 static STARTED: OnceLock<()> = OnceLock::new();
