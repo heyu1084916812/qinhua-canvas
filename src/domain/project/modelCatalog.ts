@@ -262,9 +262,15 @@ export function logicalOptions(
  * - 「设置 → 渠道 → 模型映射」：把显示名翻译成该站真实的模型 ID（选路也认这条映射）。
  * 界面只认显示名，上游 ID 是实现细节 —— 这是产品文档 §7.4.1 的分工。
  */
-export function panelModelOptions(category: ModelCapability['category']): string[] {
+export function panelModelOptions(
+  category: ModelCapability['category'],
+  excludedIds: readonly string[] = [],
+): string[] {
   if (category === 'unknown') return []
-  return presetModelsOf(category).map((m) => m.id)
+  const excluded = new Set(excludedIds)
+  return presetModelsOf(category)
+    .filter((model) => !excluded.has(model.id))
+    .map((model) => model.id)
 }
 
 /** 固定清单里的条目（含厂商，供面板取图标）；不是固定名则返回 undefined */

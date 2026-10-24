@@ -35,10 +35,10 @@ import {
   capabilityOfLogical,
   categoryOfLogical,
   channelIdForLogical,
+  panelModelOptions,
   toLogicalName,
 } from '../../../domain/project/modelCatalog'
 import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
-import { presetModelsOf } from '../../../domain/project/modelPresets'
 import {
   IconClose,
   IconPreset,
@@ -331,6 +331,11 @@ export function CreationPanel(props: CreationPanelProps) {
   const customModels = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().customModels,
+    () => [],
+  )
+  const uncommonModelIds = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().uncommonModelIds,
     () => [],
   )
   /** 面板形态判定要先于兜底：解析链按它决定模型类别（chat / video / image） */
@@ -805,9 +810,9 @@ export function CreationPanel(props: CreationPanelProps) {
   const logicalModelNames: string[] = useMemo(
     () =>
       wantedCategory === 'chat'
-        ? presetModelsOf('chat').map((model) => model.id)
+        ? panelModelOptions('chat', uncommonModelIds)
         : channels.globalModelsOf(wantedCategory).map((model) => model.id),
-    [channels, customModels, wantedCategory],
+    [channels, customModels, uncommonModelIds, wantedCategory],
   )
   /** 固定清单条目（有则模型行带厂商图标）；渠道模型没有图标，只出名字 */
   const modelOptions = logicalModelNames.map((n) => {
@@ -828,9 +833,7 @@ export function CreationPanel(props: CreationPanelProps) {
    * 用户一眼就知道「这里点了会先给什么」。
    */
   const defaultModelLabel =
-    (wantedCategory === 'chat'
-      ? presetModelsOf('chat')[0]?.id
-      : channels.globalModelsOf(wantedCategory)[0]?.id) ??
+    logicalModelNames[0] ??
     (promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型')
   /**
    * 能力（分类 / 张数上限 / 时长区间 / 参考图数）仍按**站点 ID**取（与 M7-4 之前一致）。
@@ -1427,7 +1430,7 @@ export function CreationPanel(props: CreationPanelProps) {
   // 无可用平台时给出**可点击的**解释：空下拉本身不说明「为什么空」，用户只会觉得点了没反应。
   // 区分「一个渠道都没建」与「建了但没启用」——后者最容易被误以为已经配好了。
   const noPlatform = enabled.length === 0
-  const platformGap = allChannels.length === 0 ? '还没有配置任何渠道' : '已配置的渠道都未启用'
+  const platformGap = allChannels.length === 0 ? '还没有添加任何模型服务' : '已添加的模型服务都未启用'
   /**
    * 「现在按下去一定不会有反应」这件事，按钮自己先说清楚（用户 2026-09-23 报「没有反应点了」）。
    *

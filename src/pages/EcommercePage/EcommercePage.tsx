@@ -382,8 +382,25 @@ function StudioHost({ projectId }: { projectId: string }) {
    */
   const [submitting, setSubmitting] = useState(false)
   const [generationStage, setGenerationStage] = useState<EcommerceGenerationStage | null>(null)
-  const models = useMemo(() => panelModelOptions('image'), [])
-  const videoModels = useMemo(() => panelModelOptions('video'), [])
+  const customModels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customModels,
+    () => channels.getState().customModels,
+  )
+  const uncommonModelIds = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().uncommonModelIds,
+    () => channels.getState().uncommonModelIds,
+  )
+  const uncommonModels = useMemo(() => new Set(uncommonModelIds), [uncommonModelIds])
+  const models = useMemo(
+    () => channels.globalModelsOf('image').map((item) => item.id),
+    [channels, customModels, uncommonModelIds],
+  )
+  const videoModels = useMemo(
+    () => channels.globalModelsOf('video').map((item) => item.id),
+    [channels, customModels, uncommonModelIds],
+  )
   const imageParamOptionsByModel = useMemo(
     () =>
       Object.fromEntries(
@@ -945,25 +962,23 @@ function StudioHost({ projectId }: { projectId: string }) {
   const editModels = useMemo(() => {
     const enabled = channelList.filter((channel) => channel.enabled)
     return logicalNames(enabled).filter((name) => {
+      if (uncommonModels.has(name)) return false
       const capability = capabilityOfLogical(enabled, name)
-      return (
-        capability?.category === 'image' &&
-        capability.inputTypes.includes('image')
-      )
+      return capability?.category === 'image' && capability.inputTypes.includes('image')
     })
-  }, [channelList])
+  }, [channelList, uncommonModels])
   const upscaleProfiles = useMemo(
     () =>
       ECOMMERCE_UPSCALE_OPTIONS.filter((option) =>
-        channelList.some(
-          (channel) =>
-            channel.enabled &&
-            channel.models.some(
-              (model) => model.id === option.model && model.category === 'image',
-            ),
+        !uncommonModels.has(option.model) &&
+        channelList.some((channel) =>
+          channel.enabled &&
+          channel.models.some(
+            (model) => model.id === option.model && model.category === 'image',
+          ),
         ),
       ).map((option) => option.id),
-    [channelList],
+    [channelList, uncommonModels],
   )
   const routeStrategy = useSyncExternalStore(
     channels.subscribe,
@@ -971,8 +986,8 @@ function StudioHost({ projectId }: { projectId: string }) {
     () => channels.getState().routeStrategy,
   )
   const intentModelOptions = useMemo(
-    () => panelModelOptions('chat'),
-    [],
+    () => panelModelOptions('chat', uncommonModelIds),
+    [uncommonModelIds],
   )
   const [intentModel, setIntentModel] = useState('')
   const chatTarget = useMemo(
@@ -1039,7 +1054,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const onParseIntent = async (text: string) => {
     if (!chatTarget) {
       setIntent(null)
-      setIntentError('没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型')
+      setIntentError('没有可用的对话模型 —— 先去「设置 → 模型服务」给一条服务勾上对话模型')
       return
     }
     setParsingIntent(true)
@@ -1081,7 +1096,7 @@ function StudioHost({ projectId }: { projectId: string }) {
 
   const onWriteSellingPoints = async (request: EcommerceRequest): Promise<string> => {
     if (!chatTarget) {
-      throw new Error('没有可用的对话模型 —— 先在渠道配置里勾选一个对话模型')
+      throw new Error('没有可用的对话模型 —— 先在模型服务里勾选一个对话模型')
     }
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 30_000)
@@ -1219,7 +1234,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     if (!chatTarget) {
       return {
         ok: false,
-        error: '没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型',
+        error: '没有可用的对话模型 —— 先去「设置 → 模型服务」给一条服务勾上对话模型',
       }
     }
     const visualInputs = visualInputsFor(request)
@@ -1422,8 +1437,8 @@ function StudioHost({ projectId }: { projectId: string }) {
           request.model
             ? `所选模型「${request.model}」没有可用的真实${mediaKind === 'video' ? '视频' : '生图'}渠道`
             : mediaKind === 'video'
-              ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
-              : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
+              ? '还没有可用的视频模型服务 —— 先去「全局设置 → 模型服务」添加一条并勾上视频模型'
+              : '还没有可用的生图模型服务 —— 先去「全局设置 → 模型服务」添加一条并勾上模型',
         )
       }
       const modelForRun = target.logicalModel

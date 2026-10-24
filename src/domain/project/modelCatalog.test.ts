@@ -281,6 +281,14 @@ describe('panelModelOptions', () => {
     expect(chat).not.toContain('即梦 2.5')
   })
 
+  it('隐藏不常用模型时保持固定清单顺序', () => {
+    const all = panelModelOptions('image')
+    const hidden = [all[0], all[2]]
+    expect(panelModelOptions('image', hidden)).toEqual(
+      all.filter((name) => !hidden.includes(name)),
+    )
+  })
+
   it('presetOf 取得到厂商（面板据此画图标），非固定名返回 undefined', () => {
     expect(presetOf('Midjourney')?.vendor).toBe('midjourney')
     expect(presetOf('Gemini Omni Flash 1.1')?.vendor).toBe('google')

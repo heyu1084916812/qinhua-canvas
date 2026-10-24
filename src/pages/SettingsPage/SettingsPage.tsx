@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import {
@@ -43,6 +51,12 @@ import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
+import {
+  IconDelete,
+  IconEdit,
+  IconGrip,
+  IconMoreVertical,
+} from '../../app/SettingsIcons'
 
 /**
  * 模型映射区的**五个筛选**（用户 2026-10-08 第 1 条：「图一这个模型映射的地方换成五个筛选吧，
@@ -57,7 +71,6 @@ import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
  * 扩那个联合要动渠道拉取 / 选路 / 画布面板一整条链，而清单里现在并没有那两类模型。
  */
 const MAP_FILTERS = [
-  { key: 'unknown', title: '未分类' },
   { key: 'image', title: '生图' },
   { key: 'chat', title: '对话' },
   { key: 'video', title: '视频' },
@@ -78,6 +91,31 @@ const GLOBAL_MODEL_VENDORS: { value: PresetVendor; label: string }[] = [
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'zhipu', label: '智谱' },
   { value: 'tencent', label: '腾讯' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'xai', label: 'xAI' },
+  { value: 'mistral', label: 'Mistral' },
+  { value: 'moonshot', label: 'Moonshot' },
+  { value: 'baidu', label: '百度' },
+  { value: 'cohere', label: 'Cohere' },
+  { value: 'perplexity', label: 'Perplexity' },
+  { value: 'stability', label: 'Stability' },
+  { value: 'runway', label: 'Runway' },
+  { value: 'luma', label: 'Luma' },
+  { value: 'ideogram', label: 'Ideogram' },
+  { value: 'bfl', label: 'BFL' },
+  { value: 'recraft', label: 'Recraft' },
+  { value: 'kling', label: '可灵' },
+  { value: 'suno', label: 'Suno' },
+  { value: 'elevenlabs', label: 'ElevenLabs' },
+  { value: 'ollama', label: 'Ollama' },
+  { value: 'huggingface', label: 'Hugging Face' },
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'siliconcloud', label: '硅基流动' },
+  { value: 'modelscope', label: 'ModelScope' },
+  { value: 'doubao', label: '豆包' },
+  { value: 'volcengine', label: '火山引擎' },
+  { value: 'flux', label: 'FLUX' },
+  { value: 'jimeng', label: '即梦' },
 ]
 
 
@@ -238,7 +276,7 @@ function ChannelTokenField({
             target="_blank"
             rel="noreferrer"
           >
-            去官网获取令牌 ↗
+            去官网获取令牌
           </a>
         )}
       </span>
@@ -299,12 +337,17 @@ export function SettingsPage() {
     () => channels.getState().customModels,
     () => channels.getState().customModels,
   )
+  const uncommonModelIds = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().uncommonModelIds,
+    () => channels.getState().uncommonModelIds,
+  )
   const allGlobalModels = useMemo(
     () =>
       (['image', 'chat', 'video', 'audio'] as const).flatMap((category) =>
-        channels.globalModelsOf(category),
+        channels.globalModelsOf(category, true),
       ),
-    [channels, customModels],
+    [channels, customModels, uncommonModelIds],
   )
   const verify = useSyncExternalStore(
     channels.subscribe,
@@ -335,15 +378,19 @@ export function SettingsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [selectedDeleteIds, setSelectedDeleteIds] = useState<Set<string>>(() => new Set())
+  const [channelMenu, setChannelMenu] = useState<{
+    channelId: string
+    x: number
+    y: number
+  } | null>(null)
+  const [menuConfirmDelete, setMenuConfirmDelete] = useState(false)
+  const channelMenuRef = useRef<HTMLDivElement | null>(null)
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState('mock')
   const [baseUrl, setBaseUrl] = useState('')
   const [enabled, setEnabled] = useState(false)
   /** 令牌的输入 / 显示 / 已存状态都在 `ChannelTokenField` 里（一行一份，见上面的组件） */
   const [busy, setBusy] = useState(false)
-  /** 删除渠道的就地二次确认（§7.2）：删除不可逆，点一下就走太容易误触 */
-  const [confirmDelete, setConfirmDelete] = useState(false)
   /**
    * 图标那一行的**结果话术**（对账 #396）：抓成功说抓到哪儿了，失败说为什么、
    * 下一步做什么。失败时不弹窗 —— 用户就在这一行上，话就该留在这儿。
@@ -390,6 +437,10 @@ export function SettingsPage() {
   const [newModelCategory, setNewModelCategory] =
     useState<PresetModel['category']>('image')
   const [newModelVendor, setNewModelVendor] = useState<PresetVendor>('openai')
+  const [showUncommonModels, setShowUncommonModels] = useState(false)
+  const [mapTests, setMapTests] = useState<
+    Record<string, { status: 'checking' | 'ok' | 'missing' | 'error'; message: string }>
+  >({})
 
   /**
    * 映射区当前看的**哪一类**（用户 2026-10-08 第 1 条：五个筛选）。
@@ -454,19 +505,17 @@ export function SettingsPage() {
     void channels.load()
   }, [channels])
 
-  useEffect(() => {
-    const deletable = new Set(
-      channelsList.filter((channel) => !isBuiltinChannelId(channel.id)).map((channel) => channel.id),
-    )
-    setSelectedDeleteIds((prev) => {
-      const next = new Set([...prev].filter((id) => deletable.has(id)))
-      return next.size === prev.size ? prev : next
-    })
-  }, [channelsList])
-
   const selected = useMemo(
     () => channelsList.find((c) => c.id === selectedId) ?? null,
     [channelsList, selectedId],
+  )
+  const builtinChannels = useMemo(
+    () => channelsList.filter((channel) => isBuiltinChannelId(channel.id)),
+    [channelsList],
+  )
+  const userChannels = useMemo(
+    () => channelsList.filter((channel) => !isBuiltinChannelId(channel.id)),
+    [channelsList],
   )
   const selectedKeyGroups = useMemo(
     () =>
@@ -491,10 +540,11 @@ export function SettingsPage() {
   useEffect(() => {
     const ch = channels.getState().channels.find((c) => c.id === selectedId) ?? null
     setPanelOpen(false)
-    // 换一条渠道 → 撤掉上一条残留的删除确认态，否则「删除 A？」会跟着光标挂到 B 头上。
-    setConfirmDelete(false)
+    setChannelMenu(null)
+    setMenuConfirmDelete(false)
     setMapDrafts({})
     setMapSaveNotice(null)
+    setMapTests({})
     for (const timer of mapSaveTimersRef.current.values()) window.clearTimeout(timer)
     mapSaveTimersRef.current.clear()
     if (!ch) return
@@ -507,6 +557,40 @@ export function SettingsPage() {
     setBaseUrl(ch.baseUrl)
     setEnabled(ch.enabled)
   }, [selectedId, channels])
+
+  useEffect(() => {
+    if (!channelMenu) return
+    const focusTimer = window.setTimeout(() => {
+      channelMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    }, 0)
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-channel-context-menu]')) return
+      setChannelMenu(null)
+      setMenuConfirmDelete(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setChannelMenu(null)
+      setMenuConfirmDelete(false)
+    }
+    const close = () => {
+      setChannelMenu(null)
+      setMenuConfirmDelete(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.clearTimeout(focusTimer)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [channelMenu, menuConfirmDelete])
 
   useEffect(() => {
     if (mapSaveNotice?.tone !== 'ok') return
@@ -523,8 +607,19 @@ export function SettingsPage() {
   )
 
   const handleCreate = async () => {
-    const ch = await channels.create({ name: '新建渠道', protocol: 'mock', baseUrl: '' })
+    const ch = await channels.create({ name: '新建服务', protocol: 'mock', baseUrl: '' })
     setSelectedId(ch.id)
+  }
+
+  const handleEnableChange = async (next: boolean) => {
+    if (!selectedId) return
+    setEnabled(next)
+    try {
+      await channels.setEnabled(selectedId, next)
+    } catch (error) {
+      setEnabled(!next)
+      alert(error instanceof Error ? error.message : '保存启用状态失败')
+    }
   }
 
   /** 上传渠道图标（用户第 19 批 #4/#5）：读图 → 压到 ≤128px → 落库 */
@@ -592,7 +687,7 @@ export function SettingsPage() {
   /** 把表单**当前内容**落库，返回落库后的渠道。 */
   const persistForm = async (): Promise<Channel> => {
     const saved = await channels.update(selectedId!, {
-      name: name.trim() || '新建渠道',
+      name: name.trim() || '新建服务',
       protocol,
       baseUrl: baseUrl.trim(),
       enabled,
@@ -650,26 +745,45 @@ export function SettingsPage() {
     }
   }
 
-  /** 二次确认后才真正删除（按钮在左栏「+ 新增渠道」下方） */
-  const handleRemove = async () => {
-    const targets = (
-      selectedDeleteIds.size > 0
-        ? [...selectedDeleteIds]
-        : selectedId
-          ? [selectedId]
-          : []
-    ).filter((id) => !isBuiltinChannelId(id))
-    if (targets.length === 0) return
+  const openChannelMenu = (channelId: string, x: number, y: number) => {
+    setChannelMenu({ channelId, x, y })
+    setMenuConfirmDelete(false)
+  }
+
+  const openChannelMenuFromButton = (
+    event: Pick<ReactPointerEvent<HTMLButtonElement>, 'currentTarget' | 'stopPropagation'>,
+    channelId: string,
+  ) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    openChannelMenu(channelId, rect.right - 8, rect.bottom + 6)
+  }
+
+  const editChannel = (channelId: string) => {
+    setSelectedId(channelId)
+    setChannelMenu(null)
+    setMenuConfirmDelete(false)
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('[data-settings-editor]')?.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      })
+      document.querySelector<HTMLInputElement>('[data-settings-name]')?.focus()
+    })
+  }
+
+  const handleRemove = async (channelId: string) => {
+    if (isBuiltinChannelId(channelId)) return
     setBusy(true)
     try {
-      for (const id of targets) await channels.remove(id)
-      if (selectedId && targets.includes(selectedId)) setSelectedId(null)
-      setSelectedDeleteIds(new Set())
-      setConfirmDelete(false)
+      await channels.remove(channelId)
+      if (selectedId === channelId) setSelectedId(null)
+      setChannelMenu(null)
+      setMenuConfirmDelete(false)
     } catch (err) {
       /** 内置渠道会被命令层拒绝（界面也已禁用）—— 如实说一句，别静默失败 */
       alert(err instanceof Error ? err.message : '删除失败')
-      setConfirmDelete(false)
+      setMenuConfirmDelete(false)
     } finally {
       setBusy(false)
     }
@@ -734,6 +848,35 @@ export function SettingsPage() {
       void flushModelMapping(logicalName, upstreamId)
     }, 600)
     mapSaveTimersRef.current.set(logicalName, timer)
+  }
+
+  const testModelMapping = async (logicalName: string, upstreamId: string) => {
+    if (!selectedId) return
+    setMapTests((prev) => ({
+      ...prev,
+      [logicalName]: { status: 'checking', message: '正在读取模型目录…' },
+    }))
+    try {
+      await flushModelMapping(logicalName, upstreamId)
+      const result = await channels.testModelMapping(
+        selectedId,
+        logicalName,
+        upstreamId,
+        activeGroup?.id,
+      )
+      setMapTests((prev) => ({
+        ...prev,
+        [logicalName]: { status: result.status, message: result.message },
+      }))
+    } catch (error) {
+      setMapTests((prev) => ({
+        ...prev,
+        [logicalName]: {
+          status: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }))
+    }
   }
 
   const handleAddGlobalModel = async () => {
@@ -978,16 +1121,18 @@ export function SettingsPage() {
    * 所以"禁不掉"这件事不靠界面自觉。
    */
   const builtinSelected = !!selectedId && isBuiltinChannelId(selectedId)
-  const deleteTargetIds = (
-    selectedDeleteIds.size > 0
-      ? [...selectedDeleteIds]
-      : selectedId && !builtinSelected
-        ? [selectedId]
-        : []
-  ).filter((id) => !isBuiltinChannelId(id))
-  const deleteTargetNames = deleteTargetIds.map(
-    (id) => channelsList.find((channel) => channel.id === id)?.name ?? id,
-  )
+  const menuChannel = channelMenu
+    ? channelsList.find((channel) => channel.id === channelMenu.channelId) ?? null
+    : null
+  const menuBuiltin = !!menuChannel && isBuiltinChannelId(menuChannel.id)
+  const menuWidth = 184
+  const menuHeight = menuConfirmDelete ? 164 : menuBuiltin ? 52 : 104
+  const menuLeft = channelMenu
+    ? Math.max(8, Math.min(channelMenu.x, window.innerWidth - menuWidth - 8))
+    : 0
+  const menuTop = channelMenu
+    ? Math.max(8, Math.min(channelMenu.y, window.innerHeight - menuHeight - 8))
+    : 0
 
   return (
     <div className={styles.page}>
@@ -1036,247 +1181,183 @@ export function SettingsPage() {
           <aside className={styles.sidebar} data-settings-sidebar>
           {/* `data-channel-list` 是滚动条位置断言的锚点（贴左栏最右沿，见 CSS 的 `.list`） */}
           <ul className={styles.list} data-channel-list>
-            {channelsList.map((ch: Channel) => {
-              const caps = channelCapabilities(
-                ch,
-                protocolById(ch.protocol, catalog)?.capabilities ?? [],
-              )
-              return (
+            {[
+              { kind: 'builtin', label: '内置服务', items: builtinChannels },
+              { kind: 'custom', label: '我的服务', items: userChannels },
+            ].flatMap((group) => [
+              group.items.length > 0 ? (
+                <li
+                  key={`channel-group-${group.kind}`}
+                  className={styles.channelGroupLabel}
+                  data-channel-group={group.kind}
+                >
+                  {group.label}
+                </li>
+              ) : null,
+              ...group.items.map((ch: Channel) => {
+                const caps = channelCapabilities(
+                  ch,
+                  protocolById(ch.protocol, catalog)?.capabilities ?? [],
+                )
+                return (
               <li key={ch.id}>
                 <div
-                  role="button"
-                  tabIndex={0}
-                  className={ch.id === selectedId ? `${styles.item} ${styles.itemActive}` : styles.item}
+                  className={
+                    ch.id === selectedId
+                      ? `${styles.item} ${styles.itemActive}`
+                      : styles.item
+                  }
                   data-channel-item
                   data-channel-id={ch.id}
-                  /**
-                   * 「当前正在编辑哪一条」的机器可读锚点。
-                   *
-                   * 2026-10-08 加：内置渠道常驻置顶之后，冒烟里凡是用
-                   * `.first()` 找"我刚建的那条"的断言都会落在内置行上（G8 / G45
-                   * 实测就是去看 ModelScope 的协议标签）。有了这个属性，
-                   * 断言可以直接问"**正在编辑的**那行"长什么样。
-                   */
                   data-channel-selected={ch.id === selectedId ? 'true' : undefined}
-                  /**
-                   * 协议短标签与能力**改成机器可读的属性**（用户第 21 批第 2 条：
-                   * 「后面的缩写文字删掉」「渠道下方的对话、生图那些展示也去掉」）。
-                   * 界面上不再显示它们，但冒烟 / 探针仍按这两个锚点断言 ——
-                   * 换成属性等于"信息还在、只是不占地方"，不必把断言改成语义不同的另一种。
-                   */
                   data-channel-proto={protocolShort(ch.protocol, catalog)}
                   data-channel-caps={(['chat', 'image', 'video'] as const)
-                    .filter((k) => caps[k])
+                    .filter((key) => caps[key])
                     .join(',')}
-                  /**
-                   * **内置渠道不可拖**（用户 2026-10-08：「上面三个渠道是固定不变的，但是新建的渠道
-                   * 是需要可以拖动的」）：它们在 store 里本来就会被钉回队首（`channelStore.reorder`
-                   * 的 `front`），但整行还挂着 `draggable` ⇒ 用户拖着它、松手发现没动，
-                   * 读起来就是「拖动坏了」。现在**不让它起拖**（`cursor: default` 由
-                   * `[data-channel-fixed]` 那一格给），用户行照旧可拖。
-                   *
-                   * ⚠️ 内置行**仍然接 drop**（`onDrop` 保留）：把用户渠道拖到内置行上
-                   * 是「挪到用户区第一格」的意思，这条路不能断。
-                   */
-                  draggable={!isBuiltinChannelId(ch.id)}
                   data-channel-fixed={isBuiltinChannelId(ch.id) ? 'true' : undefined}
-                  onDragStart={() => setDragId(ch.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault()
+                  data-dragging={dragId === ch.id ? 'true' : undefined}
+                  data-menu-open={channelMenu?.channelId === ch.id ? 'true' : undefined}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    openChannelMenu(ch.id, event.clientX, event.clientY)
+                  }}
+                  onDragOver={(event) => {
+                    if (!dragId) return
+                    event.preventDefault()
+                  }}
+                  onDrop={(event) => {
+                    if (!dragId) return
+                    event.preventDefault()
                     void dropOnChannel(ch.id)
                   }}
-                  onDragEnd={() => setDragId(null)}
-                  /**
-                   * **选中挂在按下那一刻（`pointerdown`），不挂 `click`**
-                   * （用户 2026-10-08：「渠道与渠道之间转换的时候有延迟，有时候需要点击两下才能转换」）。
-                   *
-                   * 根因：整行就是拖动手柄（`draggable`）。按下之后手只要动 ~5px，浏览器就进入
-                   * **拖动判定** —— 那一下 `click` 根本不会派发，表现就是「点了没反应，得再点一下」。
-                   * 真机位移扫描（0/1/2/3/5/8px）：0–3px 能选中、5px 与 8px 一律选不中
-                   * （冒烟 G44 钉住其中 5px 那一档）。
-                   * 挂在按下的那一刻即与拖动判定无关，顺带把「按下去立刻有反馈」还给用户
-                   * （原来还得等 `click` 那一下，看着像有延迟）。
-                   */
-                  onPointerDown={(e) => {
-                    /** 只认主键：右键留给右键菜单 */
-                    if (e.button !== 0) return
-                    setSelectedId(ch.id)
-                  }}
-                  /** `role="button"` 就该能用键盘选中（此前只有 `tabIndex`，回车 / 空格没反应） */
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return
-                    e.preventDefault()
-                    setSelectedId(ch.id)
-                  }}
                 >
-                  {!isBuiltinChannelId(ch.id) && (
-                    <span
-                      className={styles.itemSelect}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onDragStart={(e) => e.preventDefault()}
-                    >
-                      <input
-                        type="checkbox"
-                        aria-label={`选择删除 ${ch.name}`}
-                        data-channel-delete-select={ch.id}
-                        checked={selectedDeleteIds.has(ch.id)}
-                        onChange={(event) => {
-                          setSelectedDeleteIds((prev) => {
-                            const next = new Set(prev)
-                            if (event.target.checked) next.add(ch.id)
-                            else next.delete(ch.id)
-                            return next
-                          })
+                  <span className={styles.dragHandleSlot}>
+                    {!isBuiltinChannelId(ch.id) ? (
+                      <button
+                        type="button"
+                        className={styles.dragHandle}
+                        draggable
+                        aria-label={`拖动 ${ch.name} 排序`}
+                        title="拖动排序"
+                        data-channel-drag-handle={ch.id}
+                        onDragStart={(event) => {
+                          event.stopPropagation()
+                          setDragId(ch.id)
                         }}
-                      />
-                    </span>
-                  )}
-                  {/* 左：渠道图标（品牌矢量标记 / 用户上传的图，见 `ChannelIcon`）。
-                      固定大小，方块与右侧两排等高 —— 几何规则写在 CSS 的 `.itemIcon` 上。 */}
-                  <span className={styles.itemIcon} data-channel-icon-box>
-                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={26} />
+                        onDragEnd={() => setDragId(null)}
+                      >
+                        <IconGrip size={15} />
+                      </button>
+                    ) : null}
                   </span>
-                  {/* 右：两排（上：自定义名称 / 下：启用开关 + 模型数） */}
-                  <span className={styles.itemBody} data-channel-body>
-                    <span className={styles.itemName}>{ch.name}</span>
-                    {/*
-                      **第二排 = 开关 + 模型数**（用户 2026-10-08 新一条：「不要有启用的那个文字，
-                      替换成显示右侧选择了多少个模型的总数」）。
-
-                      两件事刻意分开：**开关是唯一的控件**，"N 个模型"只是信息 ——
-                      所以模型数放在收指针的 `.itemToggle` **外面**，它归整行所有：
-                      点它 = 选中这条渠道（既不误切开关，也不是"点了没反应"的死区）。
-                      开关没了可见文字 ⇒ 给 input 一个 `aria-label`（读屏照旧知道它是什么）。
-
-                      列表项仍是 `role="button"` 的 div、不是 `<button>` —— 按钮里不许再放交互元素
-                      （label + input 是交互内容，塞进 button 属于非法 HTML，浏览器会把点击派发搞乱）。
-                    */}
-                    <span className={styles.itemStatusRow}>
-                      <span
-                        className={styles.itemToggle}
-                        data-channel-toggle
-                        /* 开关自己收指针（`pointerdown` 也要收 —— 选中现在挂在按下那一刻）：点它只切开关，不选渠道、也不起拖动 */
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        onDragStart={(e) => e.preventDefault()}
-                      >
-                        <label
-                          className={styles.switch}
-                          data-channel-switch-label
-                          title={ch.enabled ? '已启用' : '未启用'}
-                        >
-                          <input
-                            className={styles.switchInput}
-                            type="checkbox"
-                            checked={ch.enabled}
-                            aria-label={`${ch.name}：${ch.enabled ? '已启用' : '未启用'}`}
-                            data-channel-enabled={ch.id}
-                            onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
-                          />
-                          <span className={styles.switchTrack} aria-hidden="true" />
-                        </label>
-                      </span>
-                      <span
-                        className={styles.itemCount}
-                        data-channel-model-count={ch.id}
-                        /* 不摆裸数字：一句人话 + 悬停给出完整含义（它同时说明去哪儿改） */
-                        title={`这条渠道已勾选 ${ch.models.length} 个模型（在右侧「模型列表」里改）`}
-                      >
-                        {ch.models.length === 0 ? '未选模型' : `${ch.models.length} 个模型`}
-                      </span>
+                  <button
+                    type="button"
+                    className={styles.itemMain}
+                    onPointerDown={(event) => {
+                      if (event.button === 0) setSelectedId(ch.id)
+                    }}
+                    onClick={() => setSelectedId(ch.id)}
+                    onKeyDown={(event) => {
+                      const menuKey = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
+                      if (!menuKey) return
+                      event.preventDefault()
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      openChannelMenu(ch.id, rect.right - 8, rect.top + rect.height)
+                    }}
+                  >
+                    <span className={styles.itemIcon} data-channel-icon-box>
+                      <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={22} />
                     </span>
+                    <span className={styles.itemBody} data-channel-body>
+                      <span className={styles.itemName}>{ch.name}</span>
+                    </span>
+                  </button>
+                  <span className={styles.itemTrailing}>
+                    <span
+                      className={styles.itemEnabledDot}
+                      data-channel-state-dot={ch.id}
+                      data-enabled={ch.enabled ? 'true' : 'false'}
+                      title={ch.enabled ? '已启用' : '未启用'}
+                      aria-label={ch.enabled ? '已启用' : '未启用'}
+                    />
+                    <button
+                      type="button"
+                      className={styles.itemMenuTrigger}
+                      data-channel-menu-trigger={ch.id}
+                      aria-label={`打开 ${ch.name} 菜单`}
+                      aria-haspopup="menu"
+                      aria-expanded={channelMenu?.channelId === ch.id}
+                      title="更多操作"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => openChannelMenuFromButton(event, ch.id)}
+                    >
+                      <IconMoreVertical size={17} />
+                    </button>
                   </span>
                 </div>
               </li>
-              )
-            })}
-            {channelsList.length === 0 && <li className={styles.empty}>还没有渠道，点下方「+ 新增渠道」</li>}
+                )
+              }),
+            ])}
+            {channelsList.length === 0 && (
+              <li className={styles.empty}>还没有模型服务，点下方「+ 新增服务」</li>
+            )}
 
             {/* 列表级操作跟在**最后一条渠道**后面（用户 2026-09-28）：
                 它们此前被 `flex: 1` 的滚动列表挤到左栏最底部，渠道少时离条目很远；
                 放回列表尾部后，新增/删除仍是同一组操作，但视线不用跨越空白。
                 删除不可逆，所以继续走就地二次确认。 */}
             <li className={styles.listActions} data-channel-actions>
-              {/* 拖动提示放在新增按钮**上方**（用户浏览器批注）：它描述的是上方列表，
-                  夹在「新增」与「删除」之间会让人以为在说下面那组按钮。 */}
-              {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
+              {channelsList.length > 0 && (
+                <p className={styles.dragHint}>悬停服务行，从左侧把手上下拖动排序</p>
+              )}
               <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
-                + 新增渠道
+                + 新增服务
               </button>
-
-              <div className={styles.dangerZone}>
-                {!confirmDelete ? (
-                  <button
-                    className={styles.dangerBtn}
-                    data-channel-remove
-                    disabled={deleteTargetIds.length === 0 || busy}
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    {deleteTargetIds.length > 1
-                      ? `删除所选渠道（${deleteTargetIds.length}）`
-                      : '删除渠道'}
-                  </button>
-                ) : (
-                  <div className={styles.confirmBox} data-channel-remove-confirm>
-                    <span className={styles.confirmText}>
-                      {deleteTargetNames.length > 1
-                        ? `删除所选的 ${deleteTargetNames.length} 条渠道？不可撤销`
-                        : `删除「${deleteTargetNames[0] ?? selected?.name ?? ''}」？不可撤销`}
-                    </span>
-                    <div className={styles.confirmRow}>
-                      <button
-                        className={styles.dangerSolid}
-                        data-channel-remove-yes
-                        disabled={busy}
-                        onClick={handleRemove}
-                      >
-                        确认删除
-                      </button>
-                      <button
-                        className={styles.ghostBtn}
-                        data-channel-remove-no
-                        onClick={() => setConfirmDelete(false)}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </li>
           </ul>
         </aside>
 
         <section className={styles.editor} data-settings-editor>
           {!selected ? (
-            <div className={styles.placeholder}>从左侧选择，或新增一个渠道</div>
+            <div className={styles.placeholder}>从左侧选择，或新增一个模型服务</div>
           ) : (
             <div className={styles.form} data-settings-form>
+              <div className={styles.providerEditorHead} data-settings-provider-head>
+                <ChannelIcon protocol={protocol} icon={selected.icon} size={34} />
+                <input
+                  className={styles.providerNameInput}
+                  data-settings-name
+                  aria-label="模型服务名称"
+                  disabled={builtinSelected}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={() => void persistForm()}
+                />
+                <label
+                  className={styles.switch}
+                  title={enabled ? '停用模型服务' : '启用模型服务'}
+                >
+                  <input
+                    className={styles.switchInput}
+                    type="checkbox"
+                    checked={enabled}
+                    aria-label={`${selected.name}：${enabled ? '已启用' : '未启用'}`}
+                    data-channel-enabled={selected.id}
+                    onChange={(event) => void handleEnableChange(event.target.checked)}
+                  />
+                  <span className={styles.switchTrack} aria-hidden="true" />
+                </label>
+              </div>
               {/* —— 基本信息（§7.2）—— */}
-              <section className={styles.card} data-settings-basics>
+              <section className={styles.editorSection} data-settings-basics>
                 {/*
                   卡片标题下面那行小字「这条渠道在画布里显示的名字」**已删**
                   （用户 2026-10-08 第 2 条：「第二个框，不需要这个小字」）——
                   卡片里就一个"名称"输入框，它是什么不用再解释一遍。
                 */}
                 <div className={styles.cardHead}>
-                  <span className={styles.cardTitle}>基本信息</span>
-                </div>
-                <div className={styles.fieldRowTop}>
-                  <label className={`${styles.field} ${styles.grow}`}>
-                    <span className={styles.label}>名称</span>
-                    <input
-                      className={styles.input}
-                      data-settings-name
-                      /* 内置渠道：名称固定（用户第 20 批「固定字段是的」） */
-                      disabled={builtinSelected}
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onBlur={() => void persistForm()}
-                    />
-                  </label>
+                  <span className={styles.cardTitle}>服务图标</span>
                 </div>
 
                 {/*
@@ -1358,7 +1439,7 @@ export function SettingsPage() {
               </section>
 
               {/* —— 连接与鉴权（§7.3）—— */}
-              <section className={styles.card} data-settings-connection>
+              <section className={styles.editorSection} data-settings-connection>
                 <div className={styles.cardHead}>
                   <span className={styles.cardTitle}>连接与鉴权</span>
                   <span className={styles.cardSub}>站点地址、API Key 与协议</span>
@@ -1772,7 +1853,7 @@ export function SettingsPage() {
               </section>
 
               {/* —— 模型管理（§7.4）—— */}
-              <section className={styles.card} data-settings-models>
+              <section className={styles.editorSection} data-settings-models>
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
                     <span className={styles.cardTitle}>模型列表</span>
@@ -1914,7 +1995,7 @@ export function SettingsPage() {
               {/* —— 渠道的选路权重与模型映射（§7.4.1，M7-2）——
                   策略本身是全局的（见上方 `data-settings-global-route`）；
                   这里只留**按渠道**才有意义的优先度 / 权重 / 映射。 */}
-              <section className={styles.card} data-settings-channel-route>
+              <section className={styles.editorSection} data-settings-channel-route>
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
                     <span className={styles.cardTitle}>渠道权重与模型映射</span>
@@ -2072,24 +2153,35 @@ export function SettingsPage() {
                         以及**两行说明文案已删**（第 4 条：「这个框住的文字可以删掉了」）——
                         左列是什么、右列填什么，看一遍就懂；填错时那行会有自己的提示。
                       */}
-                      <div className={styles.mapFilters} role="tablist" aria-label="模型映射分类">
-                        {MAP_FILTERS.map((f) => (
-                          <button
-                            key={f.key}
-                            type="button"
-                            role="tab"
-                            aria-selected={mapCategory === f.key}
-                            data-route-map-filter={f.key}
-                            className={
-                              mapCategory === f.key
-                                ? `${styles.mapFilter} ${styles.mapFilterOn}`
-                                : styles.mapFilter
-                            }
-                            onClick={() => setMapCategory(f.key)}
-                          >
-                            {f.title}
-                          </button>
-                        ))}
+                      <div className={styles.mapToolbar}>
+                        <div className={styles.mapFilters} role="tablist" aria-label="模型映射分类">
+                          {MAP_FILTERS.map((f) => (
+                            <button
+                              key={f.key}
+                              type="button"
+                              role="tab"
+                              aria-selected={mapCategory === f.key}
+                              data-route-map-filter={f.key}
+                              className={
+                                mapCategory === f.key
+                                  ? `${styles.mapFilter} ${styles.mapFilterOn}`
+                                  : styles.mapFilter
+                              }
+                              onClick={() => setMapCategory(f.key)}
+                            >
+                              {f.title}
+                            </button>
+                          ))}
+                        </div>
+                        <label className={styles.showUncommonToggle}>
+                          <input
+                            type="checkbox"
+                            checked={showUncommonModels}
+                            data-route-map-show-uncommon
+                            onChange={(event) => setShowUncommonModels(event.target.checked)}
+                          />
+                          <span>显示不常用模型</span>
+                        </label>
                       </div>
                       {/*
                         按类别分三组（用户 2026-09-27 第 9 轮）：
@@ -2100,7 +2192,13 @@ export function SettingsPage() {
                         （写两份必然漂移，那正是本项目反复踩的坑）。
                       */}
                       {(() => {
-                        const groupRows = rows.filter((r) => String(r.category) === mapCategory)
+                        const uncommon = new Set(uncommonModelIds)
+                        const allGroupRows = rows.filter(
+                          (row) => String(row.category) === mapCategory,
+                        )
+                        const groupRows = allGroupRows.filter(
+                          (row) => showUncommonModels || !uncommon.has(row.key),
+                        )
                         /*
                          * 空的这一类**如实说**：前端显示名清单里目前只有生图 / 对话 / 视频，
                          * 音频与 3D 是预留位（清单里加上就会自动出现，不必改这里）。
@@ -2108,7 +2206,9 @@ export function SettingsPage() {
                         if (groupRows.length === 0) {
                           return (
                             <p className={styles.modelsEmpty} data-route-map-empty={mapCategory}>
-                              这一类还没有模型：前端的固定显示名清单里目前没有它。
+                              {allGroupRows.length > 0
+                                ? '这一类的模型都已标为不常用。勾选“显示不常用模型”可恢复为常用。'
+                                : '这一类的模型列表目前为空。'}
                             </p>
                           )
                         }
@@ -2140,6 +2240,8 @@ export function SettingsPage() {
                                 const draft = mapDrafts[id]
                                 const value = draft ?? saved
                                 const isPreset = presetIds.includes(id)
+                                const uncommon = uncommonModelIds.includes(id)
+                                const test = mapTests[id]
                                 return (
                                   <div
                                     key={id}
@@ -2178,6 +2280,29 @@ export function SettingsPage() {
                                     >
                                       {mapSaveNotice?.id === id ? mapSaveNotice.text : ''}
                                     </span>
+                                    <label
+                                      className={styles.mapUncommonToggle}
+                                      title="勾选后从画布、Agent、默认参数和电商模型中隐藏"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={uncommon}
+                                        data-route-map-uncommon={id}
+                                        onChange={(event) => {
+                                          void channels.setModelUncommon(id, event.target.checked)
+                                        }}
+                                      />
+                                      <span>不常用</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      className={styles.mapTestButton}
+                                      data-route-map-test={id}
+                                      disabled={test?.status === 'checking'}
+                                      onClick={() => void testModelMapping(id, value)}
+                                    >
+                                      {test?.status === 'checking' ? '测试中' : '测试'}
+                                    </button>
                                     {customModels.some((model) => model.id === id) && (
                                       <button
                                         className={styles.chipX}
@@ -2188,6 +2313,21 @@ export function SettingsPage() {
                                         ×
                                       </button>
                                     )}
+                                    <span
+                                      className={
+                                        test?.status === 'ok'
+                                          ? `${styles.mapTestState} ${styles.mapTestOk}`
+                                          : test?.status === 'missing'
+                                            ? `${styles.mapTestState} ${styles.mapTestMissing}`
+                                            : test?.status === 'error'
+                                              ? `${styles.mapTestState} ${styles.mapTestError}`
+                                              : styles.mapTestState
+                                      }
+                                      data-route-map-test-state={test?.status}
+                                      aria-live="polite"
+                                    >
+                                      {test?.message ?? ''}
+                                    </span>
                                   </div>
                                 )
                               })}
@@ -2205,6 +2345,84 @@ export function SettingsPage() {
         </div>
       </div>
       )}
+      {channelMenu && menuChannel
+        ? createPortal(
+            <div
+              ref={channelMenuRef}
+              className={styles.channelContextMenu}
+              data-channel-context-menu={menuChannel.id}
+              role="menu"
+              aria-label={`${menuChannel.name} 操作`}
+              style={{ left: menuLeft, top: menuTop, width: menuWidth }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+                event.preventDefault()
+                const items = [
+                  ...(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ??
+                    []),
+                ]
+                if (items.length === 0) return
+                const current = items.indexOf(document.activeElement as HTMLButtonElement)
+                const delta = event.key === 'ArrowDown' ? 1 : -1
+                items[(current + delta + items.length) % items.length]?.focus()
+              }}
+            >
+              {menuConfirmDelete ? (
+                <>
+                  <p className={styles.channelMenuConfirmText}>
+                    删除「{menuChannel.name}」？不可撤销
+                  </p>
+                  <button
+                    type="button"
+                    className={`${styles.channelMenuItem} ${styles.channelMenuItemDanger}`}
+                    role="menuitem"
+                    data-channel-menu-delete-confirm={menuChannel.id}
+                    disabled={busy}
+                    onClick={() => void handleRemove(menuChannel.id)}
+                  >
+                    <IconDelete size={16} />
+                    确认删除
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.channelMenuItem}
+                    role="menuitem"
+                    data-channel-menu-delete-cancel
+                    onClick={() => setMenuConfirmDelete(false)}
+                  >
+                    取消
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={styles.channelMenuItem}
+                    role="menuitem"
+                    data-channel-menu-edit={menuChannel.id}
+                    onClick={() => editChannel(menuChannel.id)}
+                  >
+                    <IconEdit size={16} />
+                    编辑
+                  </button>
+                  {!menuBuiltin ? (
+                    <button
+                      type="button"
+                      className={`${styles.channelMenuItem} ${styles.channelMenuItemDanger}`}
+                      role="menuitem"
+                      data-channel-menu-delete={menuChannel.id}
+                      onClick={() => setMenuConfirmDelete(true)}
+                    >
+                      <IconDelete size={16} />
+                      删除
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

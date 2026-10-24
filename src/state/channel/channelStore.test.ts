@@ -464,9 +464,35 @@ describe('channelStore', () => {
     )
     expect(reloaded.globalModelOf('My Image Pro')?.vendor).toBe('openai')
 
+    await reloaded.setModelUncommon('My Image Pro', true)
+    expect(reloaded.globalModelsOf('image').map((model) => model.id)).not.toContain(
+      'My Image Pro',
+    )
+    expect(reloaded.globalModelsOf('image', true).map((model) => model.id)).toContain(
+      'My Image Pro',
+    )
+    const preferenceReloaded = createChannelStore(p, { seedBuiltins: false })
+    await preferenceReloaded.load()
+    expect(preferenceReloaded.globalModelsOf('image').map((model) => model.id)).not.toContain(
+      'My Image Pro',
+    )
+
     await reloaded.removeGlobalModel('My Image Pro')
     expect(reloaded.globalModelOf('My Image Pro')).toBeUndefined()
     await expect(reloaded.removeGlobalModel('GPT Image 2')).rejects.toThrow()
+  })
+
+  it('★ 映射测试只查模型目录：命中为 ok，目录缺项为 missing，不触发生成', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: '测试站', protocol: 'mock', baseUrl: '' })
+
+    expect(await store.testModelMapping(ch.id, 'GPT Image 2', 'mock-image-1')).toMatchObject({
+      status: 'ok',
+    })
+    expect(await store.testModelMapping(ch.id, 'GPT Image 2', 'not-in-catalog')).toMatchObject({
+      status: 'missing',
+    })
   })
 
   it('★ 手动改模型分类会保留站点原始分类，重新覆盖后仍可由设置页读取', async () => {

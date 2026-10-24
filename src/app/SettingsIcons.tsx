@@ -141,3 +141,48 @@ export function IconAbout({ size = 16 }: IconProps) {
     </svg>
   )
 }
+
+/** 编辑服务名称与连接配置。 */
+export function IconEdit({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="m4.5 19.5 4.1-1 10-10a2.1 2.1 0 0 0-3-3l-10 10Z" />
+      <path d="m14.2 6.9 3 3" />
+    </svg>
+  )
+}
+
+/** 删除自定义模型服务。 */
+export function IconDelete({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M4.5 7h15M9 7V4.5h6V7M7 7l.8 12h8.4L17 7" />
+      <path d="M10 10.5v5M14 10.5v5" />
+    </svg>
+  )
+}
+
+/** 打开服务行菜单。 */
+export function IconMoreVertical({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <circle cx="12" cy="5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+/** 拖动排序把手。 */
+export function IconGrip({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <circle cx="8.5" cy="7" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="7" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="17" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="17" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}

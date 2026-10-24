@@ -5,7 +5,7 @@ import {
   agentPanelHeight,
   clampAgentDockLayout,
   clampAgentPanel,
-  collapseAgentDockToPanel,
+  closeAgentPanel,
   defaultAgentDockLayout,
   openAgentPanel,
   parseAgentDockLayout,
@@ -54,11 +54,20 @@ describe('Agent floating dock layout', () => {
     expect(next.panel.x).toBe(AREA.x + 20 + AGENT_ORB_SIZE + AGENT_DOCK_GAP)
   })
 
-  it('collapses the panel back to a visible orb', () => {
+  it('keeps the orb fixed when the panel closes', () => {
     const base = defaultAgentDockLayout(AREA)
-    const next = collapseAgentDockToPanel(base, AREA)
-    expect(next.orb.x + AGENT_ORB_SIZE).toBeLessThanOrEqual(AREA.x + AREA.width - AGENT_DOCK_GAP)
-    expect(next.orb.y + AGENT_ORB_SIZE).toBeLessThanOrEqual(AREA.y + AREA.height - AGENT_DOCK_GAP)
+    const dragged = { ...base, orb: { x: AREA.x + 120, y: AREA.y + 240 } }
+    const next = closeAgentPanel(dragged, AREA)
+    expect(next.orb).toEqual(dragged.orb)
+  })
+
+  it('reopens around the preserved orb instead of the old panel corner', () => {
+    const base = defaultAgentDockLayout(AREA)
+    const dragged = { ...base, orb: { x: AREA.x + 120, y: AREA.y + 240 } }
+    const closed = closeAgentPanel(dragged, AREA)
+    const reopened = openAgentPanel(closed, AREA)
+    expect(reopened.orb).toEqual(dragged.orb)
+    expect(reopened.panel.x).toBe(dragged.orb.x + AGENT_ORB_SIZE + AGENT_DOCK_GAP)
   })
 
   it('does not let a stored height exceed the current work area', () => {

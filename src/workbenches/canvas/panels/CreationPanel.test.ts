@@ -173,7 +173,7 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
   it('一个渠道都没有：说明「还没有配置任何渠道」，并给出可点击的出口', async () => {
     const html = render(await channelStore([]))
     expect(html).toContain('data-panel-setup-hint')
-    expect(html).toContain('还没有配置任何渠道')
+    expect(html).toContain('还没有添加任何模型服务')
     expect(html).toContain('去后台设置')
   })
 
@@ -187,13 +187,13 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
   it('★ 一个渠道都没有：生成按钮禁用并写明原因（点下去必然无反应的情况不许再骗人）', async () => {
     const html = render(await channelStore([]))
     expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
-    expect(html).toContain('data-panel-run-blocked="还没有配置任何渠道"')
+    expect(html).toContain('data-panel-run-blocked="还没有添加任何模型服务"')
   })
 
   it('★ 渠道存在但未启用：生成按钮同样禁用（未启用 = 选不到 = 必然无反应）', async () => {
     const html = render(await channelStore([{ enabled: false }]))
     expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
-    expect(html).toContain('data-panel-run-blocked="已配置的渠道都未启用"')
+    expect(html).toContain('data-panel-run-blocked="已添加的模型服务都未启用"')
   })
 
   /**
@@ -214,7 +214,7 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
   it('渠道存在但未启用：文案切换为「已配置的渠道都未启用」', async () => {
     const html = render(await channelStore([{ enabled: false }]))
     expect(html).toContain('data-panel-setup-hint')
-    expect(html).toContain('已配置的渠道都未启用')
+    expect(html).toContain('已添加的模型服务都未启用')
     // 未启用的渠道名不该出现在面板上（chips 只列 enabled）
     expect(html).not.toContain('中转站1')
   })

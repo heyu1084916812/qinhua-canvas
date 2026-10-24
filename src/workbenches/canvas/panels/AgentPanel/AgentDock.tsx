@@ -13,7 +13,7 @@ import {
   clampAgentDockLayout,
   clampAgentPanel,
   clampAgentPoint,
-  collapseAgentDockToPanel,
+  closeAgentPanel,
   defaultAgentDockLayout,
   openAgentPanel,
   parseAgentDockLayout,
@@ -242,7 +242,7 @@ export function AgentDock({
   const collapse = () => {
     const current = layoutRef.current
     if (current) {
-      const next = collapseAgentDockToPanel(current, measureCanvasWorkArea())
+      const next = closeAgentPanel(current, measureCanvasWorkArea())
       applyLayout(next)
       storeLayout(next)
     }

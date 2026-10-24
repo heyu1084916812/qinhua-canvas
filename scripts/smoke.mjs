@@ -44,7 +44,8 @@ const USER_CHANNEL = '[data-channel-item]:not([data-channel-id^="ch_builtin_"])'
  * 始终没启用 ⇒ 选路拿不到候选 ⇒ 画布上"点生成毫无反应、日志 0 条"
  * （实测 G76 就是这么红的，看着像生成链路坏了）。
  */
-const enableSwitch = (page) => page.locator('[data-channel-selected] [data-channel-enabled]')
+const enableSwitch = (page) =>
+  page.locator('[data-settings-provider-head] [data-channel-enabled]')
 
 /**
  * 给某一镜写一句台词（对账 #435 之后台词是**一层**，一镜可以好几句）。
@@ -1077,10 +1078,12 @@ const disableFSA = `delete window.showOpenFilePicker; delete window.showSaveFile
  * 渠道建了、令牌没填、开关还开着或没开）。第一档留着做防御分支，由面板单测覆盖。
  */
 async function disableAllChannels(page) {
-  const boxes = page.locator('[data-channel-enabled]')
-  const n = await boxes.count()
-  for (let i = 0; i < n; i += 1) {
-    const box = boxes.nth(i)
+  const ids = await page
+    .locator('[data-channel-item][data-channel-id]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-channel-id')).filter(Boolean))
+  for (const id of ids) {
+    await page.locator(`[data-channel-item][data-channel-id="${id}"]`).click()
+    const box = page.locator(`[data-settings-provider-head] [data-channel-enabled="${id}"]`)
     if (await box.isChecked().catch(() => false)) {
       await box.uncheck({ timeout: 5000 }).catch(() => {})
       await sleep(120)
@@ -1093,7 +1096,8 @@ async function disableBuiltinChannels(page) {
     .locator('[data-channel-item][data-channel-id^="ch_builtin_"]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-channel-id')))
   for (const id of ids) {
-    const box = page.locator(`[data-channel-enabled="${id}"]`)
+    await page.locator(`[data-channel-item][data-channel-id="${id}"]`).click()
+    const box = page.locator(`[data-settings-provider-head] [data-channel-enabled="${id}"]`)
     if (await box.isChecked().catch(() => false)) {
       await box.uncheck({ timeout: 5000 }).catch(() => {})
       await sleep(150)
@@ -1395,7 +1399,8 @@ async function configureMockChannel(
       .locator('[data-channel-id]')
       .evaluateAll((els) => els.map((e) => e.getAttribute('data-channel-id')).filter(Boolean))
     for (const id of ids) {
-      const box = page.locator(`[data-channel-enabled="${id}"]`)
+      await page.locator(`[data-channel-item][data-channel-id="${id}"]`).click()
+      const box = page.locator(`[data-settings-provider-head] [data-channel-enabled="${id}"]`)
       if (await box.isChecked().catch(() => false)) {
         await box.uncheck({ timeout: 5000 }).catch(() => {})
         await sleep(120)
@@ -1403,7 +1408,7 @@ async function configureMockChannel(
     }
   }
   const beforeIds = new Set((await sharedRows(page, 'channels')).map((row) => String(row.id)))
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
   const created = (await sharedRows(page, 'channels'))
     .filter((row) => !beforeIds.has(String(row.id)))
@@ -1412,7 +1417,7 @@ async function configureMockChannel(
   if (createdId) {
     await page.locator(`[data-channel-item][data-channel-id="${createdId}"]`).click()
   } else {
-    await page.getByText('新建渠道').last().click()
+    await page.getByText('新建服务').last().click()
   }
   await sleep(300)
 
@@ -1464,7 +1469,7 @@ async function configureMockChannel(
      * 也比文字更不容易被排版改动带偏。
      */
     enabled = await page
-      .locator('[data-channel-selected] [data-channel-enabled]')
+      .locator('[data-settings-provider-head] [data-channel-enabled]')
       .first()
       .isChecked()
       .catch(() => false)
@@ -2235,7 +2240,7 @@ async function g7(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G8 设置页：新增渠道 → 验证地址 → 拉取/选择模型 → 已选模型持久化（M2-1 + §7.4 真机验收）
+// G8 设置页：新增服务 → 验证地址 → 拉取/选择模型 → 已选模型持久化（M2-1 + §7.4 真机验收）
 // ────────────────────────────────────────────────────────────
 async function g8(browser) {
   const g = 'G8 设置页'
@@ -2247,10 +2252,10 @@ async function g8(browser) {
   await sleep(400)
 
   // 新增一个 mock 渠道
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
-  const created = await page.getByText('新建渠道').first().isVisible().catch(() => false)
-  rec(g, '新增渠道出现在列表', created)
+  const created = await page.getByText('新建服务').first().isVisible().catch(() => false)
+  rec(g, '新增服务出现在列表', created)
   /**
    * ⚠️ 定位到**正在编辑的那条**（`data-channel-selected`），不是 `.first()`。
    * 2026-10-08：列表最前常驻内置渠道，`.first()` 拿到的是 ModelScope（MS）——
@@ -2337,10 +2342,10 @@ async function g8(browser) {
   await sleep(900)
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(600)
-  const persisted = await page.getByText('新建渠道').first().isVisible().catch(() => false)
+  const persisted = await page.getByText('新建服务').first().isVisible().catch(() => false)
   rec(g, '刷新后渠道持久化', persisted)
   // 重新选中并确认已选模型随渠道读回
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
   const chipsAfter = await page.locator('[data-model-chip]').count()
   rec(g, '刷新后已选模型随渠道读回', chipsAfter === 3, `胶囊=${chipsAfter}`)
@@ -6216,12 +6221,12 @@ async function g42(browser) {
 
   // 6) 建渠道但**不启用** → 文案必须切换。
   //    这两种情况用户最容易混淆：以为「建过」就等于「配好了」。
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(500)
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
   /**
-   * ⚠️ 2026-10-08：新建渠道**默认就是启用的**（对账 #353）⇒ 要复现「建过、但没启用」
+   * ⚠️ 2026-10-08：新建服务**默认就是启用的**（对账 #353）⇒ 要复现「建过、但没启用」
    * 这一档，必须显式把它关掉。断言的意图一点没变（用户最容易把「建过」当成「配好了」），
    * 只是动作补了一步。
    */
@@ -6269,9 +6274,9 @@ async function g42(browser) {
   await ensureSidebarOpen(page)
   await page.locator('[data-sidebar-settings]').click()
   await sleep(500)
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
-  /* 开的是**这条新建渠道**的启用开关（不能用 `input[type=checkbox]').first()`：那是列表第一行＝内置渠道） */
+  /* 开的是**这条新建服务**的启用开关（不能用 `input[type=checkbox]').first()`：那是列表第一行＝内置渠道） */
   await enableSwitch(page).check({ timeout: 8000 })
   await sleep(400)
   // 同上：关掉浮层即回到原来的画布（模态形态下这是唯一的"回去"动作）
@@ -6410,7 +6415,7 @@ async function g43(browser) {
 
   await gotoSettings(page)
   await sleep(400)
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(500)
 
   // A) mock 基线：通过，但状态行必须点明协议、并说清「没出网」
@@ -6444,7 +6449,7 @@ async function g43(browser) {
   await sleep(600)
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(800)
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
   const protoReload = await page.locator('[data-settings-protocol]').inputValue()
   rec(g, '刷新后协议仍是新值（已落库）', protoReload === 'openai-compatible', protoReload)
@@ -6489,13 +6494,13 @@ async function g44(browser) {
   const emptyHint = await page.locator(USER_CHANNEL).count()
   rec(g, '起始：内置渠道常驻 + 用户侧无渠道（本组自带状态）', builtinRows === 4 && emptyHint === 0, `内置=${builtinRows} 用户=${emptyHint}`)
 
-  // ① 建两条：新渠道排在**末尾**（与下方「+ 新增渠道」按钮的位置一致）
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  // ① 建两条：新渠道排在**末尾**（与下方「+ 新增服务」按钮的位置一致）
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
   await page.locator('[data-settings-name]').fill('渠道甲')
   await page.getByRole('button', { name: '保存配置' }).click()
   await sleep(350)
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
   await page.locator('[data-settings-name]').fill('渠道乙')
   await page.getByRole('button', { name: '保存配置' }).click()
@@ -6639,19 +6644,21 @@ async function g44(browser) {
     `选中=${await selectedNow()}（修前：整行 draggable，按下后动 5px 就进拖动判定、click 不派发）`,
   )
 
-  /**
-   * 开关自己收指针：点它**只切开关、不换选中**。
-   * 判据要同时看两件事 —— 开关真的翻了（说明这一下点在了开关上），而选中没动。
-   */
-  const enabledBefore = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
-  await page.locator(`[data-channel-id="${idA}"] [data-channel-toggle]`).click()
+  const enabledBefore = await enableSwitch(page).isChecked()
+  await enableSwitch(page).click()
   await sleep(300)
-  const enabledAfter = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
+  const enabledAfter = await enableSwitch(page).isChecked()
+  const dotAfter = await page
+    .locator(`[data-channel-state-dot="${idB}"]`)
+    .getAttribute('data-enabled')
   rec(
     g,
-    '点启用开关只切开关、不换选中',
-    enabledAfter !== enabledBefore && (await selectedNow()) === idB,
-    `开关 ${enabledBefore}→${enabledAfter}，选中=${await selectedNow()}（期望仍是 ${idB}）`,
+    '启用开关在右侧标题栏，切换时选中项不跳走',
+    enabledAfter !== enabledBefore &&
+      dotAfter === String(enabledAfter) &&
+      (await selectedNow()) === idB &&
+      (await page.locator(`[data-channel-id="${idA}"] [data-channel-enabled]`).count()) === 0,
+    `开关 ${enabledBefore}→${enabledAfter}，左侧圆点=${dotAfter}，选中=${await selectedNow()}`,
   )
 
   /**
@@ -6691,44 +6698,18 @@ async function g44(browser) {
   )
   rec(g, '内距四边同值（左边距 = 上下边距）', new Set(geo.padding).size === 1, geo.padding.join('/'))
 
-  /**
-   * ★★ 开关那一排右边**不再有死区**（用户 2026-10-08 框出那一块：「点击好像不能实现」）。
-   *
-   * 根因：开关那一排（`[data-channel-toggle]`）原先被列方向的 `align-items: stretch`
-   * 拉到与右侧栏同宽，而它又 `stopPropagation` 收走指针 ⇒ 开关文字右边那一条
-   * **既不是开关、也不归行**：点了既不切开关、也不选中渠道。名称越长这条空白越宽
-   * （内置 ModelScope 那一行修前实测 **51px**，正是用户框出来的那块）。
-   */
-  const blankStrips = await page.locator('[data-channel-item]').evaluateAll((els) =>
-    els.map((el) => {
-      const span = el.querySelector('[data-channel-toggle]').getBoundingClientRect()
-      const label = el.querySelector('[data-channel-switch-label]').getBoundingClientRect()
-      return Math.round(span.width - label.width)
-    }),
+  const rowChrome = await page.locator('[data-channel-item]').evaluateAll((els) =>
+    els.map((el) => ({
+      switches: el.querySelectorAll('[data-channel-enabled]').length,
+      counts: el.querySelectorAll('[data-channel-model-count]').length,
+      dots: el.querySelectorAll('[data-channel-state-dot]').length,
+    })),
   )
   rec(
     g,
-    '★ 开关那一排只占自己的宽（右边不留死区）',
-    blankStrips.every((w) => w <= 2),
-    `各行空白条=${blankStrips.join(',')}px`,
-  )
-
-  /** 行为面：点开关文字右边那一点 —— 修前是死区，现在是「选中这一行」 */
-  const builtinRow = page.locator('[data-channel-item][data-channel-id^="ch_builtin_"]').first()
-  const builtinId = await builtinRow.getAttribute('data-channel-id')
-  await page.locator(`[data-channel-id="${idA}"]`).click()
-  await sleep(300)
-  const deadSpot = await builtinRow.evaluate((el) => {
-    const label = el.querySelector('[data-channel-switch-label]').getBoundingClientRect()
-    return { x: label.right + 8, y: label.top + label.height / 2 }
-  })
-  await page.mouse.click(deadSpot.x, deadSpot.y)
-  await sleep(350)
-  rec(
-    g,
-    '★★ 点开关右边那一点 = 选中这一行（修前：死区，既不选中也不切开关）',
-    (await selectedNow()) === builtinId,
-    `选中=${await selectedNow()}（期望 ${builtinId}）`,
+    '左栏行只留图标、名称和启用圆点，不再放开关与模型数',
+    rowChrome.every((row) => row.switches === 0 && row.counts === 0 && row.dots === 1),
+    JSON.stringify(rowChrome),
   )
 
   /**
@@ -6787,39 +6768,14 @@ async function g44(browser) {
     rowMetrics.map((m) => m.userSelect).join(' · '),
   )
 
-  /**
-   * ★★ 第二排 = 开关 + **模型数**（用户 2026-10-08：「不要有启用的那个文字，
-   * 替换成显示右侧选择了多少个模型的总数即可」）。
-   *
-   * 三件一起量：① 「已启用 / 未启用」这行字**不在了**；② 每行都有模型数，且是一句人话
-   * （`N 个模型` / `未选模型`，不是裸数字）；③ 点它**是选中这一行** ——
-   * 它不归开关管，不能变成"点了没反应"的死区。
-   */
-  const countInfo = await page.locator('[data-channel-item]').evaluateAll((els) =>
-    els.map((el) => ({
-      text: (el.innerText || '').replace(/\s+/g, ' '),
-      count: el.querySelector('[data-channel-model-count]')?.textContent?.trim() ?? '',
-    })),
-  )
+  const groupLabels = await page
+    .locator('[data-channel-group]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
   rec(
     g,
-    '★★ 第二排不再有「已启用」文字，改成「N 个模型 / 未选模型」',
-    countInfo.every((m) => !/已启用|未启用/.test(m.text)) &&
-      countInfo.every((m) => /^(未选模型|\d+ 个模型)$/.test(m.count)),
-    countInfo.map((m) => m.count).join(' · '),
-  )
-  const countBefore = await selectedNow()
-  const countBox = await page
-    .locator(`[data-channel-id="${idA}"] [data-channel-model-count]`)
-    .boundingBox()
-  const enabledBeforeCount = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
-  await page.mouse.click(countBox.x + countBox.width / 2, countBox.y + countBox.height / 2)
-  await sleep(350)
-  rec(
-    g,
-    '★ 点「N 个模型」= 选中这一行（不误切开关、也不是死区）',
-    (await selectedNow()) === idA && (await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()) === enabledBeforeCount,
-    `${countBefore} → ${await selectedNow()}，开关 ${enabledBeforeCount}→${await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()}`,
+    '模型服务列表分开显示内置服务与我的服务',
+    groupLabels.includes('内置服务') && groupLabels.includes('我的服务'),
+    groupLabels.join(' · '),
   )
 
   /**
@@ -6927,7 +6883,7 @@ async function g45(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
 
   /**
@@ -7032,29 +6988,30 @@ async function g45(browser) {
     `tone=${emptyTone} role=${emptyRole}`,
   )
 
-  // ③ 删除二次确认：点一下不删，确认才删
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  // ③ 右键菜单删除：二次确认后才删
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
-  /**
-   * ⚠️ 只对**用户渠道**计数 / 点击。
-   * 内置那三条不可删，`nth(1)` 点中的是 Agnes：它没有删除按钮 ⇒
-   * 下面 `[data-channel-remove]` 点击超时，整组中断（2026-10-08 实测）。
-   */
   const before = await page.locator(USER_CHANNEL).count()
-  await page.locator(USER_CHANNEL).nth(0).click()
+  const removableRow = page.locator(USER_CHANNEL).nth(0)
+  const removableId = await removableRow.getAttribute('data-channel-id')
+  await removableRow.click({ button: 'right' })
+  await page.locator('[data-channel-context-menu]').waitFor({ state: 'visible', timeout: 5000 })
+  await page.locator(`[data-channel-menu-delete="${removableId}"]`).click()
   await sleep(250)
-  await page.locator('[data-channel-remove]').click()
-  await sleep(250)
-  const confirmShown = await page.locator('[data-channel-remove-confirm]').isVisible().catch(() => false)
+  const confirmShown = await page
+    .locator(`[data-channel-menu-delete-confirm="${removableId}"]`)
+    .isVisible()
+    .catch(() => false)
   const stillThere = (await page.locator(USER_CHANNEL).count()) === before
-  rec(g, '删除需二次确认（点一下不删）', confirmShown && stillThere, `确认框=${confirmShown} 渠道数=${before}`)
+  rec(g, '右键删除需二次确认（点一下不删）', confirmShown && stillThere, `确认项=${confirmShown} 渠道数=${before}`)
   await page.screenshot({ path: `${OUT}/45-b-remove-confirm.png` })
-  await page.locator('[data-channel-remove-no]').click()
+  await page.locator('[data-channel-menu-delete-cancel]').click()
   await sleep(250)
-  rec(g, '取消后确认框收起且渠道仍在', (await page.locator(USER_CHANNEL).count()) === before)
-  await page.locator('[data-channel-remove]').click()
+  rec(g, '取消后菜单收起且渠道仍在', (await page.locator(USER_CHANNEL).count()) === before)
+  await removableRow.click({ button: 'right' })
+  await page.locator(`[data-channel-menu-delete="${removableId}"]`).click()
   await sleep(250)
-  await page.locator('[data-channel-remove-yes]').click()
+  await page.locator(`[data-channel-menu-delete-confirm="${removableId}"]`).click()
   await sleep(800)
   rec(g, '确认后渠道真的被删除', (await page.locator(USER_CHANNEL).count()) === before - 1)
 
@@ -11891,8 +11848,8 @@ async function g69(browser) {
   /**
    * 再建第二条渠道，形成「多渠道」场景。
    *
-   * 这里不走 `configureMockChannel`：它用 `getByText('新建渠道').first()` 定位「+ 新增渠道」，
-   * 而第一条渠道建完以后左栏已经有一个叫「新建渠道」的列表项，`.first()` 会点中那一条，
+   * 这里不走 `configureMockChannel`：它用 `getByText('新建服务').first()` 定位「+ 新增服务」，
+   * 而第一条渠道建完以后左栏已经有一个叫「新建服务」的列表项，`.first()` 会点中那一条，
    * 于是第二条根本建不出来（实测：面板里的渠道数恒为 1）。
    * 改用稳定的 `data-channel-add` 锚点。
    */
@@ -12710,7 +12667,7 @@ async function g73(browser) {
 }
 
 /**
- * G74 渠道配置页（§7 + §7A.4，2026-09-27 改口径）。
+ * G74 模型服务页（§7 + §7A.4，2026-09-27 改口径）。
  *
  * 旧版把「渠道 / 功能预设词 / 技能库」三区塞在同一个页面里。用户 2026-09-27
  * 第 9 轮改口径：预设词与技能库都归**技能库一级页**，设置页只留渠道配置，
@@ -12725,7 +12682,7 @@ async function g73(browser) {
  *  ④ 技能库两层结构与设置页映射分组见 G82 / G83。
  */
 async function g74(browser) {
-  const g = 'G74 渠道配置页'
+  const g = 'G74 模型服务页'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -12817,6 +12774,162 @@ async function g74(browser) {
     !!centered && Math.abs(centered.formCenter - centered.editorCenter) <= 2,
     centered ? `表单中心=${centered.formCenter} 工作区中心=${centered.editorCenter} 宽=${centered.formW}px` : 'missing',
   )
+  const serviceGroups = await page
+    .locator('[data-channel-group]')
+    .evaluateAll((els) =>
+      els.map((el) => ({
+        kind: el.getAttribute('data-channel-group'),
+        text: el.textContent?.trim() ?? '',
+      })),
+    )
+  rec(
+    g,
+    '模型服务列表分为内置服务与我的服务',
+    serviceGroups.some((item) => item.kind === 'builtin' && item.text.includes('内置服务')) &&
+      serviceGroups.some((item) => item.kind === 'custom' && item.text.includes('我的服务')),
+    JSON.stringify(serviceGroups),
+  )
+  const rowInteraction = await page.evaluate(() => {
+    const selected = document.querySelector('[data-channel-selected="true"]')
+    if (!selected) return null
+    return {
+      height: Math.round(selected.getBoundingClientRect().height),
+      deleteCheckboxes: selected.querySelectorAll('[data-channel-delete-select]').length,
+      dragHandle: selected.querySelectorAll('[data-channel-drag-handle]').length,
+      menuTrigger: selected.querySelectorAll('[data-channel-menu-trigger]').length,
+      removeButton: document.querySelectorAll('[data-channel-remove]').length,
+    }
+  })
+  rec(
+    g,
+    '服务行改为紧凑单行，不再有多选删除',
+    !!rowInteraction &&
+      rowInteraction.height <= 42 &&
+      rowInteraction.deleteCheckboxes === 0 &&
+      rowInteraction.dragHandle === 1 &&
+      rowInteraction.menuTrigger === 1 &&
+      rowInteraction.removeButton === 0,
+    JSON.stringify(rowInteraction),
+  )
+  const selectedRow = page.locator('[data-channel-selected="true"]')
+  await selectedRow.hover()
+  const hoverTools = await selectedRow.evaluate((el) => ({
+    dragVisible: getComputedStyle(el.querySelector('[data-channel-drag-handle]')).opacity === '1',
+    menuVisible:
+      getComputedStyle(el.querySelector('[data-channel-menu-trigger]')).display !== 'none',
+  }))
+  rec(
+    g,
+    '悬停时左侧出现拖动把手、右侧圆点变成三点按钮',
+    hoverTools.dragVisible && hoverTools.menuVisible,
+    JSON.stringify(hoverTools),
+  )
+  await page.screenshot({ path: `${OUT}/735-service-row-hover.png` })
+  const selectedChannelId = await selectedRow.getAttribute('data-channel-id')
+  await selectedRow.locator(`[data-channel-menu-trigger="${selectedChannelId}"]`).click()
+  await page.locator('[data-channel-context-menu]').waitFor({ state: 'visible', timeout: 5000 })
+  const customMenu = {
+    edit: await page.locator('[data-channel-menu-edit]').count(),
+    delete: await page.locator('[data-channel-menu-delete]').count(),
+  }
+  await page.screenshot({ path: `${OUT}/735-service-row-menu-options.png` })
+  await page.locator('[data-channel-menu-delete]').click()
+  const deleteConfirmVisible = await page
+    .locator('[data-channel-menu-delete-confirm]')
+    .isVisible()
+    .catch(() => false)
+  rec(
+    g,
+    '自定义服务三点菜单有编辑和删除，删除二次确认',
+    customMenu.edit === 1 && customMenu.delete === 1 && deleteConfirmVisible,
+    JSON.stringify({ ...customMenu, deleteConfirmVisible }),
+  )
+  await page.screenshot({ path: `${OUT}/735-service-row-menu.png` })
+  await page.locator('[data-channel-menu-delete-cancel]').click()
+  await page.keyboard.press('Escape')
+  const builtinRow = page.locator('[data-channel-item][data-channel-id^="ch_builtin_"]').first()
+  const builtinId = await builtinRow.getAttribute('data-channel-id')
+  await builtinRow.click({ button: 'right' })
+  await page.locator('[data-channel-context-menu]').waitFor({ state: 'visible', timeout: 5000 })
+  const builtinMenu = {
+    edit: await page.locator('[data-channel-menu-edit]').count(),
+    delete: await page.locator('[data-channel-menu-delete]').count(),
+  }
+  rec(
+    g,
+    '内置服务右键菜单只有编辑',
+    builtinMenu.edit === 1 && builtinMenu.delete === 0,
+    JSON.stringify(builtinMenu),
+  )
+  await page.locator(`[data-channel-menu-edit="${builtinId}"]`).click()
+  rec(
+    g,
+    '菜单里的编辑会选中对应服务',
+    (await page.locator('[data-channel-selected="true"]').getAttribute('data-channel-id')) ===
+      builtinId,
+    builtinId,
+  )
+  const editorChrome = await page.evaluate(() => {
+    const selected = document.querySelector('[data-channel-selected="true"]')
+    const head = document.querySelector('[data-settings-provider-head]')
+    return {
+      rowSwitch: selected?.querySelectorAll('[data-channel-enabled]').length ?? -1,
+      headSwitch: head?.querySelectorAll('[data-channel-enabled]').length ?? 0,
+      dot: selected?.querySelectorAll('[data-channel-state-dot]').length ?? 0,
+      nativeSelects: document.querySelectorAll('[data-settings-card] select').length,
+    }
+  })
+  rec(
+    g,
+    '启用开关在右侧标题栏，左栏仅显示状态圆点',
+    editorChrome.rowSwitch === 0 &&
+      editorChrome.headSwitch === 1 &&
+      editorChrome.dot === 1 &&
+      editorChrome.nativeSelects === 0,
+    JSON.stringify(editorChrome),
+  )
+  await page.locator('[data-global-model-add-toggle]').click()
+  await page.locator('[data-global-model-form]').waitFor({ state: 'visible', timeout: 5000 })
+  const vendorCount = await page.locator('[data-global-model-vendor]').count()
+  const hasUnknownCategory = await page
+    .locator('[data-settings-card]')
+    .getByText('未分类', { exact: true })
+    .count()
+  rec(
+    g,
+    '前端模型图标库完整，不再出现未分类',
+    vendorCount >= 36 && hasUnknownCategory === 0,
+    `图标厂商=${vendorCount} 未分类=${hasUnknownCategory}`,
+  )
+  await page.locator('[data-global-model-add-toggle]').click()
+  const firstMapRow = page.locator('[data-route-map-row]').first()
+  await firstMapRow.waitFor({ state: 'visible', timeout: 5000 })
+  const firstMapId = await firstMapRow.getAttribute('data-route-map-row')
+  await page.locator(`[data-route-map-uncommon="${firstMapId}"]`).click()
+  await page.locator(`[data-route-map-row="${firstMapId}"]`).waitFor({ state: 'detached', timeout: 5000 })
+  rec(g, '标为不常用后默认映射列表立即隐藏该模型', true, firstMapId)
+  await page.locator('[data-route-map-show-uncommon]').check()
+  await page.locator(`[data-route-map-row="${firstMapId}"]`).waitFor({ state: 'visible', timeout: 5000 })
+  rec(g, '设置页勾选「显示不常用模型」后可恢复为常用', true, firstMapId)
+  await page.locator(`[data-route-map-uncommon="${firstMapId}"]`).click()
+  await page.locator(`[data-route-map-test="${firstMapId}"]`).click()
+  await page.waitForFunction(
+    (id) => {
+      const state = document.querySelector(
+        `[data-route-map-row="${id}"] [data-route-map-test-state]`,
+      )
+      const status = state?.getAttribute('data-route-map-test-state')
+      return status === 'ok' || status === 'missing' || status === 'error'
+    },
+    firstMapId,
+    { timeout: 12_000 },
+  )
+  const mapTestText =
+    (await page
+      .locator(`[data-route-map-row="${firstMapId}"] [data-route-map-test-state]`)
+      .innerText()) ?? ''
+  rec(g, '映射测试返回可读结果且不触发生成', mapTestText.trim().length > 0, mapTestText.slice(0, 80))
+  await page.locator('[data-route-map-show-uncommon]').uncheck()
   /**
    * ★★ 用户 2026-09-28：「渠道的选择和渠道内容一起居中」。
    *
@@ -12849,7 +12962,7 @@ async function g74(browser) {
   rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
   /**
-   * ★★ 用户 2026-09-28：「新增渠道和删除渠道这两个功能不要放在最底部了，
+   * ★★ 用户 2026-09-28：「新增服务和删除渠道这两个功能不要放在最底部了，
    * 跟随渠道选择的最后一个即可」。
    *
    * 之前列表 `flex:1` 把这一组挤到左栏底部，渠道少时跟条目之间隔着大片空白，
@@ -12933,7 +13046,7 @@ async function g74(browser) {
   })
   rec(
     g,
-    '★★ 渠道配置分四张卡片（基本信息 / 连接与鉴权 / 模型列表 / 渠道权重与模型映射）',
+    '★★ 模型服务分段（基本信息 / 连接与鉴权 / 模型列表 / 渠道权重与模型映射）',
     !!cardOrder && cardOrder.counts.every((n) => n === 1) && cardOrder.ordered,
     cardOrder ? `各卡片数=${cardOrder.counts.join(',')} 顺序正确=${cardOrder.ordered}` : 'missing',
   )
@@ -12952,12 +13065,12 @@ async function g74(browser) {
   )
 
   /**
-   * 浏览器批注（用户 2026-09-29）：「按住条目上下拖动这个提示文字放在新增渠道的上方」。
+   * 浏览器批注（用户 2026-09-29）：「按住条目上下拖动这个提示文字放在新增服务的上方」。
    * 判据：提示文字与 `[data-channel-add]` 同容器，且出现在它**之前**。
    */
   const dragHintOrder = await page.evaluate(() => {
     const hint = Array.from(document.querySelectorAll('[data-channel-actions] p')).find((p) =>
-      (p.textContent ?? '').includes('按住条目上下拖动'),
+      (p.textContent ?? '').includes('拖动排序'),
     )
     const add = document.querySelector('[data-channel-add]')
     if (!hint || !add) return null
@@ -12968,7 +13081,7 @@ async function g74(browser) {
   })
   rec(
     g,
-    '★★ 拖动提示文字在「+ 新增渠道」上方（浏览器批注）',
+    '★★ 拖动提示文字在「+ 新增服务」上方（浏览器批注）',
     !!dragHintOrder && dragHintOrder.sharesContainer && dragHintOrder.beforeAdd,
     dragHintOrder
       ? `同一容器=${dragHintOrder.sharesContainer} 在新增之前=${dragHintOrder.beforeAdd}`
@@ -14462,7 +14575,7 @@ async function g77(browser) {
   await second.click()
   await sleep(600)
   /**
-   * 必须先**改名**：两条渠道默认都叫「新建渠道」，
+   * 必须先**改名**：两条渠道默认都叫「新建服务」，
    * 不改名的话后面「日志里的平台名是哪条」根本分辨不出来
    * —— 断言会恒真，什么都证明不了。
    */
@@ -14727,7 +14840,8 @@ async function g79(browser) {
   const MODELSCOPE_ID = 'ch_builtin_modelscope'
   await gotoSettings(page)
   await sleep(600)
-  const msEnabled = page.locator(`[data-channel-enabled="${MODELSCOPE_ID}"]`)
+  await page.locator(`[data-channel-item][data-channel-id="${MODELSCOPE_ID}"]`).click()
+  const msEnabled = enableSwitch(page)
   if ((await msEnabled.count()) > 0 && !(await msEnabled.isChecked())) {
     await msEnabled.check()
     await sleep(500)
@@ -16360,9 +16474,9 @@ async function g88(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
 
   // ① 站点协议 → 默认地址
@@ -16481,9 +16595,9 @@ async function g89(browser) {
 
   await gotoSettings(page)
   await sleep(500)
-  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await page.getByRole('button', { name: /新增服务/ }).click()
   await sleep(400)
-  await page.getByText('新建渠道').first().click()
+  await page.getByText('新建服务').first().click()
   await sleep(300)
 
   // ① 异步任务协议可选（不再是「待支持」且被禁用）
@@ -38881,12 +38995,12 @@ async function g168(browser) {
     await page.locator('[data-sidebar-settings]').click()
     await page.locator('[data-global-settings]').waitFor({ state: 'visible', timeout: 10000 })
     await page.locator('[data-global-settings-tab="channels"]').click()
-    const deleteBox = page.locator('[data-channel-delete-select="ch_smoke_mock"]')
-    await deleteBox.waitFor({ state: 'visible', timeout: 10000 })
-    await deleteBox.check()
-    await page.locator('[data-channel-remove]').click()
-    await page.locator('[data-channel-remove-yes]').click()
-    await deleteBox.waitFor({ state: 'detached', timeout: 10000 })
+    const removableRow = page.locator('[data-channel-item][data-channel-id="ch_smoke_mock"]')
+    await removableRow.waitFor({ state: 'visible', timeout: 10000 })
+    await removableRow.click({ button: 'right' })
+    await page.locator('[data-channel-menu-delete="ch_smoke_mock"]').click()
+    await page.locator('[data-channel-menu-delete-confirm="ch_smoke_mock"]').click()
+    await removableRow.waitFor({ state: 'detached', timeout: 10000 })
     rec(g, '★★ 已在设置页删除正在使用的渠道', true)
     await page.locator('[data-global-settings-close]').click()
     await page.locator('[data-global-settings]').waitFor({ state: 'detached', timeout: 5000 })
@@ -38937,7 +39051,139 @@ async function g168(browser) {
   }
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168]
+/**
+ * #735 / 当前回归：隐藏不常用模型、Agent 球定位与模型服务信息层级。
+ *
+ * 不碰生成请求；只验证用户能看到的模型清单和浮窗行为。测试结束后把
+ * Midjourney 恢复为常用，避免把偏好泄漏给后续冒烟组。
+ */
+async function g735(browser) {
+  const g = 'G735 常用模型与 Agent 定位'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const hiddenModel = 'Midjourney'
+
+  await configureMockChannel(page)
+  await gotoSettings(page)
+  await sleep(500)
+  await page.locator(USER_CHANNEL).first().click()
+  await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
+  if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
+    await page.locator('[data-route-map-show-uncommon]').check()
+  }
+  const hiddenToggle = page.locator(`[data-route-map-uncommon="${hiddenModel}"]`)
+  if (!(await hiddenToggle.isChecked())) await hiddenToggle.click()
+  await sleep(500)
+
+  await gotoProjects(page)
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20_000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'visible', timeout: 20_000 })
+  await sleep(900)
+
+  const panel = await genPanel(page)
+  await panel.locator('[data-param-chip="model"]').click()
+  const canvasModels = await panel
+    .locator('[data-param-popup="model"] [data-param-option]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-param-option')).filter(Boolean))
+  rec(
+    g,
+    '画布模型下拉隐藏不常用模型',
+    !canvasModels.includes(hiddenModel),
+    `数量=${canvasModels.length}`,
+  )
+  await page.keyboard.press('Escape')
+
+  const orb = page.locator('[data-agent-orb]')
+  await orb.waitFor({ state: 'visible', timeout: 5000 })
+  const orbBefore = await orb.boundingBox()
+  await page.mouse.move(orbBefore.x + orbBefore.width / 2, orbBefore.y + orbBefore.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(orbBefore.x + 180, orbBefore.y - 130, { steps: 5 })
+  await page.mouse.up()
+  const orbDragged = await orb.boundingBox()
+  await orb.click()
+  const floating = page.locator('[data-agent-floating-panel]')
+  if (!(await floating.isVisible().catch(() => false))) await orb.click()
+  await floating.waitFor({ state: 'visible', timeout: 5000 })
+  const panelBox = await floating.boundingBox()
+  rec(
+    g,
+    'Agent 面板围绕球定位且保持在工作区内',
+    Math.abs(panelBox.y + panelBox.height / 2 - (orbDragged.y + orbDragged.height / 2)) <= 2 &&
+      panelBox.x >= 0 &&
+      panelBox.y >= 0,
+    `球=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
+  )
+  await page.screenshot({ path: `${OUT}/735-agent-1280.png` })
+
+  await page.getByRole('button', { name: /这次用哪些模型生成/ }).click()
+  await sleep(300)
+  const agentModelValues = await page
+    .locator('[data-param-option]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-param-option')).filter(Boolean))
+  rec(
+    g,
+    'Agent 模型面板隐藏不常用模型',
+    !agentModelValues.includes(hiddenModel),
+    `数量=${agentModelValues.length}`,
+  )
+  await page.locator('[data-agent-close]').click()
+  await orb.waitFor({ state: 'visible', timeout: 5000 })
+  const orbAfter = await orb.boundingBox()
+  rec(
+    g,
+    '关闭 Agent 面板后球的位置保持不变',
+    Math.abs(orbAfter.x - orbDragged.x) <= 1 &&
+      Math.abs(orbAfter.y - orbDragged.y) <= 1,
+    `关闭前=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 关闭后=${Math.round(orbAfter.x)},${Math.round(orbAfter.y)}`,
+  )
+
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-ecommerce-create]').waitFor({ state: 'visible', timeout: 20_000 })
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
+  await page.locator('[data-ecommerce-model]').click()
+  const ecommerceModels = await page
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-ecommerce-select-option')).filter(Boolean),
+    )
+  rec(
+    g,
+    '电商页模型下拉隐藏不常用模型',
+    !ecommerceModels.includes(hiddenModel),
+    `数量=${ecommerceModels.length}`,
+  )
+  await page.keyboard.press('Escape')
+
+  await gotoSettings(page)
+  await page.locator(USER_CHANNEL).first().click()
+  await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
+  if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
+    await page.locator('[data-route-map-show-uncommon]').check()
+  }
+  const restoreToggle = page.locator(`[data-route-map-uncommon="${hiddenModel}"]`)
+  if (await restoreToggle.isChecked()) await restoreToggle.click()
+  await sleep(400)
+  await page.screenshot({ path: `${OUT}/735-settings-1280.png` })
+  await page.setViewportSize({ width: 1024, height: 700 })
+  await sleep(300)
+  const narrowOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+  rec(g, '模型服务页在 1024×700 无横向溢出', narrowOverflow <= 0, `溢出=${narrowOverflow}px`)
+  await page.screenshot({ path: `${OUT}/735-settings-1024.png` })
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

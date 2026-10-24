@@ -95,6 +95,13 @@ export interface ChannelDetect {
   message?: string
 }
 
+export interface ModelMappingTestResult {
+  status: 'ok' | 'missing' | 'error'
+  message: string
+  latencyMs?: number
+  modelCount?: number
+}
+
 export interface ChannelStoreState {
   channels: Channel[]
   /**
@@ -115,6 +122,8 @@ export interface ChannelStoreState {
   customProtocols: ProtocolDefinition[]
   /** 用户新增的全局前端模型；内置 `PRESET_MODELS` 不允许删除。 */
   customModels: PresetModel[]
+  /** 标为“不常用”的前端逻辑名；画布 / Agent / 默认参数不消费。 */
+  uncommonModelIds: string[]
   loaded: boolean
   verify: ChannelVerify
   models: ChannelModelsResult
@@ -132,7 +141,7 @@ export interface ChannelStoreActions {
   create(input: CreateChannelInput): Promise<Channel>
   update(id: string, patch: Partial<Channel>): Promise<Channel>
   remove(id: string): Promise<void>
-  globalModelsOf(category: PresetModel['category']): PresetModel[]
+  globalModelsOf(category: PresetModel['category'], includeUncommon?: boolean): PresetModel[]
   globalModelOf(name: string): PresetModel | undefined
   addGlobalModel(input: {
     name: string
@@ -140,6 +149,14 @@ export interface ChannelStoreActions {
     vendor: PresetVendor
   }): Promise<PresetModel>
   removeGlobalModel(name: string): Promise<void>
+  setModelUncommon(name: string, uncommon: boolean): Promise<void>
+  /** 用 `/models` 目录校验映射，不发起生成请求、不产生生成费用。 */
+  testModelMapping(
+    id: string,
+    logicalName: string,
+    upstreamId: string,
+    groupId?: string,
+  ): Promise<ModelMappingTestResult>
   /** 拖动排序（§7.2）：整表重编号 */
   reorder(orderedIds: string[]): Promise<void>
   /**
@@ -322,6 +339,7 @@ export function createChannelStore(
     recipeMemory: true,
     customProtocols: [],
     customModels: [],
+    uncommonModelIds: [],
     loaded: false,
     verify: { status: 'idle' },
     models: { status: 'idle' },
@@ -357,7 +375,8 @@ export function createChannelStore(
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [loadedChannels, customRows, customModels, routeStrategy, recipeMemory] = await Promise.all([
+    const [loadedChannels, customRows, customModels, uncommonModelIds, routeStrategy, recipeMemory] =
+      await Promise.all([
       /**
        * ★ 读表时**补齐常驻内置渠道**（用户第 20 批起）：它们常驻、置顶、不可删。
        * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
@@ -365,9 +384,10 @@ export function createChannelStore(
       seedBuiltins ? repo.seedBuiltins() : repo.list(),
       platform.storage.query('customProtocols', {}),
       presets.loadCustomModels(),
+      presets.loadUncommonModels(),
       presets.loadRoutingStrategy(),
       presets.loadRecipeMemory(),
-    ])
+      ])
     let channels = loadedChannels
     const staleRunningHub = channels.filter(
       (c) =>
@@ -399,6 +419,7 @@ export function createChannelStore(
       channels,
       customProtocols,
       customModels,
+      uncommonModelIds,
       routeStrategy,
       recipeMemory,
       loaded: true,
@@ -449,10 +470,16 @@ export function createChannelStore(
     store.setState((s) => ({ channels: s.channels.filter((c) => c.id !== id) }))
   }
 
-  const globalModelsOf: ChannelStoreActions['globalModelsOf'] = (category) =>
-    [...PRESET_MODELS, ...store.getState().customModels].filter(
-      (model) => model.category === category,
+  const globalModelsOf: ChannelStoreActions['globalModelsOf'] = (
+    category,
+    includeUncommon = false,
+  ) => {
+    const uncommon = new Set(store.getState().uncommonModelIds)
+    return [...PRESET_MODELS, ...store.getState().customModels].filter(
+      (model) =>
+        model.category === category && (includeUncommon || !uncommon.has(model.id)),
     )
+  }
 
   const globalModelOf: ChannelStoreActions['globalModelOf'] = (name) => {
     const key = name.trim()
@@ -483,7 +510,73 @@ export function createChannelStore(
     }
     const next = store.getState().customModels.filter((model) => model.id !== key)
     await presets.saveCustomModels(next)
-    store.setState({ customModels: next })
+    const uncommonModelIds = store.getState().uncommonModelIds.filter((id) => id !== key)
+    await presets.saveUncommonModels(uncommonModelIds)
+    store.setState({ customModels: next, uncommonModelIds })
+  }
+
+  const setModelUncommon: ChannelStoreActions['setModelUncommon'] = async (name, uncommon) => {
+    const key = name.trim()
+    if (!globalModelOf(key)) throw new Error(`前端模型「${key}」不存在`)
+    const ids = new Set(store.getState().uncommonModelIds)
+    if (uncommon) ids.add(key)
+    else ids.delete(key)
+    const uncommonModelIds = [...ids]
+    await presets.saveUncommonModels(uncommonModelIds)
+    store.setState({ uncommonModelIds })
+  }
+
+  const testModelMapping: ChannelStoreActions['testModelMapping'] = async (
+    id,
+    logicalName,
+    upstreamId,
+    groupId,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) return { status: 'error', message: '模型服务不存在' }
+    const group =
+      ch.credentialGroups.length > 0 ? credentialGroupOf(ch, groupId) : undefined
+    const groupKey = group ? await repo.loadToken(group.credentialRef) : null
+    const { apiKey: legacyApiKey, altApiKey } = await loadKeys(ch)
+    const config: ResolvedChannelConfig = {
+      ...toSafeConfig(ch, catalog()),
+      ...(group
+        ? { credentialRef: group.credentialRef, modelCache: group.modelCache }
+        : {}),
+      apiKey: groupKey ?? legacyApiKey,
+      altApiKey,
+    }
+    const target = upstreamId.trim() || logicalName.trim()
+    if (!target) return { status: 'error', message: '映射后的模型 ID 为空' }
+    const startedAt = Date.now()
+    try {
+      const models = await createChannelAdapter(config, platform).listModels(
+        config,
+        timeoutSignal(10_000),
+      )
+      const latencyMs = Date.now() - startedAt
+      if (models.some((model) => model.id === target)) {
+        return {
+          status: 'ok',
+          message: `目录中已找到「${target}」`,
+          latencyMs,
+          modelCount: models.length,
+        }
+      }
+      return {
+        status: 'missing',
+        message: `目录返回 ${models.length} 个模型，但没有「${target}」。目录不完整时不能据此判定映射失效。`,
+        latencyMs,
+        modelCount: models.length,
+      }
+    } catch (error) {
+      const app = asAppError(error)
+      return {
+        status: 'error',
+        message: app ? describeError(app) : error instanceof Error ? error.message : String(error),
+        latencyMs: Date.now() - startedAt,
+      }
+    }
   }
 
   const reorder: ChannelStoreActions['reorder'] = async (orderedIds) => {
@@ -1302,6 +1395,8 @@ export function createChannelStore(
     globalModelOf,
     addGlobalModel,
     removeGlobalModel,
+    setModelUncommon,
+    testModelMapping,
     reorder,
     saveToken,
     loadToken,

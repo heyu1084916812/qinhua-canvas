@@ -856,7 +856,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     if (!chatTarget) {
       setMergeScan({
         kind: 'error',
-        text: '没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型',
+        text: '没有可用的对话模型 —— 先去「设置 → 模型服务」给一条服务勾上对话模型',
       })
       return
     }
@@ -1143,7 +1143,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     if (!chatTarget) {
       setBreaking('error')
-      setBreakMsg('还没有可用的对话模型 —— 去「全局设置 → 渠道配置」给一条渠道勾上对话模型')
+      setBreakMsg('还没有可用的对话模型 —— 去「全局设置 → 模型服务」给一条服务勾上对话模型')
       setBreakConfirm(false)
       return
     }
@@ -1337,7 +1337,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
        */
       const recipe = await channels.defaultForNewNode({}, 'video')
       if (!recipe?.channelId || !recipe?.model) {
-        report('error', '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型')
+        report('error', '还没有可用的视频模型服务 —— 先去「全局设置 → 模型服务」添加一条并勾上视频模型')
         return false
       }
       const latestDoc = docRef.current
@@ -1454,7 +1454,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         canvasStore.endPlan()
       }
       if (!nodeId) {
-        report('error', '视频节点没能建出来（渠道或模型没配全）')
+        report('error', '视频节点没能建出来（模型服务或模型没配全）')
         return false
       }
       const current = docRef.current
@@ -3000,7 +3000,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                   <span className={styles.hint} data-storyboard-merge-scan-note>
                     {chatTarget
                       ? `会用 ${chatTarget.label} 查（会花一次对话额度）`
-                      : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
+                      : '还没有可用的对话模型：先去「设置 → 模型服务」给一条服务勾上对话模型'}
                   </span>
                 </div>
                 {mergeScan.text ? (
@@ -3289,7 +3289,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 <p className={styles.hint} data-storyboard-breakdown-hint>
                   {chatTarget
                     ? `将用 ${chatTarget.label} 拆解；结果只写进这一集`
-                    : '还没有可用的对话模型 —— 去「全局设置 → 渠道配置」给一条渠道勾上对话模型'}
+                    : '还没有可用的对话模型 —— 去「全局设置 → 模型服务」给一条服务勾上对话模型'}
                 </p>
                 {breaking !== 'idle' ? (
                   <p

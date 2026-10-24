@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
-import { capabilityOfLogical } from '../../domain/project/modelCatalog'
-import { presetModelsOf } from '../../domain/project/modelPresets'
+import { capabilityOfLogical, panelModelOptions } from '../../domain/project/modelCatalog'
 import { RATIO_CHOICES } from '../../domain/canvas/layout/ratioChoices'
 import { ChoicePicker } from '../shared/choicePicker/ChoicePicker'
 import styles from './DefaultParamsPanel.module.css'
@@ -42,6 +41,11 @@ export function DefaultParamsPanel() {
     () => channels.getState().customModels,
     () => [],
   )
+  const uncommonModelIds = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().uncommonModelIds,
+    () => [],
+  )
   const [category, setCategory] = useState<DefaultCategory>('generate')
   const [resolved, setResolved] = useState<{
     channelId: string
@@ -58,9 +62,12 @@ export function DefaultParamsPanel() {
   const options = useMemo(
     () =>
       category === 'chat'
-        ? presetModelsOf('chat')
+        ? panelModelOptions('chat', uncommonModelIds).flatMap((id) => {
+            const model = channels.globalModelOf(id)
+            return model ? [model] : []
+          })
         : [...channels.globalModelsOf('image'), ...channels.globalModelsOf('video')],
-    [category, channels, customModels],
+    [category, channels, customModels, uncommonModelIds],
   )
 
   /** 读"新节点会用什么" —— 与创建节点同一条解析链 */
@@ -99,7 +106,7 @@ export function DefaultParamsPanel() {
 
   const save = async () => {
     if (!resolved?.channelId || !model) {
-      setStatus('还没有可用的渠道或模型 —— 先去「渠道配置」配一条、勾上模型')
+      setStatus('还没有可用的模型服务 —— 先去「模型服务」添加一条、勾上模型')
       return
     }
     const params: Record<string, unknown> = { ...resolved.params }

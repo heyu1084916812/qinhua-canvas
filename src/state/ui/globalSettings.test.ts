@@ -91,7 +91,7 @@ describe('globalSettings · 全局设置浮层', () => {
       'notify',
     ])
     expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual([
-      '渠道配置',
+      '模型服务',
       'CLI',
       '素材传输',
       '存储',

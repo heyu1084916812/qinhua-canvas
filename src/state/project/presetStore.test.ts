@@ -123,3 +123,22 @@ describe('记住上次参数 · 开关（ui:recipeMemory）', () => {
     expect([...(await s.loadAll()).keys()]).toEqual(['c1'])
   })
 })
+
+describe('不常用前端模型 · 偏好', () => {
+  it('保存后换实例仍能读回，并自动去重去空白', async () => {
+    const platform = createMemoryPlatform()
+    const store = createPresetStore(platform.storage)
+    await store.saveUncommonModels([' GPT Image 2 ', 'Midjourney', 'GPT Image 2', ''])
+    expect(await createPresetStore(platform.storage).loadUncommonModels()).toEqual([
+      'GPT Image 2',
+      'Midjourney',
+    ])
+  })
+
+  it('不会被 loadAll 当成生成配方', async () => {
+    const store = createPresetStore(createMemoryPlatform().storage)
+    await store.save({ channelId: 'c1', model: 'mock-image-1', params: {}, savedAt: 1 })
+    await store.saveUncommonModels(['Midjourney'])
+    expect([...(await store.loadAll()).keys()]).toEqual(['c1'])
+  })
+})

@@ -194,7 +194,7 @@
 
 .docLink:hover {
   background: var(--bg-hover);
-  text-decoration: underline;
+  color: var(--text-1);
 }
 
 .keyGroups {
@@ -393,6 +393,15 @@
   padding-top: var(--space-2);
 }
 
+.channelGroupLabel {
+  padding: var(--space-1) var(--space-2) 2px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-title);
+  line-height: 1.4;
+  list-style: none;
+}
+
 .item {
   width: 100%;
   /**
@@ -535,6 +544,220 @@
   text-overflow: ellipsis;
 }
 
+.itemEnabledDot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: 0.55;
+}
+
+.itemEnabledDot[data-enabled='true'] {
+  background: var(--success);
+  opacity: 1;
+}
+
+.item {
+  --channel-icon-box: 28px;
+  min-height: 38px;
+  gap: 4px;
+  padding: 4px 6px 4px 4px;
+  cursor: default;
+}
+
+.item:active {
+  cursor: default;
+}
+
+.item[data-dragging='true'] {
+  opacity: 0.55;
+}
+
+.dragHandleSlot {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dragHandle {
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  pointer-events: none;
+  cursor: grab;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.item:hover .dragHandle,
+.item:focus-within .dragHandle,
+.item[data-menu-open] .dragHandle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dragHandle:hover {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.itemMain:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.itemBody {
+  min-height: 0;
+  gap: 0;
+}
+
+.itemTrailing {
+  position: relative;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.itemTrailing .itemEnabledDot {
+  position: absolute;
+  margin: 0;
+}
+
+.itemMenuTrigger {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.itemMenuTrigger:hover {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.item:hover .itemMenuTrigger,
+.item:focus-within .itemMenuTrigger,
+.item[data-menu-open] .itemMenuTrigger {
+  display: inline-flex;
+}
+
+.item:hover .itemEnabledDot,
+.item:focus-within .itemEnabledDot,
+.item[data-menu-open] .itemEnabledDot {
+  display: none;
+}
+
+.channelContextMenu {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.channelMenuItem {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.channelMenuItem:hover:not(:disabled),
+.channelMenuItem:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+}
+
+.channelMenuItemDanger {
+  color: var(--danger);
+}
+
+.channelMenuItem:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.channelMenuConfirmText {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.5;
+}
+
+@media (hover: none) {
+  .dragHandle,
+  .itemMenuTrigger {
+    opacity: 1;
+    pointer-events: auto;
+    display: inline-flex;
+  }
+
+  .itemEnabledDot {
+    display: none;
+  }
+}
+
 /** 第二排 = 开关 + 模型数（模型数不归开关管，点它是选中这一行 —— 所以放在开关那一层外面） */
 .itemStatusRow {
   display: flex;
@@ -640,11 +863,61 @@
 }
 
 .form {
-  max-width: 640px;
+  max-width: 760px;
   margin-inline: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+}
+
+.providerEditorHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+}
+
+.providerNameInput {
+  min-width: 0;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+}
+
+.providerNameInput:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.providerNameInput:focus {
+  outline: none;
+  border-color: var(--stroke-focus);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.providerNameInput:disabled {
+  color: var(--text-1);
+  cursor: default;
+}
+
+.editorSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-1) 0 var(--space-5);
+  border-bottom: var(--border);
+}
+
+.editorSection:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 /**
@@ -1293,6 +1566,35 @@
   gap: var(--space-1);
 }
 
+.mapToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.showUncommonToggle,
+.mapUncommonToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.showUncommonToggle input,
+.mapUncommonToggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .mapFilter {
   padding: 2px var(--space-3);
   border: var(--border);
@@ -1319,14 +1621,13 @@
 /* 每一行 = 逻辑名 + 输入 + 保存：名字定宽，输入框吃满剩余宽度，
    这样换一条长模型名也不会把按钮挤到下一行（固定格式控件的尺寸要稳定）。 */
 .mapRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(130px, 1fr) 64px auto auto 20px;
   align-items: center;
   gap: var(--space-2);
 }
 
 .mapName {
-  flex: none;
-  width: 208px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -1342,12 +1643,11 @@
 }
 
 .mapInput {
-  flex: 1;
   min-width: 0;
 }
 
 .mapSaveState {
-  flex: 0 0 72px;
+  width: 64px;
   min-width: 0;
   overflow: hidden;
   color: var(--success);
@@ -1359,6 +1659,53 @@
 
 .mapSaveError {
   color: var(--danger);
+}
+
+.mapTestButton {
+  min-width: 48px;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.mapTestButton:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.mapTestButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mapTestState {
+  grid-column: 2 / -1;
+  min-height: 18px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mapTestOk {
+  color: var(--success);
+}
+
+.mapTestMissing {
+  color: var(--warning, var(--text-2));
+}
+
+.mapTestError {
+  color: var(--danger);
+}
+
+.mapUncommonToggle {
+  min-height: 30px;
 }
 
 .panelFoot {

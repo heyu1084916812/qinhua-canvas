@@ -87,7 +87,7 @@ export function navTargetFor(to: string, project: NavProjectContext | null): str
  * 成本为零、收益也为零。
  */
 const EXTRA_TITLES: Record<string, string> = {
-  '/settings': '全局设置 · 渠道配置',
+  '/settings': '全局设置 · 模型服务',
   '/hosting': '全局设置 · 素材传输',
 }
 

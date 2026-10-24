@@ -119,17 +119,11 @@ export function openAgentPanel(layout: AgentDockLayout, area: AgentWorkArea): Ag
   }
 }
 
-/** 收起时把浮球放到面板右下角，视觉上像窗口重新收成一颗球。 */
-export function collapseAgentDockToPanel(layout: AgentDockLayout, area: AgentWorkArea): AgentDockLayout {
+/** 收起只隐藏面板；球留在用户拖动后的原位置，下次展开再围绕球定位。 */
+export function closeAgentPanel(layout: AgentDockLayout, area: AgentWorkArea): AgentDockLayout {
   return {
     ...layout,
-    orb: clampAgentPoint(
-      {
-        x: layout.panel.x + layout.panel.width - AGENT_ORB_SIZE,
-        y: layout.panel.y + layout.panel.height - AGENT_ORB_SIZE,
-      },
-      area,
-    ),
+    orb: clampAgentPoint(layout.orb, area),
   }
 }
 

@@ -25,11 +25,12 @@
  *
  * 想换图标时只改这一个文件与 `modelLogoPaths.ts`，调用方只认 `vendor`。
  */
-import type { SVGProps } from 'react'
+import type { CSSProperties, SVGProps } from 'react'
 import type { PresetVendor } from '../../../domain/project/modelPresets'
 import styles from './ModelIcon.module.css'
 
 import { MODEL_LOGO_PATHS } from './modelLogoPaths'
+import { MODEL_LOGO_ASSETS } from './modelLogoAssets'
 
 /** 每个厂商的中文名，供悬停提示（图标本身是 `aria-hidden` 的装饰） */
 const VENDOR_LABEL: Record<PresetVendor, string> = {
@@ -44,6 +45,31 @@ const VENDOR_LABEL: Record<PresetVendor, string> = {
   deepseek: 'DeepSeek',
   zhipu: '智谱 GLM',
   tencent: '腾讯混元',
+  anthropic: 'Anthropic',
+  xai: 'xAI',
+  mistral: 'Mistral',
+  moonshot: 'Moonshot / Kimi',
+  baidu: '百度 / 文心',
+  cohere: 'Cohere',
+  perplexity: 'Perplexity',
+  stability: 'Stability AI',
+  runway: 'Runway',
+  luma: 'Luma',
+  ideogram: 'Ideogram',
+  bfl: 'Black Forest Labs',
+  recraft: 'Recraft',
+  kling: '可灵',
+  suno: 'Suno',
+  elevenlabs: 'ElevenLabs',
+  ollama: 'Ollama',
+  huggingface: 'Hugging Face',
+  openrouter: 'OpenRouter',
+  siliconcloud: '硅基流动',
+  modelscope: 'ModelScope',
+  doubao: '豆包',
+  volcengine: '火山引擎',
+  flux: 'FLUX',
+  jimeng: '即梦',
 }
 
 interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
@@ -60,6 +86,25 @@ interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
  * 内联之后颜色自动跟主题反转，底板也就没有必要了。
  */
 export function ModelIcon({ vendor, size = 20 }: ModelIconProps) {
+  const paths = MODEL_LOGO_PATHS[vendor]
+  if (!paths) {
+    return (
+      <span
+        className={styles.maskIcon}
+        data-model-icon={vendor}
+        title={VENDOR_LABEL[vendor]}
+        aria-hidden
+        style={
+          {
+            WebkitMaskImage: `url("${MODEL_LOGO_ASSETS[vendor]}")`,
+            maskImage: `url("${MODEL_LOGO_ASSETS[vendor]}")`,
+            width: size,
+            height: size,
+          } as CSSProperties
+        }
+      />
+    )
+  }
   return (
     <svg
       className={styles.icon}
@@ -71,7 +116,7 @@ export function ModelIcon({ vendor, size = 20 }: ModelIconProps) {
       aria-hidden
     >
       <title>{VENDOR_LABEL[vendor]}</title>
-      {MODEL_LOGO_PATHS[vendor].map((d, i) => (
+      {paths.map((d, i) => (
         <path key={i} d={d} fillRule="evenodd" clipRule="evenodd" />
       ))}
     </svg>

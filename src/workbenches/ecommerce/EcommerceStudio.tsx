@@ -1222,7 +1222,7 @@ export interface EcommerceStudioProps {
   /** 用户显式选择的解析模型；空 = 默认。 */
   intentModel?: string
   onIntentModelChange?: (model: string) => void
-  /** 从对话模型空态直接打开渠道配置。 */
+  /** 从对话模型空态直接打开模型服务。 */
   onConfigureChannels?: () => void
   /** 解析失败 / 没配对话模型时的如实说法 */
   intentError?: string
@@ -2358,7 +2358,7 @@ export function EcommerceStudio({
                 data-ecommerce-configure-channels
                 onClick={onConfigureChannels}
               >
-                渠道配置
+                模型服务
               </button>
             ) : null}
           </span>

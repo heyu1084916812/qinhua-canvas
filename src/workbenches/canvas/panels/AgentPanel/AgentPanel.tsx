@@ -238,13 +238,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     () => channels.getState().customModels,
     () => [],
   )
+  const uncommonModelIds = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().uncommonModelIds,
+    () => [],
+  )
   const globalImageModels = useMemo(
     () => channels.globalModelsOf('image').map((model) => model.id),
-    [channels, customModels],
+    [channels, customModels, uncommonModelIds],
   )
   const globalVideoModels = useMemo(
     () => channels.globalModelsOf('video').map((model) => model.id),
-    [channels, customModels],
+    [channels, customModels, uncommonModelIds],
   )
   /** 会话改名：就地编辑，Enter 提交 / Esc 取消（不弹原生 prompt —— 那会打断画布操作） */
   const [renaming, setRenaming] = useState(false)
@@ -337,11 +342,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * （渠道 / 映射那句），比「列表里没有」好排查得多。对话模型不在这里 ——
      * 它是单独一行（agent 自己的 LLM）。
      */
-    const pick = (category: 'image' | 'video') => panelModelOptions(category)
+    const pick = (category: 'image' | 'video') =>
+      category === 'image' ? globalImageModels : globalVideoModels
     /** 对话模型也保持固定的前端清单，不按渠道能力增删。 */
-    const chat = panelModelOptions('chat')
+    const chat = panelModelOptions('chat', uncommonModelIds)
     return { image: pick('image'), video: pick('video'), chat }
-  }, [])
+  }, [globalImageModels, globalVideoModels, uncommonModelIds])
   const chatModelOptions = modelOptionsByKind.chat
   /**
    * **已经放进这次对话的模型**（正文里的 `model` chip）。
@@ -844,7 +850,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (!chatRoute) {
       setStatusFor(current.id, {
         kind: 'error',
-        message: `没有可用的渠道提供「${shownModel || current.model}」：请在渠道配置里勾选该模型或补好模型映射`,
+        message: `没有可用的模型服务提供「${shownModel || current.model}」：请在模型服务里勾选该模型或补好模型映射`,
       })
       return
     }

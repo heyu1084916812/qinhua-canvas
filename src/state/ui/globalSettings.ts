@@ -106,9 +106,9 @@ export const GLOBAL_SETTINGS_SECTIONS: {
 }[] = [
   {
     id: 'channels',
-    label: '渠道配置',
+    label: '模型服务',
     group: '连接',
-    keywords: ['渠道', '模型', '令牌', 'key', 'token', 'apikey', 'api key', '验证', '拉取', '接口', '站点'],
+    keywords: ['模型服务', '渠道', '模型', '令牌', 'key', 'token', 'apikey', 'api key', '验证', '拉取', '接口', '站点'],
   },
   // 「CLI」（对账 #308）：用户点名"就在渠道配置的**下面**"——顺序即口径，别往后挪
   {
@@ -216,7 +216,7 @@ export function getGlobalSettings(): GlobalSettingsState {
   return state
 }
 
-/** 打开（默认落在「渠道配置」）。已经开着且栏目没变时不通知 —— 免得白重渲。 */
+/** 打开（默认落在「模型服务」）。已经开着且栏目没变时不通知 —— 免得白重渲。 */
 export function openGlobalSettings(section: GlobalSettingsSection = 'channels'): void {
   if (state.open && state.section === section) return
   state = { open: true, section }
@@ -236,7 +236,7 @@ export function subscribeGlobalSettings(fn: () => void): () => void {
   }
 }
 
-/** 仅供测试：复位成「关着 + 渠道配置」。 */
+/** 仅供测试：复位成「关着 + 模型服务」。 */
 export function __resetGlobalSettingsForTest(): void {
   state = { open: false, section: 'channels' }
   notify()

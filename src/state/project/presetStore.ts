@@ -61,6 +61,7 @@ const SKILL_FAVORITES_ROW_ID = 'skill:favorites'
  */
 const RECIPE_MEMORY_ROW_ID = 'ui:recipeMemory'
 const CUSTOM_MODELS_ROW_ID = 'models:custom'
+const UNCOMMON_MODELS_ROW_ID = 'models:uncommon'
 
 export interface AgentDefaultModel {
   channelId: string
@@ -102,6 +103,9 @@ export interface PresetStore {
   saveSkillFavorites(ids: readonly string[]): Promise<void>
   loadCustomModels(): Promise<PresetModel[]>
   saveCustomModels(models: readonly PresetModel[]): Promise<void>
+  /** 前端模型里标记为“不常用”的逻辑名；画布默认不消费这些模型。 */
+  loadUncommonModels(): Promise<string[]>
+  saveUncommonModels(names: readonly string[]): Promise<void>
 }
 
 export function createPresetStore(storage: StoragePort): PresetStore {
@@ -267,6 +271,24 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         )
       } catch {
         // 偏好写不进去只影响下次启动；当前内存列表仍可继续使用
+      }
+    },
+    async loadUncommonModels() {
+      try {
+        const rows = await storage.query('presets', { id: UNCOMMON_MODELS_ROW_ID })
+        const row = rows[0] as { names?: unknown } | undefined
+        if (!row || !Array.isArray(row.names)) return []
+        return [...new Set(row.names.filter((name): name is string => typeof name === 'string'))]
+      } catch {
+        return []
+      }
+    },
+    async saveUncommonModels(names) {
+      try {
+        const clean = [...new Set(names.map((name) => name.trim()).filter(Boolean))]
+        await storage.put('presets', { id: UNCOMMON_MODELS_ROW_ID, names: clean } as never)
+      } catch {
+        // 偏好写不进去不阻断生成；最坏情况只是下次仍显示为常用
       }
     },
   }

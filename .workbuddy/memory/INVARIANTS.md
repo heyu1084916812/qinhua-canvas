@@ -5,6 +5,9 @@
 
 ## canvas · 通用
 
+- **Agent 浮球与浮窗是两份坐标**：收起浮窗只把 `open` 置 false，禁止把球移动到面板右下角；
+  展开时以球为锚点重新计算浮窗位置，并统一走 `clampAgentPanel()`。真实回归要求拖动后
+  关闭再打开，球的 rect 前后一致。
 - **执行引擎**：`runEngine<TTask,TCommand>` 对工作台命令零认知，**落位/写回全委托注入的 `ExecutionPlacement`**（canvas → `CanvasPlacement`，comic → `ComicPlacement`）。
 - **生成节点本体 = 媒体框（§6.8）**：参数/提示词/生成按钮全在下方创作面板；标题浮出节点外（`.header` `bottom:100%`，`HEADER_H` 高度补偿须同步删）。**发现「两套 UI」时修法是减重，不是给旧的那套加壳。**
 - **节点内部一律白底 `--bg-surface`**，节点间不靠底色差区分；UI：无投影、1px 细描边、8px 圆角（同 chip）、选中黑边框（非蓝）、参数文字 font-weight 600、`max-content`。
