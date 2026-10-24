@@ -1,5 +1,27 @@
 # CanvasFlow（轻画）项目记忆
 
+### 存储 V2：SQLite 索引 + 单资源根（2026-10-24 → 对账 #742）
+
+- **V2 不是只换数据库文件**：`manifest.sqlite` 只放结构、索引和素材元数据；图片、视频、
+  音频在 `media/{images,videos,audio}`，缩略图/预览图在 `media/{thumbs,previews}`。
+  节点、电商结果和收藏继续只引用 `assetHash`。
+- **旧 `assetHash` 是 SHA-1 前 16 位，不是完整 SHA-1**：正常新写入必须校验完整
+  `contentSha1` 前 16 位等于旧 ID；迁移器可保留非哈希/不匹配的旧冒烟素材，但必须写
+  `legacyHashMismatch=true` 并进入报告，普通上传和生成绝不能走这个例外。
+- **不能在运行中的 V1 上直接迁移**：桌面壳先 POST `/maintenance/begin`，V1 写锁等待当前
+  写入结束后拒绝新写入；迁移结束无论成败都 POST `/maintenance/end`。CLI 迁移要求调用方
+  先关闭应用。
+- **真实迁移结果**：`data-v2` 为 470 素材 / 2,156,388,895 字节 / 354 缩略图 /
+  123 预览图 / 3,573 条素材引用；21 个旧格式素材保留，1 条源库既有断链仅记 warning。
+  原 `data/` 继续保留作 V1 回滚。
+- **设置页已是单资源根**：旧的“应用数据目录 + 生成文件目录”双栏、导出同步和自动镜像都撤掉；
+  保留打开/切换/迁移/重建缩略图/重建预览图。当前根为 V2 时不显示迁移入口。
+- **启动选择靠根清单**：Tauri 和 `scripts/dev-shared.mjs` 都检查 `manifest.json` 的
+  `status=complete`，存在完整 V2 清单才设置 `QINGHUA_STORE_BACKEND=v2`，否则用 V1。
+- **验证**：Rust shared-store 25/25、Tauri 41/41、Vitest 3086/3086（1 skip）、
+  `npm run check`、定向 G97 30/30；桌面设置页 1440/1024 无横向溢出，画布 60 节点和
+  可见缩略图全部加载成功。
+
 ### 主库默认位置与安装目录迁移（2026-10-24 → 对账 #741）
 
 - **默认位置必须兑现 `轻画\{app,data}`，不能只留一个可切换按钮**：
