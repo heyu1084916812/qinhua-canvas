@@ -588,12 +588,32 @@
   justify-content: center;
 }
 
-.channelMonogram {
+.channelAvatarFrame {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  box-sizing: border-box;
   border-radius: 6px;
+  overflow: hidden;
+}
+
+.channelAvatarOutline {
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.channelAvatarFilled {
+  padding: 0;
+  border: 1px solid transparent;
+}
+
+.channelMonogramText {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-weight: var(--fw-title);
   line-height: 1;
 }
@@ -1042,7 +1062,10 @@
   position: fixed;
   z-index: 70;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 24px;
   overflow: hidden;
 }
 
@@ -1055,13 +1078,13 @@
 .profileDrawer {
   position: relative;
   z-index: 1;
-  width: min(420px, 100%);
-  height: 100%;
+  width: min(360px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  border-left: var(--border);
-  border-radius: var(--radius-node) 0 0 var(--radius-node);
+  border: var(--border);
+  border-radius: var(--radius-node);
   background: var(--bg-surface);
   color: var(--text-1);
   box-shadow: var(--shadow-float);

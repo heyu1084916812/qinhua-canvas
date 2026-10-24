@@ -12891,13 +12891,15 @@ async function g74(browser) {
   )
   const rowAvatars = await page.locator('[data-channel-icon-box]').evaluateAll((els) =>
     els.map((box) => {
-      const visual = box.querySelector('[data-channel-icon], [data-channel-monogram]')
+      const visual = box.querySelector('[data-channel-avatar-frame]')
       const rect = visual?.getBoundingClientRect()
       return {
-        kind: visual?.hasAttribute('data-channel-monogram') ? 'monogram' : 'brand',
+        kind: visual?.getAttribute('data-channel-avatar-kind') ?? '',
         width: rect ? Math.round(rect.width) : 0,
         height: rect ? Math.round(rect.height) : 0,
         radius: visual ? getComputedStyle(visual).borderRadius : '',
+        background: visual ? getComputedStyle(visual).backgroundColor : '',
+        borderWidth: visual ? parseFloat(getComputedStyle(visual).borderTopWidth) : 0,
       }
     }),
   )
@@ -12909,7 +12911,10 @@ async function g74(browser) {
         (icon) =>
           icon.width === 24 &&
           icon.height === 24 &&
-          parseFloat(icon.radius) >= 5,
+          parseFloat(icon.radius) >= 5 &&
+          (icon.kind === 'monogram'
+            ? icon.background !== 'rgba(0, 0, 0, 0)'
+            : icon.background === 'rgba(0, 0, 0, 0)' && icon.borderWidth === 1),
       ) &&
       rowAvatars.some((icon) => icon.kind === 'monogram'),
     JSON.stringify(rowAvatars.slice(0, 6)),
@@ -13039,11 +13044,14 @@ async function g74(browser) {
   await page.screenshot({ path: `${OUT}/736-profile-drawer.png` })
   const drawerGeometry = await page.locator('[data-settings-profile-drawer]').evaluate((el) => {
     const rect = el.getBoundingClientRect()
-    const editor = document.querySelector('[data-settings-editor]')?.getBoundingClientRect()
+    const workarea = document.querySelector('[data-settings-workarea]')?.getBoundingClientRect()
     return {
       width: Math.round(rect.width),
-      right: editor ? Math.round(editor.right - rect.right) : -1,
-      top: editor ? Math.round(rect.top - editor.top) : -1,
+      leftGap: workarea ? Math.round(rect.left - workarea.left) : -1,
+      rightGap: workarea ? Math.round(workarea.right - rect.right) : -1,
+      topGap: workarea ? Math.round(rect.top - workarea.top) : -1,
+      bottomGap: workarea ? Math.round(workarea.bottom - rect.bottom) : -1,
+      workareaWidth: workarea ? Math.round(workarea.width) : 0,
       upload: el.querySelectorAll('[data-settings-profile-upload]').length,
       builtin: el.querySelectorAll('[data-settings-profile-builtin]').length,
       reset: el.querySelectorAll('[data-settings-profile-reset]').length,
@@ -13052,10 +13060,13 @@ async function g74(browser) {
   })
   rec(
     g,
-    '齿轮打开右侧编辑抽屉，包含头像操作、名称与保存',
-    drawerGeometry.width === 420 &&
-      drawerGeometry.right === 0 &&
-      drawerGeometry.top === 0 &&
+    '齿轮打开模型服务浮层，四周留距且宽度约为页面一半',
+    drawerGeometry.width === 360 &&
+      drawerGeometry.leftGap >= 24 &&
+      drawerGeometry.rightGap >= 24 &&
+      drawerGeometry.topGap >= 24 &&
+      drawerGeometry.bottomGap >= 24 &&
+      drawerGeometry.width <= drawerGeometry.workareaWidth / 2 &&
       drawerGeometry.upload === 1 &&
       drawerGeometry.builtin === 1 &&
       drawerGeometry.reset === 1 &&
