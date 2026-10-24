@@ -23,6 +23,14 @@
   `"true"` / `"false"`，布尔 `true` 会返回 422。`v0.1.5` 的 `release-body.json`
   根本没有该字段，所以旧流程不会踩到。更稳的可复用方法是在创建时省略 `make_latest`，
   再按需 PATCH Release；或者使用 `gh release create --latest` / GitHub Actions。
+- **中文 Release 标题不要走 PowerShell here-string 管道**：2026-10-24 首次发布 `v0.1.6`
+  时标题落成 `?? v0.1.6`。正文因直接读取 UTF-8 的 `RELEASE_NOTES.md` 而正常，说明不是
+  UTF-8→GBK 二次乱码，而是中文字面量在 PowerShell 管道传给 Node 前被替换成 `?`。
+  修复方式是用 Unicode 码点构造标题并经 GitHub API PATCH；以后标题使用码点或 UTF-8 文件，
+  正文读取文件，JSON 由 Node fetch 发送。
+- **只删除可证明为空的幽灵目录**：`E:\杞荤敾鏁版嵁澶囦唤` 与 `E:\杞欢` 是历史编码错误
+  产生的空壳；删除前分别验证父级为 `E:\`、递归文件数为 0，删除后根目录无 `杞*`。
+  `E:\轻画数据备份` 是真实备份（1239 文件 / 1,922.03 MiB），不能与空壳一起删除。
 
 ### Windows 安装器图标（2026-10-24 → 对账 #737）
 
