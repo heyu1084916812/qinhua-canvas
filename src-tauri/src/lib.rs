@@ -590,6 +590,136 @@ struct DataDirConfig {
     data_dir: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageRootInfo {
+    path: String,
+    kind: String,
+    ready: bool,
+    format_version: Option<u32>,
+    schema_version: Option<u32>,
+    reason: Option<String>,
+}
+
+fn storage_root_info(path: &Path) -> Result<StorageRootInfo, String> {
+    if !path.is_absolute() {
+        return Err("资源目录必须是绝对路径".into());
+    }
+    let path_text = path.to_string_lossy().to_string();
+    if !path.exists() {
+        return Ok(StorageRootInfo {
+            path: path_text,
+            kind: "empty".into(),
+            ready: true,
+            format_version: None,
+            schema_version: None,
+            reason: Some("目录尚不存在，切换后会创建新的 V1 资源根".into()),
+        });
+    }
+    if !path.is_dir() {
+        return Ok(StorageRootInfo {
+            path: path_text,
+            kind: "unknown".into(),
+            ready: false,
+            format_version: None,
+            schema_version: None,
+            reason: Some("目标不是目录".into()),
+        });
+    }
+
+    let manifest_path = path.join("manifest.json");
+    if manifest_path.is_file() {
+        let raw = std::fs::read_to_string(&manifest_path)
+            .map_err(|error| format!("读取 manifest.json 失败：{error}"))?;
+        let manifest: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|error| format!("解析 manifest.json 失败：{error}"))?;
+        let format_version = manifest
+            .get("formatVersion")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value as u32);
+        let schema_version = manifest
+            .get("schemaVersion")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value as u32);
+        let complete = manifest.get("status").and_then(serde_json::Value::as_str)
+            == Some("complete");
+        let has_store = path.join("manifest.sqlite").is_file();
+        let has_media = path.join("media").is_dir();
+        let ready = complete && has_store && has_media;
+        return Ok(StorageRootInfo {
+            path: path_text,
+            kind: if ready { "v2" } else { "unknown" }.into(),
+            ready,
+            format_version,
+            schema_version,
+            reason: if ready {
+                None
+            } else {
+                Some("manifest.json 未标记 complete，或缺少 manifest.sqlite / media".into())
+            },
+        });
+    }
+
+    let has_v1_table = qinghua_shared_store::sqlite::TABLE_NAMES
+        .iter()
+        .any(|table| path.join(table).is_dir());
+    if has_v1_table {
+        return Ok(StorageRootInfo {
+            path: path_text,
+            kind: "v1".into(),
+            ready: true,
+            format_version: Some(1),
+            schema_version: None,
+            reason: None,
+        });
+    }
+
+    if path.join(".migration-state.json").is_file()
+        || path.join("migration-report.json").is_file()
+    {
+        return Ok(StorageRootInfo {
+            path: path_text,
+            kind: "partial".into(),
+            ready: false,
+            format_version: Some(2),
+            schema_version: None,
+            reason: Some("检测到未完成的 V2 迁移，可继续迁移并重新校验".into()),
+        });
+    }
+
+    let empty = std::fs::read_dir(path)
+        .map_err(|error| format!("读取资源目录失败：{error}"))?
+        .next()
+        .is_none();
+    Ok(StorageRootInfo {
+        path: path_text,
+        kind: if empty { "empty" } else { "unknown" }.into(),
+        ready: empty,
+        format_version: None,
+        schema_version: None,
+        reason: if empty {
+            Some("空目录会创建新的 V1 资源根".into())
+        } else {
+            Some("目录非空，但不是可识别的 V1 / V2 资源根".into())
+        },
+    })
+}
+
+fn backend_for_storage_root(path: &Path) -> &'static str {
+    if storage_root_info(path)
+        .ok()
+        .is_some_and(|info| info.kind == "v2" && info.ready)
+    {
+        "v2"
+    } else {
+        "v1"
+    }
+}
+
+fn set_storage_backend_env(path: &Path) {
+    std::env::set_var("QINGHUA_STORE_BACKEND", backend_for_storage_root(path));
+}
+
 fn data_dir_config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path()
         .app_local_data_dir()
@@ -615,6 +745,7 @@ fn configured_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn apply_data_dir_config(app: &tauri::AppHandle) {
     if let Some(path) = configured_data_dir(app) {
         std::env::set_var("QINGHUA_DATA_DIR", &path);
+        set_storage_backend_env(&path);
         eprintln!("[data] 自定义主库目录：{}", path.display());
         return;
     }
@@ -625,6 +756,7 @@ fn apply_data_dir_config(app: &tauri::AppHandle) {
         preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable)
     {
         std::env::set_var("QINGHUA_DATA_DIR", &path);
+        set_storage_backend_env(&path);
         eprintln!("[data] 安装目录主库：{}", path.display());
     }
 }
@@ -642,6 +774,52 @@ async fn pick_data_dir(app: tauri::AppHandle) -> Option<String> {
     rx.recv().await.flatten()
 }
 
+#[tauri::command]
+fn inspect_data_dir(path: String) -> Result<StorageRootInfo, String> {
+    storage_root_info(&PathBuf::from(path.trim()))
+}
+
+/// V1 → V2 迁移是大文件 IO 与哈希计算，必须离开 Tauri 主线程。
+#[tauri::command]
+async fn migrate_data_dir(
+    source: String,
+    target: String,
+    dry_run: bool,
+) -> Result<qinghua_shared_store::migration::MigrationReport, String> {
+    set_storage_maintenance(true).await?;
+    let migration = tauri::async_runtime::spawn_blocking(move || {
+        qinghua_shared_store::migration::migrate_v1_to_v2(
+            &PathBuf::from(source),
+            &PathBuf::from(target),
+            dry_run,
+        )
+    })
+    .await;
+    let release = set_storage_maintenance(false).await;
+    let report = migration.map_err(|error| format!("迁移任务异常结束：{error}"))??;
+    release?;
+    Ok(report)
+}
+
+async fn set_storage_maintenance(enabled: bool) -> Result<(), String> {
+    let action = if enabled { "begin" } else { "end" };
+    let response = reqwest::Client::new()
+        .post(format!(
+            "http://127.0.0.1:{}/maintenance/{action}",
+            qinghua_shared_store::PORT
+        ))
+        .send()
+        .await
+        .map_err(|error| format!("无法暂停共享存储写入：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "共享存储维护模式请求失败：HTTP {}",
+            response.status()
+        ));
+    }
+    Ok(())
+}
+
 /// 保存新主库位置。只验证可写并落配置，不复制 / 移动 / 删除任何现有数据。
 #[tauri::command]
 fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
@@ -651,6 +829,12 @@ fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
     }
     if !dir_is_writable(&dir) {
         return Err(format!("目录不可写：{}", dir.display()));
+    }
+    let info = storage_root_info(&dir)?;
+    if !info.ready {
+        return Err(info
+            .reason
+            .unwrap_or_else(|| "不是可用的资源目录".to_string()));
     }
     let config_path =
         data_dir_config_path(&app).ok_or_else(|| "无法定位应用配置目录".to_string())?;
@@ -667,6 +851,8 @@ fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
         std::fs::remove_file(&config_path).map_err(|err| format!("替换旧配置失败：{err}"))?;
     }
     std::fs::rename(&temporary, &config_path).map_err(|err| format!("保存配置失败：{err}"))?;
+    std::env::set_var("QINGHUA_DATA_DIR", &dir);
+    set_storage_backend_env(&dir);
     Ok(dir.to_string_lossy().to_string())
 }
 
@@ -2552,6 +2738,8 @@ pub fn run() {
             data_dir_path,
             pick_data_dir,
             set_data_dir,
+            inspect_data_dir,
+            migrate_data_dir,
             open_dir,
             cache_usage,
             clear_cache,
@@ -2663,6 +2851,9 @@ pub fn run() {
 #[cfg(test)]
 mod data_dir_tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
     fn none_roots() -> Vec<PathBuf> {
         Vec::new()
@@ -2672,6 +2863,14 @@ mod data_dir_tests {
     }
     fn never(_: &Path) -> bool {
         false
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "qinghua-data-dir-{name}-{}-{}",
+            std::process::id(),
+            TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ))
     }
 
     #[test]
@@ -2819,5 +3018,47 @@ mod data_dir_tests {
         let roots = vec![PathBuf::from("c:\\program files")];
         let got = decide_data_dir(Path::new("C:\\Program Files\\轻画"), &roots, &always);
         assert_eq!(got, None);
+    }
+
+    #[test]
+    fn storage_root_detects_v1_v2_empty_and_unknown() {
+        let v1 = temp_dir("v1");
+        std::fs::create_dir_all(v1.join("projects")).unwrap();
+        let v1_info = storage_root_info(&v1).unwrap();
+        assert_eq!(v1_info.kind, "v1");
+        assert!(v1_info.ready);
+        assert_eq!(backend_for_storage_root(&v1), "v1");
+
+        let v2 = temp_dir("v2");
+        std::fs::create_dir_all(v2.join("media")).unwrap();
+        std::fs::write(v2.join("manifest.sqlite"), b"").unwrap();
+        std::fs::write(
+            v2.join("manifest.json"),
+            br#"{"formatVersion":2,"schemaVersion":2,"status":"complete"}"#,
+        )
+        .unwrap();
+        let v2_info = storage_root_info(&v2).unwrap();
+        assert_eq!(v2_info.kind, "v2");
+        assert!(v2_info.ready);
+        assert_eq!(backend_for_storage_root(&v2), "v2");
+
+        let empty = temp_dir("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let empty_info = storage_root_info(&empty).unwrap();
+        assert_eq!(empty_info.kind, "empty");
+        assert!(empty_info.ready);
+        assert_eq!(backend_for_storage_root(&empty), "v1");
+
+        let unknown = temp_dir("unknown");
+        std::fs::create_dir_all(&unknown).unwrap();
+        std::fs::write(unknown.join("random.txt"), b"x").unwrap();
+        let unknown_info = storage_root_info(&unknown).unwrap();
+        assert_eq!(unknown_info.kind, "unknown");
+        assert!(!unknown_info.ready);
+
+        let _ = std::fs::remove_dir_all(v1);
+        let _ = std::fs::remove_dir_all(v2);
+        let _ = std::fs::remove_dir_all(empty);
+        let _ = std::fs::remove_dir_all(unknown);
     }
 }

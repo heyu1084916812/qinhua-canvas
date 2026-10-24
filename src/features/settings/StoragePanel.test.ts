@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { StoragePort } from '../../platform/ports'
 import {
   countStorageProjects,
+  countStorageMedia,
   countStorageRows,
   formatBytes,
+  rootKindLabel,
   storageUsagePercent,
 } from './StoragePanel'
 
@@ -53,5 +55,46 @@ describe('StoragePanel helpers', () => {
       expect.any(Function),
       { includePayload: false },
     )
+  })
+
+  it('counts media by MIME without loading media bytes', async () => {
+    const scan = vi.fn(async (_table, _batch, onBatch) => {
+      await onBatch(
+        [
+          { id: 'i', mime: 'image/png' },
+          { id: 'v', mime: 'video/mp4' },
+          { id: 'a', mime: 'audio/wav' },
+          { id: 'x', mime: 'application/octet-stream' },
+        ] as never,
+        { total: 4 },
+      )
+      return 4
+    })
+    const storage = { scan } as unknown as StoragePort
+
+    await expect(countStorageMedia(storage)).resolves.toEqual({
+      images: 1,
+      videos: 1,
+      audio: 1,
+      other: 1,
+    })
+    expect(scan).toHaveBeenCalledWith(
+      'assets',
+      50,
+      expect.any(Function),
+      { includePayload: false },
+    )
+  })
+
+  it('labels every resource-root state without pretending partial data is usable', () => {
+    expect(
+      rootKindLabel({ path: 'D:/data', kind: 'v2', ready: true }),
+    ).toBe('V2')
+    expect(
+      rootKindLabel({ path: 'D:/data', kind: 'partial', ready: false }),
+    ).toBe('迁移未完成')
+    expect(
+      rootKindLabel({ path: 'D:/data', kind: 'unknown', ready: false }),
+    ).toBe('不可用')
   })
 })

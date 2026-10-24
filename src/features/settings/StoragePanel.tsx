@@ -1,52 +1,72 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import type { StoragePort } from '../../platform/ports'
-import { useAssetFolderActions } from '../canvas/useAssetFolderActions'
+import type {
+  StorageMigrationReport,
+  StoragePort,
+  StorageRootInfo,
+} from '../../platform/ports'
+import {
+  backfillAssetPreviews,
+  backfillAssetThumbs,
+} from '../../platform/assetThumb'
 import styles from './StoragePanel.module.css'
 
-/**
- * 「全局设置 → 存储」面板（对账 #261 / #285 / #293 / #740）。
- *
- * 布局借了「资源位置 + 使用情况 + 维护动作」这套成熟心智，但不改变数据所有权：
- *
- *  - 应用数据目录是权威库，可选择新目录并打开，切换在下次启动生效；
- *  - 生成文件目录是用户可替换的本地副本，新素材落库后自动镜像到这里；
- *  - 网页缓存只省磁盘，不承担素材或项目存储。
- *
- * 生成文件目录必须显示完整绝对路径（桌面壳），用户才能确认自己换到哪。
- * 浏览器拿不到绝对路径，此时只显示目录名，并明确说明打开能力仅在桌面版可用。
- */
+interface MediaCounts {
+  images: number
+  videos: number
+  audio: number
+  other: number
+}
+
+const EMPTY_MEDIA_COUNTS: MediaCounts = { images: 0, videos: 0, audio: 0, other: 0 }
+
 export function StoragePanel() {
   const platform = usePlatform()
   const admin = platform.storageAdmin
-  const folderActions = useAssetFolderActions()
 
-  const [counts, setCounts] = useState<{ projects: number; assets: number; saved: number } | null>(null)
+  const [counts, setCounts] = useState<{ projects: number; assets: number; saved: number } | null>(
+    null,
+  )
+  const [mediaCounts, setMediaCounts] = useState<MediaCounts>(EMPTY_MEDIA_COUNTS)
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null)
-  const [dataDir, setDataDir] = useState<string>('')
-  const [pendingDataDir, setPendingDataDir] = useState<string>('')
+  const [dataDir, setDataDir] = useState('')
+  const [rootInfo, setRootInfo] = useState<StorageRootInfo | null>(null)
+  const [pendingDataDir, setPendingDataDir] = useState('')
   const [switchingDir, setSwitchingDir] = useState(false)
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  const [migrationTarget, setMigrationTarget] = useState('')
+  const [migrationReport, setMigrationReport] = useState<StorageMigrationReport | null>(null)
+  const [migrationPhase, setMigrationPhase] = useState<'idle' | 'validating' | 'migrating'>(
+    'idle',
+  )
+  const [variantBusy, setVariantBusy] = useState<'thumb' | 'preview' | null>(null)
+  const [variantProgress, setVariantProgress] = useState('')
 
-  /** 概况只读计数，不展开项目封面、节点、运行记录或素材正文。 */
   const refresh = useCallback(async () => {
-    const [projects, assets, saved] = await Promise.all([
+    const [projects, saved, media] = await Promise.all([
       countStorageProjects(platform.storage),
-      countStorageRows(platform.storage, 'assets'),
       countStorageRows(platform.storage, 'assetLibrary'),
+      countStorageMedia(platform.storage),
     ])
-    setCounts({ projects, assets, saved })
+    setCounts({
+      projects,
+      assets: media.images + media.videos + media.audio + media.other,
+      saved,
+    })
+    setMediaCounts(media)
     setUsage(await platform.storage.estimateUsage())
     if (admin) {
-      setDataDir(await admin.dataDir())
+      const dir = await admin.dataDir()
+      setDataDir(dir)
+      setRootInfo((await admin.inspectRoot?.(dir)) ?? null)
       setCacheBytes(await admin.cacheUsage())
     }
   }, [platform, admin])
 
   useEffect(() => {
-    void refresh().catch((err: unknown) => setStatus(`读取失败：${String(err)}`))
+    void refresh().catch((error: unknown) => setStatus(`读取失败：${String(error)}`))
   }, [refresh])
 
   const clearCache = async () => {
@@ -55,16 +75,12 @@ export function StoragePanel() {
     try {
       const freed = await admin.clearCache()
       setCacheBytes(await admin.cacheUsage())
-      setStatus(`已清理网页缓存 ${formatBytes(freed)}（正在使用中的文件下次会一起清掉）`)
-    } catch (err) {
-      setStatus(`清理失败：${String(err)}`)
+      setStatus(`已清理网页缓存 ${formatBytes(freed)}`)
+    } catch (error) {
+      setStatus(`清理失败：${String(error)}`)
     } finally {
       setBusy(false)
     }
-  }
-
-  const setFolder = async () => {
-    setStatus(await folderActions.pick())
   }
 
   const chooseDataDir = async () => {
@@ -73,13 +89,18 @@ export function StoragePanel() {
       const next = await admin.pickDataDir()
       if (!next) return
       if (next === dataDir) {
-        setStatus('当前已经使用这个数据目录')
+        setStatus('当前已经使用这个资源目录')
+        return
+      }
+      const info = await admin.inspectRoot?.(next)
+      if (!info?.ready) {
+        setStatus(info?.reason || '该目录不是可识别的 V1 / V2 资源目录')
         return
       }
       setPendingDataDir(next)
       setStatus('')
-    } catch (err) {
-      setStatus(`选择数据目录失败：${String(err)}`)
+    } catch (error) {
+      setStatus(`选择资源目录失败：${String(error)}`)
     }
   }
 
@@ -89,19 +110,91 @@ export function StoragePanel() {
     try {
       const saved = await admin.setDataDir(pendingDataDir)
       setPendingDataDir('')
-      setStatus(`数据目录已保存为「${saved}」，关闭并重新打开轻画后生效`)
-    } catch (err) {
-      setStatus(`切换数据目录失败：${String(err)}`)
+      setRootInfo((await admin.inspectRoot?.(saved)) ?? null)
+      setStatus(`资源目录已保存为「${saved}」，关闭并重新打开轻画后生效`)
+    } catch (error) {
+      setStatus(`切换资源目录失败：${String(error)}`)
     } finally {
       setSwitchingDir(false)
     }
   }
 
+  const runMigration = async (target: string, dryRun: boolean) => {
+    if (!admin?.migrateDataDir || !dataDir) return
+    setMigrationPhase(dryRun ? 'validating' : 'migrating')
+    setMigrationReport(null)
+    setStatus('')
+    try {
+      const report = await admin.migrateDataDir(dataDir, target, dryRun)
+      setMigrationReport(report)
+      if (dryRun) {
+        setStatus(
+          report.failures.length > 0
+            ? `预检发现 ${report.failures.length} 个阻断问题`
+            : '源库预检完成；确认后会开始写入新资源目录',
+        )
+      } else {
+        await admin.setDataDir?.(target)
+        setStatus('迁移与回读校验完成，资源目录已切换；重启轻画后启用 V2')
+      }
+    } catch (error) {
+      setStatus(`${dryRun ? '预检' : '迁移'}失败：${String(error)}`)
+    } finally {
+      setMigrationPhase('idle')
+    }
+  }
+
+  const chooseMigrationTarget = async () => {
+    if (!admin?.pickDataDir || !admin.inspectRoot || !admin.migrateDataDir) return
+    try {
+      const next = await admin.pickDataDir()
+      if (!next) return
+      if (next === dataDir) {
+        setStatus('迁移目标不能与当前资源目录相同')
+        return
+      }
+      const info = await admin.inspectRoot(next)
+      if (info.kind !== 'empty' && info.kind !== 'partial') {
+        setStatus('迁移目标必须是空目录，或之前未完成的迁移目录')
+        return
+      }
+      setMigrationTarget(next)
+      await runMigration(next, true)
+    } catch (error) {
+      setStatus(`选择迁移目录失败：${String(error)}`)
+    }
+  }
+
+  const rebuildVariants = async (kind: 'thumb' | 'preview') => {
+    setVariantBusy(kind)
+    setVariantProgress('')
+    try {
+      const run = kind === 'thumb' ? backfillAssetThumbs : backfillAssetPreviews
+      const result = await run(platform, {
+        onProgress: (done, total) => setVariantProgress(`${done}/${total}`),
+      })
+      setStatus(
+        `${kind === 'thumb' ? '缩略图' : '预览图'}扫描 ${result.scanned} 张，补齐 ${result.generated} 张`,
+      )
+    } catch (error) {
+      setStatus(`重建${kind === 'thumb' ? '缩略图' : '预览图'}失败：${String(error)}`)
+    } finally {
+      setVariantBusy(null)
+      setVariantProgress('')
+    }
+  }
+
   const usagePercent = storageUsagePercent(usage)
-  const generatedPath = folderActions.folderPath
-  const generatedName = folderActions.folderName
-  const canOpenGenerated = Boolean(generatedPath && admin)
-  const canChangeDataDir = Boolean(admin?.pickDataDir && admin?.setDataDir)
+  const canSwitchRoot = Boolean(admin?.pickDataDir && admin?.setDataDir && admin?.inspectRoot)
+  const canMigrate = Boolean(
+    admin?.migrateDataDir && admin?.inspectRoot && rootInfo?.kind === 'v1',
+  )
+  const rootLabel = rootKindLabel(rootInfo)
+  const migrationReady =
+    migrationPhase === 'idle' &&
+    migrationReport?.dryRun === true &&
+    migrationReport.status === 'complete' &&
+    migrationReport.failures.length === 0
 
   return (
     <div className={styles.panel} data-storage-panel>
@@ -109,7 +202,7 @@ export function StoragePanel() {
         <div className={styles.blockHead}>
           <div>
             <h3 className={styles.title}>存储概况</h3>
-            <p className={styles.caption}>自动保存：改动约 0.8 秒后落库</p>
+            <p className={styles.caption}>项目结构与素材索引统一保存在当前资源目录</p>
           </div>
           <span className={styles.meta}>{usage ? formatBytes(usage.used) : '统计中…'}</span>
         </div>
@@ -147,41 +240,76 @@ export function StoragePanel() {
             <dd data-storage-count="used">{usage ? formatBytes(usage.used) : '…'}</dd>
           </div>
         </dl>
+        <dl className={`${styles.facts} ${styles.mediaFacts}`}>
+          <div>
+            <dt>图片</dt>
+            <dd data-storage-media="images">{mediaCounts.images}</dd>
+          </div>
+          <div>
+            <dt>视频</dt>
+            <dd data-storage-media="videos">{mediaCounts.videos}</dd>
+          </div>
+          <div>
+            <dt>音频</dt>
+            <dd data-storage-media="audio">{mediaCounts.audio}</dd>
+          </div>
+          <div>
+            <dt>其他</dt>
+            <dd data-storage-media="other">{mediaCounts.other}</dd>
+          </div>
+        </dl>
       </section>
 
-      <section className={styles.block}>
+      <section className={styles.block} data-storage-resource-root>
         <div className={styles.blockHead}>
           <div>
             <div className={styles.titleRow}>
-              <h3 className={styles.title}>应用数据目录</h3>
-              <span className={styles.badge}>主库</span>
+              <h3 className={styles.title}>资源目录</h3>
+              <span className={rootInfo?.kind === 'v2' ? styles.badgeOn : styles.badge}>
+                {rootLabel}
+              </span>
             </div>
-            <p className={styles.caption}>项目数据库、生成记录与配置都在这里；卸载不会删除</p>
+            <p className={styles.caption}>
+              V2 使用 SQLite 索引，图片、视频和音频直接保存在 `media` 文件夹
+            </p>
           </div>
           {admin && (
             <div className={styles.headActions}>
-              {canChangeDataDir && (
-                <button
-                  type="button"
-                  className={styles.btn}
-                  data-storage-change-data-dir
-                  disabled={busy || switchingDir}
-                  onClick={() => void chooseDataDir()}
-                >
-                  更换目录
-                </button>
-              )}
               <button
                 type="button"
                 className={styles.btn}
                 data-storage-open-dir
                 disabled={busy || !dataDir}
                 onClick={() => {
-                  void admin.openDir(dataDir).catch((err: unknown) => setStatus(`打不开：${String(err)}`))
+                  void admin
+                    .openDir(dataDir)
+                    .catch((error: unknown) => setStatus(`打不开：${String(error)}`))
                 }}
               >
                 打开目录
               </button>
+              {canSwitchRoot && (
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-storage-change-data-dir
+                  disabled={busy || switchingDir || migrationPhase !== 'idle'}
+                  onClick={() => void chooseDataDir()}
+                >
+                  切换已有目录
+                </button>
+              )}
+              {canMigrate && (
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-storage-migrate-dir
+                  disabled={busy || switchingDir || migrationPhase !== 'idle'}
+                  onClick={() => void chooseMigrationTarget()}
+                >
+                  迁移到新目录
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -190,19 +318,24 @@ export function StoragePanel() {
             {dataDir || '读取中…'}
           </code>
         ) : (
-          <p className={styles.only} data-storage-desktop-only>
-            仅在桌面应用可用。浏览器版的数据保存在浏览器自己的本地库中。
+          <p className={styles.only}>
+            浏览器版继续使用浏览器自己的本地库；桌面版可管理独立资源目录。
+          </p>
+        )}
+        {rootInfo?.reason && (
+          <p className={styles.caption} data-storage-root-reason>
+            {rootInfo.reason}
           </p>
         )}
         {pendingDataDir && (
-          <div className={styles.changePanel} role="group" aria-label="确认切换数据目录">
+          <div className={styles.changePanel} role="group" aria-label="确认切换资源目录">
             <div>
               <strong>下次启动使用</strong>
               <code className={styles.pendingPath} data-storage-pending-data-dir>
                 {pendingDataDir}
               </code>
               <p className={styles.caption}>
-                不会复制或合并当前数据；原目录保持原样，之后可再次切换回去。
+                只切换当前根，不复制、不合并、不删除原目录；之后可以再切回来。
               </p>
             </div>
             <div className={styles.headActions}>
@@ -212,7 +345,7 @@ export function StoragePanel() {
                 disabled={switchingDir}
                 onClick={() => {
                   setPendingDataDir('')
-                  setStatus('已取消切换数据目录')
+                  setStatus('已取消切换资源目录')
                 }}
               >
                 取消
@@ -231,74 +364,105 @@ export function StoragePanel() {
         )}
       </section>
 
-      <section className={styles.block}>
+      {migrationTarget && (
+        <section className={styles.block} data-storage-migration>
+          <div className={styles.blockHead}>
+            <div>
+              <div className={styles.titleRow}>
+                <h3 className={styles.title}>迁移到 V2</h3>
+                <span
+                  className={
+                    migrationPhase === 'idle' && migrationReady
+                      ? styles.badgeOn
+                      : styles.badge
+                  }
+                >
+                  {migrationPhase === 'validating'
+                    ? '预检中'
+                    : migrationPhase === 'migrating'
+                      ? '迁移中'
+                      : migrationReady
+                        ? '预检通过'
+                        : '待处理'}
+                </span>
+              </div>
+              <p className={styles.caption}>V1 保持原样；新目录完成全量回读校验后才可切换</p>
+            </div>
+            <div className={styles.headActions}>
+              {migrationReady && (
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  data-storage-apply-migration
+                  onClick={() => void runMigration(migrationTarget, false)}
+                >
+                  开始迁移并切换
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.btn}
+                disabled={migrationPhase !== 'idle'}
+                onClick={() => {
+                  setMigrationTarget('')
+                  setMigrationReport(null)
+                }}
+              >
+                收起
+              </button>
+            </div>
+          </div>
+          <code className={`${styles.path} ${styles.pathField}`}>{migrationTarget}</code>
+          {migrationPhase !== 'idle' && (
+            <p className={styles.caption} role="status">
+              {migrationPhase === 'validating'
+                ? '正在只读校验 V1，不会写入目标目录…'
+                : '正在写入媒体、建立索引并逐文件回读校验；请勿关闭应用…'}
+            </p>
+          )}
+          {migrationReport && <MigrationSummary report={migrationReport} />}
+        </section>
+      )}
+
+      <section className={styles.block} data-storage-variants>
         <div className={styles.blockHead}>
           <div>
-            <div className={styles.titleRow}>
-              <h3 className={styles.title}>生成文件目录</h3>
-              <span className={generatedName ? styles.badgeOn : styles.badge}>
-                {generatedName ? '已连接' : '未设置'}
-              </span>
-            </div>
-            <p className={styles.caption}>新生成的素材在落库后同步一份到这里，数据库仍是主副本</p>
+            <h3 className={styles.title}>预览缓存</h3>
+            <p className={styles.caption}>派生文件可删除，缺图时会按需生成</p>
           </div>
-          {folderActions.canPick && (
-            <div className={styles.headActions}>
-              <button
-                type="button"
-                className={`${styles.btn} ${styles.btnPrimary}`}
-                data-storage-pick-folder
-                disabled={busy || folderActions.exporting !== null}
-                onClick={() => void setFolder()}
-              >
-                {generatedName ? '更换位置' : '选择位置'}
-              </button>
-              <button
-                type="button"
-                className={styles.btn}
-                data-storage-open-folder
-                disabled={!canOpenGenerated || busy}
-                title={canOpenGenerated ? '在文件管理器中打开' : '选择桌面版目录后才能打开'}
-                onClick={() => void folderActions.openFolder().then(setStatus)}
-              >
-                打开文件夹
-              </button>
-            </div>
-          )}
+          <div className={styles.headActions}>
+            <button
+              type="button"
+              className={styles.btn}
+              data-storage-rebuild-thumbs
+              disabled={variantBusy !== null || migrationPhase !== 'idle'}
+              onClick={() => void rebuildVariants('thumb')}
+            >
+              {variantBusy === 'thumb' ? `补齐中 ${variantProgress}` : '重建缩略图'}
+            </button>
+            <button
+              type="button"
+              className={styles.btn}
+              data-storage-rebuild-previews
+              disabled={variantBusy !== null || migrationPhase !== 'idle'}
+              onClick={() => void rebuildVariants('preview')}
+            >
+              {variantBusy === 'preview' ? `补齐中 ${variantProgress}` : '重建预览图'}
+            </button>
+          </div>
         </div>
-        {folderActions.canPick ? (
-          <>
-            <code className={`${styles.path} ${styles.pathField}`} data-storage-folder-path>
-              {generatedPath || generatedName || '尚未选择目录'}
-            </code>
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.btn}
-                data-storage-export-assets
-                disabled={busy || !generatedName || folderActions.exporting !== null}
-                onClick={() => void folderActions.exportAll().then(setStatus)}
-              >
-                {folderActions.exporting
-                  ? `同步中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
-                  : '同步现有素材'}
-              </button>
-              <span className={styles.caption}>放回画布：空白处右键 → 从素材文件夹加载</span>
-            </div>
-          </>
-        ) : (
-          <p className={styles.only}>当前环境不支持选择目录</p>
-        )}
       </section>
 
       <section className={`${styles.block} ${styles.cacheBlock}`}>
         <div>
           <h3 className={styles.title}>网页缓存</h3>
-          <p className={styles.caption}>只省磁盘，不会让应用变快；不动项目、素材与令牌</p>
+          <p className={styles.caption}>只影响浏览器缓存，不碰项目、素材和令牌</p>
         </div>
         <div className={styles.cacheAction}>
           <span className={styles.meta} data-storage-cache>
-            {admin ? `当前 ${cacheBytes === null ? '…' : formatBytes(cacheBytes)}` : '仅在桌面应用可用'}
+            {admin
+              ? `当前 ${cacheBytes === null ? '…' : formatBytes(cacheBytes)}`
+              : '仅在桌面应用可用'}
           </span>
           {admin && (
             <button
@@ -323,6 +487,50 @@ export function StoragePanel() {
   )
 }
 
+function MigrationSummary({ report }: { report: StorageMigrationReport }) {
+  return (
+    <div className={styles.migrationSummary}>
+      <dl className={`${styles.facts} ${styles.reportFacts}`}>
+        <div>
+          <dt>素材</dt>
+          <dd>{report.assetsTotal}</dd>
+        </div>
+        <div>
+          <dt>媒体体积</dt>
+          <dd>{formatBytes(report.assetBytes)}</dd>
+        </div>
+        <div>
+          <dt>旧格式</dt>
+          <dd>{report.legacyAssets}</dd>
+        </div>
+        <div>
+          <dt>引用</dt>
+          <dd>{report.assetReferences}</dd>
+        </div>
+      </dl>
+      <p className={styles.caption}>
+        缩略图 {report.thumbFiles} / 预览图 {report.previewFiles} / 源库既有断链{' '}
+        {report.sourceDanglingReferences}
+      </p>
+      {report.warnings.length > 0 && (
+        <p className={styles.warning}>警告：{report.warnings.slice(0, 3).join('；')}</p>
+      )}
+      {report.failures.length > 0 && (
+        <p className={styles.failure}>阻断：{report.failures.slice(0, 3).join('；')}</p>
+      )}
+    </div>
+  )
+}
+
+export function rootKindLabel(info: StorageRootInfo | null): string {
+  if (!info) return '未知'
+  if (info.kind === 'v2') return 'V2'
+  if (info.kind === 'v1') return 'V1'
+  if (info.kind === 'empty') return '空目录'
+  if (info.kind === 'partial') return '迁移未完成'
+  return '不可用'
+}
+
 /** 人类可读的字节数。 */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -340,10 +548,35 @@ export function formatBytes(bytes: number): string {
   return `${rendered} ${units[unit]}`
 }
 
-/**
- * 存储概况只需要行数，绝不能把素材正文一起取回来。
- * `assets` 每行都有全分辨率字节，3 GB 的库若带 payload 扫描会长期卡在“统计中…”。
- */
+export async function countStorageMedia(storage: StoragePort): Promise<MediaCounts> {
+  const counts = { ...EMPTY_MEDIA_COUNTS }
+  const scan = storage.scan?.bind(storage)
+  if (!scan) {
+    for (const row of await storage.query('assets', {}, { includePayload: false })) {
+      countMime(counts, row.mime)
+    }
+    return counts
+  }
+  await scan(
+    'assets',
+    50,
+    async (rows) => {
+      for (const row of rows) countMime(counts, row.mime)
+    },
+    { includePayload: false },
+  )
+  return counts
+}
+
+function countMime(counts: MediaCounts, value: unknown) {
+  const mime = typeof value === 'string' ? value : ''
+  if (mime.startsWith('image/')) counts.images += 1
+  else if (mime.startsWith('video/')) counts.videos += 1
+  else if (mime.startsWith('audio/')) counts.audio += 1
+  else counts.other += 1
+}
+
+/** 存储概况只需要行数，绝不能把素材正文一起取回来。 */
 export async function countStorageRows(
   storage: StoragePort,
   table: 'assets' | 'assetLibrary',

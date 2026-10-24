@@ -1,5 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { StorageAdminPort } from '../ports'
+import type {
+  StorageAdminPort,
+  StorageMigrationReport,
+  StorageRootInfo,
+} from '../ports'
 
 /**
  * 「存储管理」的**壳实现**（对账 #261）：四个动作各自对应一条 Rust 命令。
@@ -13,6 +17,13 @@ export function createTauriStorageAdmin(): StorageAdminPort {
     dataDir: () => invoke<string>('data_dir_path'),
     pickDataDir: () => invoke<string | null>('pick_data_dir'),
     setDataDir: (path) => invoke<string>('set_data_dir', { path }),
+    inspectRoot: (path) => invoke<StorageRootInfo>('inspect_data_dir', { path }),
+    migrateDataDir: (source, target, dryRun) =>
+      invoke<StorageMigrationReport>('migrate_data_dir', {
+        source,
+        target,
+        dryRun,
+      }),
     openDir: async (path) => {
       await invoke('open_dir', { path })
     },

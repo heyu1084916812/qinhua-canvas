@@ -373,6 +373,19 @@ export interface StorageAdminPort {
    */
   pickDataDir?(): Promise<string | null>
   setDataDir?(path: string): Promise<string>
+  /** 检查一个目录是空目录、V1 表目录，还是已完成校验的 V2 资源根。 */
+  inspectRoot?(path: string): Promise<StorageRootInfo>
+  /**
+   * 在桌面壳内执行 V1 → V2 迁移。
+   *
+   * `dryRun` 只校验源目录；正式迁移会写目标目录，只有全量校验通过才写
+   * `manifest.json` 的 complete 状态。调用方必须在返回后再切换主库配置。
+   */
+  migrateDataDir?(
+    source: string,
+    target: string,
+    dryRun: boolean,
+  ): Promise<StorageMigrationReport>
   /** 在系统文件管理器里打开一个目录（目录没了就抛错，由调用方如实展示） */
   openDir(path: string): Promise<void>
   /** 网页缓存占用（字节） */
@@ -385,6 +398,40 @@ export interface StorageAdminPort {
    * 浏览器端没有这一项；调用方必须把 optional 当正常状态，而不是故障。
    */
   profileBackupInfo?(): Promise<{ dir: string; keep: number }>
+}
+
+export type StorageRootKind = 'v1' | 'v2' | 'empty' | 'partial' | 'unknown'
+
+export interface StorageRootInfo {
+  path: string
+  kind: StorageRootKind
+  ready: boolean
+  formatVersion?: number
+  schemaVersion?: number
+  reason?: string
+}
+
+export interface StorageMigrationReport {
+  dryRun: boolean
+  status: string
+  sourceRoot: string
+  targetRoot: string
+  startedAt: number
+  finishedAt: number
+  tableRows: Record<string, number>
+  assetsTotal: number
+  assetsLocal: number
+  assetsRemote: number
+  legacyAssets: number
+  assetBytes: number
+  thumbFiles: number
+  previewFiles: number
+  kvRecords: number
+  assetReferences: number
+  sourceDanglingReferences: number
+  warnings: string[]
+  failures: string[]
+  manifestWritten: boolean
 }
 
 /** 一次本机 CLI 调用的请求（对账 #308） */

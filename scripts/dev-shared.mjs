@@ -24,6 +24,20 @@ function configuredDataDir() {
   }
 }
 
+function backendForDataDir(dataDir) {
+  const manifestPath = path.join(dataDir, 'manifest.json')
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const complete =
+      manifest?.status === 'complete' &&
+      existsSync(path.join(dataDir, 'manifest.sqlite')) &&
+      existsSync(path.join(dataDir, 'media'))
+    return complete ? 'v2' : 'v1'
+  } catch {
+    return 'v1'
+  }
+}
+
 /** 桌面壳未写自定义配置时，开发版主库跟随项目根目录的 `data/`。 */
 const developmentDataDir = path.join(root, 'data')
 
@@ -54,7 +68,13 @@ if (!(await healthy())) {
   storage = spawn(binary, [], {
     cwd: root,
     stdio: 'inherit',
-    env: dataDir ? { ...process.env, QINGHUA_DATA_DIR: dataDir } : process.env,
+    env: dataDir
+      ? {
+          ...process.env,
+          QINGHUA_DATA_DIR: dataDir,
+          QINGHUA_STORE_BACKEND: backendForDataDir(dataDir),
+        }
+      : process.env,
   })
   const started = Date.now()
   while (!(await healthy())) {

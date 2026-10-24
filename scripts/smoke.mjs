@@ -21659,11 +21659,10 @@ async function g97(browser) {
   await sleep(500)
   rec(
     g,
-    '★★ 存储栏有「生成文件目录」位置、打开与同步动作',
-    (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
-      (await page.locator('[data-storage-open-folder]').count()) === 1 &&
-      (await page.locator('[data-storage-export-assets]').count()) === 1 &&
-      (await page.locator('[data-storage-folder-path]').count()) === 1,
+    '★★ 存储栏只保留单一资源目录，旧生成目录入口不再出现',
+    (await page.locator('[data-storage-resource-root]').count()) === 1 &&
+      (await page.locator('[data-storage-pick-folder]').count()) === 0 &&
+      (await page.locator('[data-storage-folder-path]').count()) === 0,
   )
   const cacheCopy = await page.locator('[data-storage-panel]').innerText().catch(() => '')
   const captionLengths = await page.locator('[data-storage-panel] [class*="_caption_"]').evaluateAll(
@@ -21683,11 +21682,6 @@ async function g97(browser) {
       !/重复导入不会重复落盘/.test(cacheCopy) &&
       captionLengths.every((length) => length <= 60),
     `说明字数=${captionLengths.join('/')}`,
-  )
-  rec(
-    g,
-    '★ 素材文件夹那块写明「从文件夹加载」在画布右键菜单（不然用户找不到）',
-    /右键[\s\S]{0,20}从素材文件夹加载/.test(cacheCopy),
   )
   /**
    * ★★ **介绍段落必须没了**（用户 2026-10-08 第 4 条：「存储面板也是介绍文字这么多……

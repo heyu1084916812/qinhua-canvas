@@ -194,8 +194,9 @@ export function rowBytesBlob(row: Row): Blob | null {
  * - 生成走**同一个限流槽**（同时最多 2 张），所以它和前台不会互相抢；
  * - **可中断**（`signal`）：进画布 / 卸载就停，剩下的下次继续（缩略图是落库的，天然可续）。
  */
-export async function backfillAssetThumbs(
+async function backfillAssetVariants(
   platform: PlatformKit,
+  kind: 'thumb' | 'preview',
   opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<{ scanned: number; generated: number; aborted: boolean }> {
   const { signal, onProgress } = opts
@@ -213,10 +214,13 @@ export async function backfillAssetThumbs(
         throw ABORT
       }
       scanned += 1
-      if (!needsThumb(row)) continue
+      if (kind === 'thumb' ? !needsThumb(row) : !needsPreview(row)) continue
       const blob = rowBytesBlob(row)
       if (!blob) continue
-      const made = await ensureAssetThumb(platform, row, blob)
+      const made =
+        kind === 'thumb'
+          ? await ensureAssetThumb(platform, row, blob)
+          : await ensureAssetPreview(platform, row, blob)
       if (made) generated += 1
     }
   }
@@ -238,6 +242,20 @@ export async function backfillAssetThumbs(
     if (err !== ABORT) throw err
   }
   return { scanned, generated, aborted }
+}
+
+export function backfillAssetThumbs(
+  platform: PlatformKit,
+  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
+): Promise<{ scanned: number; generated: number; aborted: boolean }> {
+  return backfillAssetVariants(platform, 'thumb', opts)
+}
+
+export function backfillAssetPreviews(
+  platform: PlatformKit,
+  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
+): Promise<{ scanned: number; generated: number; aborted: boolean }> {
+  return backfillAssetVariants(platform, 'preview', opts)
 }
 
 async function inThumbSlot<T>(job: () => Promise<T>): Promise<T> {

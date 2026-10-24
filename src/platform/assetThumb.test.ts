@@ -3,6 +3,7 @@ import { createMemoryPlatform } from './memory/index'
 import { ensureAssetThumb, makeThumbBytes, thumbPlan } from './assetThumb'
 import {
   PREVIEW_MAX_PX,
+  backfillAssetPreviews,
   backfillAssetThumbs,
   needsPreview,
   needsThumb,
@@ -146,6 +147,17 @@ describe('backfillAssetThumbs：存量补图', () => {
     const result = await backfillAssetThumbs(platform, { signal: controller.signal })
     expect(result.aborted).toBe(true)
     expect(result.scanned).toBe(0)
+  })
+
+  it('同一套扫描护栏也覆盖预览图补齐', async () => {
+    const platform = makePlatform()
+    const seen: string[] = []
+    const result = await backfillAssetPreviews(platform, {
+      onProgress: (done, total) => seen.push(`${done}/${total}`),
+    })
+    expect(result.scanned).toBe(3)
+    expect(result.generated).toBe(0)
+    expect(seen.at(-1)).toBe('3/3')
   })
 })
 /**

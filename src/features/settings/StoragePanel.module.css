@@ -1,5 +1,5 @@
 /**
- * 「存储」面板：概况 / 应用数据目录 / 生成文件目录 / 缓存。
+ * 「存储」面板：概况 / 单一资源根 / V1→V2 迁移 / 缓存。
  * 全部走令牌，深浅色自动跟随；不写死颜色与时长。
  */
 .panel {
@@ -120,6 +120,41 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mediaFacts {
+  padding-top: var(--space-3);
+  border-top: var(--border);
+}
+
+.migrationSummary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.reportFacts {
+  gap: var(--space-2);
+}
+
+.warning,
+.failure {
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+
+.warning {
+  color: var(--text-2);
+}
+
+.failure {
+  color: var(--danger);
 }
 
 .path {

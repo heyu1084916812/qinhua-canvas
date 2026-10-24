@@ -35,7 +35,6 @@ import type { NodeType } from '../../../domain/canvas/model/node'
 import { getSpec } from '../../../domain/canvas/nodeSpecs'
 import { applyGraphPatches, toPersistPlan } from './persist'
 import type { PlatformKit, Row } from '../../../platform/ports'
-import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
 import {
   ensureAssetPreview,
   ensureAssetThumb,
@@ -474,9 +473,6 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
       return
     }
     if (assetRows.length > 0) {
-      await mirrorAssetsToFolder(platform.assetFolder, assetRows, (message, meta) =>
-        platform.logger.log('warn', message, meta),
-      )
       /**
        * 落库之后**顺手补一张缩略图**（对账 #232）—— 刻意**不 await**：
        * 这一行的字节刚在手上，而画布节点只显示约 240px；不补的话，每次打开项目都要按原图解码

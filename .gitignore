@@ -83,3 +83,4 @@ yarn-error.log*
 
 # 开发版主库：项目安装目录旁的 data（真实素材可达数 GB，绝不入库）
 /data/
+/data-v2/
