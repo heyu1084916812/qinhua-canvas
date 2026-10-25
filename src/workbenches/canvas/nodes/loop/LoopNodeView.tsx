@@ -479,9 +479,7 @@ function NumberControl({
   const [open, setOpen] = useState(false)
   const [shownValue, setShownValue] = useState(value)
   const [draft, setDraft] = useState(String(value))
-  const [applied, setApplied] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const appliedTimer = useRef<number | null>(null)
 
   /** 自定义输入的上限：1–99（档位固定到 10，见上面的说明） */
   const CUSTOM_MAX = 99
@@ -509,24 +507,22 @@ function NumberControl({
     if (!open) setDraft(String(value))
   }, [open, value])
 
+  /** 自定义输入里的加号是**步进器**：以当前草稿为基准加一，并立即提交。 */
+  const incrementDraft = () => {
+    const n = Number(draft)
+    const base = draft.trim() && Number.isFinite(n) ? n : shownValue
+    const next = clampValue(base + 1)
+    setDraft(String(next))
+    commit(next)
+  }
+  /** 输入框回车仍是“提交当前值”；加号才是“在当前值上再加一”。 */
   const applyDraft = () => {
     const n = Number(draft)
-    if (!draft.trim() || !Number.isFinite(n)) return
-    commit(n)
-    setApplied(true)
-    if (appliedTimer.current !== null) window.clearTimeout(appliedTimer.current)
-    appliedTimer.current = window.setTimeout(() => {
-      setApplied(false)
-      appliedTimer.current = null
-    }, 720)
+    if (draft.trim() && Number.isFinite(n)) commit(n)
   }
-
-  useEffect(
-    () => () => {
-      if (appliedTimer.current !== null) window.clearTimeout(appliedTimer.current)
-    },
-    [],
-  )
+  const draftBase =
+    draft.trim() && Number.isFinite(Number(draft)) ? Number(draft) : shownValue
+  const canIncrement = clampValue(draftBase + 1) !== clampValue(draftBase)
 
   /**
    * 点外部关闭。
@@ -539,13 +535,11 @@ function NumberControl({
     const onDown = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setOpen(false)
-        setApplied(false)
       }
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(false)
-        setApplied(false)
       }
     }
     document.addEventListener('pointerdown', onDown, true)
@@ -609,18 +603,17 @@ function NumberControl({
             <button
               type="button"
               className={styles.numApply}
-              data-loop-number-apply={dataKey}
-              data-loop-number-applied={applied ? '1' : '0'}
-              aria-label={applied ? `已应用${label}` : `应用${label}`}
-              title={applied ? '已应用' : '应用自定义数值'}
-              disabled={!draft.trim() || !Number.isFinite(Number(draft))}
+              data-loop-number-increment={dataKey}
+              aria-label={`${label}自定义数值加一`}
+              title="自定义数值加一"
+              disabled={!canIncrement}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation()
-                applyDraft()
+                incrementDraft()
               }}
             >
-              {applied ? <IconCheck /> : <IconPlus />}
+              <IconPlus />
             </button>
           </div>
         </div>
@@ -677,22 +670,6 @@ function IconClose() {
       aria-hidden="true"
     >
       <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  )
-}
-
-function IconCheck() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m5 12 4 4L19 6" />
     </svg>
   )
 }

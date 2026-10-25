@@ -151,6 +151,48 @@
   box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 3px var(--accent);
 }
 
+.colorTool {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.colorInput {
+  width: 42px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.colorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--radius-control) - 3px);
+}
+
+.colorInputOn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 3px var(--accent);
+}
+
+.colorInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.colorValue {
+  min-width: 64px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+}
+
 .hint {
   margin: 0;
   font-size: var(--fs-chip);

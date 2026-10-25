@@ -121,9 +121,9 @@ describe('强调色色板', () => {
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
   }
 
-  it('八档色板，id 各不相同', () => {
-    expect(ACCENT_PALETTES).toHaveLength(8)
-    expect(new Set(ACCENT_PALETTES.map((p) => p.id)).size).toBe(8)
+  it('九档色板，id 各不相同', () => {
+    expect(ACCENT_PALETTES).toHaveLength(9)
+    expect(new Set(ACCENT_PALETTES.map((p) => p.id)).size).toBe(9)
   })
 
   it('★ 每一档在亮 / 暗两套下：accent 对 accent-text 都 ≥ 4.5:1（算式，不靠肉眼）', () => {
@@ -143,6 +143,11 @@ describe('强调色色板', () => {
   it('★ 默认档（ink）就是主题令牌里那两个值 —— 升级不改老用户观感', () => {
     expect(accentTokens('ink', 'light')).toEqual({ accent: '#171716', text: '#ffffff' })
     expect(accentTokens('ink', 'dark')).toEqual({ accent: '#efefef', text: '#161616' })
+  })
+
+  it('★ 纯黑档：浅色为 #000000 白字，深色自动反白', () => {
+    expect(accentTokens('pureBlack', 'light')).toEqual({ accent: '#000000', text: '#ffffff' })
+    expect(accentTokens('pureBlack', 'dark')).toEqual({ accent: '#efefef', text: '#161616' })
   })
 
   it('非法 / 缺失 id 一律回落默认档（不留半截引用）', () => {

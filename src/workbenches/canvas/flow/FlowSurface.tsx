@@ -54,6 +54,7 @@ import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { useCanvasStyle } from '../../../app/providers/CanvasStyleProvider'
+import { canvasGridLineFor } from '../../../domain/project/canvasStyle'
 import { useFonts } from '../../../app/providers/FontProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
@@ -257,6 +258,7 @@ function FlowSurfaceInner({
    * 运行时由 CanvasStyleProvider 统一供给 —— 设置浮层改了这里当帧就变。
    */
   const { style: canvasStyle } = useCanvasStyle()
+  const customCanvasColor = canvasStyle.customColor
   /** 界面偏好（本机）：小地图显示开关（#379 剩余项） */
   const { appearance } = useFonts()
   const handleDownload = useNodeDownload(platform, store)
@@ -1168,11 +1170,18 @@ function FlowSurfaceInner({
       /* 背景样式与色调：CSS 只认这两个属性（见 FlowSurface.module.css 里的六条映射），
          组件里不出现任何色值 —— 主题守卫会拦字面量颜色。 */
       data-canvas-background={canvasStyle.background}
-      data-canvas-tone={canvasStyle.tone}
+      data-canvas-tone={customCanvasColor ? 'custom' : canvasStyle.tone}
+      data-canvas-custom-hex={customCanvasColor ?? undefined}
       /* 节点内容字号：挂在**画布根**上，节点自己的 CSS 用 var(..., 兜底) 取。
          兜底值让单测 / SSR 这些"没有画布根"的场景仍然拿得到原来的字号。 */
       style={
         {
+          ...(customCanvasColor
+            ? {
+                '--canvas-bg': customCanvasColor,
+                '--canvas-grid-line': canvasGridLineFor(customCanvasColor),
+              }
+            : {}),
           '--node-title-size': `${canvasStyle.titleSize}px`,
           '--node-body-size': `${canvasStyle.bodySize}px`,
         } as CSSProperties

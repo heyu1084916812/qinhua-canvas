@@ -39,6 +39,8 @@ export type NodeDensity = 'compact' | 'standard' | 'roomy'
 export interface CanvasStyle {
   background: CanvasBackgroundKind
   tone: CanvasTone
+  /** 非空时覆盖六档色调；项目级保存，格式固定为 #rrggbb */
+  customColor: string | null
   /** 节点标题字号（px）：12 / 14 / 16 / 18 */
   titleSize: number
   /** 提示词正文字号（px）：13 / 14 / 16 / 18 / 20 */
@@ -69,6 +71,7 @@ export const NODE_BODY_SIZES: readonly number[] = [13, 14, 16, 18, 20]
 export const DEFAULT_CANVAS_STYLE: CanvasStyle = {
   background: 'dots',
   tone: 'slate',
+  customColor: null,
   titleSize: 14,
   bodySize: 14,
   density: 'standard',
@@ -117,6 +120,33 @@ function pickSize(value: unknown, allowed: readonly number[], fallback: number):
   return typeof value === 'number' && allowed.includes(value) ? value : fallback
 }
 
+/** 只接受十六进制颜色；三位写法展开为六位，脏值回 null（绝不让项目数据直接成为任意 CSS）。 */
+export function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const raw = value.trim()
+  if (!/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(raw)) return null
+  if (raw.length === 4) {
+    return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`.toLowerCase()
+  }
+  return raw.toLowerCase()
+}
+
+/**
+ * 任意底色下都要看得见网格点：亮底混黑、暗底混白。
+ * 返回给 `--canvas-grid-line` 的 color-mix 表达式，色值已先归一化。
+ */
+export function canvasGridLineFor(color: string): string {
+  const hex = normalizeHexColor(color) ?? '#ffffff'
+  const channel = (offset: number) => {
+    const s = parseInt(hex.slice(offset, offset + 2), 16) / 255
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  }
+  const luminance =
+    0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+  const contrast = luminance > 0.42 ? '#000000' : '#ffffff'
+  return `color-mix(in srgb, ${hex} 84%, ${contrast})`
+}
+
 /** 从 `projects.extra` 读回画布偏好；缺字段 / 脏数据逐项回落默认 */
 export function readCanvasStyle(extra: unknown): CanvasStyle {
   if (!extra || typeof extra !== 'object') return { ...DEFAULT_CANVAS_STYLE }
@@ -126,6 +156,7 @@ export function readCanvasStyle(extra: unknown): CanvasStyle {
   return {
     background: pick(v.background, CANVAS_BACKGROUNDS, DEFAULT_CANVAS_STYLE.background),
     tone: pick(v.tone, CANVAS_TONES, DEFAULT_CANVAS_STYLE.tone),
+    customColor: normalizeHexColor(v.customColor),
     titleSize: pickSize(v.titleSize, NODE_TITLE_SIZES, DEFAULT_CANVAS_STYLE.titleSize),
     bodySize: pickSize(v.bodySize, NODE_BODY_SIZES, DEFAULT_CANVAS_STYLE.bodySize),
     density: pick(v.density, NODE_DENSITIES, DEFAULT_CANVAS_STYLE.density),

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_CANVAS_STYLE,
   canvasBackgroundLabel,
+  canvasGridLineFor,
   canvasToneLabel,
+  normalizeHexColor,
   nodeDensityFactor,
   nodeDensityLabel,
   readCanvasStyle,
@@ -23,6 +25,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(DEFAULT_CANVAS_STYLE).toEqual({
       background: 'dots',
       tone: 'slate',
+      customColor: null,
       titleSize: 14,
       bodySize: 14,
       density: 'standard',
@@ -42,6 +45,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
       canvasStyle: {
         background: '格子', // 坏值 ⇒ 只这一项回落
         tone: 'violet', // 好值 ⇒ 保留
+        customColor: '#12abEF', // 好值 ⇒ 归一并保留
         titleSize: 99, // 不在白名单 ⇒ 只这一项回落
         bodySize: 18, // 好值 ⇒ 保留
         density: 'roomy', // 好值 ⇒ 保留
@@ -50,6 +54,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(parsed.background).toBe(DEFAULT_CANVAS_STYLE.background)
     expect(parsed.titleSize).toBe(DEFAULT_CANVAS_STYLE.titleSize)
     expect(parsed.tone).toBe('violet')
+    expect(parsed.customColor).toBe('#12abef')
     expect(parsed.bodySize).toBe(18)
     expect(parsed.density).toBe('roomy')
   })
@@ -83,5 +88,14 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(nodeDensityFactor('standard')).toBe(1)
     expect(nodeDensityFactor('compact')).toBeLessThan(1)
     expect(nodeDensityFactor('roomy')).toBeGreaterThan(1)
+  })
+
+  it('★★ 自定义画布色只接受合法十六进制，网格线按明暗自动选反色', () => {
+    expect(normalizeHexColor('#abc')).toBe('#aabbcc')
+    expect(normalizeHexColor(' #12ABEF ')).toBe('#12abef')
+    expect(normalizeHexColor('red')).toBeNull()
+    expect(normalizeHexColor('url(javascript:alert(1))')).toBeNull()
+    expect(canvasGridLineFor('#ffffff')).toContain('#000000')
+    expect(canvasGridLineFor('#000000')).toContain('#ffffff')
   })
 })

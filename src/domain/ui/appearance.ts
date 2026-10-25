@@ -63,7 +63,16 @@ export const LETTER_SPACINGS: readonly LetterSpacing[] = ['normal', 'wide']
  * 每一档的 `accent` 与 `text` 的对比度由 `appearance.test.ts` 逐个算式验（≥ 4.5:1），
  * 不靠肉眼挑色。
  */
-export type AccentId = 'ink' | 'slate' | 'blue' | 'cyan' | 'green' | 'amber' | 'rose' | 'violet'
+export type AccentId =
+  | 'ink'
+  | 'pureBlack'
+  | 'slate'
+  | 'blue'
+  | 'cyan'
+  | 'green'
+  | 'amber'
+  | 'rose'
+  | 'violet'
 
 export interface AccentPalette {
   id: AccentId
@@ -75,6 +84,8 @@ export interface AccentPalette {
 export const ACCENT_PALETTES: readonly AccentPalette[] = [
   // ink = 现状（亮色近黑 / 深色近白），是默认档 —— 升级后观感一个像素不变
   { id: 'ink', label: '墨黑', light: { accent: '#171716', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
+  // 节点主操作使用的纯黑；深色主题自动反白，不能把纯黑直接垫在深底上
+  { id: 'pureBlack', label: '纯黑', light: { accent: '#000000', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
   { id: 'slate', label: '石板', light: { accent: '#3f4a5a', text: '#ffffff' }, dark: { accent: '#b9c3d4', text: '#12161d' } },
   { id: 'blue', label: '靛蓝', light: { accent: '#2f5ad9', text: '#ffffff' }, dark: { accent: '#8fa8ff', text: '#10141f' } },
   { id: 'cyan', label: '青', light: { accent: '#0f7490', text: '#ffffff' }, dark: { accent: '#6fd0e8', text: '#0b1a1f' } },

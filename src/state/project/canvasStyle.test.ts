@@ -22,10 +22,16 @@ describe('画布外观偏好落库（内存存储）', () => {
     })
   }
 
-  it('★ 写进去之后能读回那一份（背景 / 色调 / 两档字号 / 尺寸档）', async () => {
+  it('★ 写进去之后能读回那一份（背景 / 预设或自定义色 / 两档字号 / 尺寸档）', async () => {
     const storage = createMemoryStorage()
     await putProject(storage, 'p1')
-    const style = { ...DEFAULT_CANVAS_STYLE, background: 'grid' as const, tone: 'amber' as const, bodySize: 18 }
+    const style = {
+      ...DEFAULT_CANVAS_STYLE,
+      background: 'grid' as const,
+      tone: 'amber' as const,
+      customColor: '#654321',
+      bodySize: 18,
+    }
     expect(await saveCanvasStyle(storage, 'p1', style)).toBe(true)
     expect(await loadCanvasStyle(storage, 'p1')).toEqual(style)
   })

@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useCanvasStyle } from '../../app/providers/CanvasStyleProvider'
+import { useTheme } from '../../app/ThemeProvider'
 import {
   CANVAS_BACKGROUNDS,
   CANVAS_TONES,
@@ -30,7 +32,14 @@ import styles from './CanvasLookPanel.module.css'
  */
 export function CanvasLookPanel() {
   const { projectId, style: current, update, reset } = useCanvasStyle()
+  const { setting } = useTheme()
   const disabled = !projectId
+  const fallbackColor = setting === 'dark' ? '#161616' : '#ecf5f9'
+  const [pickerColor, setPickerColor] = useState(current.customColor ?? fallbackColor)
+
+  useEffect(() => {
+    setPickerColor(current.customColor ?? fallbackColor)
+  }, [current.customColor, fallbackColor])
 
   return (
     <div className={styles.panel} data-canvas-look-panel>
@@ -77,17 +86,41 @@ export function CanvasLookPanel() {
                 key={tone}
                 type="button"
                 role="radio"
-                aria-checked={current.tone === tone}
+                aria-checked={!current.customColor && current.tone === tone}
                 aria-label={canvasToneLabel(tone)}
                 title={canvasToneLabel(tone)}
                 className={
-                  current.tone === tone ? `${styles.swatch} ${styles.swatchOn}` : styles.swatch
+                  !current.customColor && current.tone === tone
+                    ? `${styles.swatch} ${styles.swatchOn}`
+                    : styles.swatch
                 }
                 data-canvas-tone={tone}
                 disabled={disabled}
-                onClick={() => update({ tone })}
+                onClick={() => update({ tone, customColor: null })}
               />
             ))}
+          </div>
+        </div>
+
+        <div className={styles.row}>
+          <span className={styles.rowLabel}>自定义颜色</span>
+          <div className={styles.colorTool}>
+            <input
+              type="color"
+              className={
+                current.customColor ? `${styles.colorInput} ${styles.colorInputOn}` : styles.colorInput
+              }
+              value={pickerColor}
+              aria-label="自定义画布背景颜色"
+              data-canvas-custom-color
+              disabled={disabled}
+              onChange={(e) => {
+                const color = e.target.value.toLowerCase()
+                setPickerColor(color)
+                update({ customColor: color })
+              }}
+            />
+            <span className={styles.colorValue}>{current.customColor ?? '选择颜色'}</span>
           </div>
         </div>
       </section>

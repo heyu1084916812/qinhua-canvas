@@ -15,9 +15,9 @@ import {
 /** 一个 240×160 的节点，屏幕上下边在 y = 100 / 260 */
 const node = { nodeTop: 100, nodeBottom: 260, pointerY: 180 }
 
-describe('端点的尺寸与命中（第 15 批放大三倍 → 第 16 批缩小一半）', () => {
-  it('★ 直径 21（= 第 15 批 42 的一半），命中半径 = 半直径 + 8', () => {
-    expect(PORT_SIZE).toBe(14 * 3 / 2)
+describe('端点的尺寸与命中（固定屏幕后按用户要求再放大一倍）', () => {
+  it('★ 直径 42，命中半径 = 半直径 + 8', () => {
+    expect(PORT_SIZE).toBe(14 * 3)
     expect(PORT_HIT_RADIUS).toBe(PORT_SIZE / 2 + 8)
   })
 })

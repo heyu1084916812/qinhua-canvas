@@ -1,6 +1,6 @@
 import { useFonts } from '../../app/providers/FontProvider'
 import { useTheme } from '../../app/ThemeProvider'
-import { ACCENT_PALETTES, accentLabel, accentTokens } from '../../domain/ui/appearance'
+import { ACCENT_PALETTES, accentTokens } from '../../domain/ui/appearance'
 import styles from './InterfacePanel.module.css'
 
 /**
@@ -50,14 +50,15 @@ export function InterfacePanel() {
             {ACCENT_PALETTES.map((palette) => {
               const tokens = accentTokens(palette.id, setting)
               const on = appearance.accent === palette.id
+              const pairLabel = `${palette.label} · 浅色 ${palette.light.accent} / 深色 ${palette.dark.accent}`
               return (
                 <button
                   key={palette.id}
                   type="button"
                   role="radio"
                   aria-checked={on}
-                  aria-label={accentLabel(palette.id)}
-                  title={accentLabel(palette.id)}
+                  aria-label={pairLabel}
+                  title={pairLabel}
                   className={on ? `${styles.swatch} ${styles.swatchOn}` : styles.swatch}
                   data-accent={palette.id}
                   /* 色值来自 JS 常量：CSS 里写不了（主题守卫会拦字面量颜色），
@@ -71,6 +72,7 @@ export function InterfacePanel() {
             })}
           </div>
         </div>
+        <p className={styles.caption}>浅色与深色主题分别使用对应色值，切换主题自动更新。</p>
       </section>
 
       <section className={styles.block}>

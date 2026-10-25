@@ -11248,7 +11248,7 @@ async function g67(browser) {
    * 容器用 `grid + place-items: center`。判据：**按钮中心与 SVG 中心的
    * 偏差 ≤ 1px** —— 这直接量的是用户看到的那件事，而不是「用没用 SVG」。
    */
-  const applyCentered = await node.locator('[data-loop-number-apply="count"]').evaluate((btn) => {
+  const applyCentered = await node.locator('[data-loop-number-increment="count"]').evaluate((btn) => {
     const svg = btn.querySelector('svg')
     if (!svg) return null
     const b = btn.getBoundingClientRect()
@@ -11260,7 +11260,7 @@ async function g67(browser) {
   })
   rec(
     g,
-    '★ 数字浮层「应用」按钮里的加号居中（矢量图标，不是字形）',
+    '★ 数字浮层「自定义 +1」按钮里的加号居中（矢量图标，不是字形）',
     !!applyCentered && applyCentered.dx <= 1 && applyCentered.dy <= 1,
     applyCentered ? `dx=${applyCentered.dx.toFixed(2)} dy=${applyCentered.dy.toFixed(2)}` : '没找到 svg',
   )
@@ -11684,7 +11684,7 @@ async function g67(browser) {
     JSON.stringify(numberAlignment),
   )
   await node.locator('[data-loop-number-input="count"]').fill('7')
-  const applyButton = node.locator('[data-loop-number-apply="count"]')
+  const applyButton = node.locator('[data-loop-number-increment="count"]')
   const applyBox = await applyButton.boundingBox()
   if (!applyBox) throw new Error('自定义数量加号不可见')
   const applyCenter = {
@@ -11695,7 +11695,7 @@ async function g67(browser) {
     ({ x, y }) => {
       const el = document.elementFromPoint(x, y)
       return {
-        apply: !!el?.closest('[data-loop-number-apply="count"]'),
+        increment: !!el?.closest('[data-loop-number-increment="count"]'),
         addPrompt: !!el?.closest('[data-loop-prompt-add]'),
         tag: el?.tagName ?? null,
       }
@@ -11705,28 +11705,31 @@ async function g67(browser) {
   /**
    * 用真实鼠标坐标点击，而不是 locator.click()。
    * 用户看到的是缩放后的画布，浮层与下方「新增提示词」加号空间上相邻；
-   * 这条同时证明应用加号在命中最上层，没有被后面那颗加号截走。
+   * 这条同时证明自定义 +1 在命中最上层，没有被后面那颗加号截走。
    */
   await page.mouse.click(applyCenter.x, applyCenter.y)
   await sleep(100)
   const customCount = (await node.locator('[data-loop-number="count"]').innerText()).trim()
   const popoverAfterCustom = await node.locator('[data-loop-number-popover="count"]').count()
-  const applyFeedback = await applyButton.evaluate((el) => ({
-    applied: el.getAttribute('data-loop-number-applied'),
+  const customDraft =
+    popoverAfterCustom > 0
+      ? await node.locator('[data-loop-number-input="count"]').inputValue()
+      : 'missing'
+  const incrementSize = await applyButton.evaluate((el) => ({
     width: el.getBoundingClientRect().width,
     height: el.getBoundingClientRect().height,
   }))
   rec(
     g,
-    '自定义数量加号是真实命中目标，点击后应用 7、显示成功反馈且保持浮层打开',
-    applyTopmost.apply &&
+    '自定义数量加号是真实命中目标，点击后把自定义数字从 7 加到 8 并保持浮层打开',
+    applyTopmost.increment &&
       !applyTopmost.addPrompt &&
-      customCount === '7' &&
+      customCount === '8' &&
+      customDraft === '8' &&
       popoverAfterCustom === 1 &&
-      applyFeedback.applied === '1' &&
-      applyFeedback.width >= 23 &&
-      applyFeedback.height >= 23,
-    `命中 ${JSON.stringify(applyTopmost)} / 反馈 ${JSON.stringify(applyFeedback)} / 显示 ${customCount} / 浮层 ${popoverAfterCustom}`,
+      incrementSize.width >= 23 &&
+      incrementSize.height >= 23,
+    `命中 ${JSON.stringify(applyTopmost)} / 尺寸 ${JSON.stringify(incrementSize)} / 显示 ${customCount} / 输入 ${customDraft} / 浮层 ${popoverAfterCustom}`,
   )
   await page.mouse.click(60, 60)
   await sleep(120)
@@ -11927,6 +11930,7 @@ async function g67(browser) {
       zoomPercent < 40 &&
         fullPort.open === '1' &&
         smallPort.open === '1' &&
+        Math.abs(fullPort.dotWidth - 42) <= 1 &&
         Math.abs(fullPort.hitWidth - smallPort.hitWidth) <= 1 &&
         Math.abs(fullPort.dotWidth - smallPort.dotWidth) <= 1,
       `${zoomLabel} / ${JSON.stringify(fullPort)} → ${JSON.stringify(smallPort)}`,
@@ -27022,18 +27026,36 @@ async function g115(browser) {
   const lookCounts = {
     backgrounds: await lookPanel.locator('[data-canvas-background]').count(),
     tones: await lookPanel.locator('[data-canvas-tone]').count(),
+    customColors: await lookPanel.locator('[data-canvas-custom-color]').count(),
     titleSizes: await lookPanel.locator('[data-node-title-size]').count(),
     densities: await lookPanel.locator('[data-node-density]').count(),
   }
   rec(
     g,
-    '★ 「外观与体验」里有画布块（3 种背景样式 + 6 档色调 + 节点字号档）',
+    '★ 「外观与体验」里有画布块（3 种背景样式 + 6 档色调 + 自定义颜色 + 节点字号档）',
     (await lookPanel.count()) === 1 &&
       lookCounts.backgrounds === 3 &&
       lookCounts.tones === 6 &&
+      lookCounts.customColors === 1 &&
       lookCounts.titleSizes === 4 &&
       lookCounts.densities === 3,
-    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 标题档=${lookCounts.titleSizes} 尺寸档=${lookCounts.densities}`,
+    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 标题档=${lookCounts.titleSizes} 尺寸档=${lookCounts.densities}`,
+  )
+
+  /* 任意背景色：原生颜色工具改值，画布与派生网格线当帧更新 */
+  await page.locator('[data-canvas-custom-color]').fill('#123456')
+  await sleep(350)
+  const customBg = await surfaceColor()
+  const customGrid = await surfaceVar('--canvas-grid-line')
+  rec(
+    g,
+    '★★ 自定义颜色工具可把画布换成任意 #123456，网格线同步派生',
+    (await surface.getAttribute('data-canvas-tone')) === 'custom' &&
+      (await surface.getAttribute('data-canvas-custom-hex')) !== null &&
+      customBg === 'rgb(18, 52, 86)' &&
+      customGrid.length > 0 &&
+      customGrid !== grid0,
+    `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${customBg} 网格=${customGrid}`,
   )
 
   // 换色调：画布底色与网格线都跟着变，节点卡片不变
@@ -27074,12 +27096,26 @@ async function g115(browser) {
   const rootToken = (name) =>
     page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
   const accentBefore = await rootToken('--accent')
+  await page.locator('[data-accent="pureBlack"]').click()
+  await sleep(250)
+  const accentBlack = await rootToken('--accent')
+  await page.locator('[data-theme-choice="dark"]').click()
+  await sleep(300)
+  const accentBlackDark = await rootToken('--accent')
+  rec(
+    g,
+    '★★ 纯黑强调色：浅色 #000000、深色自动反白 #efefef',
+    accentBlack.toLowerCase() === '#000000' && accentBlackDark.toLowerCase() === '#efefef',
+    `浅色=${accentBlack} 深色=${accentBlackDark}`,
+  )
+  await page.locator('[data-theme-choice="light"]').click()
+  await sleep(300)
   await page.locator('[data-accent="blue"]').click()
   await sleep(300)
   const accentAfter = await rootToken('--accent')
   rec(
     g,
-    '★★ 强调色八档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
+    '★★ 强调色九档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
     accentAfter !== accentBefore && accentAfter.toLowerCase() === '#2f5ad9',
     `${accentBefore} → ${accentAfter}`,
   )
@@ -27129,20 +27165,32 @@ async function g115(browser) {
     `宽 ${Math.round(beforeW)} → ${Math.round(afterW)}（×${ratio.toFixed(3)}）`,
   )
 
+  // 再选一次任意颜色，验证它也随项目落库，而不是只改运行时 CSS
+  await page.locator('[data-sidebar-settings]').click()
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-canvas-custom-color]').fill('#654321')
+  await sleep(300)
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
   // 刷新：偏好落在项目行里，回来还在
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
+  const persistedCustomTone = await surface.getAttribute('data-canvas-tone')
+  const persistedCustomColor = await surface.getAttribute('data-canvas-custom-hex')
+  const persistedColor = await surfaceColor()
   rec(
     g,
     '★★ 刷新后偏好保持：项目偏好（项目行）+ 本机偏好（localStorage）都还在',
-    (await surface.getAttribute('data-canvas-tone')) === 'blue' &&
+    persistedCustomTone === 'custom' &&
+      persistedCustomColor === '#654321' &&
       (await surface.getAttribute('data-canvas-background')) === 'solid' &&
-      (await surfaceColor()) === blue &&
+      persistedColor === 'rgb(101, 67, 33)' &&
       (await titleSize()) === '18px' &&
       (await bodySize()) === '20px' &&
       (await rootToken('--accent')).toLowerCase() === '#2f5ad9' &&
       (await page.evaluate(() => document.documentElement.dataset.motion)) === 'reduced',
-    `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
+    `色调=${persistedCustomTone}/${persistedCustomColor} 颜色=${persistedColor} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
   )
 
   // 导出项目：偏好随 .flow.json 走（C5 的"导出再导入跟着走"）
@@ -27160,10 +27208,11 @@ async function g115(browser) {
     const text = readFileSync(saved, 'utf8')
     rec(
       g,
-      '★★ 画布偏好随项目导出（JSON 里有 canvasStyle：背景 / 色调 / 两档字号 / 尺寸档）',
+      '★★ 画布偏好随项目导出（JSON 里有 canvasStyle：背景 / 色调 / 自定义色 / 两档字号 / 尺寸档）',
       text.includes('"canvasStyle"') &&
         text.includes('"background": "solid"') &&
         text.includes('"tone": "blue"') &&
+        text.includes('"customColor": "#654321"') &&
         text.includes('"titleSize": 18') &&
         text.includes('"bodySize": 20') &&
         text.includes('"density": "roomy"'),
