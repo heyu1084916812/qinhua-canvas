@@ -27042,6 +27042,30 @@ async function g115(browser) {
     `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 标题档=${lookCounts.titleSizes} 尺寸档=${lookCounts.densities}`,
   )
 
+  const defaultNodeCard = await nodeCardColor()
+  await page.locator('[data-node-hex-input]').fill('FFF4E6')
+  await page.locator('[data-node-hex-apply]').click()
+  await sleep(300)
+  const customNodeCard = await nodeCardColor()
+  rec(
+    g,
+    '★★ 节点底色可手填 HEX，并同时作用于节点外框与内容井',
+    customNodeCard === 'rgb(255, 244, 230)' &&
+      (await surface.getAttribute('data-canvas-node-hex')) === '#fff4e6' &&
+      (await surfaceVar('--node-fill')) === '#fff4e6' &&
+      (await surfaceVar('--node-inset')) === '#fff4e6',
+    `节点=${defaultNodeCard} → ${customNodeCard} / fill=${await surfaceVar('--node-fill')} inset=${await surfaceVar('--node-inset')}`,
+  )
+  await page.locator('[data-node-color-reset]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 节点底色可恢复当前主题默认',
+    (await nodeCardColor()) === defaultNodeCard &&
+      (await surface.getAttribute('data-canvas-node-hex')) === null,
+    `节点=${await nodeCardColor()}`,
+  )
+
   /* 任意背景色：原生颜色工具改值，画布与派生网格线当帧更新 */
   await page.locator('[data-canvas-custom-color]').fill('#123456')
   await sleep(350)
@@ -27213,6 +27237,8 @@ async function g115(browser) {
   await page.locator('[data-sidebar-settings]').click()
   await page.locator('[data-global-settings-tab="appearance"]').click()
   await page.locator('[data-canvas-custom-color]').fill('#654321')
+  await page.locator('[data-node-hex-input]').fill('FFF4E6')
+  await page.locator('[data-node-hex-apply]').click()
   await sleep(300)
   await page.keyboard.press('Escape')
   await sleep(250)
@@ -27223,18 +27249,22 @@ async function g115(browser) {
   const persistedCustomTone = await surface.getAttribute('data-canvas-tone')
   const persistedCustomColor = await surface.getAttribute('data-canvas-custom-hex')
   const persistedColor = await surfaceColor()
+  const persistedNodeColor = await surface.getAttribute('data-canvas-node-hex')
+  const persistedNodeCard = await nodeCardColor()
   rec(
     g,
     '★★ 刷新后偏好保持：项目偏好（项目行）+ 本机偏好（localStorage）都还在',
     persistedCustomTone === 'custom' &&
       persistedCustomColor === '#654321' &&
+      persistedNodeColor === '#fff4e6' &&
+      persistedNodeCard === 'rgb(255, 244, 230)' &&
       (await surface.getAttribute('data-canvas-background')) === 'solid' &&
       persistedColor === 'rgb(101, 67, 33)' &&
       (await titleSize()) === '18px' &&
       (await bodySize()) === '20px' &&
       (await rootToken('--accent')).toLowerCase() === '#2f5ad9' &&
       (await page.evaluate(() => document.documentElement.dataset.motion)) === 'reduced',
-    `色调=${persistedCustomTone}/${persistedCustomColor} 颜色=${persistedColor} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
+    `色调=${persistedCustomTone}/${persistedCustomColor} 颜色=${persistedColor} 节点=${persistedNodeColor}/${persistedNodeCard} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
   )
 
   // 导出项目：偏好随 .flow.json 走（C5 的"导出再导入跟着走"）
@@ -27257,6 +27287,7 @@ async function g115(browser) {
         text.includes('"background": "solid"') &&
         text.includes('"tone": "blue"') &&
         text.includes('"customColor": "#654321"') &&
+        text.includes('"nodeColor": "#fff4e6"') &&
         text.includes('"titleSize": 18') &&
         text.includes('"bodySize": 20') &&
         text.includes('"density": "roomy"'),

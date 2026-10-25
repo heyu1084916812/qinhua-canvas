@@ -169,6 +169,28 @@
   font-size: var(--fs-chip);
 }
 
+.colorReset {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.colorReset:hover:not(:disabled) {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.colorReset:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
 .customColorControls {
   display: flex;
   align-items: center;

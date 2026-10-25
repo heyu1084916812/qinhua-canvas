@@ -41,6 +41,8 @@ export interface CanvasStyle {
   tone: CanvasTone
   /** 非空时覆盖六档色调；项目级保存，格式固定为 #rrggbb */
   customColor: string | null
+  /** 非空时统一覆盖节点外框与内容井；为空时跟随当前主题 */
+  nodeColor: string | null
   /** 节点标题字号（px）：12 / 14 / 16 / 18 */
   titleSize: number
   /** 提示词正文字号（px）：13 / 14 / 16 / 18 / 20 */
@@ -72,6 +74,7 @@ export const DEFAULT_CANVAS_STYLE: CanvasStyle = {
   background: 'dots',
   tone: 'slate',
   customColor: null,
+  nodeColor: null,
   titleSize: 14,
   bodySize: 14,
   density: 'standard',
@@ -157,6 +160,7 @@ export function readCanvasStyle(extra: unknown): CanvasStyle {
     background: pick(v.background, CANVAS_BACKGROUNDS, DEFAULT_CANVAS_STYLE.background),
     tone: pick(v.tone, CANVAS_TONES, DEFAULT_CANVAS_STYLE.tone),
     customColor: normalizeHexColor(v.customColor),
+    nodeColor: normalizeHexColor(v.nodeColor),
     titleSize: pickSize(v.titleSize, NODE_TITLE_SIZES, DEFAULT_CANVAS_STYLE.titleSize),
     bodySize: pickSize(v.bodySize, NODE_BODY_SIZES, DEFAULT_CANVAS_STYLE.bodySize),
     density: pick(v.density, NODE_DENSITIES, DEFAULT_CANVAS_STYLE.density),

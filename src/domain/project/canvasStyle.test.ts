@@ -26,6 +26,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
       background: 'dots',
       tone: 'slate',
       customColor: null,
+      nodeColor: null,
       titleSize: 14,
       bodySize: 14,
       density: 'standard',
@@ -46,6 +47,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
         background: '格子', // 坏值 ⇒ 只这一项回落
         tone: 'violet', // 好值 ⇒ 保留
         customColor: '#12abEF', // 好值 ⇒ 归一并保留
+        nodeColor: '#fFF4E6',
         titleSize: 99, // 不在白名单 ⇒ 只这一项回落
         bodySize: 18, // 好值 ⇒ 保留
         density: 'roomy', // 好值 ⇒ 保留
@@ -55,6 +57,7 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(parsed.titleSize).toBe(DEFAULT_CANVAS_STYLE.titleSize)
     expect(parsed.tone).toBe('violet')
     expect(parsed.customColor).toBe('#12abef')
+    expect(parsed.nodeColor).toBe('#fff4e6')
     expect(parsed.bodySize).toBe(18)
     expect(parsed.density).toBe('roomy')
   })
