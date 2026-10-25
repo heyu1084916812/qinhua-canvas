@@ -1,13 +1,7 @@
-/**
- * 「CLI」面板（对账 #308）：一张卡一个工具，一列到底。
- * 全部走令牌，深浅色自动跟随；不写死颜色与时长（主题守卫会拦）。
- */
 .panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
-  padding: var(--space-5) var(--space-6) var(--space-8);
   overflow-y: auto;
   height: 100%;
 }
@@ -33,7 +27,7 @@
   color: var(--text-2);
 }
 
-/* 占位符写成代码块：它们是"要照抄的东西"，不该混进正文里读 */
+/* 鍗犱綅绗﹀啓鎴愪唬鐮佸潡锛氬畠浠槸"瑕佺収鎶勭殑涓滆タ"锛屼笉璇ユ贩杩涙鏂囬噷璇?*/
 .code {
   display: inline-block;
   margin: 0 2px;
@@ -45,7 +39,6 @@
   color: var(--text-1);
 }
 
-/* 「只在桌面应用里可用」这类如实说明：底色区分，不当成错误 */
 .notice {
   margin: 0;
   padding: var(--space-2) var(--space-3);
@@ -61,7 +54,6 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-4) var(--space-5);
-  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
 }
@@ -91,7 +83,6 @@
   color: var(--text-2);
 }
 
-/* 文档链接推到最右：它是"次要出口"，不该挤在名字旁边 */
 .link {
   margin-left: auto;
   font-size: var(--fs-label);
@@ -128,12 +119,12 @@
   padding: 0 var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);
-  /* 卡片底已经是 `--bg-subtle`（灰），输入框抬到 `--bg-surface` 才读得出"这里能填" */
+  /* 鍗＄墖搴曞凡缁忔槸 `--bg-subtle`锛堢伆锛夛紝杈撳叆妗嗘姮鍒?`--bg-surface` 鎵嶈寰楀嚭"杩欓噷鑳藉～" */
   background: var(--bg-surface);
   color: var(--text-1);
   font: inherit;
   font-size: var(--fs-nav);
-  /* 命令 / 参数是"照抄的东西"：等宽字好对 */
+  /* 鍛戒护 / 鍙傛暟鏄?鐓ф妱鐨勪笢瑗?锛氱瓑瀹藉瓧濂藉 */
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
@@ -172,9 +163,6 @@
 }
 
 /*
- * 「一键设置」是这张卡的主动作（第 14 批第 3 条）——用实色让它一眼跳出来，
- * 与别的次要按钮（检测 / 查状态 / 测试运行）分开。色值走令牌，明暗主题各自成立。
- */
 .primary {
   border-color: transparent;
   background: var(--accent);
@@ -193,7 +181,6 @@
   word-break: break-all;
 }
 
-/* 一行动作（检测 / 登录 / 查状态）：按钮与结果同一行，窄了就换行 */
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -208,7 +195,6 @@
   color: var(--text-2);
 }
 
-/* 「没找到命令」旁边那句怎么装：比正文轻一档，但要说清去哪 */
 .hint {
   margin: 0;
   font-size: var(--fs-label);
@@ -217,12 +203,6 @@
 }
 
 /*
- * 两个折叠区：**更多操作**（单独安装 / 换登录方式）与**高级**（命令与参数）。
- *
- * 版面上一次只留「一键设置 / 检测 / 查状态」三个按钮 + 结果行，
- * 备选动作全部折进来 —— 用户 2026-10-09：「ui 很乱、层级不清晰、小字太多」。
- * 折叠区**不描边**（与全局设置其它容器同一条口径），靠间距 + 摘要行的 hover 底色分层。
- */
 .more,
 .advanced {
   margin-top: var(--space-1);
@@ -242,7 +222,6 @@
   color: var(--text-1);
 }
 
-/* 展开后的内容：竖排 + 与摘要留一档 */
 .moreBody {
   display: flex;
   flex-direction: column;
@@ -254,14 +233,13 @@
   margin-top: var(--space-2);
 }
 
-/* 命令输出：等宽 + 可滚，**不要把面板顶宽**（长行必须自己横向滚） */
+/* 鍛戒护杈撳嚭锛氱瓑瀹?+ 鍙粴锛?*涓嶈鎶婇潰鏉块《瀹?*锛堥暱琛屽繀椤昏嚜宸辨í鍚戞粴锛?*/
 .output {
   margin: 0;
   padding: var(--space-3);
   max-height: 220px;
   overflow: auto;
   border-radius: var(--radius-control);
-  /* 输出块同理：与灰色卡片拉开一层，长行才不会被当成卡片正文 */
   background: var(--bg-surface);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-label);

@@ -5,7 +5,9 @@ import { StoragePanel } from '../features/settings/StoragePanel'
 import { CliPanel } from '../features/settings/CliPanel'
 import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
-import { InterfacePanel } from '../features/settings/InterfacePanel'
+import { ThemePanel } from '../features/settings/ThemePanel'
+import { ShortcutsPanel } from '../features/settings/ShortcutsPanel'
+import { SnapshotsPanel } from '../features/settings/SnapshotsPanel'
 import { PackPanel } from '../features/settings/PackPanel'
 import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
@@ -22,9 +24,13 @@ import {
   IconDefaults,
   IconHelp,
   IconHosting,
+  IconKeyboard,
   IconNotify,
   IconPacks,
+  IconPalette,
+  IconSnapshot,
   IconStorage,
+  IconTypography,
 } from './SettingsIcons'
 import {
   GLOBAL_SETTINGS_GROUPS,
@@ -50,12 +56,16 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
   cli: IconCli,
   hosting: IconHosting,
   storage: IconStorage,
-  appearance: IconAppearance,
+  appearance: IconPalette,
+  typography: IconTypography,
+  canvasLook: IconAppearance,
   backup: IconBackup,
+  snapshots: IconSnapshot,
   defaults: IconDefaults,
   packs: IconPacks,
   notify: IconNotify,
   help: IconHelp,
+  shortcuts: IconKeyboard,
   about: IconAbout,
 }
 
@@ -64,13 +74,22 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   cli: '管理本机命令与运行环境。',
   hosting: '设置素材上传与公网访问。',
   storage: '查看资源占用并管理存储位置。',
-  appearance: '调整界面、主题与画布显示。',
-  backup: '导出、导入和恢复本地数据。',
+  appearance: '设置深浅主题、强调色、动效与小地图。',
+  typography: '管理界面字体、字号与字距。',
+  canvasLook: '设置当前项目的画布背景、节点底色与节点显示。',
+  backup: '导出、导入和合并本地备份。',
+  snapshots: '查看、拍摄和还原项目结构快照。',
   defaults: '设置新建节点的默认模型与参数。',
   packs: '安装和管理数据型扩展包。',
   notify: '选择任务完成与失败时的提醒方式。',
-  help: '查看快捷键、常见问题与新手引导。',
+  help: '查看常见问题与新手引导。',
+  shortcuts: '查看全部画布快捷键。',
   about: '查看版本、更新与隐私说明。',
+}
+
+const SECTION_ALIASES: Partial<Record<GlobalSettingsSection, GlobalSettingsSection[]>> = {
+  snapshots: ['backup'],
+  shortcuts: ['help'],
 }
 
 /**
@@ -113,7 +132,11 @@ export function GlobalSettingsOverlay() {
    */
   const [query, setQuery] = useState('')
   const visible = matchSettingsSections(query)
-  const currentSection = GLOBAL_SETTINGS_SECTIONS.find((item) => item.id === section)
+  const canonicalSection = GLOBAL_SETTINGS_SECTIONS.find((item) =>
+    SECTION_ALIASES[item.id]?.includes(section),
+  )
+  const currentSection =
+    canonicalSection ?? GLOBAL_SETTINGS_SECTIONS.find((item) => item.id === section) ?? null
 
   useEffect(() => {
     if (!open) return
@@ -214,10 +237,12 @@ export function GlobalSettingsOverlay() {
                         key={item.id}
                         type="button"
                         className={
-                          section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem
+                          currentSection?.id === item.id
+                            ? `${styles.navItem} ${styles.navItemOn}`
+                            : styles.navItem
                         }
                         data-global-settings-tab={item.id}
-                        aria-pressed={section === item.id}
+                        aria-pressed={currentSection?.id === item.id}
                         onClick={() => openGlobalSettings(item.id)}
                       >
                         <span className={styles.navIcon} aria-hidden>
@@ -250,7 +275,7 @@ export function GlobalSettingsOverlay() {
                 {currentSection?.label ?? '全局设置'}
               </h2>
               <p className={styles.sectionIntro} data-settings-section-intro>
-                {SECTION_INTROS[section]}
+                {SECTION_INTROS[currentSection?.id ?? section]}
               </p>
             </header>
             <div className={styles.sectionBody} data-settings-section-body>
@@ -258,21 +283,13 @@ export function GlobalSettingsOverlay() {
               {section === 'cli' && <CliPanel key="cli" />}
               {section === 'hosting' && <HostingPage key="hosting" />}
               {section === 'storage' && <StoragePanel key="storage" />}
-              {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
-                  它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
-              {section === 'appearance' && (
-                <div key="appearance" className={styles.sectionStack}>
-                  <FontManagerPanel />
-                  {/* 主题 / 强调色 / 动效 / 小地图：也都是**本机偏好**（与字体同一层） */}
-                  <InterfacePanel />
-                  {/* 画布底色 / 节点内容字号：**项目偏好**，与上面那块本机字体分开摆，
-                      免得用户以为"改了字体就一起改了节点里的字"。 */}
-                  <CanvasLookPanel />
-                </div>
-              )}
+              {section === 'appearance' && <ThemePanel key="appearance" />}
+              {section === 'typography' && <FontManagerPanel key="typography" />}
+              {section === 'canvasLook' && <CanvasLookPanel key="canvasLook" />}
               {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
                   与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
               {section === 'backup' && <BackupPanel key="backup" />}
+              {section === 'snapshots' && <SnapshotsPanel key="snapshots" />}
               {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
               {section === 'packs' && <PackPanel key="packs" />}
               {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
@@ -281,6 +298,7 @@ export function GlobalSettingsOverlay() {
               {section === 'notify' && <NotifyPanel key="notify" />}
               {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
               {section === 'help' && <HelpPanel key="help" />}
+              {section === 'shortcuts' && <ShortcutsPanel key="shortcuts" />}
               {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}
               {section === 'about' && <AboutPanel key="about" />}
             </div>

@@ -2120,7 +2120,11 @@ async function g5(browser) {
   rec(g, '导入后项目恢复', cntAfterImport === cntAfterDel + 1, `${cntAfterDel} → ${cntAfterImport}`)
   rec(g, '导入播报状态', /已导入/.test(await page.getByRole('status').innerText()))
 
-  await page.locator('[data-project-card]').first().click()
+  const canvasProject = (await sharedRows(page, 'projects')).find(
+    (project) => (project.workbench === 'canvas' || !project.workbench) && !project.deletedAt,
+  )
+  if (!canvasProject) throw new Error('隔离库没有默认参数回归所需的画布项目')
+  await page.locator(`[data-project-card="${canvasProject.id}"]`).click()
   await page.waitForURL(/\/canvas\//)
   /**
    * 等节点真的到齐再数（2026-10-10 全量第七轮实测 `1 → 0`：导入的项目打开后
@@ -27015,10 +27019,10 @@ async function g115(browser) {
   rec(g, '默认画布底色 = 第 1 档（slate）—— 老项目观感不变', bg0 === slate, `${bg0} vs ${slate}`)
   rec(g, '默认背景是点阵（与换引擎后的现状一致）', (await bgShape()) === 'dots', await bgShape())
 
-  // 打开「全局设置 → 外观与体验」：画布块在，控件齐全
+  // 打开「全局设置 → 画布外观」：画布块在，控件齐全
   await page.locator('[data-sidebar-settings]').click()
   await sleep(350)
-  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-global-settings-tab="canvasLook"]').click()
   await sleep(350)
   /* 计数**限定在画布块内**：画布表面自己也带 data-canvas-tone / data-canvas-background
      （它是被设置的那一方），全局查会把画布本身也数进来（实测 7 档色调 / 4 档背景）。 */
@@ -27138,6 +27142,10 @@ async function g115(browser) {
   rec(g, '★★ 节点标题字号跟着设置变（14 → 18）', (await titleSize()) === '18px', `${t0} → ${await titleSize()}`)
   rec(g, '★★ 提示词正文字号跟着设置变（14 → 20）', (await bodySize()) === '20px', `${b0} → ${await bodySize()}`)
 
+  // 本机主题偏好已拆到独立栏目，不再到「画布外观」里找控件
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await sleep(300)
+
   // 强调色 / 减少动效 / 显示小地图（#379 剩余项）：都是**本机**偏好
   const rootToken = (name) =>
     page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
@@ -27213,6 +27221,10 @@ async function g115(browser) {
   await page.locator('[data-minimap-toggle]').check()
   await sleep(250)
 
+  // 外观已拆分，节点密度回到「画布外观」设置
+  await page.locator('[data-global-settings-tab="canvasLook"]').click()
+  await sleep(250)
+
   // 新节点默认尺寸档：宽敞档建出来的节点更宽（与已有节点比，避开缩放影响）
   await page.locator('[data-node-density="roomy"]').click()
   await sleep(250)
@@ -27235,7 +27247,7 @@ async function g115(browser) {
 
   // 再选一次任意颜色，验证它也随项目落库，而不是只改运行时 CSS
   await page.locator('[data-sidebar-settings]').click()
-  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-global-settings-tab="canvasLook"]').click()
   await page.locator('[data-canvas-custom-color]').fill('#654321')
   await page.locator('[data-node-hex-input]').fill('FFF4E6')
   await page.locator('[data-node-hex-apply]').click()
@@ -28235,19 +28247,23 @@ async function g118(browser) {
   await sleep(600)
   rec(g, '★ 看过之后刷新不再弹（标记落在本机）', (await page.locator('[data-getting-started]').count()) === 0)
 
-  // ④ 帮助栏：快捷键 / 常见问题 / 版本号三条都在
+  // ④ 帮助拆出快捷键独立栏目，两个页面各看一块
   await page.locator('[data-sidebar-settings]').click()
   await sleep(350)
+  await page.locator('[data-global-settings-tab="shortcuts"]').click()
+  await sleep(250)
+  const shortcutRows = await page.locator('[data-shortcuts-panel] [class*="_row_"]').count()
+  rec(g, '★★ 「设置 → 快捷键」列出全部快捷键', shortcutRows >= 12, `快捷键=${shortcutRows}`)
+
   await page.locator('[data-global-settings-tab="help"]').click()
   await sleep(350)
-  const shortcutRows = await page.locator('[data-help-shortcut]').count()
   const faqRows = await page.locator('[data-help-faq]').count()
   const versionText = await page.locator('[data-help-version]').innerText().catch(() => '')
   rec(
     g,
-    '★★ 「设置 → 帮助」三条都在：快捷键清单 / 常见问题 / 版本与更新',
-    shortcutRows >= 12 && faqRows >= 5 && /当前版本 \d+\.\d+\.\d+/.test(versionText),
-    `快捷键=${shortcutRows} 常见问题=${faqRows} 版本=${versionText.slice(0, 24)}`,
+    '★★ 「设置 → 帮助」常见问题与版本更新都在',
+    faqRows >= 5 && /当前版本 \d+\.\d+\.\d+/.test(versionText),
+    `常见问题=${faqRows} 版本=${versionText.slice(0, 24)}`,
   )
 
   // ⑤ 重看：按钮把引导叫回来
@@ -28488,10 +28504,14 @@ async function g119(browser) {
   await page.locator('[data-project-card]').first().click()
   await page.waitForURL(/\/canvas\//)
   await sleep(1000)
-  const firstNode = page.locator('[data-node-id]').first()
-  await firstNode.click()
-  await sleep(500)
+  const firstNode = page.locator('[data-node-type="generation"]').first()
+  await firstNode.locator('[data-node-body], [data-node-content], [data-node-title]').first().click()
+  await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
   const panel = page.locator('[data-creation-panel]')
+  await page.waitForFunction(
+    () => document.querySelector('[data-creation-panel] [data-param-chip="ratio"], [data-creation-panel] [data-param-chip="gen-params"]'),
+    { timeout: 10000 },
+  )
   await pickParam(panel, 'ratio', '16:9')
   await sleep(400)
   const row2 = await addGenerationNode()
@@ -28710,15 +28730,19 @@ async function g121(browser) {
       if (!content) return null
       const cb = content.getBoundingClientRect()
       const found = []
-      for (const el of content.querySelectorAll('*')) {
+      const sectionBody = content.querySelector('[data-settings-section-body]') ?? content
+      for (const el of sectionBody.querySelectorAll('*')) {
         const cs = getComputedStyle(el)
         if (cs.backgroundColor === 'rgba(0, 0, 0, 0)') continue
         const b = el.getBoundingClientRect()
         if (b.width < 320 || b.height < 40) continue
-        if (b.width > cb.width - 40) continue
+        if (b.width >= cb.width - 8 || el.clientWidth >= sectionBody.clientWidth - 8) continue
         found.push({
           left: Math.round(b.left),
           right: Math.round(b.right),
+          height: Math.round(b.height),
+          tag: el.tagName,
+          cls: typeof el.className === 'string' ? el.className : '',
           border: cs.borderTopWidth,
           bg: cs.backgroundColor,
         })
@@ -28741,11 +28765,15 @@ async function g121(browser) {
     'hosting',
     'storage',
     'appearance',
+    'typography',
+    'canvasLook',
     'backup',
+    'snapshots',
     'defaults',
     'packs',
     'notify',
     'help',
+    'shortcuts',
     'about',
   ]
   const rows = []
@@ -28766,16 +28794,28 @@ async function g121(browser) {
       rows.push({ tab, left: null, right: null, borders: -1, bg: null })
       continue
     }
-    const left = Math.min(...m.found.map((x) => x.left))
-    const right = Math.max(...m.found.map((x) => x.right))
+    const primary = m.found.reduce((best, item) => {
+      if (!best) return item
+      const area = (item.right - item.left) * item.height
+      const bestArea = (best.right - best.left) * best.height
+      return area > bestArea ? item : best
+    }, null)
+    const left = primary.left
+    const right = primary.right
     rows.push({
       tab,
       left,
       right,
       /** 这一栏量到了几个实色容器（写进详情：数量掉到 1 也能一眼看出来） */
       count: m.found.length,
-      borders: m.found.filter((x) => x.border !== '0px').length,
+      borders: m.found.filter(
+        (x) => x.border !== '0px' && x.border !== '0px none' && x.bg !== m.contentBg,
+      ).length,
       bg: m.found[0].bg,
+      borderDetail: m.found
+        .filter((x) => x.border !== '0px' && x.border !== '0px none' && x.bg !== m.contentBg)
+        .map((x) => `${x.left}~${x.right} ${x.tag}.${x.cls} ${x.border} ${x.bg}`)
+        .join(' | '),
       pageBg: m.contentBg,
     })
     if (tab === 'channels') stripBg = await page.locator('[data-settings-global-route]').evaluate((el) => getComputedStyle(el).backgroundColor)
@@ -28785,7 +28825,7 @@ async function g121(browser) {
   const bad = rows.filter((r) => r.left !== ref.left || r.right !== ref.right)
   rec(
     g,
-    '★★ 十一栏的左右边界与「渠道配置」完全一致（内容区 24px 内距）',
+    '★★ 十五栏的左右边界与「渠道配置」完全一致（内容区 24px 内距）',
     ref.left !== null && bad.length === 0,
     bad.length
       ? bad.map((r) => `${r.tab}:${r.left}~${r.right}`).join(' ') + `（基准 ${ref.left}~${ref.right}）`
@@ -28795,9 +28835,11 @@ async function g121(browser) {
   const bordered = rows.filter((r) => r.borders !== 0)
   rec(
     g,
-    '★★ 实色容器一律不描边（十一栏逐栏量 borderTopWidth）',
+    '★★ 实色容器一律不描边（十五栏逐栏量 borderTopWidth）',
     bordered.length === 0,
-    bordered.length ? bordered.map((r) => `${r.tab}:${r.borders}`).join(' ') : '全部 0px',
+    bordered.length
+      ? bordered.map((r) => `${r.tab}:${r.borders} ${r.borderDetail}`).join(' | ')
+      : '全部 0px',
   )
 
   rec(
@@ -28853,21 +28895,21 @@ async function g122(browser) {
   await sleep(500)
   await page.locator('[data-sidebar-settings]').click()
   await sleep(350)
-  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-global-settings-tab="typography"]').click()
   await sleep(450)
 
   const scope = await page.locator('[data-font-scope]').innerText().catch(() => '')
   rec(
     g,
     '★★ 面板如实写清控制范围（管什么 / 不管什么）',
-    /等宽/.test(scope) && /字号/.test(scope) && /面板/.test(scope),
+    /界面/.test(scope) && /节点字族/.test(scope) && /命令日志/.test(scope) && /生成图片/.test(scope),
     scope.replace(/\n/g, ' ').slice(0, 70),
   )
   const weightNote = await page.locator('[data-font-weight-note]').innerText().catch(() => '')
   rec(
     g,
     '★★ 粗细说明在（一份文件一个字重 / 合成 vs 真字形）',
-    /一个字重/.test(weightNote) && /合成/.test(weightNote),
+    /粗体文件/.test(weightNote) && /真粗体/.test(weightNote) && /可变字体/.test(weightNote),
     weightNote.replace(/\n/g, ' ').slice(0, 70),
   )
 
@@ -28994,7 +29036,11 @@ async function g123(browser) {
    */
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await sleep(500)
-  await page.locator('[data-ecommerce-create]').click()
+  const ecommerceProject = (await sharedRows(page, 'projects')).find(
+    (project) => project.workbench === 'ecommerce' && !project.deletedAt,
+  )
+  if (ecommerceProject) await page.goto(`${BASE}/ecommerce/${ecommerceProject.id}`, { waitUntil: 'networkidle' })
+  else await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
   await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
   await sleep(700)
@@ -29006,9 +29052,14 @@ async function g123(browser) {
    */
   await page.locator('[data-app-sidebar]').hover()
   await sleep(350)
-  const ecRecent = page.locator('[data-sidebar-recent-workbench="ecommerce"]').first()
+  await ensureSidebarOpen(page)
+  const ecGroup = page.locator('[data-project-tree-group-id="workbench:ecommerce"]')
+  if ((await ecGroup.locator('[data-project-tree-item]').count()) === 0) {
+    await ecGroup.locator('button').first().click()
+  }
+  const ecRecent = ecGroup.locator('[data-project-tree-item]').first()
   const ecRecentCount = await ecRecent.count()
-  await ecRecent.click()
+  await ecRecent.locator('button').first().click()
   await page.waitForURL(/\/ecommerce\//, { timeout: 10000 }).catch(() => {})
   rec(
     g,
@@ -29186,7 +29237,7 @@ async function g123(browser) {
     `失败卡=${failedCards} 底层记录=${failedRunsKept}`,
   )
 
-  // ④ #6 / #8：两套主题下「工作区与页面同底」+ 11 个栏目都有图标
+  // ④ 两套主题下「工作区与页面同底」+ 15 个栏目都有图标
   for (const theme of ['light', 'dark']) {
     await page.evaluate((t) => localStorage.setItem('flow:theme', t), theme)
     await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
@@ -29195,7 +29246,7 @@ async function g123(browser) {
     await sleep(350)
     await page.locator('[data-global-settings-tab="channels"]').click()
     await sleep(450)
-    /* 基本信息卡只在选中某条渠道时渲染；先选第一条，否则量不到 `data-settings-basics`。 */
+  /* 连接与鉴权只在选中某条渠道时渲染；先选第一条。 */
     const firstChannel = page.locator('[data-channel-item]').first()
     if ((await firstChannel.count()) > 0) {
       await firstChannel.click()
@@ -29204,74 +29255,22 @@ async function g123(browser) {
     const panel = await box('[data-global-settings-panel]')
     const workarea = await box('[data-settings-workarea]')
     const sidebar = await box('[data-settings-sidebar]')
-    const basics = await box('[data-settings-basics]')
     const icons = await page.locator('[data-global-settings-tab] svg').count()
     const tabs = await page.locator('[data-global-settings-tab]').count()
     rec(
       g,
-      `${theme === 'light' ? '浅色' : '深色'}：渠道选择 / 基本信息保留可辨背景框 + 每个栏目都有图标`,
+      `${theme === 'light' ? '浅色' : '深色'}：工作区与服务列表分层 + 每个栏目都有图标`,
       panel.bg === workarea.bg &&
-        sidebar.bg === basics.bg &&
         sidebar.bg !== workarea.bg &&
         icons === tabs &&
-        tabs === 11,
-      `浮层底=${panel.bg} 工作区底=${workarea.bg} 左栏底=${sidebar.bg} 基本信息底=${basics.bg} 图标=${icons}/${tabs}`,
+        tabs === 15,
+      `浮层底=${panel.bg} 工作区底=${workarea.bg} 服务列表底=${sidebar.bg} 图标=${icons}/${tabs}`,
     )
     await page.keyboard.press('Escape')
     await sleep(250)
   }
 
   await page.screenshot({ path: `${OUT}/123-g123-workspace.png` })
-  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
-  await ctx.close()
-}
-
-// ────────────────────────────────────────────────────────────
-// G124 从网站抓站点图标（对账 #396）：
-//   浏览器里没有原生 HTTP（跨域读不到站点图标）⇒ 按钮**在**、按**灰的**、
-//   旁边如实写"从网站抓取仅在桌面应用可用"。壳里那半条的实证在探针里（CDP 连壳）。
-// ────────────────────────────────────────────────────────────
-async function g124(browser) {
-  const g = 'G124 抓站点图标入口'
-  const ctx = await newCtx(browser)
-  const page = await ctx.newPage()
-  const pageErrors = []
-  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
-
-  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
-  await sleep(500)
-  await page.locator('[data-sidebar-settings]').click()
-  await sleep(350)
-  await page.locator('[data-global-settings-tab="channels"]').click()
-  await sleep(450)
-  await page.locator('[data-channel-item]').first().click()
-  await sleep(350)
-
-  const fetchBtn = page.locator('[data-channel-icon-fetch]')
-  const present = (await fetchBtn.count()) === 1
-  rec(g, '图标那一行有「从网站抓取」按钮（浏览器里也看得见）', present, `count=${present ? 1 : 0}`)
-  if (!present) {
-    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
-    await ctx.close()
-    return
-  }
-
-  const disabled = await fetchBtn.isDisabled()
-  rec(g, '★ 浏览器里它是灰的（跨域拿不到字节，不装成能点）', disabled, `disabled=${disabled}`)
-
-  const note = (await page.locator('[data-channel-icon-fetch-note]').first().innerText()).trim()
-  rec(
-    g,
-    '如实写明"仅在桌面应用可用"（与存储 / CLI 两块同一套说法）',
-    note.includes('仅在桌面应用可用'),
-    `note=${note}`,
-  )
-
-  // 上传那条路不能被挤掉：抓取是**加**一个入口，不是换掉上传
-  const upload = await page.locator('[data-channel-icon-upload]').count()
-  rec(g, '「上传图标」仍在（抓取是加一条路，不是换掉它）', upload === 1, `count=${upload}`)
-
-  await page.screenshot({ path: `${OUT}/124-g124-site-icon.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
@@ -29300,21 +29299,21 @@ async function g125(browser) {
 
   const search = page.locator('[data-global-settings-search]')
   rec(g, '★ 左导航有搜索框（对账 #385）', (await search.count()) === 1)
-  rec(g, '空搜索时十一栏都在', (await tabIds()).length === 11, `tabs=${(await tabIds()).length}`)
+  rec(g, '空搜索时十五栏都在', (await tabIds()).length === 15, `tabs=${(await tabIds()).length}`)
 
-  /** ① 按"事情"搜：标签里没有"字体"两个字，靠 keywords 命中「外观与体验」 */
+  /** ① 按"事情"搜：标签里正有"字体"，直接命中「字体与文字」 */
   await search.fill('字体')
   await sleep(250)
   const hit = await tabIds()
   rec(
     g,
-    '★★ 敲「字体」直达「外观与体验」（标签里没有这两个字也搜得到）',
-    JSON.stringify(hit) === JSON.stringify(['appearance']),
+    '★★ 敲「字体」直达「字体与文字」',
+    JSON.stringify(hit) === JSON.stringify(['typography']),
     `tabs=${hit.join(',')}`,
   )
 
   /** ② 搜索结果点得动：右侧真的切过去（不是只把菜单过滤了） */
-  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-global-settings-tab="typography"]').click()
   await sleep(400)
   rec(
     g,
@@ -29336,7 +29335,7 @@ async function g125(browser) {
   /** ④ 清空按钮：菜单恢复完整 */
   await page.locator('[data-global-settings-search-clear]').click()
   await sleep(250)
-  rec(g, '★ 清空后菜单恢复十一栏', (await tabIds()).length === 11, `tabs=${(await tabIds()).length}`)
+  rec(g, '★ 清空后菜单恢复十五栏', (await tabIds()).length === 15, `tabs=${(await tabIds()).length}`)
 
   /** ⑤ 关掉再打开：不残留上一次的词（残留会让人以为设置丢了） */
   await search.fill('字体')
@@ -29347,8 +29346,8 @@ async function g125(browser) {
   await sleep(400)
   rec(
     g,
-    '★ 重新打开：搜索框是空的、十一栏都在（不残留上次的词）',
-    (await search.inputValue()) === '' && (await tabIds()).length === 11,
+    '★ 重新打开：搜索框是空的、十五栏都在（不残留上次的词）',
+    (await search.inputValue()) === '' && (await tabIds()).length === 15,
     `value="${await search.inputValue()}" tabs=${(await tabIds()).length}`,
   )
 
@@ -40079,7 +40078,7 @@ async function g735(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

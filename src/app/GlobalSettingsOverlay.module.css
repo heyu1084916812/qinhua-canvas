@@ -274,6 +274,20 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* 子面板统一呼吸与最大可读宽度；长表单仍滚动 */
+  padding: var(--space-5) var(--space-6) var(--space-8);
+}
+
+.sectionBody > * {
+  max-width: 980px;
+}
+
+.sectionBody > [data-settings-card] {
+  max-width: none;
+}
+
+.sectionBody > :is([data-cli-panel], [data-hosting-page]) {
+  max-width: none;
 }
 
 /*
@@ -335,19 +349,19 @@
   font-weight: var(--settings-label-weight);
 }
 
-/*
- * 「外观与体验」一栏：**这一层承担左右边界与上下内距**（用户 2026-10-09）。
- *
- * 这一栏里有三块面板（字体 / 主题与动效 / 画布），它们各自**不带内距** ——
- * 边界统一由本层给，跟「渠道配置」的 `.layout` 同一档（上 20 / 左右 24 / 下 32）。
- * 若三块各带一遍 24px，叠起来会把间距撑成 76px。
- *
- * 三块属于不同的作用域（本机字体 vs 项目画布），中间留一档，
- * 别让人读成同一组。
- */
-.sectionStack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  padding: 0 var(--space-6) var(--space-8);
+@media (max-width: 1100px) {
+  .panel {
+    width: calc(100vw - var(--space-4) * 2);
+    height: calc(100vh - var(--space-4) * 2);
+  }
+
+  .nav {
+    width: 184px;
+  }
+
+  .sectionHead,
+  .sectionBody {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
 }

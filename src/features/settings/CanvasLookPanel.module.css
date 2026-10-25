@@ -1,18 +1,14 @@
-/* 「外观与体验 → 画布」面板（对账 #379 的 C4 / C5）。
-   与 FontManagerPanel 同一套排版语言；颜色一律走令牌
-   （scripts/check-theme.mjs 会拦字面量颜色）。 */
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .block {
-  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
   background: var(--bg-subtle);
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .head {
@@ -111,8 +107,6 @@
   gap: var(--space-2);
 }
 
-/* 色块本身是**画布底色的预览**：颜色来自 tokens.css 里那六档画布令牌，
-   与画布真正用的值是同一份 —— 面板上看到的就是换上去的样子。 */
 .swatch {
   width: 28px;
   height: 28px;
@@ -326,5 +320,5 @@
   .seg,
   .swatch {
     transition: none;
-  }
+}
 }

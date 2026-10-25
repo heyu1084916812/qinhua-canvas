@@ -1,18 +1,14 @@
-/* 「生成 → 默认参数」面板（对账 #386 的 E4）。颜色一律走令牌。 */
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
-  padding: var(--space-5) var(--space-6) var(--space-8);
+  gap: var(--space-3);
 }
 
 .block {
-  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
   background: var(--bg-subtle);
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .title {
@@ -155,7 +151,6 @@
   color: var(--text-2);
 }
 
-/* 开关：与「主题与动效」那块同一套做法（隐形 checkbox 盖在轨道上） */
 .switchRow {
   display: flex;
   align-items: center;
@@ -221,5 +216,5 @@
   .track,
   .track::after {
     transition: none;
-  }
+}
 }

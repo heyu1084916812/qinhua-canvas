@@ -92,7 +92,7 @@ export function FontManagerPanel() {
   }
 
   return (
-    <div className={styles.panel} data-font-panel>
+    <div className={styles.panel} data-font-panel data-typography>
       <section className={styles.block}>
         <div className={styles.head}>
           <h3 className={styles.title}>界面字体</h3>

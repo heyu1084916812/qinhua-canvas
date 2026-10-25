@@ -1,0 +1,96 @@
+﻿.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.block {
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  padding: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.caption {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.sub {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.btn {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.snapList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.snapItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.snapText {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.status {
+  margin: var(--space-3) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}

@@ -69,8 +69,9 @@ describe('globalSettings · 全局设置浮层', () => {
     off()
   })
 
-  it('★ 子菜单十一栏与内容一一对应（标签与内容一处定义）', () => {
-    // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储 / 外观与体验 / 备份与恢复 / 默认参数 / 扩展包 / 帮助 / 关于与隐私 / 通知
+  it('★ 子菜单十五栏与内容一一对应（标签与内容一处定义）', () => {
+    // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储 / 主题与颜色 / 字体与文字 /
+    // 画布外观 / 备份与恢复 / 快照 / 默认参数 / 扩展包 / 帮助 / 快捷键 / 关于与隐私 / 通知
     // （#259 + #261 + #308；「外观与体验」与「备份与恢复」为用户 2026-10-09 新增：
     //   前者 = 自定义字体 / 界面字号 / 字距；后者 = 全量备份导出与导入 #378；
     //   「扩展包」= 数据型扩展包（技能 + 电商平台规则），对账 #386 阶段一）。
@@ -83,10 +84,14 @@ describe('globalSettings · 全局设置浮层', () => {
       'hosting',
       'storage',
       'appearance',
+      'typography',
+      'canvasLook',
       'backup',
       'defaults',
       'packs',
+      'snapshots',
       'help',
+      'shortcuts',
       'about',
       'notify',
     ])
@@ -95,11 +100,15 @@ describe('globalSettings · 全局设置浮层', () => {
       'CLI',
       '素材传输',
       '存储',
-      '外观与体验',
+      '主题与颜色',
+      '字体与文字',
+      '画布外观',
       '备份与恢复',
       '默认参数',
       '扩展包',
+      '快照',
       '帮助',
+      '快捷键',
       '关于与隐私',
       '通知',
     ])
@@ -120,6 +129,10 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(byId.get('backup')).toBe('数据')
     expect(byId.get('notify')).toBe('数据')
     expect(byId.get('appearance')).toBe('外观')
+    expect(byId.get('typography')).toBe('外观')
+    expect(byId.get('canvasLook')).toBe('外观')
+    expect(byId.get('snapshots')).toBe('数据')
+    expect(byId.get('shortcuts')).toBe('系统')
     // 组顺序 = 界面渲染顺序，不能随手调
     expect(GLOBAL_SETTINGS_GROUPS).toEqual(['连接', '生成', '外观', '数据', '系统'])
   })
@@ -135,16 +148,17 @@ describe('globalSettings · 全局设置浮层', () => {
 describe('globalSettings · 搜索', () => {
   const ids = (query: string) => matchSettingsSections(query).map((s) => s.id)
 
-  it('空查询 / 纯空格：菜单是完整的（十一栏一个不少）', () => {
+  it('空查询 / 纯空格：菜单是完整的（十五栏一个不少）', () => {
     expect(ids('')).toEqual(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id))
     expect(ids('   ')).toHaveLength(GLOBAL_SETTINGS_SECTIONS.length)
   })
 
-  it('★★ 按"事情"搜得到：字体→外观、图床→素材传输、快照→备份与恢复', () => {
-    expect(ids('字体')).toEqual(['appearance'])
+  it('★★ 按"事情"搜得到：字体→字体与文字、画布→画布外观、图床→素材传输、快照→快照', () => {
+    expect(ids('字体')).toEqual(['typography'])
+    expect(ids('画布外观')).toEqual(['canvasLook'])
     expect(ids('图床')).toEqual(['hosting'])
-    expect(ids('快照')).toEqual(['backup'])
-    expect(ids('快捷键')).toEqual(['help'])
+    expect(ids('快照')).toEqual(['backup', 'snapshots'])
+    expect(ids('快捷键')).toEqual(['shortcuts'])
   })
 
   it('★ 大小写不敏感（CLI / cli 都命中），英文别名也认（key / token）', () => {
@@ -159,7 +173,7 @@ describe('globalSettings · 搜索', () => {
      * （那一栏确实回答这个问题）—— 这是**有意的**结果，不是漏网的噪声，
      * 所以把它写进期望里，将来谁改关键词都会先看到这条。
      */
-    expect(ids('数据')).toEqual(['storage', 'backup', 'about', 'notify'])
+    expect(ids('数据')).toEqual(['storage', 'backup', 'snapshots', 'about', 'notify'])
   })
 
   it('搜不到就是空（界面据此给"没有匹配"的提示，而不是留一片空白菜单）', () => {

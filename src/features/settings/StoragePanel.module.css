@@ -1,12 +1,7 @@
-/**
- * 「存储」面板：概况 / 单一资源根 / V1→V2 迁移 / 缓存。
- * 全部走令牌，深浅色自动跟随；不写死颜色与时长。
- */
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-5) var(--space-6) var(--space-8);
+  gap: var(--space-3);
   overflow-y: auto;
   height: 100%;
 }
@@ -15,20 +10,20 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3);
   border-radius: 8px;
   background: var(--bg-subtle);
 }
 
 .overview {
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .blockHead {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .titleRow {
@@ -180,7 +175,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
   padding: var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -288,7 +283,7 @@
 
 @media (max-width: 760px) {
   .panel {
-    padding: var(--space-4);
+    padding: var(--space-3);
   }
 
   .blockHead,

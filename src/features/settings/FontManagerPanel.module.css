@@ -1,17 +1,14 @@
-/* 「外观与体验 → 字体」面板（用户 2026-10-09）。
-   全部颜色走令牌：scripts/check-theme.mjs 会拦字面量颜色。 */
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .block {
-  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
   background: var(--bg-subtle);
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .head {
@@ -53,10 +50,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* 「系统默认」那一行是 <button>：不写这句它会按 UA 默认 **居中**，
-     与下面自定义字体（左对齐）对不齐 —— 实测截图里看的很明显 */
   text-align: left;
-  /* 无描边容器（用户 2026-10-09）：行本身不铺底，选中的那条才用实色底"浮"出来 */
   border: none;
   border-radius: var(--radius-control);
   background: transparent;
@@ -65,7 +59,6 @@
 }
 
 .itemOn {
-  /* 选中态只靠实色底：与未选中的透明行形成两档，不再画一圈强调描边 */
   background: var(--bg-surface);
 }
 
@@ -85,7 +78,6 @@
   cursor: pointer;
 }
 
-/* 「系统默认」那一行整体可点，与自定义字体保持一致的手感 */
 .item > .itemName {
   flex: 1 1 auto;
   min-width: 0;
@@ -149,7 +141,7 @@
   flex-wrap: wrap;
 }
 
-/* 原生 file input 只做"被按钮触发"的载体，不占版面 */
+/* 鍘熺敓 file input 鍙仛"琚寜閽Е鍙?鐨勮浇浣擄紝涓嶅崰鐗堥潰 */
 .file {
   display: none;
 }
@@ -234,5 +226,5 @@
   .chooseArea,
   .segItem {
     transition: none;
-  }
+}
 }

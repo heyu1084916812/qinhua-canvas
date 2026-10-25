@@ -5,37 +5,10 @@ import styles from './HelpPanel.module.css'
 /**
  * 「系统 → 帮助」面板（对账 #388 / E7）。
  *
- * 三条**静态**说明：快捷键 / 常见问题 / 版本与更新。
+ * 两条**静态**说明：常见问题 / 版本与更新；快捷键已拆到独立栏目。
  * 它们不是营销页 —— 每一条都回答"我现在卡住了怎么办"，
  * 所以宁可少写，也不写"更高效""更智能"这类没有信息量的话。
- *
- * 快捷键这几行是从代码里抄的，出处写在下面对应条目的注释里（别凭印象加）：
- * - `workbenches/canvas/useCanvasKeyboard.ts`：Z / Ctrl+Z / Ctrl+Shift+Z / Tab / 方向键 / Home / End
- * - `workbenches/canvas/flow/FlowSurface.tsx`：Delete / Backspace（焦点在输入框时不接管）
- * - `workbenches/canvas/execution/RunHotkeys.tsx`：R / Alt+R
- * - `features/canvas/useClipboardHotkeys.ts`：Ctrl+C / Ctrl+V
- * - 空格 + 拖拽平移：`features/canvas/useSpaceHeld.ts`
- * - Ctrl+G 打组：`useCanvasKeyboard.ts`
- * - `Alt + 方向键` 微移 / `Ctrl + Alt + 方向键` 改尺寸：`useCanvasKeyboard.ts` 的
- *   `applyBoxKeys`（§4.5「拖拽替代」，2026-10-12 落地）
  */
-const SHORTCUTS: { keys: string; what: string }[] = [
-  { keys: 'Z', what: '复位视图（全部节点回到视野）' },
-  { keys: 'Ctrl / ⌘ + Z', what: '撤销' },
-  { keys: 'Ctrl / ⌘ + Shift + Z', what: '重做' },
-  { keys: 'Ctrl / ⌘ + G', what: '把选中的节点打组' },
-  { keys: 'Ctrl / ⌘ + C、V', what: '复制 / 粘贴选中的节点' },
-  { keys: 'Delete / Backspace', what: '删除选中（焦点在输入框里时不接管）' },
-  { keys: 'R', what: '生成（选中单个生成节点）' },
-  { keys: 'Alt + R', what: '保留旧内容，结果铺到新的下游节点' },
-  { keys: 'Tab', what: '逐个选中节点' },
-  { keys: '方向键', what: '在节点之间移动选中；没选中时选中第一个' },
-  { keys: 'Alt + 方向键', what: '微移选中的节点（加 Shift 每次 10px）' },
-  { keys: 'Ctrl / ⌘ + Alt + 方向键', what: '改选中节点的尺寸（加 Shift 每次 10px）' },
-  { keys: 'Home / End', what: '跳到第一个 / 最后一个节点' },
-  { keys: '空格 + 拖拽', what: '平移画布' },
-]
-
 const FAQ: { q: string; a: string }[] = [
   {
     q: '点了生成没反应？',
@@ -62,19 +35,6 @@ const FAQ: { q: string; a: string }[] = [
 export function HelpPanel() {
   return (
     <div className={styles.panel} data-help-panel>
-      <section className={styles.block}>
-        <h3 className={styles.title}>快捷键</h3>
-        <p className={styles.caption}>焦点在输入框里时，快捷键让位给打字。</p>
-        <dl className={styles.shortcuts}>
-          {SHORTCUTS.map((s) => (
-            <div key={s.keys} className={styles.shortcut} data-help-shortcut>
-              <dt className={styles.keys}>{s.keys}</dt>
-              <dd className={styles.what}>{s.what}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
       <section className={styles.block}>
         <h3 className={styles.title}>常见问题</h3>
         <ul className={styles.faq}>

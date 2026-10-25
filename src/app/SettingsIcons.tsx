@@ -131,6 +131,48 @@ export function IconHelp({ size = 16 }: IconProps) {
   )
 }
 
+/** 快捷键：键盘。 */
+export function IconKeyboard({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <rect x="3" y="7" width="18" height="10" rx="2" />
+      <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
+    </svg>
+  )
+}
+
+/** 快照：相机快门。 */
+export function IconSnapshot({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <rect x="3.5" y="7" width="17" height="13" rx="2" />
+      <path d="M8 7l1.2-2h5.6L16 7" />
+      <circle cx="12" cy="13.5" r="3.4" />
+    </svg>
+  )
+}
+
+/** 主题与颜色：色滴。 */
+export function IconPalette({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.4 0 2-.9 2-1.8 0-1.6-1.5-1.7-1.5-3 0-1 .8-1.7 2-1.7h1.6A4.4 4.4 0 0 0 20.5 10 8.5 8.5 0 0 0 12 3.5Z" />
+      <circle cx="8.4" cy="9" r="1" />
+      <circle cx="12" cy="7.4" r="1" />
+      <circle cx="15.6" cy="9" r="1" />
+    </svg>
+  )
+}
+
+/** 字体与文字：排版 T。 */
+export function IconTypography({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M5 7V5h14v2M12 5v14M9 19h6" />
+    </svg>
+  )
+}
+
 /** 关于与隐私：信息圈 */
 export function IconAbout({ size = 16 }: IconProps) {
   return (

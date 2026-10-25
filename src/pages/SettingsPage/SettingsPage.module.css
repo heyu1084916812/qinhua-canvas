@@ -245,7 +245,7 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: var(--border);
+  border: 0;
   border-radius: 6px;
   background: var(--bg-app);
 }
