@@ -87,11 +87,6 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   about: '查看版本、更新与隐私说明。',
 }
 
-const SECTION_ALIASES: Partial<Record<GlobalSettingsSection, GlobalSettingsSection[]>> = {
-  snapshots: ['backup'],
-  shortcuts: ['help'],
-}
-
 /**
  * 全局设置浮层（用户 2026-10-06 定，对账 #259）。
  *
@@ -132,11 +127,7 @@ export function GlobalSettingsOverlay() {
    */
   const [query, setQuery] = useState('')
   const visible = matchSettingsSections(query)
-  const canonicalSection = GLOBAL_SETTINGS_SECTIONS.find((item) =>
-    SECTION_ALIASES[item.id]?.includes(section),
-  )
-  const currentSection =
-    canonicalSection ?? GLOBAL_SETTINGS_SECTIONS.find((item) => item.id === section) ?? null
+  const currentSection = GLOBAL_SETTINGS_SECTIONS.find((item) => item.id === section) ?? null
 
   useEffect(() => {
     if (!open) return
@@ -279,7 +270,7 @@ export function GlobalSettingsOverlay() {
               </p>
             </header>
             <div className={styles.sectionBody} data-settings-section-body>
-              {section === 'channels' && <SettingsPage key="channels" />}
+              {section === 'channels' && <SettingsPage key="channels" embedded />}
               {section === 'cli' && <CliPanel key="cli" />}
               {section === 'hosting' && <HostingPage key="hosting" />}
               {section === 'storage' && <StoragePanel key="storage" />}

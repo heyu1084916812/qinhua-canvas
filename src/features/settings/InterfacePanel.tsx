@@ -20,7 +20,12 @@ export function InterfacePanel() {
   const { setting, setSetting } = useTheme()
 
   return (
-    <div className={styles.panel} data-interface-panel>
+    <div
+      className={styles.panel}
+      data-interface-panel
+      data-settings-panel
+      data-theme-panel
+    >
       <section className={styles.block}>
         <h3 className={styles.title}>主题</h3>
         <p className={styles.caption}>本机偏好，与侧栏切换同步。</p>

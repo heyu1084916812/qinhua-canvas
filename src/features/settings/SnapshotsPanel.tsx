@@ -70,7 +70,7 @@ export function SnapshotsPanel() {
   }
 
   return (
-    <div className={styles.panel} data-snapshots-panel data-backup-panel>
+    <div className={styles.panel} data-snapshots-panel data-backup-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>自动快照</h3>
         <p className={styles.caption}>每天保存项目结构快照，默认保留 7 份。</p>
@@ -84,7 +84,7 @@ export function SnapshotsPanel() {
           </span>
           <button
             type="button"
-            className={styles.btn}
+            className={`${styles.btn} ${styles.primary}`}
             data-snapshot-capture
             disabled={busy}
             onClick={() => void captureNow()}

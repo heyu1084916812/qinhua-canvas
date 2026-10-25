@@ -34,7 +34,7 @@ const FAQ: { q: string; a: string }[] = [
 
 export function HelpPanel() {
   return (
-    <div className={styles.panel} data-help-panel>
+    <div className={styles.panel} data-help-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>常见问题</h3>
         <ul className={styles.faq}>

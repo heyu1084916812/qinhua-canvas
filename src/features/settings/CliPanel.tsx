@@ -245,7 +245,7 @@ export function CliPanel() {
   const hasLocalCli = cli !== undefined
 
   return (
-    <div className={styles.panel} data-cli-panel>
+    <div className={styles.panel} data-cli-panel data-settings-panel>
       {/*
         用户 2026-10-08 第 3 条：「cli 面板那边的介绍内容太多了，用户是不会去看的，
         反而影响排版，不需要文字介绍，只需要按钮」。
@@ -253,15 +253,11 @@ export function CliPanel() {
         原来的两段导语（"这里配的是你本机装着的命令行工具…" / "每张卡的顺序就是你要做的事…"）
         与每张卡的 `note` 全部删掉 —— 每一步该做什么已经写在按钮上。
       */}
-      <section className={styles.block}>
-        <h3 className={styles.title}>本机 CLI</h3>
-        {!hasLocalCli && (
-          <p className={styles.notice} data-cli-desktop-only>
-            本机 CLI 只在桌面应用里可用（浏览器打不开子进程）。这里的配置照旧能改、能存，
-            换到桌面版就生效。
-          </p>
-        )}
-      </section>
+      {!hasLocalCli && (
+        <p className={styles.notice} data-cli-desktop-only>
+          本机 CLI 只在桌面应用里可用。配置仍可保存，换到桌面版后生效。
+        </p>
+      )}
 
       {tools.map((tool) => (
         <section className={styles.card} key={tool.id} data-cli-tool={tool.id}>
@@ -271,9 +267,9 @@ export function CliPanel() {
               「不需要文字介绍，只需要按钮」。文字改成**悬停提示**：信息还在，
               但不再占版面（卡片上只剩名称 / 能力小标 / 文档链接 / 按钮）。
             */}
-            <span className={styles.cardName} title={tool.note}>
+            <h3 className={styles.cardName} title={tool.note}>
               {tool.name}
-            </span>
+            </h3>
             <span className={styles.caps}>
               {capabilitiesOfTool(tool).map((cap) => (
                 <span className={styles.cap} key={cap}>
@@ -300,7 +296,7 @@ export function CliPanel() {
               disabled={!hasLocalCli || busy !== ''}
               onClick={() => void oneClickSetup(tool)}
             >
-              一键设置（安装 + 登录）
+              安装并登录
             </button>
             <button
               type="button"
@@ -318,11 +314,11 @@ export function CliPanel() {
               disabled={!hasLocalCli || busy !== '' || tool.statusArgs.trim() === ''}
               onClick={() => void runInto(tool, 'status', buildArgs(tool.statusArgs, {}))}
             >
-              查状态 / 额度
+              查状态
             </button>
             {tool.statusArgs.trim() === '' && (
               <span className={styles.result} data-cli-status-none={tool.id}>
-                这个工具没有可查的命令
+                <span className={styles.statusNone}>无可查命令</span>
               </span>
             )}
           </div>
@@ -361,7 +357,7 @@ export function CliPanel() {
             （收起的内容 `textContent` 照样读得到，见 G89）。
           */}
           <details className={styles.more} data-cli-login-box={tool.id}>
-            <summary className={styles.summary}>更多操作（单独安装 / 换登录方式）</summary>
+            <summary className={styles.summary}>更多操作</summary>
             <div className={styles.moreBody}>
               {tool.installCommand.trim() !== '' && (
                 <div className={styles.row}>
@@ -436,7 +432,7 @@ export function CliPanel() {
 
           {/* ④ 高级 */}
           <details className={styles.advanced} data-cli-advanced={tool.id}>
-            <summary className={styles.summary}>高级（命令与参数）</summary>
+            <summary className={styles.summary}>高级设置</summary>
             <div className={styles.grid}>
               <label className={styles.field}>
                 <span className={styles.label}>命令名或完整路径</span>

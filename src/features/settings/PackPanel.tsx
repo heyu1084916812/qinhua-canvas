@@ -108,7 +108,7 @@ export function PackPanel() {
   }
 
   return (
-    <div className={styles.panel} data-pack-panel>
+    <div className={styles.panel} data-pack-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>扩展包</h3>
         <p className={styles.caption}>只安装技能与平台规则，不执行代码。</p>
@@ -124,7 +124,7 @@ export function PackPanel() {
         <div className={styles.row}>
           <button
             type="button"
-            className={styles.btn}
+            className={`${styles.btn} ${styles.primary}`}
             data-pack-import
             onClick={() => fileRef.current?.click()}
           >
@@ -173,7 +173,7 @@ export function PackPanel() {
               </p>
             ) : null}
             <div className={styles.row}>
-              <button type="button" className={styles.btn} data-pack-install onClick={() => void install()}>
+              <button type="button" className={`${styles.btn} ${styles.primary}`} data-pack-install onClick={() => void install()}>
                 安装
               </button>
               <button type="button" className={styles.linkBtn} onClick={() => setPack(null)}>

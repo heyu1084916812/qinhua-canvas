@@ -131,7 +131,7 @@ export function DefaultParamsPanel() {
   }
 
   return (
-    <div className={styles.panel} data-defaults-panel>
+    <div className={styles.panel} data-defaults-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>默认参数</h3>
         <p className={styles.caption}>仅影响之后新建的节点。</p>

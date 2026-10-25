@@ -62,6 +62,25 @@
   background: var(--bg-canvas);
 }
 
+.layoutEmbedded {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: var(--space-4);
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.layoutEmbedded .globalRoute,
+.layoutEmbedded .workarea {
+  max-width: none;
+}
+
 /*
  * 全局选路策略（用户 2026-09-29 第 13 轮）。
  *
@@ -89,8 +108,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   /**
    * 底色换成 `--bg-subtle`（用户 2026-10-09：「浅色主题下这个容器没有背景了，和图二不一致」）。
    *
@@ -318,13 +337,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
 }
 
 .channelSearch {
   flex: 1;
   min-width: 0;
-  min-height: 34px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -381,17 +400,17 @@
 
 .sidebarFoot .addBtn {
   width: 100%;
-  min-height: 34px;
-  background: var(--bg-surface);
-  color: var(--text-1);
+  min-height: 32px;
 }
 
 .addBtn {
+  height: 32px;
+  box-sizing: border-box;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--accent);
   color: var(--accent-text);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   cursor: pointer;
@@ -751,7 +770,7 @@
 .itemMain {
   flex: 1;
   min-width: 0;
-  min-height: 30px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -990,8 +1009,14 @@
 }
 
 .placeholder {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
   color: var(--text-3);
   font-size: var(--fs-label);
+  text-align: center;
 }
 
 .form {
@@ -1269,14 +1294,14 @@
 }
 
 .cardTitle {
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
+  font-size: var(--fs-title);
+  font-weight: 600;
   color: var(--text-1);
 }
 
 .cardSub {
-  font-size: var(--fs-chip);
-  line-height: 1.6;
+  font-size: var(--fs-label);
+  line-height: 1.5;
   color: var(--text-3);
 }
 
@@ -1303,6 +1328,8 @@
 }
 
 .input {
+  min-height: 32px;
+  box-sizing: border-box;
   border: var(--border);
   border-radius: var(--radius-control);
   /* 输入控件落在 `--bg-subtle` 卡面上，用 `--bg-surface` 抬高一层，形成「可填」暗示 */
@@ -1579,11 +1606,12 @@
 }
 
 .primary {
+  min-height: 32px;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--accent);
   color: var(--accent-text);
-  padding: var(--space-2) var(--space-4);
+  padding: 0 var(--space-4);
   font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   cursor: pointer;
@@ -1594,11 +1622,12 @@
 }
 
 .ghostBtn {
+  min-height: 32px;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   font-size: var(--fs-label);
   cursor: pointer;
   white-space: nowrap;

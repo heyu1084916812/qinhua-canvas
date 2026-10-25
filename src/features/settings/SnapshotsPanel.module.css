@@ -44,7 +44,7 @@
 }
 
 .btn {
-  height: 30px;
+  height: 32px;
   padding: 0 var(--space-3);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -57,6 +57,24 @@
 
 .btn:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+  filter: brightness(0.96);
+}
+
+.primary:disabled {
+  border-color: var(--stroke);
+  background: var(--bg-hover);
+  color: var(--text-3);
 }
 
 .btn:disabled {

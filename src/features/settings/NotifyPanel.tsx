@@ -53,29 +53,31 @@ export function NotifyPanel() {
   }, [platform])
 
   return (
-    <div className={styles.panel} data-notify-panel>
+    <div className={styles.panel} data-notify-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>提示时机</h3>
         <p className={styles.caption}>只控制提示，不影响生成。</p>
 
-        {ROWS.map((row) => (
-          <label className={styles.switchRow} key={row.kind}>
-            <span className={styles.rowText}>
-              <span className={styles.rowLabel}>{row.label}</span>
-              <span className={styles.hint}>{row.hint}</span>
-            </span>
-            <span className={styles.switchBox}>
-              <input
-                type="checkbox"
-                className={styles.switchInput}
-                checked={prefs[row.kind]}
-                data-notify-toggle={row.kind}
-                onChange={(e) => setNotifyPref(row.kind, e.target.checked)}
-              />
-              <span className={styles.track} aria-hidden="true" />
-            </span>
-          </label>
-        ))}
+        <div className={styles.rows}>
+          {ROWS.map((row) => (
+            <label className={styles.switchRow} key={row.kind}>
+              <span className={styles.rowText}>
+                <span className={styles.rowLabel}>{row.label}</span>
+                <span className={styles.hint}>{row.hint}</span>
+              </span>
+              <span className={styles.switchBox}>
+                <input
+                  type="checkbox"
+                  className={styles.switchInput}
+                  checked={prefs[row.kind]}
+                  data-notify-toggle={row.kind}
+                  onChange={(e) => setNotifyPref(row.kind, e.target.checked)}
+                />
+                <span className={styles.track} aria-hidden="true" />
+              </span>
+            </label>
+          ))}
+        </div>
       </section>
 
       <section className={styles.block}>

@@ -38,7 +38,7 @@
 }
 
 .btn {
-  height: 34px;
+  height: 32px;
   padding: 0 var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -52,6 +52,18 @@
 
 .btn:hover {
   background: var(--bg-hover);
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.primary:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+  filter: brightness(0.96);
 }
 
 .linkBtn {

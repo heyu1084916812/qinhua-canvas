@@ -12,9 +12,9 @@ import styles from './SettingsPicker.module.css'
  * 设置页反向依赖画布布局，等于把两个界面的生命周期绑在一起 —— 画布改比例档位
  * 会牵动后台设置页。这里按同一套**视觉口径**另写一份设置本地实现：
  *
- *  - chip 触发器：透明底、46px 高、`--bg-hover` 表示 hover / 展开；
+ *  - chip 触发器：透明底、32px 高、`--bg-hover` 表示 hover / 展开；
  *  - 浮层：`--bg-surface` + 1px `--stroke` + `--radius-control`、**无投影**；
- *  - 菜单行 44px、选中行 `--bg-hover`、行尾勾选标记；
+ *  - 菜单行至少 36px、选中行 `--bg-hover`、行尾勾选标记；
  *  - 点击浮层外 / Esc 关闭；同一时刻只会有一个菜单（新开一个时旧的自然被关掉）。
  */
 

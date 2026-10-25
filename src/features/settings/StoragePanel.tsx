@@ -213,7 +213,7 @@ export function StoragePanel() {
     migrationReport.failures.length === 0
 
   return (
-    <div className={styles.panel} data-storage-panel>
+    <div className={styles.panel} data-storage-panel data-settings-panel>
       <section className={`${styles.block} ${styles.overview}`}>
         <div className={styles.blockHead}>
           <div>

@@ -6,6 +6,8 @@
 }
 
 .block {
+  display: flex;
+  flex-direction: column;
   border-radius: 8px;
   background: var(--bg-subtle);
   padding: var(--space-3);
@@ -20,8 +22,8 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
+  font-size: var(--fs-title);
+  font-weight: 600;
   color: var(--text-1);
 }
 
@@ -48,9 +50,10 @@
 }
 
 .caption {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-1) 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
+  line-height: 1.5;
 }
 
 .row {
@@ -58,7 +61,8 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-top: var(--space-2);
+  min-height: 32px;
+  margin-top: var(--space-3);
   flex-wrap: wrap;
 }
 
@@ -146,6 +150,10 @@
 }
 
 .customColorRow {
+  margin-top: var(--space-3);
+}
+
+.customColorRowSeparated {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
   border-top: var(--border);

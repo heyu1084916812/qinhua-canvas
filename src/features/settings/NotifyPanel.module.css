@@ -6,6 +6,8 @@
 }
 
 .block {
+  display: flex;
+  flex-direction: column;
   border-radius: 8px;
   background: var(--bg-subtle);
   padding: var(--space-3);
@@ -13,16 +15,20 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
+  font-size: var(--fs-title);
+  font-weight: 600;
   color: var(--text-1);
 }
 
 .caption {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-1) 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
-  line-height: 1.6;
+  line-height: 1.5;
+}
+
+.rows {
+  margin-top: var(--space-3);
 }
 
 .switchRow {
@@ -30,8 +36,20 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-top: var(--space-3);
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: var(--space-3) 0;
+  border-top: var(--border);
   flex-wrap: wrap;
+}
+
+.switchRow:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.switchRow:last-child {
+  padding-bottom: 0;
 }
 
 .rowText {
@@ -43,7 +61,8 @@
 }
 
 .rowLabel {
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
+  font-weight: 600;
   color: var(--text-1);
 }
 
@@ -106,7 +125,9 @@
 }
 
 .action {
-  height: 30px;
+  align-self: flex-start;
+  height: 32px;
+  margin-top: var(--space-3);
   padding: 0 var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);

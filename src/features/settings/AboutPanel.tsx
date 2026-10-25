@@ -38,7 +38,7 @@ const BLOCKS: { title: string; body: string }[] = [
 
 export function AboutPanel() {
   return (
-    <div className={styles.panel} data-about-panel>
+    <div className={styles.panel} data-about-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>关于轻画</h3>
         <p className={styles.caption} data-about-version>

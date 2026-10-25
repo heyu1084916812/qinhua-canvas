@@ -86,7 +86,7 @@
 }
 
 .primary {
-  height: 36px;
+  height: 32px;
   padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-control);
@@ -104,7 +104,7 @@
 }
 
 .btn {
-  height: 36px;
+  height: 32px;
   padding: 0 var(--space-4);
   border: var(--border);
   border-radius: var(--radius-control);

@@ -102,7 +102,7 @@ export function BackupPanel() {
   }
 
   return (
-    <div className={styles.panel} data-backup-panel>
+    <div className={styles.panel} data-backup-panel data-settings-panel>
       {profileBackup ? (
         <section className={styles.block}>
           <div className={styles.row} data-profile-backup>

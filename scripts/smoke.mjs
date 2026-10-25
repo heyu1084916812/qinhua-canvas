@@ -27032,18 +27032,20 @@ async function g115(browser) {
     tones: await lookPanel.locator('[data-canvas-tone]').count(),
     customColors: await lookPanel.locator('[data-canvas-custom-color]').count(),
     titleSizes: await lookPanel.locator('[data-node-title-size]').count(),
+    bodySizes: await lookPanel.locator('[data-node-body-size]').count(),
     densities: await lookPanel.locator('[data-node-density]').count(),
   }
   rec(
     g,
-    '★ 「外观与体验」里有画布块（3 种背景样式 + 6 档色调 + 自定义颜色 + 节点字号档）',
+    '★ 「画布外观」只留画布与节点外观（3 种背景 + 6 档色调 + 节点尺寸），文字设置不混入',
     (await lookPanel.count()) === 1 &&
       lookCounts.backgrounds === 3 &&
       lookCounts.tones === 6 &&
       lookCounts.customColors === 1 &&
-      lookCounts.titleSizes === 4 &&
+      lookCounts.titleSizes === 0 &&
+      lookCounts.bodySizes === 0 &&
       lookCounts.densities === 3,
-    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 标题档=${lookCounts.titleSizes} 尺寸档=${lookCounts.densities}`,
+    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 标题档=${lookCounts.titleSizes} 正文档=${lookCounts.bodySizes} 尺寸档=${lookCounts.densities}`,
   )
 
   const defaultNodeCard = await nodeCardColor()
@@ -27133,7 +27135,17 @@ async function g115(browser) {
   await sleep(350)
   rec(g, '★ 切纯色：背景层不渲染（不是拿同色去盖）', (await bgShape()) === 'none')
 
-  // 节点内容字号：标题 14 → 18、正文 14 → 20
+  // 节点文字归入「字体与文字」：标题 14 → 18、正文 14 → 20
+  await page.locator('[data-global-settings-tab="typography"]').click()
+  await sleep(300)
+  const typographyPanel = page.locator('[data-font-panel]')
+  rec(
+    g,
+    '★★ 「字体与文字」同时管理界面文字和项目节点文字',
+    (await typographyPanel.locator('[data-node-title-size]').count()) === 4 &&
+      (await typographyPanel.locator('[data-node-body-size]').count()) === 5,
+    `标题档=${await typographyPanel.locator('[data-node-title-size]').count()} 正文档=${await typographyPanel.locator('[data-node-body-size]').count()}`,
+  )
   const t0 = await titleSize()
   const b0 = await bodySize()
   await page.locator('[data-node-title-size="18"]').click()
@@ -28427,11 +28439,11 @@ async function g119(browser) {
   })
   rec(
     g,
-    '★★ 设置右栏只使用三档文字：24/600 标题、14/500 标签、13/400 正文',
+    '★★ 设置右栏只使用三档文字：24/600 标题、14/600 分组、13/400 正文',
     settingsType.title?.size === '24px' &&
       settingsType.title.weight === '600' &&
       settingsType.label?.size === '14px' &&
-      settingsType.label.weight === '500' &&
+      settingsType.label.weight === '600' &&
       settingsType.body?.size === '13px' &&
       settingsType.body.weight === '400',
     JSON.stringify(settingsType),
@@ -28731,6 +28743,9 @@ async function g121(browser) {
       const cb = content.getBoundingClientRect()
       const found = []
       const sectionBody = content.querySelector('[data-settings-section-body]') ?? content
+      const panel = sectionBody.querySelector('[data-settings-panel]')
+      const firstCard = panel?.querySelector(':scope > section')
+      const cardStyle = firstCard ? getComputedStyle(firstCard) : null
       for (const el of sectionBody.querySelectorAll('*')) {
         const cs = getComputedStyle(el)
         if (cs.backgroundColor === 'rgba(0, 0, 0, 0)') continue
@@ -28750,6 +28765,9 @@ async function g121(browser) {
       return {
         contentBg: getComputedStyle(document.querySelector('[data-global-settings-panel]')).backgroundColor,
         content: { left: Math.round(cb.left), right: Math.round(cb.right) },
+        cardPadding: cardStyle
+          ? [cardStyle.paddingTop, cardStyle.paddingRight, cardStyle.paddingBottom, cardStyle.paddingLeft]
+          : null,
         found,
       }
     })
@@ -28777,10 +28795,15 @@ async function g121(browser) {
     'about',
   ]
   const rows = []
+  const titleMismatches = []
   let stripBg = null
   for (const tab of TABS) {
-    await page.locator(`[data-global-settings-tab="${tab}"]`).click()
+    const tabButton = page.locator(`[data-global-settings-tab="${tab}"]`)
+    const expectedTitle = (await tabButton.innerText()).trim()
+    await tabButton.click()
     await sleep(320)
+    const actualTitle = (await page.locator('[data-settings-section-title]').innerText()).trim()
+    if (actualTitle !== expectedTitle) titleMismatches.push(`${tab}:${actualTitle}≠${expectedTitle}`)
     /**
      * 「渠道配置」要先**选中一条渠道**再量：不然右栏是空占位，
      * 「右边那块（基本信息 / 连接与鉴权）的描边也没了」这条根本没进量程。
@@ -28817,9 +28840,80 @@ async function g121(browser) {
         .map((x) => `${x.left}~${x.right} ${x.tag}.${x.cls} ${x.border} ${x.bg}`)
         .join(' | '),
       pageBg: m.contentBg,
+      cardPadding: m.cardPadding,
     })
     if (tab === 'channels') stripBg = await page.locator('[data-settings-global-route]').evaluate((el) => getComputedStyle(el).backgroundColor)
   }
+
+  rec(
+    g,
+    '★★ 每个栏目的页标题与左侧选中的栏目一致（备份 / 快照、帮助 / 快捷键不再串栏）',
+    titleMismatches.length === 0,
+    titleMismatches.length ? titleMismatches.join(' | ') : '15 / 15 一致',
+  )
+
+  const paddingBad = rows.filter(
+    (row) =>
+      row.tab !== 'channels' &&
+      (!row.cardPadding || row.cardPadding.some((value) => value !== '16px')),
+  )
+  rec(
+    g,
+    '★★ 普通设置卡片统一 16px 内距（模型服务保留独立双栏工作区）',
+    paddingBad.length === 0,
+    paddingBad.length
+      ? paddingBad.map((row) => `${row.tab}:${(row.cardPadding ?? []).join('/')}`).join(' | ')
+      : '14 / 14 为 16px',
+  )
+
+  await page.locator('[data-global-settings-tab="notify"]').click()
+  await sleep(220)
+  const copyRhythm = await page.locator('[data-notify-panel] > section').first().evaluate((section) => {
+    const heading = section.querySelector('h3')
+    const description = heading?.nextElementSibling
+    const content = description?.nextElementSibling
+    if (!heading || !description || !content) return null
+    const hs = getComputedStyle(heading)
+    const ps = getComputedStyle(description)
+    return {
+      heading: [hs.fontSize, hs.fontWeight],
+      body: [ps.fontSize, ps.fontWeight],
+      headingToDescription: Math.round(description.getBoundingClientRect().top - heading.getBoundingClientRect().bottom),
+      descriptionToContent: Math.round(content.getBoundingClientRect().top - description.getBoundingClientRect().bottom),
+    }
+  })
+  rec(
+    g,
+    '★★ 文案节奏统一：分区标题 14/600 → 说明 13/400 → 内容',
+    copyRhythm?.heading.join('/') === '14px/600' &&
+      copyRhythm?.body.join('/') === '13px/400' &&
+      copyRhythm.headingToDescription === 4 &&
+      copyRhythm.descriptionToContent === 16,
+    JSON.stringify(copyRhythm),
+  )
+
+  const controlSizes = {}
+  for (const [tab, selector] of [
+    ['channels', '[data-route-strategy]'],
+    ['cli', '[data-cli-panel] button'],
+    ['canvasLook', '[data-canvas-background]'],
+    ['typography', '[data-node-title-size]'],
+    ['notify', '[data-desktop-notify-request], [data-desktop-notify-test]'],
+  ]) {
+    await page.locator(`[data-global-settings-tab="${tab}"]`).click()
+    await sleep(220)
+    controlSizes[tab] = await page.locator(selector).evaluateAll((els) =>
+      [...new Set(els.map((el) => Math.round(el.getBoundingClientRect().height)))],
+    )
+  }
+  rec(
+    g,
+    '★★ 常规操作按钮统一 32px 高（模型服务 / CLI / 画布外观 / 节点文字 / 通知）',
+    Object.values(controlSizes).every(
+      (heights) => heights.length === 1 && heights[0] === 32,
+    ),
+    JSON.stringify(controlSizes),
+  )
 
   const ref = rows.find((r) => r.tab === 'channels')
   const bad = rows.filter((r) => r.left !== ref.left || r.right !== ref.right)

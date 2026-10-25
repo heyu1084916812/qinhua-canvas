@@ -4,9 +4,7 @@ import { useTheme } from '../../app/ThemeProvider'
 import {
   CANVAS_BACKGROUNDS,
   CANVAS_TONES,
-  NODE_BODY_SIZES,
   NODE_DENSITIES,
-  NODE_TITLE_SIZES,
   canvasBackgroundLabel,
   canvasToneLabel,
   nodeDensityLabel,
@@ -16,6 +14,7 @@ import styles from './CanvasLookPanel.module.css'
 
 interface ColorControlProps {
   scope: 'canvas' | 'node'
+  separated?: boolean
   label: string
   hint: string
   value: string | null
@@ -27,6 +26,7 @@ interface ColorControlProps {
 
 function ColorControl({
   scope,
+  separated = false,
   label,
   hint,
   value,
@@ -59,7 +59,7 @@ function ColorControl({
   }
 
   return (
-    <div className={styles.customColorRow}>
+    <div className={separated ? styles.customColorRowSeparated : styles.customColorRow}>
       <div className={styles.customColorMeta}>
         <span className={styles.rowLabel}>{label}</span>
         <span className={styles.customColorHint}>{hint}</span>
@@ -183,7 +183,7 @@ export function CanvasLookPanel() {
   const fallbackNodeColor = setting === 'dark' ? '#222222' : '#ffffff'
 
   return (
-    <div className={styles.panel} data-canvas-look-panel>
+    <div className={styles.panel} data-canvas-look-panel data-settings-panel>
       <section className={styles.block}>
         <div className={styles.head}>
           <h3 className={styles.title}>画布</h3>
@@ -245,6 +245,7 @@ export function CanvasLookPanel() {
 
         <ColorControl
           scope="canvas"
+          separated
           label="自定义颜色"
           hint="使用取色器，或填写 HEX 色值"
           value={current.customColor}
@@ -256,7 +257,7 @@ export function CanvasLookPanel() {
       </section>
 
       <section className={styles.block}>
-        <h3 className={styles.title}>节点内容显示</h3>
+        <h3 className={styles.title}>节点外观</h3>
         <p className={styles.caption}>只影响节点显示，不改变生成结果；底色同时作用于外框与内容井。</p>
 
         <ColorControl
@@ -269,46 +270,6 @@ export function CanvasLookPanel() {
           onChange={(nodeColor) => update({ nodeColor })}
           onReset={() => update({ nodeColor: null })}
         />
-
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>节点标题字号</span>
-          <div className={styles.segments} role="radiogroup" aria-label="节点标题字号">
-            {NODE_TITLE_SIZES.map((size) => (
-              <button
-                key={size}
-                type="button"
-                role="radio"
-                aria-checked={current.titleSize === size}
-                className={current.titleSize === size ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                data-node-title-size={size}
-                disabled={disabled}
-                onClick={() => update({ titleSize: size })}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>提示词正文字号</span>
-          <div className={styles.segments} role="radiogroup" aria-label="提示词正文字号">
-            {NODE_BODY_SIZES.map((size) => (
-              <button
-                key={size}
-                type="button"
-                role="radio"
-                aria-checked={current.bodySize === size}
-                className={current.bodySize === size ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                data-node-body-size={size}
-                disabled={disabled}
-                onClick={() => update({ bodySize: size })}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <div className={styles.row}>
           <span className={styles.rowLabel}>新节点默认尺寸</span>

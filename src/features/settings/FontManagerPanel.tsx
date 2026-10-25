@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useFonts } from '../../app/providers/FontProvider'
+import { useCanvasStyle } from '../../app/providers/CanvasStyleProvider'
 import {
   FONT_COUNT_MAX,
   FONT_FORMATS,
@@ -8,6 +9,7 @@ import {
   type UserFont,
 } from '../../domain/ui/fonts'
 import { UI_SCALES, uiScaleLabel } from '../../domain/ui/appearance'
+import { NODE_BODY_SIZES, NODE_TITLE_SIZES } from '../../domain/project/canvasStyle'
 import styles from './FontManagerPanel.module.css'
 
 /**
@@ -31,6 +33,7 @@ type ImportTarget = { kind: 'new' } | { kind: 'bold'; family: string; name: stri
 
 export function FontManagerPanel() {
   const fonts = useFonts()
+  const canvas = useCanvasStyle()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
@@ -92,7 +95,7 @@ export function FontManagerPanel() {
   }
 
   return (
-    <div className={styles.panel} data-font-panel data-typography>
+    <div className={styles.panel} data-font-panel data-typography data-settings-panel>
       <section className={styles.block}>
         <div className={styles.head}>
           <h3 className={styles.title}>界面字体</h3>
@@ -295,6 +298,58 @@ export function FontManagerPanel() {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className={styles.block}>
+        <h3 className={styles.title}>节点文字</h3>
+        <p className={styles.caption}>随当前项目保存，只影响画布节点的标题与提示词正文。</p>
+        <div className={styles.segRow}>
+          <span className={styles.rowLabel}>节点标题字号</span>
+          <div className={styles.seg} role="radiogroup" aria-label="节点标题字号">
+            {NODE_TITLE_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                role="radio"
+                aria-checked={canvas.style.titleSize === size}
+                className={
+                  canvas.style.titleSize === size
+                    ? `${styles.segItem} ${styles.segOn}`
+                    : styles.segItem
+                }
+                data-node-title-size={size}
+                disabled={!canvas.projectId}
+                onClick={() => canvas.update({ titleSize: size })}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={styles.segRow}>
+          <span className={styles.rowLabel}>提示词正文字号</span>
+          <div className={styles.seg} role="radiogroup" aria-label="提示词正文字号">
+            {NODE_BODY_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                role="radio"
+                aria-checked={canvas.style.bodySize === size}
+                className={
+                  canvas.style.bodySize === size
+                    ? `${styles.segItem} ${styles.segOn}`
+                    : styles.segItem
+                }
+                data-node-body-size={size}
+                disabled={!canvas.projectId}
+                onClick={() => canvas.update({ bodySize: size })}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </div>
+        {!canvas.projectId ? <p className={styles.hint}>打开项目后可调整。</p> : null}
       </section>
     </div>
   )

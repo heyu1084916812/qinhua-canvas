@@ -406,7 +406,7 @@ function SettingsChannelAvatar({
   )
 }
 
-export function SettingsPage() {
+export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const channels = useChannels()
   const channelsList = useSyncExternalStore(
     channels.subscribe,
@@ -1267,7 +1267,7 @@ export function SettingsPage() {
         于是这个页面现在就是**渠道配置本身**，从内容直接开始。
       */}
       {(
-      <div className={styles.layout} data-settings-card>
+      <div className={embedded ? styles.layoutEmbedded : styles.layout} data-settings-card>
         {/* —— 全局选路策略（用户 2026-09-29 第 12/13 轮）——
             跨渠道比较用的一把尺子，与「当前选中哪条渠道」无关。
             它**不放进渠道编辑区**（否则看上去像是右边渠道表单里的一项）——

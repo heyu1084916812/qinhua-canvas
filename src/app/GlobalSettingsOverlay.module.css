@@ -66,6 +66,13 @@
   color: var(--text-1);
 }
 
+.close:focus-visible,
+.navItem:focus-visible,
+.searchClear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .body {
   flex: 1 1 auto;
   min-height: 0;
@@ -108,12 +115,13 @@
 .searchInput {
   flex: 1 1 auto;
   min-width: 0;
+  height: var(--space-8);
   box-sizing: border-box;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   /* 右侧给清空按钮留位，免得长词被压在按钮下面 */
   padding-right: 32px;
   font: inherit;
@@ -159,10 +167,12 @@
 }
 
 .navItem {
+  min-height: var(--space-8);
+  box-sizing: border-box;
   border: none;
   background: transparent;
   border-radius: var(--radius-control);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
   /* 图标 + 标签同一行（用户 2026-10-10 #8）：图标列定宽，标签左对齐才不会一栏一个位置 */
   display: flex;
   align-items: center;
@@ -235,9 +245,12 @@
   --settings-title-size: 24px;
   --settings-title-weight: 600;
   --settings-label-size: 14px;
-  --settings-label-weight: 500;
+  --settings-label-weight: 600;
   --settings-body-size: 13px;
   --settings-body-weight: 400;
+  --settings-card-padding: 16px;
+  --settings-panel-gap: 12px;
+  --settings-control-height: 32px;
 
   flex: 1 1 auto;
   min-width: 0;
@@ -249,7 +262,7 @@
 
 .sectionHead {
   flex: none;
-  padding: var(--space-5) var(--space-6) var(--space-4);
+  padding: var(--space-4) var(--space-6) var(--space-3);
   border-bottom: var(--border);
 }
 
@@ -274,8 +287,7 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  /* 子面板统一呼吸与最大可读宽度；长表单仍滚动 */
-  padding: var(--space-5) var(--space-6) var(--space-8);
+  padding: var(--space-4) var(--space-6) var(--space-6);
 }
 
 .sectionBody > * {
@@ -288,6 +300,43 @@
 
 .sectionBody > :is([data-cli-panel], [data-hosting-page]) {
   max-width: none;
+}
+
+/* 普通设置面板共用同一套页面节奏。模型服务是独立双栏工作区，单独处理。 */
+.sectionBody [data-settings-panel] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-panel-gap);
+}
+
+.sectionBody [data-settings-panel] > section {
+  box-sizing: border-box;
+  padding: var(--settings-card-padding);
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.sectionBody [data-settings-panel] > section > :is(h3, h4) {
+  margin: 0;
+  font-size: var(--settings-label-size);
+  font-weight: var(--settings-label-weight);
+  line-height: 1.4;
+}
+
+.sectionBody [data-settings-panel] > section > p {
+  margin: var(--space-1) 0 0;
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+  line-height: 1.5;
+}
+
+.sectionBody [data-settings-panel] > section > p + * {
+  margin-top: var(--space-4);
+}
+
+.sectionBody [data-settings-panel] > section > :is(h3, h4) + :not(p) {
+  margin-top: var(--space-3);
 }
 
 /*
@@ -305,13 +354,22 @@
 }
 
 .sectionBody :is(button, [role='button']) {
-  font-size: var(--settings-label-size);
-  font-weight: var(--settings-label-weight);
+  font-size: var(--settings-body-size);
+  font-weight: 500;
+}
+
+.sectionBody :is(button, [role='button'], summary, a):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .sectionBody :is(input, select, textarea) {
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
+}
+
+.sectionBody [data-choice-picker] > button {
+  min-height: var(--settings-control-height);
 }
 
 .sectionBody :is(

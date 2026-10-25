@@ -24,7 +24,7 @@ const SHORTCUTS: { keys: string; what: string }[] = [
 
 export function ShortcutsPanel() {
   return (
-    <div className={styles.panel} data-shortcuts-panel data-help-panel>
+    <div className={styles.panel} data-shortcuts-panel data-help-panel data-settings-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>快捷键</h3>
         <p className={styles.caption}>焦点在输入框里时，快捷键让位给打字。</p>

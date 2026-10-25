@@ -145,7 +145,7 @@ export function HostingPage() {
   const readiness = hostingReadiness(config)
 
   return (
-    <div className={styles.page} data-hosting-page>
+    <div className={styles.page} data-hosting-page data-settings-panel>
       <p className={styles.lead}>默认以内联方式发送；配置图床后改用公网直链。</p>
 
       <section className={styles.card} data-hosting-card>

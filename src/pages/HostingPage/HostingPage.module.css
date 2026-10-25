@@ -12,9 +12,9 @@
 }
 
 .lead {
-  margin: 0 0 20px;
+  margin: 0;
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.5;
   color: var(--text-2);
 }
 
@@ -31,13 +31,13 @@
 .row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .rowLabel {
   width: 72px;
   flex: none;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2);
 }
 
@@ -52,7 +52,7 @@
   height: 32px;
   padding: 0 14px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -74,8 +74,8 @@
 
 .hint {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-3);
 }
 
@@ -86,13 +86,13 @@
 }
 
 .primary {
-  height: 34px;
+  height: 32px;
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -103,7 +103,7 @@
 }
 
 .status {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2);
 }
 
@@ -151,7 +151,7 @@
 }
 
 .input {
-  height: 34px;
+  height: 32px;
   padding: 0 10px;
   border: var(--border);
   border-radius: 8px;
@@ -183,7 +183,7 @@
 
 /* 次要按钮（测连通性）：描边不实底，与主按钮拉开层级 */
 .secondary {
-  height: 34px;
+  height: 32px;
   padding: 0 16px;
   border: var(--border);
   border-radius: 8px;

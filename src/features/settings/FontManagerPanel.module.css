@@ -6,6 +6,8 @@
 }
 
 .block {
+  display: flex;
+  flex-direction: column;
   border-radius: 8px;
   background: var(--bg-subtle);
   padding: var(--space-3);
@@ -20,8 +22,8 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
+  font-size: var(--fs-title);
+  font-weight: 600;
   color: var(--text-1);
 }
 
@@ -35,15 +37,17 @@
 }
 
 .caption {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-1) 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
+  line-height: 1.5;
 }
 
 .list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .item {
@@ -55,7 +59,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   padding: var(--space-2) var(--space-3);
-  min-height: 56px;
+  min-height: 52px;
 }
 
 .itemOn {
@@ -141,13 +145,13 @@
   flex-wrap: wrap;
 }
 
-/* 鍘熺敓 file input 鍙仛"琚寜閽Е鍙?鐨勮浇浣擄紝涓嶅崰鐗堥潰 */
+/* 原生文件输入只负责选择文件，不占版面。 */
 .file {
   display: none;
 }
 
 .btn {
-  height: 34px;
+  height: 32px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
   border: var(--border);
@@ -184,7 +188,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.segRow + .segRow {
   margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--border);
 }
 
 .rowLabel {
