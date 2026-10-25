@@ -12,7 +12,7 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  border: var(--border);
+  border: 1px solid var(--node-border-inner);
   /* 同心圆角（§3.2）：相对外框内缩 7px（1px 外框描边 + 6px 本体内边距），
      半径 = 外框半径 − 内缩量；沿用 --radius-control（10px）会在角上留下两条不同弧 */
   border-radius: calc(var(--radius-node) - 7px);
@@ -134,7 +134,7 @@
   padding: 0 6px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
-  background: var(--node-control);
+  background: var(--node-inset);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);

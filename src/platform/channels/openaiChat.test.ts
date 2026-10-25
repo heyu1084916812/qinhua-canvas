@@ -394,6 +394,38 @@ describe('openaiChat adapter / 工具调用', () => {
     expect(bodies[1]!.tool_choice).toBe('auto')
   })
 
+  it('★★ 多轮工具请求把节点素材编码进 OpenAI user 消息，不是空 inputs', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        bodies.push(req.body as Record<string, unknown>)
+        return resp(200, { choices: [{ message: { content: '看到标题了' }, finish_reason: 'stop' }] })
+      },
+    })
+    const a = createOpenAiChatAdapter(cfg, {
+      network: net,
+      assets: platformWith([{ id: 'h1', bytes: PNG_BYTES, mime: 'image/png' }]).assets,
+    })
+    await a.completeText(
+      {
+        ...request([{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }]),
+        messages: [{ role: 'user', content: '看文字在哪个位置', imageNodeIds: ['n1'] }],
+        tools: [tool],
+      },
+      signal,
+    )
+
+    expect(bodies[0]?.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '看文字在哪个位置' },
+          expect.objectContaining({ type: 'image_url' }),
+        ],
+      },
+    ])
+  })
+
   it('★★ content 为 null 但带 tool_calls → 不算解析失败，原样带出', async () => {
     const net = createMemoryNetwork({
       handler: async () =>

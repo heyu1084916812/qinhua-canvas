@@ -60,7 +60,7 @@
   min-width: 0;
   min-height: 0;
   border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--node-border-inner);
   background: var(--node-inset);
   overflow: hidden;
 }
@@ -171,7 +171,7 @@
 }
 
 .chipOff {
-  background: var(--node-control);
+  background: var(--node-inset);
   color: var(--text-3);
 }
 
@@ -191,7 +191,7 @@
   padding: 0 8px;
   box-sizing: border-box;
   border-radius: var(--radius-control);
-  background: var(--node-control);
+  background: var(--node-inset);
   color: var(--danger);
   font-size: var(--fs-chip);
   font-weight: 600;
@@ -234,15 +234,15 @@
   box-sizing: border-box;
   border: 1px solid var(--stroke);
   border-radius: 4px;
-  background: var(--bg-surface);
+  background: var(--node-control);
   cursor: pointer;
 }
 
 .checkBox:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--node-action);
+  border-color: var(--node-action);
   /* 对勾用 inset 阴影示意（与外扩口的环形同一手法，不再塞伪元素） */
-  box-shadow: inset 0 0 0 2px var(--bg-surface);
+  box-shadow: inset 0 0 0 2px var(--node-action-text);
 }
 
 /* ── ④ 全宽主按钮 ── */
@@ -253,10 +253,10 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid var(--control-inverse-bg);
+  border: 1px solid var(--node-action);
   border-radius: var(--radius-control);
-  background: var(--control-inverse-bg);
-  color: var(--control-inverse-text);
+  background: var(--node-action);
+  color: var(--node-action-text);
   font-family: var(--font-sans);
   font-size: var(--fs-body);
   font-weight: 700;
@@ -265,8 +265,8 @@
 }
 
 .run:not(:disabled):hover {
-  background: var(--control-inverse-bg-hover);
-  color: var(--control-inverse-text-hover);
+  background: var(--node-action-hover);
+  color: var(--node-action-text);
 }
 
 .run:disabled {

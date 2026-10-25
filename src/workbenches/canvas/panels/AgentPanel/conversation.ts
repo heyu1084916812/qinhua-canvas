@@ -41,6 +41,8 @@ const TOOL_LABEL: Record<string, string> = {
   runFrom: '已运行下游链',
   moveNodes: '已移动节点',
   arrangeNodes: '已排列节点',
+  resizeNodes: '已调整节点尺寸',
+  deleteNodes: '已删除节点',
   deleteEdges: '已取消连线',
   compareNodes: '已创建对比',
   sliceImage: '图片选区已处理',
@@ -65,6 +67,8 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
   runFrom: '下游链运行失败',
   moveNodes: '移动节点失败',
   arrangeNodes: '排列节点失败',
+  resizeNodes: '调整尺寸失败',
+  deleteNodes: '删除节点失败',
   deleteEdges: '取消连线失败',
   compareNodes: '创建对比失败',
   sliceImage: '图片选区处理失败',
@@ -195,6 +199,22 @@ export function describeToolResult(
       return {
         lines: failed ? problems : [`按 ${String(r.layout ?? '网格')} 排列 ${positions.length} 个节点`],
         nodeIds: positions.map((item) => String(asRecord(item).nodeId)),
+        failed,
+      }
+    }
+    case 'resizeNodes': {
+      const nodes = asArray(r.nodes)
+      return {
+        lines: failed ? problems : [`调整 ${nodes.length} 个节点的画布尺寸`],
+        nodeIds: nodes.map((item) => String(asRecord(item).nodeId)),
+        failed,
+      }
+    }
+    case 'deleteNodes': {
+      const ids = asArray(r.deletedNodeIds).map(String)
+      return {
+        lines: failed ? problems : [`删除 ${ids.length} 个节点`],
+        nodeIds: [],
         failed,
       }
     }

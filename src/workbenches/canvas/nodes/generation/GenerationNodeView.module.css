@@ -142,7 +142,7 @@
   padding: 12px;
   box-sizing: border-box;
   background: var(--node-inset);
-  border: 1px dashed var(--stroke);
+  border: 1px solid var(--node-border-inner);
   border-radius: var(--radius-control);
   text-align: center;
   overflow: hidden;

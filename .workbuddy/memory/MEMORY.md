@@ -1,5 +1,24 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 视觉输入与节点尺寸避让（2026-10-25 → 对账 #746）
+
+- **Agent 看不见图的根因不是图片尺寸**：`askModel()` 曾写死 `inputs: []`，
+  所以模型只能拿到尺寸再猜选区。现在 `AgentLoopDeps.inputs` 是本轮用户 @ / 添加的节点，
+  `AgentPanel.loopDeps()` 将它透传到 `channels.completeWithTools()`；
+  `ChatMessage.imageNodeIds` 只保存节点引用。OpenAI / Gemini 原生链仍由渠道适配器编码。
+- **尺寸也要保持原比例**：`resizeNodes` 统一宽高和缩放后必须走 `lockedResize`，
+  不能对两轴分别 `Math.max`（靠近最小尺寸会拉歪图片）。`deleteNodes` 在 `CONFIRM_TOOLS`，
+  删除确认卡列出节点名；不要把它误当成 `deleteEdges`。
+- **避让看实时世界矩形**：Agent 自己的移动、排列、缩放、对比、裁剪、宫格切分都走
+  `agentGeometry.avoidRectOverlap`；同批已放置的矩形也要加入障碍集合。
+  组内节点禁止重排 / 缩放，避免破坏容器布局。
+- **节点三层配色**：浅色节点面仍按用户指定 `#ececec`，深色统一 `#222222`；
+  `--node-border` / `--node-border-inner` / `--node-control` 只做低对比层次；
+  循环的“循环 / 并发”“图片 / 提示词”使用中性控件，主操作才用 `--node-action`。
+- **验证**：122 项定向单测覆盖真实 `image_url`、删除确认、等高保持比例和避让；
+  隔离节点已渲染明暗两套示例，0 控制台错误，临时库 / 素材 / 截图已删除。
+  全量 Vitest **3102 passed / 1 skipped**；`npm run check`、`npm run build` 通过。
+
 ### Agent 空间操作、节点表层与多选灯箱（2026-10-25 → 对账 #745）
 
 - **Agent 的读图摘要就是空间真源**：`readGraph` 必须给每个节点世界坐标、尺寸、九宫分区、

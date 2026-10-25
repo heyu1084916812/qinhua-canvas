@@ -15,6 +15,14 @@ import { applyAgentPlan } from './applyAgentPlan'
 import type { AgentRunOutcome } from './runOutcome'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { createId } from '../../../shared/id'
+import {
+  avoidRectOverlap,
+  isTopLevelNode,
+  nodeMinSize,
+  placeNodeWithoutOverlap,
+  snapshotRects,
+} from './agentGeometry'
+import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -218,6 +226,35 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
         },
         dx: { type: 'number' },
         dy: { type: 'number' },
+      },
+      required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'resizeNodes',
+    description:
+      '调整图片 / 节点的画布尺寸。可用 width / height 指定同宽同高，scale 指定等比缩放；' +
+      '尺寸会保持各自原始宽高比、不拉伸图片。useMax:true 时同宽取最大宽、同高取最大高；' +
+      '否则取最小值（避免自动把图放得过大）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: { type: 'array', items: { type: 'string' } },
+        width: { type: 'number', description: '统一宽度（画布单位），与 scale 二选一；不给数值则按 useMax 取当前最大/最小宽。' },
+        height: { type: 'number', description: '统一高度（画布单位），与 scale 二选一；不给数值则按 useMax 取当前最大/最小高。' },
+        scale: { type: 'number', description: '相对当前尺寸的等比缩放倍数，如 0.5 / 2。' },
+        useMax: { type: 'boolean', description: '统一尺寸时取最大值而不是最小值。' },
+      },
+      required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'deleteNodes',
+    description: '删除指定节点。会级联删除关联连线；会先在确认卡中列出节点名，不删除素材库文件。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: { type: 'array', items: { type: 'string' } },
       },
       required: ['nodeIds'],
     },
@@ -863,6 +900,9 @@ async function moveNodesInStore(store: CanvasStore, args: Record<string, unknown
   if (ids.length === 0) return { ok: false, problems: ['没有指定要移动的节点'] }
   const { unique, nodes, missing } = selectedNodes(store, ids)
   if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+  if (nodes.some((node) => !isTopLevelNode(node))) {
+    return { ok: false, problems: ['组内节点的位置与尺寸由容器管理，请把节点移出组后再操作'] }
+  }
 
   const positionRows = Array.isArray(args.positions) ? args.positions.map(asRecord) : []
   const positions = new Map(
@@ -885,13 +925,12 @@ async function moveNodesInStore(store: CanvasStore, args: Record<string, unknown
   }
 
   store.beginPlan(`agent-move:${createId('plan')}`, 'Agent 移动节点')
-  for (const node of nodes) {
-    const target = positions.get(node.id)
-    const moveX = target ? target.x - node.x : dx
-    const moveY = target ? target.y - node.y : dy
-    if (moveX === 0 && moveY === 0) continue
-    store.dispatch({ kind: 'node.move', ids: [node.id], dx: moveX, dy: moveY, phase: 'end' })
-  }
+  for (const node of nodes) placeNodeWithoutOverlap(store, node.id, {
+    x: node.x + (positions.get(node.id) ? positions.get(node.id)!.x - node.x : dx),
+    y: node.y + (positions.get(node.id) ? positions.get(node.id)!.y - node.y : dy),
+    w: node.w,
+    h: node.h,
+  })
   store.endPlan()
   await store.flush()
   const after = store.getSnapshot().nodes
@@ -907,8 +946,11 @@ async function moveNodesInStore(store: CanvasStore, args: Record<string, unknown
 async function arrangeNodesInStore(store: CanvasStore, args: Record<string, unknown>) {
   const ids = asStringArray(args.nodeIds)
   if (ids.length < 2) return { ok: false, problems: ['至少需要 2 个节点才能排列'] }
-  const { nodes, missing } = selectedNodes(store, ids)
+  const { unique, nodes, missing } = selectedNodes(store, ids)
   if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+  if (nodes.some((node) => !isTopLevelNode(node))) {
+    return { ok: false, problems: ['组内节点由容器自动排版，不需要再排列'] }
+  }
   const parents = new Set(nodes.map((node) => node.parentId ?? null))
   if (parents.size > 1) {
     return { ok: false, problems: ['一次只能排列同一层级的节点，不能混排分组内外的节点'] }
@@ -963,26 +1005,140 @@ async function arrangeNodesInStore(store: CanvasStore, args: Record<string, unkn
   }
 
   store.beginPlan(`agent-arrange:${createId('plan')}`, 'Agent 排列节点')
-  for (const node of ordered) {
+  const graph = store.getSnapshot()
+  const settled: { x: number; y: number; w: number; h: number }[] = []
+  const fixed = snapshotRects(graph.nodes.filter((other) => !unique.includes(other.id)))
+  const remaining = ordered.map((node) => ({ ...node }))
+  while (remaining.length > 0) {
+    const node = remaining.shift()!
+    const current = remaining.map((item) => ({ ...item }))
     const target = targets.get(node.id)!
+    const final = avoidRectOverlap(
+      { ...node, ...target },
+      [
+        ...fixed,
+        ...settled,
+        ...current,
+      ],
+    )
+    targets.set(node.id, { x: final.x, y: final.y })
     store.dispatch({
       kind: 'node.move',
       ids: [node.id],
-      dx: target.x - node.x,
-      dy: target.y - node.y,
+      dx: final.x - node.x,
+      dy: final.y - node.y,
       phase: 'end',
     })
+    settled.push({ x: final.x, y: final.y, w: node.w, h: node.h })
   }
   store.endPlan()
   await store.flush()
   return {
     ok: true,
     layout,
-    positions: [...targets.entries()].map(([nodeId, point]) => ({
-      nodeId,
-      x: Math.round(point.x),
-      y: Math.round(point.y),
+    positions: ordered.map((node) => ({
+      nodeId: node.id,
+      x: Math.round(targets.get(node.id)!.x),
+      y: Math.round(targets.get(node.id)!.y),
     })),
+  }
+}
+
+async function resizeNodesInStore(store: CanvasStore, args: Record<string, unknown>) {
+  const ids = asStringArray(args.nodeIds)
+  if (ids.length === 0) return { ok: false, problems: ['没有指定要调整的节点'] }
+  const { nodes, missing } = selectedNodes(store, ids)
+  if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+  if (nodes.some((node) => !isTopLevelNode(node))) {
+    return { ok: false, problems: ['组内节点的位置与尺寸由容器管理，请把节点移出组后再调整'] }
+  }
+  const scale = Number(args.scale)
+  const width = Number(args.width)
+  const height = Number(args.height)
+  const scaled = Number.isFinite(scale) && scale > 0
+  const uniformWidth = Number.isFinite(width) && width > 0
+  const uniformHeight = Number.isFinite(height) && height > 0
+  if (Number(scaled) + Number(uniformWidth) + Number(uniformHeight) !== 1) {
+    return { ok: false, problems: ['width / height / scale 只能指定其中一项'] }
+  }
+  const useMax = args.useMax === true
+  const uniformW = uniformWidth
+    ? Number.isFinite(width)
+      ? width
+      : useMax
+        ? Math.max(...nodes.map((node) => node.w))
+        : Math.min(...nodes.map((node) => node.w))
+    : 0
+  const uniformH = uniformHeight
+    ? Number.isFinite(height)
+      ? height
+      : useMax
+        ? Math.max(...nodes.map((node) => node.h))
+        : Math.min(...nodes.map((node) => node.h))
+    : 0
+  const changes = nodes.map((node) => {
+    const ratio = node.w / Math.max(1, node.h)
+    let w = node.w
+    let h = node.h
+    if (scaled) {
+      w *= scale
+      h *= scale
+    } else if (uniformWidth) {
+      w = uniformW
+      h = uniformW / ratio
+    } else {
+      h = uniformH
+      w = uniformH * ratio
+    }
+    const min = nodeMinSize(node)
+    return {
+      node,
+      rect: lockedResize({ x: node.x, y: node.y, w, h }, 0, 0, min, w / h),
+    }
+  })
+  const graph = store.getSnapshot()
+  store.beginPlan(`agent-resize:${createId('plan')}`, 'Agent 调整节点尺寸')
+  const adjusted: { nodeId: string; w: number; h: number; x: number; y: number }[] = []
+  for (const { node, rect } of changes) {
+    const occupied = [
+      ...snapshotRects(graph.nodes.filter((other) => !ids.includes(other.id))),
+      ...nodes
+        .filter((other) => other.id !== node.id)
+        .map((other) => {
+          const previous = adjusted.find((item) => item.nodeId === other.id)
+          return previous ?? { x: other.x, y: other.y, w: other.w, h: other.h }
+        }),
+    ]
+    const final = avoidRectOverlap(rect, occupied)
+    store.dispatch({ kind: 'node.resize', id: node.id, rect: final, phase: 'end' })
+    const moved = placeNodeWithoutOverlap(store, node.id, final)
+    adjusted.push({
+      nodeId: node.id,
+      w: Math.round(final.w),
+      h: Math.round(final.h),
+      x: Math.round(moved.x),
+      y: Math.round(moved.y),
+    })
+  }
+  store.endPlan()
+  await store.flush()
+  return { ok: true, nodes: adjusted }
+}
+
+async function deleteNodesInStore(store: CanvasStore, args: Record<string, unknown>) {
+  const ids = asStringArray(args.nodeIds)
+  if (ids.length === 0) return { ok: false, problems: ['没有指定要删除的节点'] }
+  const { nodes, missing } = selectedNodes(store, ids)
+  if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+  const graph = store.getSnapshot()
+  const beforeIds = new Set(graph.nodes.map((node) => node.id))
+  store.dispatch({ kind: 'node.delete', ids: nodes.map((node) => node.id) })
+  await store.flush()
+  return {
+    ok: true,
+    deletedNodeIds: [...beforeIds].filter(
+      (id) => !store.getSnapshot().nodes.some((node) => node.id === id),
+    ),
   }
 }
 
@@ -1034,6 +1190,9 @@ async function compareNodesInStore(
   if ((left.parentId ?? null) !== (right.parentId ?? null)) {
     return { ok: false, problems: ['对比的两个节点必须在同一层级'] }
   }
+  if (left.parentId || right.parentId) {
+    return { ok: false, problems: ['组内节点请移出组后再创建对比节点'] }
+  }
   const spec = getSpec('compare')
   if (!spec) return { ok: false, problems: ['对比节点尚未注册'] }
   const id = createId('node')
@@ -1041,13 +1200,18 @@ async function compareNodesInStore(
     x: Math.max(left.x + left.w, right.x + right.w) + 80,
     y: Math.min(left.y, right.y),
   }
+  const comparisonSize = getSpec('compare')?.sizing?.min ?? { w: 360, h: 270 }
+  const placedAt = avoidRectOverlap(
+    { ...at, ...comparisonSize },
+    graph.nodes.map((node) => ({ x: node.x, y: node.y, w: node.w, h: node.h })),
+  )
   store.beginPlan(`agent-compare:${id}`, 'Agent 创建对比')
   store.dispatch({
     kind: 'node.create',
     projectId: graph.projectId,
     type: 'compare',
     id,
-    at,
+    at: placedAt,
     title: `${left.title} / ${right.title} 对比`,
     ...(left.parentId ? { parentId: left.parentId } : {}),
     data: spec.createDefaultData(),
@@ -1233,6 +1397,10 @@ export async function executeConfirmedTool(
       return moveNodesInStore(ctx.store, a)
     case 'arrangeNodes':
       return arrangeNodesInStore(ctx.store, a)
+    case 'resizeNodes':
+      return resizeNodesInStore(ctx.store, a)
+    case 'deleteNodes':
+      return deleteNodesInStore(ctx.store, a)
     case 'deleteEdges':
       return deleteEdgesInStore(ctx.store, a)
     case 'compareNodes':
@@ -1253,12 +1421,17 @@ export async function executeConfirmedTool(
       const h = Number(rect.h)
       if ([x, y, w, h].every(Number.isFinite) && w > 0 && h > 0) {
         if (!ctx.sliceImage) return { ok: false, problems: ['当前画布没有接入裁剪能力'] }
-        return ctx.sliceImage(
+        const result = await ctx.sliceImage(
           nodeId,
           mode,
           { x, y, w, h },
           typeof a.ratio === 'string' ? a.ratio : undefined,
         )
+        if (result.ok && result.nodeId) {
+          const created = ctx.store.getSnapshot().nodes.find((item) => item.id === result.nodeId)
+          if (created) placeNodeWithoutOverlap(ctx.store, created.id, created)
+        }
+        return result
       }
       ctx.store.openCropLightbox(nodeId, { plain: mode === 'crop' })
       return {
@@ -1283,7 +1456,14 @@ export async function executeConfirmedTool(
         return { ok: false, problems: ['需要 nodeId、rows 与 cols，且行列数必须在 1–64'] }
       }
       if (!ctx.splitGrid) return { ok: false, problems: ['当前画布没有接入宫格切分能力'] }
-      return ctx.splitGrid(nodeId, rows, cols)
+      const result = await ctx.splitGrid(nodeId, rows, cols)
+      if (result.ok && result.nodeIds?.length) {
+        for (const id of result.nodeIds) {
+          const created = ctx.store.getSnapshot().nodes.find((item) => item.id === id)
+          if (created) placeNodeWithoutOverlap(ctx.store, created.id, created)
+        }
+      }
+      return result
     }
     default:
       return { ok: false, problems: [`没有这个工具：${name}`] }

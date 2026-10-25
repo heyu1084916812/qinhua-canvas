@@ -185,8 +185,12 @@ function geminiNativeBody(
 ): Record<string, unknown> {
   const source =
     request.messages && request.messages.length > 0
-      ? request.messages.map((message) => ({ role: message.role, content: message.content }))
-      : [{ role: 'user' as const, content: request.prompt }]
+      ? request.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+          imageNodeIds: message.imageNodeIds,
+        }))
+      : [{ role: 'user' as const, content: request.prompt, imageNodeIds: undefined }]
   const systemInstruction = source
     .filter((message) => message.role === 'system')
     .map((message) => message.content.trim())
@@ -199,10 +203,7 @@ function geminiNativeBody(
       ? []
       : [{
         role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [
-          { text: message.content || ' ' },
-          ...(index === lastUser ? inline : []),
-        ],
+        parts: [{ text: message.content || ' ' }, ...(index === lastUser ? inline : [])],
       }],
   )
   return {
@@ -378,6 +379,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         toolCalls?: { id: string; name: string; args: string }[]
         toolCallId?: string
         toolName?: string
+        imageNodeIds?: string[]
       },
       isLastUser: boolean,
     ): Record<string, unknown> => {
@@ -408,7 +410,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
           })),
         }
       }
-      if (m.role === 'user' && isLastUser && parts.length > 0) {
+      if (m.role === 'user' && (isLastUser || (m.imageNodeIds?.length ?? 0) > 0) && parts.length > 0) {
         return { role: 'user', content: [{ type: 'text', text: m.content }, ...parts] }
       }
       return { role: m.role, content: m.content }

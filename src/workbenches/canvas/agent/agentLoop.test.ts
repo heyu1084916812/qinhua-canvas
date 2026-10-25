@@ -130,6 +130,18 @@ describe('runAgentTurn · 基本往复', () => {
     }
   })
 
+  it('★★ 图片输入会随每轮请求进入渠道，不再只给尺寸让模型猜选区', async () => {
+    const { deps, adapter } = depsWith([{ text: '看图后再裁剪' }])
+    const asset = { kind: 'asset' as const, nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }
+    const r = await runAgentTurn(user('看这张图'), { ...deps, inputs: [asset] })
+
+    expect(r.kind).toBe('message')
+    expect(adapter.completeText).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs: [asset] }),
+      expect.anything(),
+    )
+  })
+
   /**
    * ★★ 建图**直接落地**（用户 2026-10-02：「他直接给我新建进去，但是生成与否
    * 需要让我确认，取消后也不会撤回已经新建到画布中的工作流」）。
@@ -191,6 +203,27 @@ describe('runAgentTurn · 基本往复', () => {
     expect(r).toMatchObject({
       kind: 'confirm',
       request: { name: 'deleteEdges', args: { edgeIds: ['edge-1'] } },
+    })
+  })
+
+  it('★★ 删除节点会停下来让用户确认', async () => {
+    const { deps, executeWrite } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'deleteNodes',
+            args: '{"nodeIds":["n1"]}',
+          },
+        ],
+      },
+    ])
+    const r = await runAgentTurn(user('删除这个节点'), deps)
+
+    expect(executeWrite).not.toHaveBeenCalled()
+    expect(r).toMatchObject({
+      kind: 'confirm',
+      request: { name: 'deleteNodes', args: { nodeIds: ['n1'] } },
     })
   })
 

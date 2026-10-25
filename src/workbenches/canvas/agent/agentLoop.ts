@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolDeclaration } from '../../../domain/shared/execution/types'
+import type { ChatMessage, NodeInput, ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { errorTextOf } from '../../../shared/result'
 import { parseJsonAgentAction } from './jsonToolFallback'
@@ -39,11 +39,12 @@ const WRITE_TOOLS = new Set([
   'moveNodes',
   'arrangeNodes',
   'compareNodes',
+  'resizeNodes',
   'sliceImage',
   'splitGrid',
 ])
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom', 'deleteEdges'])
+const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom', 'deleteEdges', 'deleteNodes'])
 
 export interface AgentToolRequest {
   callId: string
@@ -76,6 +77,8 @@ export interface AgentLoopDeps {
   executeRead: (name: string, args: unknown) => Promise<unknown>
   /** 执行**建图类**工具（`applyPlan`）：直接落到画布上，不等确认 */
   executeWrite: (name: string, args: unknown) => Promise<unknown>
+  /** 用户这次明确提供的节点素材；各轮模型请求复用同一批节点引用。 */
+  inputs?: readonly NodeInput[]
   /**
    * 确认**之前**的预检（可选）。
    *
@@ -122,7 +125,7 @@ async function askModel(history: ChatMessage[], deps: AgentLoopDeps) {
       model: deps.model,
       // 给了 messages 就以它为准；prompt 只是老路径的兜底，这里留空
       prompt: '',
-      inputs: [],
+      inputs: [...(deps.inputs ?? [])],
       params: {},
       tools: deps.toolMode === 'json' ? [] : deps.tools,
       messages: history,

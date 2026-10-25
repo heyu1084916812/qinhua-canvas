@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
-import type { ChatMessage } from '../../../../domain/shared/execution/types'
+import type { ChatMessage, NodeInput } from '../../../../domain/shared/execution/types'
 import {
   AGENT_CONTEXT_WINDOW,
   createAgentSessionStore,
@@ -729,10 +729,31 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const loopDeps = useCallback(
-    (session: AgentSession, toolMode: 'native' | 'json' = 'native') => {
+    (
+      session: AgentSession,
+      toolMode: 'native' | 'json' = 'native',
+      visualNodeIds: readonly string[] = [],
+    ) => {
       const route = resolveChatRoute(session)
       const logicalModel =
         route?.logicalModel ?? (toLogicalName(allChannels, session.model) || session.model)
+      const imageNodeIds = [...new Set(visualNodeIds)]
+      const inputs = imageNodeIds.flatMap((nodeId): NodeInput[] => {
+        const node = store.getSnapshot().nodes.find((item) => item.id === nodeId)
+        const data = node?.data as {
+          assetHash?: unknown
+          assetMime?: unknown
+          naturalSize?: { width: number; height: number }
+        }
+        if (!node || typeof data?.assetHash !== 'string') return []
+        return [{
+          kind: 'asset',
+          nodeId: node.id,
+          assetHash: data.assetHash,
+          mime: typeof data.assetMime === 'string' ? data.assetMime : 'image/png',
+          ...(data.naturalSize ? { naturalSize: data.naturalSize } : {}),
+        }]
+      })
       return {
         adapter: {
           completeText: (req: TextRunRequest, signal: AbortSignal) =>
@@ -741,6 +762,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               model: req.model,
               tools: req.tools ?? (toolMode === 'native' ? AGENT_TOOLS : []),
               messages: req.messages ?? [],
+              inputs: req.inputs,
               signal,
             }),
         },
@@ -748,6 +770,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         model: logicalModel,
         tools: toolMode === 'native' ? AGENT_TOOLS : [],
         toolMode,
+        inputs,
       /**
        * 确认**之前**的预检（用户 2026-10-02：「重复让我确认新建工作流，重复了三次，
        * 但是我的画布中没有」）。计划本身落不了地时，别让用户白点一次确认 ——
@@ -1035,10 +1058,27 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 那几个矩形框（用户 2026-10-05 第 5 条）。一份数据两个用途，必须分开存
        * —— 拿 `content` 去渲染，框就没了；拿原文去发请求，模型会读到一串机器标记。
        */
-      { role: 'user', content: stripMentionMarkup(text), display: text },
+      {
+        role: 'user',
+        content: stripMentionMarkup(text),
+        display: text,
+        imageNodeIds: [...new Set([
+          ...sentAssetIds,
+          ...mentions
+            .filter((mention): mention is MentionRef & { kind: 'node' } => mention.kind === 'node')
+            .map((mention) => mention.id),
+        ])],
+      },
     ]
     setMessages(withSystem)
-    let outcome = await runAgentTurn(withSystem, loopDeps(current, toolMode))
+    const visualNodeIds = [...new Set([
+      ...sentAssetIds,
+      ...mentions
+        .filter((mention): mention is MentionRef & { kind: 'node' } => mention.kind === 'node')
+        .map((mention) => mention.id),
+    ])]
+    const currentLoopDeps = loopDeps(current, toolMode, visualNodeIds)
+    let outcome = await runAgentTurn(withSystem, currentLoopDeps)
     /**
      * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
      *
@@ -1064,7 +1104,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.messages,
         outcome.request.callId,
         done,
-        loopDeps(current, toolMode),
+        currentLoopDeps,
         outcome.request.name,
       )
     }
@@ -1116,12 +1156,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const { request } = status
     setStatusFor(current.id, { kind: 'executing' })
     const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
+    const imageNodeIds = [...new Set(
+      [...messages].reverse().find((message) => message.role === 'user')?.imageNodeIds ?? [],
+    )]
+    const currentLoopDeps = loopDeps(
+      current,
+      toolModeRef.current.get(current.id) ?? 'native',
+      imageNodeIds,
+    )
     setStatusFor(current.id, { kind: 'thinking' })
     const outcome = await resumeAgentTurn(
       messages,
       request.callId,
       result,
-      loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
+      currentLoopDeps,
       request.name,
     )
     await handleOutcome(current, outcome)
@@ -1132,11 +1180,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (status.kind !== 'awaitingConfirm' || !current) return
     const { request } = status
     setStatusFor(current.id, { kind: 'thinking' })
+    const imageNodeIds = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.imageNodeIds ?? []
+    const currentLoopDeps = loopDeps(
+      current,
+      toolModeRef.current.get(current.id) ?? 'native',
+      imageNodeIds,
+    )
     const outcome = await resumeAgentTurn(
       messages,
       request.callId,
       { ok: false, error: '用户取消了这次操作' },
-      loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
+      currentLoopDeps,
       request.name,
     )
     await handleOutcome(current, outcome)
@@ -2667,6 +2723,21 @@ function previewOf(
           ? edges.map((edge) => `${titleOf(edge.source)} → ${titleOf(edge.target)}`)
           : ['没有找到可取消的连线'],
       action: '取消这些连线',
+    }
+  }
+  if (name === 'deleteNodes') {
+    const ids = Array.isArray(a.nodeIds)
+      ? a.nodeIds.filter((id): id is string => typeof id === 'string')
+      : []
+    const graph = store.getSnapshot()
+    const names = ids.map(
+      (id) => graph.nodes.find((node) => node.id === id)?.title || id,
+    )
+    return {
+      tool: name,
+      title: `要删除 ${names.length} 个节点？`,
+      lines: [...names, '关联连线会一并删除，素材库里的图片文件不受影响。'],
+      action: '删除这些节点',
     }
   }
   return { tool: name, title: name, lines: [], action: '执行' }

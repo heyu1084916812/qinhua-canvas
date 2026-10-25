@@ -59,7 +59,7 @@
   padding: 2px;
   border-radius: var(--radius-control);
   background: var(--node-control);
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--node-border-inner);
 }
 
 .segBtn,
@@ -83,8 +83,8 @@
 }
 
 .segActive {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--node-action);
+  color: var(--node-action-text);
 }
 
 .segBtn:hover {
@@ -99,7 +99,7 @@
   height: 30px;
   padding: 0 9px;
   border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--node-border-inner);
   background: var(--node-control);
   color: var(--text-2);
   display: inline-flex;
@@ -129,16 +129,9 @@
 }
 
 .toggleActive {
-  /*
-   * 选中态固定「深色底 + 浅色字」（用户 2026-09-28）。
-   *
-   * 这里**不能**用 `--accent*`：深色主题下 `--accent` 会翻成近白底，
-   * 选中反而变成浅色按钮，与「深色按钮加浅色文字」相反。
-   * `--control-inverse-*` 在明暗两套主题下都是深底浅字，语义也正好是「反色控件」。
-   */
-  background: var(--control-inverse-bg);
-  color: var(--control-inverse-text);
-  border-color: var(--control-inverse-bg);
+  background: var(--node-control-hover);
+  color: var(--text-1);
+  border-color: var(--node-border-inner);
 }
 
 /* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
@@ -148,7 +141,7 @@
   box-sizing: border-box;
   min-width: 0;
   flex: none;
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--node-border-inner);
   border-radius: calc(var(--radius-control) + 2px);
   background: var(--node-inset);
   padding: var(--space-2);
@@ -416,9 +409,9 @@
   height: 28px;
   padding: 0 13px;
   border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
+  border: 1px solid var(--node-border-inner);
+  background: var(--node-control);
+  color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 900;
@@ -497,9 +490,9 @@
   min-height: 30px;
   padding: 0;
   border-radius: var(--radius-control);
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
+  border: 1px solid var(--node-action);
+  background: var(--node-action);
+  color: var(--node-action-text);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -575,7 +568,7 @@
   min-width: 0;
   padding: 0 8px;
   border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--node-border-inner);
   background: var(--node-control);
   color: var(--text-2);
   display: flex;

@@ -68,7 +68,7 @@
 :global([data-node-type='batch']) .empty {
   background: var(--node-inset);
   border-style: solid;
-  border-color: var(--node-control);
+  border-color: var(--node-border-inner);
 }
 
 /*

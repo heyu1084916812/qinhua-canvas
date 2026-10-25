@@ -76,13 +76,17 @@
   --bg-selected: #e2e2e2;
 
   /* —— 画布节点表层 ——
-     节点不是浮在画布上的白色卡片：它使用一层比画布略深的统一表面，
-     图片舞台再退一档，控件比舞台略深。这样提示词 / 生成 / 对比 / 融合 /
-     循环 / 批量在浅色和深色下都共享同一套层次，而不是各用 --bg-surface。 */
+     中性冷灰只拉开三层，不给不同节点分别上色。边框比填充再淡一档，
+     因此空节点不是几块灰框；主要动作才使用深色强调。 */
   --node-fill: #ececec;
   --node-inset: #e5e5e5;
-  --node-control: #e1e1e1;
-  --node-control-hover: #d7d7d7;
+  --node-control: #dfdfdf;
+  --node-control-hover: #d5d5d5;
+  --node-border: #d7d7d7;
+  --node-border-inner: #d0d0d0;
+  --node-action: #171716;
+  --node-action-text: #ffffff;
+  --node-action-hover: #343434;
 
   /* —— 容器的背景色档位（六档，用户 2026-10-06 第 13 批第 5 条：「背景色给六档」） ——
      容器（分组）要给一块**常显**的底色，且用户可以挑；六档都是**低饱和的浅色**——
@@ -293,11 +297,16 @@
   --bg-hover: #2a2a2a;
   --bg-selected: #333333;
 
-  /* 深色节点不用简单反相：节点面比画布亮、舞台比节点暗、控件再亮一档。 */
+  /* 深色不靠亮白描边区分层级：面、舞台、控件有稳定的明度梯度。 */
   --node-fill: #222222;
-  --node-inset: #1b1b1b;
+  --node-inset: #1c1c1c;
   --node-control: #2b2b2b;
-  --node-control-hover: #343434;
+  --node-control-hover: #353535;
+  --node-border: #353535;
+  --node-border-inner: #3e3e3e;
+  --node-action: #efefef;
+  --node-action-text: #161616;
+  --node-action-hover: #d9d9d9;
 
   /* 容器背景六档（深色）：同色相、压暗到「比画布 #161616 亮一点」——
      深色下容器要**浮起来**，不能再往暗走。第 1 档仍是默认。 */

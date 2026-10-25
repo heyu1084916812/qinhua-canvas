@@ -55,10 +55,12 @@ describe('工具声明', () => {
       'arrangeNodes',
       'compareNodes',
       'deleteEdges',
+      'deleteNodes',
       'moveNodes',
       'readAsset',
       'readGraph',
       'readResult',
+      'resizeNodes',
       'runFrom',
       'runNode',
       'sliceImage',
@@ -749,6 +751,65 @@ describe('Agent 画布空间与现有图像能力', () => {
       x: 320,
       y: 180,
     })
+  })
+
+  it('★★ 移动结果压住已有节点时自动向右避让', async () => {
+    const { store, ctx } = setup()
+    const moving = addNode(store, 'generation', { mode: 'image' }, '移动')
+    const occupied = addNode(store, 'generation', { mode: 'image' }, '已有')
+    store.dispatch({ kind: 'node.move', ids: [occupied], dx: 500, dy: 300, phase: 'end' })
+    await executeConfirmedTool(
+      'moveNodes',
+      { nodeIds: [moving], positions: [{ nodeId: moving, x: 500, y: 300 }] },
+      ctx,
+    )
+    const after = store.getSnapshot().nodes
+    const next = after.find((node) => node.id === moving)!
+    const other = after.find((node) => node.id === occupied)!
+    expect(next.x).toBeGreaterThanOrEqual(other.x + other.w + 48)
+  })
+
+  it('★★ 统一高度时保持原图比例，并避让其它节点', async () => {
+    const { store, ctx } = setup()
+    const wide = addNode(store, 'generation', { mode: 'image' }, '横图')
+    const tall = addNode(store, 'generation', { mode: 'image' }, '竖图')
+    store.dispatch({
+      kind: 'node.resize',
+      id: wide,
+      rect: { x: 0, y: 0, w: 320, h: 200 },
+      phase: 'end',
+    })
+    store.dispatch({
+      kind: 'node.resize',
+      id: tall,
+      rect: { x: 360, y: 0, w: 200, h: 300 },
+      phase: 'end',
+    })
+    const r = (await executeConfirmedTool('resizeNodes', {
+      nodeIds: [wide, tall],
+      height: 400,
+    }, ctx)) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    const [nextWide, nextTall] = store.getSnapshot().nodes
+    expect(nextWide).toMatchObject({ h: 400, w: 640 })
+    expect(nextTall!.h).toBeCloseTo(400, 6)
+    expect(nextTall!.w).toBeCloseTo(266.666, 2)
+    expect(nextTall!.x).toBeGreaterThanOrEqual(nextWide!.x + nextWide!.w + 48)
+  })
+
+  it('★★ 删除节点与关联连线一步完成，不调用素材删除', async () => {
+    const { store, ctx } = setup()
+    const source = addNode(store, 'generation', { mode: 'image' }, '上游')
+    const target = addNode(store, 'generation', { mode: 'image' }, '下游')
+    store.dispatch({ kind: 'edge.connect', source, target })
+    const r = (await executeConfirmedTool('deleteNodes', { nodeIds: [source] }, ctx)) as {
+      ok: boolean
+      deletedNodeIds: string[]
+    }
+    expect(r.ok).toBe(true)
+    expect(r.deletedNodeIds).toContain(source)
+    expect(store.getSnapshot().nodes.map((node) => node.id)).toEqual([target])
+    expect(store.getSnapshot().edges).toHaveLength(0)
   })
 
   it('★★ 水平排列同层节点，保留选区左上角', async () => {

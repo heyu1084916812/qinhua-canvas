@@ -130,6 +130,11 @@ export interface ChatMessage {
    * 这样即使上下文窗口把发起调用的 assistant 消息截掉了，结果仍能自证是谁。
    */
   toolName?: string
+  /**
+   * 只在用户这一次明确提供的节点素材上保留引用，不持久化图片字节。
+   * 各轮模型调用都按 nodeId 从权威素材库重新取图，保证看到的正是画布上的那张图。
+   */
+  imageNodeIds?: string[]
 }
 
 interface RunRequestBase {
