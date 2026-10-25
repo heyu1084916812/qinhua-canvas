@@ -202,6 +202,16 @@ interface CanvasState {
    */
   lightbox: {
     assetHash: string
+    /**
+     * 多选灯箱的完整序列。`assetHash` 始终是当前项；切图时同时更新
+     * `galleryIndex`，因此 LightboxLayer 现有的取图 / 缩放逻辑不需要另起一份。
+     */
+    gallery?: {
+      assetHash: string
+      nodeId: string
+      title: string
+    }[]
+    galleryIndex?: number
     cropFor?: string
     /** `cropPlain`：这次框选是**裁剪**（按框原样切、不写上下文）而不是提取选区 */
     cropPlain?: boolean
@@ -323,6 +333,10 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
     assetHash: string,
     opts?: { compareWith?: string; compareKind?: 'result' | 'pair' },
   ) => void
+  /** 打开多选灯箱；只收集有素材的图片 / 视频节点。 */
+  openLightboxGallery: (nodeIds: readonly string[]) => void
+  /** 在多选灯箱里切上一张 / 下一张（会循环）。普通素材灯箱下无操作。 */
+  navigateLightbox: (delta: number) => void
   /**
    * 以框选模式打开灯箱（用户口径：在素材灯箱里框选局部图）。
    *
@@ -334,6 +348,12 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   closeLightbox: () => void
   getLightbox: () => {
     assetHash: string
+    gallery?: {
+      assetHash: string
+      nodeId: string
+      title: string
+    }[]
+    galleryIndex?: number
     cropFor?: string
     cropPlain?: boolean
     faceFor?: string
@@ -704,6 +724,38 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
         textEditor: null,
         menu: null,
       }),
+    openLightboxGallery: (nodeIds) => {
+      const ids = new Set(nodeIds)
+      const gallery = store
+        .getState()
+        .graph.nodes.filter((node) => ids.has(node.id))
+        .flatMap((node) => {
+          const hash = (node.data as { assetHash?: unknown }).assetHash
+          return typeof hash === 'string' && hash
+            ? [{ assetHash: hash, nodeId: node.id, title: node.title || '未命名素材' }]
+            : []
+        })
+      const first = gallery[0]
+      if (!first) return
+      store.setState({
+        lightbox: { assetHash: first.assetHash, gallery, galleryIndex: 0 },
+        textEditor: null,
+        menu: null,
+      })
+    },
+    navigateLightbox: (delta) => {
+      const lightbox = store.getState().lightbox
+      if (!lightbox?.gallery?.length || !Number.isFinite(delta)) return
+      const current = lightbox.galleryIndex ?? 0
+      const index =
+        ((Math.trunc(current + delta) % lightbox.gallery.length) + lightbox.gallery.length) %
+        lightbox.gallery.length
+      const next = lightbox.gallery[index]
+      if (!next) return
+      store.setState({
+        lightbox: { ...lightbox, assetHash: next.assetHash, galleryIndex: index },
+      })
+    },
     openCropLightbox: (nodeId, opts) => {
       const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
       const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash

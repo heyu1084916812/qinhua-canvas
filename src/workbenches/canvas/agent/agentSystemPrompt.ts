@@ -1,7 +1,7 @@
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { GENERATION_PARAM_KEYS } from '../../../domain/canvas/nodeSpecs/newNodePreset'
 import { allSpecs } from '../../../domain/canvas/nodeSpecs/registry'
-import type { GraphSummary } from './tools'
+import { summarizeGraph, type GraphSummary } from './tools'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { GenerationAvailability } from '../../../domain/project/generationRouting'
 
@@ -22,6 +22,15 @@ const IDENTITY_AND_RULES = [
   '你是「轻画」这张无限画布上的助理。用户要什么，你就把它做成画布上的工作流。',
   '',
   '## 你的工作方式',
+  '- 要操作画布上已有的节点时，**先调用 `readGraph`**。它会给每个节点返回整图坐标',
+  '  `x / y / w / h`、屏幕阅读顺序无关的画布区域 `zone`、最近 4 个节点 `nearby`、',
+  '  上下游关系，以及每条连线的真实 `id`。不要靠节点标题猜位置，也不要编连线 id。',
+  '- 移动节点用 `moveNodes`（精确坐标或统一位移）；整理节点用 `arrangeNodes`',
+  '  （horizontal / vertical / grid）。一次“整张画布”要让用户确认前，先用 readGraph 看完整图。',
+  '- 用户说“取消连线”时用 `deleteEdges`，传 readGraph 返回的真实 `edgeIds`；',
+  '  不要删除节点，也不要重新建图来代替断线。这个动作会让用户确认。',
+  '- 两张已有图片做 A/B 对比用 `compareNodes`；裁剪或提取选区用 `sliceImage`；',
+  '  宫格切分用 `splitGrid`。这些工具复用画布现有能力，不要另写一套图片处理流程。',
   '- 要动手时，用 applyPlan 工具**一次性**给出整张图（节点 + 连线），不要零散地建很多次。',
   /**
    * 节点名是用户 2026-10-03 单独提的要求：「节点上的名称要根据我的提示词来总结成一个
@@ -334,9 +343,13 @@ export function buildCurrentState(
     lines.push(`共 ${summary.nodes.length} 个节点、${summary.edges.length} 条连线：`)
     for (const n of summary.nodes.slice(0, 40)) {
       lines.push(
-        `- ${n.id}｜${n.type}${n.title ? `｜${n.title}` : ''}${n.hasOutput ? '｜已出图' : ''}${
-          n.prompt ? `｜提示词：${n.prompt}` : ''
-        }`,
+        `- ${n.id}｜${n.type}${n.title ? `｜${n.title}` : ''}｜${n.zone ?? '位置未知'} @ (${
+          n.x ?? '?'
+        }, ${n.y ?? '?'}) ${n.w ?? '?'}×${n.h ?? '?'}${
+          n.parentTitle ? `｜所属：${n.parentTitle}` : ''
+        }${
+          n.hasOutput ? '｜已出图' : ''
+        }${n.prompt ? `｜提示词：${n.prompt}` : ''}`,
       )
     }
     if (summary.nodes.length > 40) {
@@ -666,19 +679,5 @@ export function expectsPerImageFlows(text: string, imageCount: number): boolean 
 
 /** 供测试与诊断：把节点快照转成摘要（与 tools.readGraphSummary 同源语义） */
 export function summarizeForPrompt(nodes: NodeSnapshot[]): GraphSummary {
-  return {
-    nodes: nodes.map((n) => {
-      const data = n.data as { assetHash?: unknown; prompt?: unknown; text?: unknown }
-      const raw = typeof data.prompt === 'string' ? data.prompt : data.text
-      const prompt = typeof raw === 'string' ? raw.trim().slice(0, 160) : ''
-      return {
-        id: n.id,
-        type: n.type,
-        title: n.title,
-        hasOutput: Boolean(data.assetHash),
-        ...(prompt ? { prompt } : {}),
-      }
-    }),
-    edges: [],
-  }
+  return summarizeGraph({ nodes, edges: [] })
 }

@@ -57,6 +57,21 @@
 }
 
 /*
+ * 批量节点不是分组提醒框：它的外层与空态都使用实线，和节点内部的
+ * 图片 / 提示词面同一套表层语言。分组仍保留自己的可辨轮廓。
+ */
+:global([data-node-type='batch']) .body {
+  background: var(--node-fill);
+  border-style: solid;
+}
+
+:global([data-node-type='batch']) .empty {
+  background: var(--node-inset);
+  border-style: solid;
+  border-color: var(--node-control);
+}
+
+/*
  * 缩放层（用户第 15 批 #335-①）：基准网格写在里面（尺寸 = `containerMinSize`），
  * 整层乘一个等比系数 —— 拉大容器时"单元 + 素材 + 留白"一起等比放大，
  * 留白比例因此恒定不变。`transform-origin: 0 0` 保证是从左上角长出去（与单元坐标同源）。

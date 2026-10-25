@@ -149,6 +149,51 @@ describe('runAgentTurn · 基本往复', () => {
     expect(r.kind).toBe('message')
   })
 
+  it('★★ 节点移动与排列直接复用画布命令，不误弹确认卡', async () => {
+    const { deps, executeWrite, executeRead } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'moveNodes',
+            args: '{"nodeIds":["n1"],"dx":40,"dy":20}',
+          },
+        ],
+      },
+      { text: '移动好了' },
+    ])
+    const r = await runAgentTurn(user('把节点往右下移动'), deps)
+
+    expect(executeWrite).toHaveBeenCalledWith('moveNodes', {
+      nodeIds: ['n1'],
+      dx: 40,
+      dy: 20,
+    })
+    expect(executeRead).not.toHaveBeenCalled()
+    expect(r.kind).toBe('message')
+  })
+
+  it('★★ 取消连线会停下来让用户确认', async () => {
+    const { deps, executeWrite } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'deleteEdges',
+            args: '{"edgeIds":["edge-1"]}',
+          },
+        ],
+      },
+    ])
+    const r = await runAgentTurn(user('取消这条连线'), deps)
+
+    expect(executeWrite).not.toHaveBeenCalled()
+    expect(r).toMatchObject({
+      kind: 'confirm',
+      request: { name: 'deleteEdges', args: { edgeIds: ['edge-1'] } },
+    })
+  })
+
   it('★★ 花钱的工具不执行，跳出循环等确认（否则「确认」是空话）', async () => {
     const { deps, executeRead, executeWrite } = depsWith([
       { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] },

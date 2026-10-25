@@ -557,6 +557,34 @@ export function IconChevronDown(props: IconProps) {
   )
 }
 
+/** 灯箱上一张 / 下一张：与展开箭头同一套线性重量 */
+export function IconChevronLeft(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m14.5 6-6 6 6 6" />
+    </Svg>
+  )
+}
+
+export function IconChevronRight(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m9.5 6 6 6-6 6" />
+    </Svg>
+  )
+}
+
+/** 多选灯箱：叠放的两张画面 */
+export function IconGallery(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="7.2" y="5" width="11.8" height="9.4" rx="1.8" />
+      <path d="M5 8.6v7.9A2.5 2.5 0 0 0 7.5 19h8.6" />
+      <path d="m9.2 11.1 1.7-1.7 1.5 1.5 1.2-1.2 2.1 2.1" />
+    </Svg>
+  )
+}
+
 /** 渠道设置：齿轮（线性画法，与其余图标同一套重量） */
 export function IconSettings(props: IconProps) {
   return (

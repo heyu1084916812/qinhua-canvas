@@ -97,6 +97,7 @@ describe('本次现状', () => {
     const text = buildCurrentState(s)
     expect(text).toContain('1 个节点')
     expect(text).toContain('已出图')
+    expect(text).toContain('@ (0, 0) 10×10')
   })
 
   it('★ 继承来的参数要标明「用户说了就以他说的为准」（优先级，§11）', () => {
@@ -118,6 +119,17 @@ describe('组装', () => {
     expect(p).toContain('## 画布上有哪些节点')
     expect(p).toContain('## 现在这张画布上有什么')
     expect(p).toContain('让用户确认')
+    for (const tool of [
+      'readGraph',
+      'moveNodes',
+      'arrangeNodes',
+      'deleteEdges',
+      'compareNodes',
+      'sliceImage',
+      'splitGrid',
+    ]) {
+      expect(p).toContain(tool)
+    }
   })
 })
 

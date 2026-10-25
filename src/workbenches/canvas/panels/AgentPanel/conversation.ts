@@ -39,6 +39,12 @@ const TOOL_LABEL: Record<string, string> = {
   updateNode: '已改节点参数',
   runNode: '已运行生成',
   runFrom: '已运行下游链',
+  moveNodes: '已移动节点',
+  arrangeNodes: '已排列节点',
+  deleteEdges: '已取消连线',
+  compareNodes: '已创建对比',
+  sliceImage: '图片选区已处理',
+  splitGrid: '已宫格切分',
 }
 
 /**
@@ -57,6 +63,12 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
   updateNode: '改参数失败',
   runNode: '生成失败',
   runFrom: '下游链运行失败',
+  moveNodes: '移动节点失败',
+  arrangeNodes: '排列节点失败',
+  deleteEdges: '取消连线失败',
+  compareNodes: '创建对比失败',
+  sliceImage: '图片选区处理失败',
+  splitGrid: '宫格切分失败',
 }
 
 export function toolLabel(tool: string): string {
@@ -169,6 +181,62 @@ export function describeToolResult(
     }
     case 'updateNode': {
       return { lines: failed ? problems : ['参数已更新'], nodeIds: [], failed }
+    }
+    case 'moveNodes': {
+      const moved = asArray(r.moved)
+      return {
+        lines: failed ? problems : [`移动 ${moved.length} 个节点`],
+        nodeIds: moved.map((item) => String(asRecord(item).nodeId)),
+        failed,
+      }
+    }
+    case 'arrangeNodes': {
+      const positions = asArray(r.positions)
+      return {
+        lines: failed ? problems : [`按 ${String(r.layout ?? '网格')} 排列 ${positions.length} 个节点`],
+        nodeIds: positions.map((item) => String(asRecord(item).nodeId)),
+        failed,
+      }
+    }
+    case 'deleteEdges': {
+      const ids = asArray(r.deletedEdgeIds).map(String)
+      return {
+        lines: failed ? problems : [`取消 ${ids.length} 条连线`],
+        nodeIds: [],
+        failed,
+      }
+    }
+    case 'compareNodes': {
+      const id = typeof r.compareNodeId === 'string' ? r.compareNodeId : ''
+      return {
+        lines: failed ? problems : ['已建立 A/B 对比节点'],
+        nodeIds: id ? [id] : [],
+        failed,
+      }
+    }
+    case 'sliceImage': {
+      const waiting = r.waitingForSelection === true
+      return {
+        lines: failed
+          ? problems
+          : [
+              waiting
+                ? '已打开灯箱，等待框选'
+                : typeof r.nodeId === 'string'
+                  ? '已生成选区图片'
+                  : '图片处理完成',
+            ],
+        nodeIds: typeof r.nodeId === 'string' ? [r.nodeId] : [],
+        failed,
+      }
+    }
+    case 'splitGrid': {
+      const ids = asArray(r.nodeIds).map(String)
+      return {
+        lines: failed ? problems : [`已切分为 ${ids.length} 个节点`],
+        nodeIds: ids,
+        failed,
+      }
     }
     default: {
       return { lines: failed ? problems : [], nodeIds: [], failed }

@@ -69,6 +69,7 @@ import {
   type RouteChannelSource,
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
+import { buildGroupRunPlan } from '../../../features/canvas/execution/groupRunPlan'
 
 /**
  * 画布执行宿主（架构 §4.7 / §5.5）：把 `useExecution` 接到画布 store + 渠道解析器。
@@ -89,6 +90,8 @@ export interface CanvasExecutionApi {
    *   只在这条计划一共一次调用时生效（N>1 会互相覆盖，见 `buildRunPlan` 的说明）。
    */
   runNode(nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }): Promise<void>
+  /** 把一个分组的成员作为一个子图规划并运行；不会逐节点绕过上游依赖。 */
+  runGroup(memberIds: readonly string[]): Promise<void>
   cancel(): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
   /**
@@ -1376,6 +1379,25 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     ],
   )
 
+  const runGroup = useCallback(
+    async (memberIds: readonly string[]) => {
+      const graph = store.getSnapshot()
+      const known = new Set(graph.nodes.map((node) => node.id))
+      const ids = memberIds.filter((id) => known.has(id))
+      if (ids.length === 0) {
+        store.notify('分组里没有可运行的节点', 'error')
+        return
+      }
+      const plan = buildGroupRunPlan(graph, ids)
+      if (plan.tasks.length === 0) {
+        store.notify('组内没有配好提示词或可用上游的生成节点', 'error')
+        return
+      }
+      await launch(plan, plan.tasks[0]?.nodeId)
+    },
+    [launch, store],
+  )
+
   const cancel = useCallback(() => {
     if (planIdRef.current) cancelRun(planIdRef.current)
   }, [cancelRun])
@@ -1383,6 +1405,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const api: CanvasExecutionApi = useMemo(
     () => ({
       runNode,
+      runGroup,
       cancel,
       nodeStateOf: (nodeId: string) => nodeStates.get(nodeId),
       nodeStates,
@@ -1393,6 +1416,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [
       appendRecord,
       runNode,
+      runGroup,
       cancel,
       nodeStates,
       isRunning,

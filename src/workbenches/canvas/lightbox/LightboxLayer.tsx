@@ -42,6 +42,8 @@ import { saveRotatedAsset } from '../rotate/bakeRotate'
 import {
   IconAnnotate,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconClose,
   IconCompare,
   IconCrop,
@@ -122,6 +124,10 @@ export function LightboxLayer() {
   const platform = usePlatform()
   const lightbox = useSyncExternalStore(store.subscribe, store.getLightbox, store.getLightbox)
   const assetHash = lightbox?.assetHash
+  const gallery = lightbox?.gallery ?? []
+  const galleryIndex = lightbox?.galleryIndex ?? 0
+  const galleryItem = gallery[galleryIndex]
+  const hasGalleryNavigation = gallery.length > 1
   const { url, mime } = useAssetMeta(assetHash)
   const isVideo = (mime ?? '').startsWith('video/')
 
@@ -348,19 +354,39 @@ export function LightboxLayer() {
   }, [assetHash, ownerNode?.title, platform])
 
   const close = useCallback(() => store.closeLightbox(), [store])
+  const navigateGallery = useCallback(
+    (delta: number) => store.navigateLightbox(delta),
+    [store],
+  )
 
-  // Esc 关闭；打开时焦点落在「关闭」上（键盘可达，无障碍 §4.5）
+  // Esc 关闭；多选灯箱支持左右键切换。打开时焦点落在「关闭」上。
   useEffect(() => {
     if (!assetHash) return
     closeRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      close()
+      const editingText =
+        e.target instanceof HTMLElement &&
+        (e.target.isContentEditable ||
+          e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'TEXTAREA')
+      if (e.key === 'Escape' && !editingText) {
+        e.preventDefault()
+        close()
+        return
+      }
+      if (
+        mode === 'view' &&
+        hasGalleryNavigation &&
+        !editingText &&
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+      ) {
+        e.preventDefault()
+        navigateGallery(e.key === 'ArrowLeft' ? -1 : 1)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [assetHash, close])
+  }, [assetHash, close, hasGalleryNavigation, mode, navigateGallery])
 
   // 换素材 = 重新来过：尺寸未知、落位未定
   useEffect(() => {
@@ -973,6 +999,9 @@ export function LightboxLayer() {
       // 当前展示的素材 hash：灯箱按 hash 取图，这里把它暴露出来，
       // 「灯箱显示的到底是不是这个节点的图」才可断言（否则只能比像素，纯色图比不出来）
       data-lightbox-hash={assetHash ?? ''}
+      data-lightbox-gallery={hasGalleryNavigation ? 'true' : undefined}
+      data-lightbox-gallery-index={hasGalleryNavigation ? galleryIndex : undefined}
+      data-lightbox-gallery-title={galleryItem?.title}
       data-lightbox-mode={mode}
       // 对比原图：配对上时暴露当前档位与实际展示的 hash，供断言（§6.23）
       data-lightbox-compare={mode === 'compare' && compareAvailable ? view : undefined}
@@ -986,7 +1015,11 @@ export function LightboxLayer() {
       }
       role="dialog"
       aria-modal="true"
-      aria-label="素材灯箱"
+      aria-label={
+        hasGalleryNavigation
+          ? `素材灯箱，第 ${galleryIndex + 1} / ${gallery.length} 张${galleryItem?.title ? `：${galleryItem.title}` : ''}`
+          : '素材灯箱'
+      }
     >
       <div
         ref={stageRef}
@@ -1220,6 +1253,30 @@ export function LightboxLayer() {
           </div>
         )}
       </div>
+      {hasGalleryNavigation && mode === 'view' ? (
+        <>
+          <button
+            type="button"
+            className={`${styles.galleryNav} ${styles.galleryPrev}`}
+            data-lightbox-prev
+            title="上一张（←）"
+            aria-label="上一张"
+            onClick={() => navigateGallery(-1)}
+          >
+            <IconChevronLeft size={22} />
+          </button>
+          <button
+            type="button"
+            className={`${styles.galleryNav} ${styles.galleryNext}`}
+            data-lightbox-next
+            title="下一张（→）"
+            aria-label="下一张"
+            onClick={() => navigateGallery(1)}
+          >
+            <IconChevronRight size={22} />
+          </button>
+        </>
+      ) : null}
       {mode !== 'view' ? (
       <div className={styles.hud}>
         {/*
@@ -1544,6 +1601,16 @@ export function LightboxLayer() {
        */}
       <div className={styles.bottomBar} data-lightbox-bottom-bar>
         <div className={styles.bottomLeft}>
+          {hasGalleryNavigation ? (
+            <span
+              className={styles.chip}
+              data-lightbox-gallery-counter
+              aria-live="polite"
+              title={galleryItem?.title}
+            >
+              {galleryIndex + 1} / {gallery.length}
+            </span>
+          ) : null}
           <span className={styles.chip} data-lightbox-size>
             {natural ? `${natural.w} × ${natural.h}` : '—'}
           </span>

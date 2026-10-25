@@ -58,7 +58,7 @@
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  background: var(--node-control);
   border: 1px solid var(--stroke);
 }
 
@@ -100,7 +100,7 @@
   padding: 0 9px;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
-  background: var(--bg-surface);
+  background: var(--node-control);
   color: var(--text-2);
   display: inline-flex;
   align-items: center;
@@ -150,7 +150,7 @@
   flex: none;
   border: 1px solid var(--stroke);
   border-radius: calc(var(--radius-control) + 2px);
-  background: var(--bg-subtle);
+  background: var(--node-inset);
   padding: var(--space-2);
   display: flex;
   flex-direction: column;
@@ -201,7 +201,7 @@
   height: 40px;
   border-radius: calc(var(--radius-control) - 2px);
   overflow: hidden;
-  background: var(--bg-surface);
+  background: var(--node-inset);
   display: inline-flex;
 }
 
@@ -270,7 +270,7 @@
 .upstream {
   border: 1px dashed var(--stroke);
   border-radius: calc(var(--radius-control) - 1px);
-  background: var(--bg-surface);
+  background: var(--node-inset);
   padding: 7px 8px;
   display: flex;
   flex-direction: column;
@@ -370,7 +370,7 @@
   padding: 0;
   border: none;
   border-radius: 999px;
-  background: var(--bg-hover);
+  background: var(--node-control);
   color: var(--text-3);
   box-sizing: border-box;
   display: grid;
@@ -392,7 +392,7 @@
 }
 
 .iconBtn:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background: var(--node-control-hover);
   color: var(--danger, var(--text-1));
   opacity: 1;
 }
@@ -541,7 +541,7 @@
  * （这正是「点了没反应」那类反馈的预防）。执行未接，如实置灰。
  */
 .run:disabled {
-  background: var(--bg-subtle);
+  background: var(--node-control);
   border-color: var(--stroke);
   color: var(--text-3);
   box-shadow: none;
@@ -576,7 +576,7 @@
   padding: 0 8px;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
-  background: var(--bg-surface);
+  background: var(--node-control);
   color: var(--text-2);
   display: flex;
   flex-direction: row;
@@ -643,7 +643,7 @@
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  background: var(--node-control);
   border: 1px solid var(--stroke);
 }
 
@@ -676,7 +676,7 @@
   padding: 0 4px 0 8px;
   border-radius: calc(var(--radius-control) - 1px);
   border: 1px solid var(--stroke);
-  background: var(--bg-surface);
+  background: var(--node-control);
   display: flex;
   align-items: center;
   gap: 6px;

@@ -62,16 +62,6 @@ import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
  */
 const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare', 'fusion'])
 
-/**
- * 「整组执行」里算"能跑"的类型。
- *
- * 组**不做生成**（用户 2026-10-06 第 13 批第 5 条：「就不是把他当成生成节点了」），
- * 所以组的执行语只有一个：把**组内能跑的节点**跑起来。组内子节点按 §6.11 只收
- * 提示词与生成节点，其中只有生成节点够格（提示词自己不会出图）。
- * 批量 / 循环 / 融合一并列上：它们若将来能被收进组，语义也一样成立。
- */
-const GROUP_RUNNABLE = new Set<NodeType>(['generation', 'batch', 'loop', 'fusion'])
-
 /** 六档的中文名（给人看；档位名本身是给数据与样式用的） */
 const GROUP_BG_LABEL: Record<GroupBgTone, string> = {
   slate: '灰',
@@ -612,12 +602,14 @@ function GroupActions({
   }
 
   const runAll = () => {
-    const runnable = members.filter((m) => GROUP_RUNNABLE.has(m.type))
-    if (runnable.length === 0) {
-      store.notify('组内没有能单独执行的节点（生成节点才能跑）', 'error')
-      return
-    }
-    for (const m of runnable) void exec.runNode(m.id)
+    void exec
+      .runGroup(members.map((member) => member.id))
+      .catch((error: unknown) =>
+        store.notify(
+          `整组执行失败：${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        ),
+      )
   }
 
   const ungroup = () => {

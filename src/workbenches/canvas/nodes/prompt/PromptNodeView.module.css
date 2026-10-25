@@ -96,7 +96,7 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--bg-subtle);
+  background: var(--node-control);
   border-radius: var(--radius-control);
   opacity: 0;
   transition: opacity var(--dur-edge) var(--ease-out);
@@ -123,7 +123,7 @@
 }
 
 .toolBtn:hover:not(:disabled) {
-  background: var(--bg-surface);
+  background: var(--node-fill);
   color: var(--text-1);
 }
 

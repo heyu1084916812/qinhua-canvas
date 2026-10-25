@@ -17,7 +17,7 @@
      半径 = 外框半径 − 内缩量；沿用 --radius-control（10px）会在角上留下两条不同弧 */
   border-radius: calc(var(--radius-node) - 7px);
   overflow: hidden;
-  background: var(--bg-subtle);
+  background: var(--node-inset);
   /* 拖动期间禁用图片原生拖拽与文本选择 */
   user-select: none;
   touch-action: none;
@@ -78,7 +78,7 @@
   margin-left: -11px;
   margin-top: -11px;
   border-radius: 999px;
-  background: var(--bg-surface);
+  background: var(--node-control);
   border: var(--border);
   cursor: ew-resize;
   display: flex;
@@ -107,7 +107,7 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: var(--bg-subtle);
+  background: var(--node-inset);
 }
 
 .emptyText {
@@ -134,7 +134,7 @@
   padding: 0 6px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
+  background: var(--node-control);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);

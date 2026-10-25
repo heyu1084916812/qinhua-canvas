@@ -28,6 +28,8 @@ import {
 import type { PresetVendor } from '../../../../domain/project/modelPresets'
 import { generationAvailabilityOf } from '../../../../domain/project/generationRouting'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
+import { cropAsset, extractSelection } from '../../../../features/canvas/extractSelection'
+import { splitNodeToGrid } from '../../../../features/canvas/splitToGrid'
 import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
 import {
   createAssetNode,
@@ -705,8 +707,25 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         const category = capabilityOfLogical(allChannels, model)?.category
         return category === 'audio' || category === 'unknown' ? undefined : category
       },
+      sliceImage: (nodeId, mode, rect, ratio) => {
+        const run = mode === 'crop' ? cropAsset : extractSelection
+        return run({ platform, store }, { nodeId, rect, ...(ratio ? { ratio } : {}) })
+      },
+      splitGrid: (nodeId, rows, cols) =>
+        splitNodeToGrid({ platform, store }, { nodeId, rows, cols }),
     }),
-    [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf, sessions],
+    [
+      store,
+      selection,
+      execution,
+      channels,
+      current,
+      enabled,
+      allChannels,
+      selectedModelOf,
+      sessions,
+      platform,
+    ],
   )
 
   const loopDeps = useCallback(
@@ -2601,11 +2620,53 @@ function previewOf(
     }
   }
   if (name === 'updateNode') {
+    const nodeIds = Array.isArray(a.nodeIds)
+      ? a.nodeIds.filter((id): id is string => typeof id === 'string')
+      : typeof a.nodeId === 'string'
+        ? [a.nodeId]
+        : []
+    const names = nodeIds.map(
+      (id) => store.getSnapshot().nodes.find((node) => node.id === id)?.title || id,
+    )
     return {
       tool: name,
       title: '要改节点参数',
-      lines: [`节点 ${String(a.nodeId ?? '')}`, ...Object.keys((a.data ?? {}) as object).map((k) => `改 ${k}`)],
+      lines: [
+        names.length > 0 ? `节点：${names.join('、')}` : '没有指定节点',
+        ...Object.keys((a.data ?? {}) as object).map((k) => `改 ${k}`),
+      ],
       action: '应用改动',
+    }
+  }
+  if (name === 'deleteEdges') {
+    const graph = store.getSnapshot()
+    const ids = Array.isArray(a.edgeIds)
+      ? a.edgeIds.filter((id): id is string => typeof id === 'string')
+      : []
+    const pairs = Array.isArray(a.pairs)
+      ? a.pairs.flatMap((pair) => {
+          if (!pair || typeof pair !== 'object') return []
+          const row = pair as Record<string, unknown>
+          return typeof row.source === 'string' && typeof row.target === 'string'
+            ? [{ source: row.source, target: row.target }]
+            : []
+        })
+      : []
+    const edges = graph.edges.filter(
+      (edge) =>
+        ids.includes(edge.id) ||
+        pairs.some((pair) => pair.source === edge.source && pair.target === edge.target),
+    )
+    const titleOf = (id: string) =>
+      graph.nodes.find((node) => node.id === id)?.title || id
+    return {
+      tool: name,
+      title: `要取消 ${edges.length} 条连线？`,
+      lines:
+        edges.length > 0
+          ? edges.map((edge) => `${titleOf(edge.source)} → ${titleOf(edge.target)}`)
+          : ['没有找到可取消的连线'],
+      action: '取消这些连线',
     }
   }
   return { tool: name, title: name, lines: [], action: '执行' }

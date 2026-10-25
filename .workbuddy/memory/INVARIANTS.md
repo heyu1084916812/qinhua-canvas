@@ -20,7 +20,7 @@
   关闭再打开，球的 rect 前后一致。
 - **执行引擎**：`runEngine<TTask,TCommand>` 对工作台命令零认知，**落位/写回全委托注入的 `ExecutionPlacement`**（canvas → `CanvasPlacement`，comic → `ComicPlacement`）。
 - **生成节点本体 = 媒体框（§6.8）**：参数/提示词/生成按钮全在下方创作面板；标题浮出节点外（`.header` `bottom:100%`，`HEADER_H` 高度补偿须同步删）。**发现「两套 UI」时修法是减重，不是给旧的那套加壳。**
-- **节点内部一律白底 `--bg-surface`**，节点间不靠底色差区分；UI：无投影、1px 细描边、8px 圆角（同 chip）、选中黑边框（非蓝）、参数文字 font-weight 600、`max-content`。
+- **节点内部统一 `--node-fill`**：浅色 `#ececec`、深色 `#222222`；素材舞台用 `--node-inset`、控件用 `--node-control`。不要让单个节点重新写 `--bg-surface`，否则同屏会出现白卡与灰卡两套语言。批量空态 / 边界用实线，不再画虚线。节点 UI 无投影、1px 细描边、选中黑边框（非蓝）、参数文字 600、`max-content`。
 - **可拖动把手内的文字必须 `user-select:none`**：否则原生文本拖拽（`dragstart`→`pointercancel`）掐断自定义指针流（G15/G16/G17 根因）。判据：捕获事件流看有没有 `pointerup`。
 - **`beginPlan/endPlan` 不可嵌套**（`activePlan` 是单个变量）⇒ 批量落节点由调用方整批开一次计划，且计划区间内不夹 `await`。
 - **★★★ React Flow 自带的键盘无障碍必须关着（`disableKeyboardA11y`）**：它在"有选中节点"时会渲染自己的选择框并**自动 focus 它**，那个框的 `onKeyDown` 里有一整套**方向键移动选中节点**（`useMoveSelectedNodes`：每次 **5px**、`Shift` ×4 = 20px，**不看 Alt / Ctrl**）。本项目的键盘**从来是自己那一套**（窗口级监听 + 选中集合当 roving focus + 自己的 aria-live）⇒ 开着它就是**第二份实现**在偷偷改数据：按一下普通方向键（语义是"切换选中"）节点被挪 5px、`Alt+→` 变成 6px、`Ctrl+Alt+→` 改尺寸的同时位置被挪 5px。见对账 #449 与冒烟 **G152**。

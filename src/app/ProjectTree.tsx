@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   WORKBENCH_ORDER,
   projectRoute,
@@ -117,6 +117,7 @@ function safeFileName(name: string): string {
 export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
   const platform = usePlatform()
   const navigate = useNavigate()
+  const location = useLocation()
   const repo = useMemo(
     () => createProjectRepository(platform.storage),
     [platform.storage],
@@ -165,7 +166,12 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
   useEffect(() => {
     if (!open) return
     void load()
-  }, [load, open, revision])
+    /**
+     * 项目页与侧栏树各自持有一份列表快照。页面切换后只依赖项目事件会让
+     * “页面已经有 7 个项目、侧栏还停在 1 个”的旧快照继续显示；路由与当前项目
+     * 都是可见范围变化，必须重新对齐。
+     */
+  }, [activeProjectId, load, location.pathname, open, revision])
 
   useEffect(() => {
     if (!renameTarget) return

@@ -34,9 +34,16 @@ const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult'])
  * 和「点确认 = 批准花钱」混成了一件事 —— 用户点完发现画布还是空的（那是另一个
  * bug），体验上完全分不清发生了什么。
  */
-const WRITE_TOOLS = new Set(['applyPlan'])
+const WRITE_TOOLS = new Set([
+  'applyPlan',
+  'moveNodes',
+  'arrangeNodes',
+  'compareNodes',
+  'sliceImage',
+  'splitGrid',
+])
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom'])
+const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom', 'deleteEdges'])
 
 export interface AgentToolRequest {
   callId: string

@@ -49,14 +49,20 @@ const addNode = (
 }
 
 describe('工具声明', () => {
-  it('★ 七个工具都在，且都带参数 schema（模型据此决定怎么调）', () => {
+  it('★ 读图、运行、空间操作和现有图像能力都在，且都带参数 schema', () => {
     expect(AGENT_TOOLS.map((t) => t.name).sort()).toEqual([
       'applyPlan',
+      'arrangeNodes',
+      'compareNodes',
+      'deleteEdges',
+      'moveNodes',
       'readAsset',
       'readGraph',
       'readResult',
       'runFrom',
       'runNode',
+      'sliceImage',
+      'splitGrid',
       'updateNode',
     ])
     for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
@@ -80,12 +86,39 @@ describe('读类工具', () => {
      * 提示词节点读 `data.text`，生成节点读 `data.prompt`。
      */
     expect(s.nodes.find((n) => n.id === p)?.prompt).toBe('橘猫')
-    expect(s.edges).toEqual([{ source: p, target: g, sourcePort: 'output', targetPort: 'input' }])
+    expect(s.edges).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        source: p,
+        target: g,
+        sourcePort: 'output',
+        targetPort: 'input',
+      }),
+    ])
 
     // 通过执行器调也一样（循环走的就是这个入口）
     expect(await executeReadTool('readGraph', { scope: 'all' }, ctx)).toMatchObject({
       nodes: expect.any(Array),
     })
+  })
+
+  it('★★ readGraph 报出坐标、区域、邻接关系与真实 edge id', () => {
+    const { store } = setup()
+    const left = addNode(store, 'prompt', { text: '左' }, '左侧提示词')
+    const right = addNode(store, 'generation', { mode: 'image', prompt: '右' }, '右侧生成')
+    store.dispatch({ kind: 'node.move', ids: [right], dx: 640, dy: 240, phase: 'end' })
+    store.dispatch({ kind: 'edge.connect', source: left, target: right })
+
+    const summary = readGraphSummary(store, 'all')
+    const leftNode = summary.nodes.find((node) => node.id === left)!
+    const rightNode = summary.nodes.find((node) => node.id === right)!
+    expect(summary.bounds).toMatchObject({ x: 0, y: 0 })
+    expect(leftNode).toMatchObject({ x: 0, y: 0, zone: '左上' })
+    expect(rightNode.center?.x).toBeGreaterThan(leftNode.center?.x ?? 0)
+    expect(leftNode.nearby?.[0]).toMatchObject({ nodeId: right, direction: '右' })
+    expect(leftNode.downstream).toContain(right)
+    expect(rightNode.upstream).toContain(left)
+    expect(summary.edges[0]?.id).toEqual(expect.any(String))
   })
 
   it('★★ readAsset 只报节点记下来的真实像素，没记就不编', async () => {
@@ -699,6 +732,98 @@ describe('planProblems · 跑不起来的生成节点', () => {
     expect(d.ratio).toBe('1:1')
     expect(d.resolution).toBe('2k')
     expect('aspectRatio' in d).toBe(false)
+  })
+})
+
+describe('Agent 画布空间与现有图像能力', () => {
+  it('★★ 按精确坐标移动节点', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', { mode: 'image' }, '主图')
+    const r = await executeConfirmedTool(
+      'moveNodes',
+      { nodeIds: [id], positions: [{ nodeId: id, x: 320, y: 180 }] },
+      ctx,
+    )
+    expect(r).toMatchObject({ ok: true, moved: [{ nodeId: id, x: 320, y: 180 }] })
+    expect(store.getSnapshot().nodes.find((node) => node.id === id)).toMatchObject({
+      x: 320,
+      y: 180,
+    })
+  })
+
+  it('★★ 水平排列同层节点，保留选区左上角', async () => {
+    const { store, ctx } = setup()
+    const a = addNode(store, 'generation', { mode: 'image' }, 'A')
+    const b = addNode(store, 'generation', { mode: 'image' }, 'B')
+    store.dispatch({ kind: 'node.move', ids: [b], dx: 100, dy: 80, phase: 'end' })
+    const r = await executeConfirmedTool(
+      'arrangeNodes',
+      { nodeIds: [a, b], layout: 'horizontal', gap: 24 },
+      ctx,
+    )
+    expect(r).toMatchObject({ ok: true, layout: 'horizontal' })
+    const nodes = store.getSnapshot().nodes
+    expect(nodes.find((node) => node.id === a)?.y).toBe(0)
+    expect(nodes.find((node) => node.id === b)?.y).toBe(0)
+    expect(nodes.find((node) => node.id === b)!.x).toBeGreaterThan(
+      nodes.find((node) => node.id === a)!.x,
+    )
+  })
+
+  it('★★ 按 readGraph 的真实 edge id 取消连线，不删节点', async () => {
+    const { store, ctx } = setup()
+    const source = addNode(store, 'prompt', { text: '提示词' }, '提示词')
+    const target = addNode(store, 'generation', { mode: 'image' }, '生成')
+    store.dispatch({ kind: 'edge.connect', source, target })
+    const edgeId = store.getSnapshot().edges[0]!.id
+
+    const r = await executeConfirmedTool('deleteEdges', { edgeIds: [edgeId] }, ctx)
+    expect(r).toEqual({ ok: true, deletedEdgeIds: [edgeId] })
+    expect(store.getSnapshot().edges).toEqual([])
+    expect(store.getSnapshot().nodes).toHaveLength(2)
+  })
+
+  it('★★ 把两张已有图片建成 A/B 对比节点并连上两条上游', async () => {
+    const { store, ctx } = setup()
+    const left = addNode(store, 'generation', { mode: 'image', assetHash: 'ha' }, '左图')
+    const right = addNode(store, 'generation', { mode: 'image', assetHash: 'hb' }, '右图')
+    const r = (await executeConfirmedTool(
+      'compareNodes',
+      { leftNodeId: left, rightNodeId: right },
+      ctx,
+    )) as { ok: boolean; compareNodeId: string }
+    expect(r.ok).toBe(true)
+    expect(store.getSnapshot().nodes.find((node) => node.id === r.compareNodeId)?.type).toBe(
+      'compare',
+    )
+    expect(store.getSnapshot().edges).toHaveLength(2)
+  })
+
+  it('★★ 裁剪 / 选区与宫格切分直接复用画布既有实现', async () => {
+    const { store, ctx } = setup()
+    const image = addNode(store, 'generation', { mode: 'image', assetHash: 'ha' }, '素材')
+    const sliceImage = vi.fn(async () => ({ ok: true, nodeId: 'slice-node' }))
+    const splitGrid = vi.fn(async () => ({ ok: true, nodeIds: ['g1', 'g2'] }))
+    const toolCtx = { ...ctx, sliceImage, splitGrid }
+
+    expect(
+      await executeConfirmedTool(
+        'sliceImage',
+        { nodeId: image, mode: 'crop', rect: { x: 10, y: 20, w: 100, h: 80 } },
+        toolCtx,
+      ),
+    ).toMatchObject({ ok: true, nodeId: 'slice-node' })
+    expect(sliceImage).toHaveBeenCalledWith(
+      image,
+      'crop',
+      { x: 10, y: 20, w: 100, h: 80 },
+      undefined,
+    )
+
+    expect(
+      await executeConfirmedTool('splitGrid', { nodeId: image, rows: 2, cols: 3 }, toolCtx),
+    ).toMatchObject({ ok: true, nodeIds: ['g1', 'g2'] })
+    expect(splitGrid).toHaveBeenCalledWith(image, 2, 3)
   })
 })
 

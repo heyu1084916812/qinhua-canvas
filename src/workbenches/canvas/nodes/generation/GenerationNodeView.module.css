@@ -2,14 +2,7 @@
    本体只做媒体：空态占位框 + 中间 `+`；有内容按原始比例铺满。
    参数 / 提示词 / 生成按钮归下方「创作参数面板」，本文件不再有芯片与按钮样式。 */
 
-/*
- * 底色 = `--bg-surface`（与提示词节点内部同色）。
- *
- * 这里曾经写 `--bg-subtle`，于是生成节点内部是**浅灰**、提示词节点内部是**纯白**
- * （提示词节点 .body 不设底色，透出 .frame 的 `--bg-surface`）——同屏并排时肉眼可见
- * 两种底色。重塑成媒体框之前本体根本没有底色，是 `70e26a2` 一并引入的回归。
- * 「节点内部统一白底」是既定规范（§3.3 层级靠描边表达，不靠填充色差），因此归位。
- */
+/* 媒体舞台使用节点内退一档的统一表层，与外框一起形成稳定的前后关系。 */
 .media {
   position: relative;
   display: flex;
@@ -19,7 +12,7 @@
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
-  background: var(--bg-surface);
+  background: var(--node-inset);
   /* 同心圆角（§3.2）：素材容器内缩仅 1px（外框描边），半径必须跟外框走——
      沿用 --radius-control（10px）会在角上留下两条不同弧，用户可见「圆角不一致」 */
   border-radius: var(--radius-node-inner);
@@ -29,7 +22,7 @@
 .dropping {
   outline: 2px dashed var(--stroke-focus);
   outline-offset: -2px;
-  background: var(--bg-hover);
+  background: var(--node-control-hover);
 }
 
 /* 状态 A：占位框（铺满本体，自身即选中 / 拖动区；不是按钮） */
@@ -123,7 +116,12 @@
 .assetLoading {
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, var(--bg-subtle), var(--bg-hover), var(--bg-subtle));
+  background: linear-gradient(
+    90deg,
+    var(--node-inset),
+    var(--node-control),
+    var(--node-inset)
+  );
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
@@ -143,7 +141,7 @@
   gap: 6px;
   padding: 12px;
   box-sizing: border-box;
-  background: var(--bg-subtle);
+  background: var(--node-inset);
   border: 1px dashed var(--stroke);
   border-radius: var(--radius-control);
   text-align: center;
@@ -199,7 +197,7 @@
   justify-content: center;
   border: var(--border);
   border-radius: var(--radius-pill);
-  background: var(--bg-surface);
+  background: var(--node-control);
   color: var(--text-1);
   font-size: 12px;
   line-height: 1;
@@ -220,7 +218,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-3);
-  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  background: color-mix(in srgb, var(--node-inset) 76%, transparent);
   box-sizing: border-box;
 }
 

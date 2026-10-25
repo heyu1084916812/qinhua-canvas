@@ -17,6 +17,7 @@ import {
   IconGridArrange,
   IconGroup,
   IconBatch,
+  IconGallery,
   IconMention,
   IconStar,
 } from './icons'
@@ -159,6 +160,18 @@ export function MultiSelectBar({
     else store.notify(r.reason, 'error')
   }, [selection, store])
 
+  const openGallery = useCallback(() => {
+    const mediaIds = nodes.flatMap((node) => {
+      const hash = (node.data as { assetHash?: unknown }).assetHash
+      return typeof hash === 'string' && hash ? [node.id] : []
+    })
+    if (mediaIds.length < 2) {
+      store.notify('选中的节点里至少要有两张图片或视频', 'error')
+      return
+    }
+    store.openLightboxGallery(mediaIds)
+  }, [nodes, store])
+
   if (nodes.length < 2) return null
 
   /** 选区在**屏幕坐标**下的外框（与跟随栏同一套换算：屏幕 =（世界 − 视口）× zoom） */
@@ -225,6 +238,12 @@ export function MultiSelectBar({
         />
         <BarButton action="group" label="打组" icon={<IconGroup size={16} />} onClick={group} />
         <BarButton action="batch" label="批量" icon={<IconBatch size={16} />} onClick={batch} />
+        <BarButton
+          action="gallery"
+          label="灯箱"
+          icon={<IconGallery size={16} />}
+          onClick={openGallery}
+        />
         <BarButton
           action="download"
           label="下载"

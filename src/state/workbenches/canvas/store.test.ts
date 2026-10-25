@@ -232,6 +232,43 @@ describe('canvas store / 素材灯箱（§6.17）', () => {
     expect(store.getMenu()).toBeNull()
     expect(store.getLightbox()).toEqual({ assetHash: 'hash-1' })
   })
+
+  it('★★ 多选灯箱按选中顺序取有素材的节点，左右切换并循环', () => {
+    const store = createCanvasStore({ platform, projectId: 'p1' })
+    for (const [title, hash] of [
+      ['主图', 'h1'],
+      ['细节图', 'h2'],
+      ['无图节点', ''],
+    ] as const) {
+      store.dispatch({
+        kind: 'node.create',
+        projectId: 'p1',
+        type: 'generation',
+        at: { x: 0, y: 0 },
+        title,
+        data: { mode: 'image', ...(hash ? { assetHash: hash } : {}) },
+      })
+    }
+    const ids = store.getSnapshot().nodes
+      .filter((node) => node.title !== '无图节点')
+      .map((node) => node.id)
+
+    store.openLightboxGallery(ids)
+    expect(store.getLightbox()).toMatchObject({
+      assetHash: 'h1',
+      galleryIndex: 0,
+      gallery: [
+        { assetHash: 'h1', nodeId: ids[0], title: '主图' },
+        { assetHash: 'h2', nodeId: ids[1], title: '细节图' },
+      ],
+    })
+    store.navigateLightbox(1)
+    expect(store.getLightbox()).toMatchObject({ assetHash: 'h2', galleryIndex: 1 })
+    store.navigateLightbox(1)
+    expect(store.getLightbox()).toMatchObject({ assetHash: 'h1', galleryIndex: 0 })
+    store.navigateLightbox(-1)
+    expect(store.getLightbox()).toMatchObject({ assetHash: 'h2', galleryIndex: 1 })
+  })
 })
 
 describe('canvas store / 素材插队落库（上传即显）', () => {

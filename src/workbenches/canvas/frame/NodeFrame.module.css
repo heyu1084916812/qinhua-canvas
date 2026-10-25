@@ -2,7 +2,7 @@
   position: absolute;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
+  background: var(--node-fill);
   border: var(--border);
   border-radius: var(--radius-node);
   /* 画布浮层无投影（产品文档 §3.3），层级靠描边与背景明度区分 */
@@ -133,7 +133,7 @@
   width: 100%;
   border: none;
   outline: none;
-  background: var(--bg-subtle);
+  background: var(--node-control);
   border-radius: var(--radius-control);
   padding: 2px var(--space-2);
   font-family: var(--font-sans);

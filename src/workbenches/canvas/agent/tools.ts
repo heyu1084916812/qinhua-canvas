@@ -8,10 +8,13 @@ import {
 } from '../../../domain/agent/plan'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
+import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { downstreamOf } from '../../../domain/canvas/graph/upstreamOf'
 import { canBuildRequest } from '../../../features/canvas/execution/buildRunPlan'
 import { applyAgentPlan } from './applyAgentPlan'
 import type { AgentRunOutcome } from './runOutcome'
+import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
+import { createId } from '../../../shared/id'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -192,15 +195,156 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
       required: ['nodeIds'],
     },
   },
+  {
+    name: 'moveNodes',
+    description:
+      '移动节点。可用 positions 给每个节点精确的左上角坐标，或 dx/dy 给一组节点相同位移。' +
+      '坐标使用 readGraph 返回的 x / y；分组子节点使用组内坐标。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: { type: 'array', items: { type: 'string' } },
+        positions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              nodeId: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+            },
+            required: ['nodeId', 'x', 'y'],
+          },
+        },
+        dx: { type: 'number' },
+        dy: { type: 'number' },
+      },
+      required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'arrangeNodes',
+    description:
+      '把一组同层节点排列成水平、垂直或网格；保持原选区左上角，按给定 gap 排布。' +
+      '确定要自动整理画布时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: { type: 'array', items: { type: 'string' } },
+        layout: { type: 'string', enum: ['horizontal', 'vertical', 'grid'] },
+        gap: { type: 'number', description: '节点间距，默认 32。' },
+        columns: { type: 'number', description: 'grid 模式的列数；不填按平方根估算。' },
+      },
+      required: ['nodeIds', 'layout'],
+    },
+  },
+  {
+    name: 'deleteEdges',
+    description:
+      '取消连线。优先传 readGraph 返回的 edgeIds；也可用 source/target 对精确指定。' +
+      '删除连线不会删除节点。此操作会先让用户确认。',
+    parameters: {
+      type: 'object',
+      properties: {
+        edgeIds: { type: 'array', items: { type: 'string' } },
+        pairs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              source: { type: 'string' },
+              target: { type: 'string' },
+            },
+            required: ['source', 'target'],
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'compareNodes',
+    description:
+      '把两个有图的节点直接做成 A/B 对比节点：自动在右侧建对比节点并连接两张图。',
+    parameters: {
+      type: 'object',
+      properties: {
+        leftNodeId: { type: 'string' },
+        rightNodeId: { type: 'string' },
+      },
+      required: ['leftNodeId', 'rightNodeId'],
+    },
+  },
+  {
+    name: 'sliceImage',
+    description:
+      '对图片节点提取选区或裁剪。rect 使用原图像素坐标 {x,y,w,h}；' +
+      '不传 rect 时为该节点打开灯箱框选，用户画完框后由现有裁剪流程生成新节点。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string' },
+        mode: { type: 'string', enum: ['extract', 'crop'] },
+        rect: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            w: { type: 'number' },
+            h: { type: 'number' },
+          },
+          required: ['x', 'y', 'w', 'h'],
+        },
+        ratio: { type: 'string' },
+      },
+      required: ['nodeId', 'mode'],
+    },
+  },
+  {
+    name: 'splitGrid',
+    description:
+      '把图片节点按 rows × cols 宫格切分，并在右侧铺开生成每个切片节点。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string' },
+        rows: { type: 'number' },
+        cols: { type: 'number' },
+      },
+      required: ['nodeId', 'rows', 'cols'],
+    },
+  },
 ]
 
 /** 画布现状摘要 —— 结构与设计文档 §4.2 的回填格式一致 */
 export interface GraphSummary {
+  /**
+   * 兼容旧测试 / 旧会话里只含 nodes + edges 的摘要。`readGraph` 的运行时结果
+   * 始终会带这些空间字段；这里保持可选，避免读旧历史时整段摘要失效。
+   */
+  bounds?: { x: number; y: number; w: number; h: number }
   nodes: {
     id: string
     type: string
     title: string
     hasOutput: boolean
+    x?: number
+    y?: number
+    w?: number
+    h?: number
+    center?: { x: number; y: number }
+    parentId?: string
+    parentTitle?: string
+    /** 在整张画布九个区域中的位置，例如「左上」「中部」「右下」。 */
+    zone?: string
+    /** 最近 4 个节点；distance 为矩形中心之间的欧氏距离。 */
+    nearby?: {
+      nodeId: string
+      title: string
+      direction: string
+      distance: number
+    }[]
+    upstream?: string[]
+    downstream?: string[]
     /**
      * 节点上的**正文**（生成 / 批量 / 分组是 `data.prompt`，提示词节点是 `data.text`），
      * 最多 160 字。
@@ -218,7 +362,13 @@ export interface GraphSummary {
      */
     carrierNodeIds?: string[]
   }[]
-  edges: { source: string; target: string; sourcePort: string; targetPort: string }[]
+  edges: {
+    id?: string
+    source: string
+    target: string
+    sourcePort: string
+    targetPort: string
+  }[]
 }
 
 const asRecord = (v: unknown): Record<string, unknown> =>
@@ -227,14 +377,54 @@ const asRecord = (v: unknown): Record<string, unknown> =>
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
-export function readGraphSummary(
-  store: CanvasStore,
-  scope: unknown,
-  selectedIds: readonly string[] = [],
+function centerOf(node: { x: number; y: number; w: number; h: number }) {
+  return { x: node.x + node.w / 2, y: node.y + node.h / 2 }
+}
+
+function directionBetween(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): string {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const horizontal = Math.abs(dx) >= Math.abs(dy)
+  if (horizontal) return dx < 0 ? '左' : '右'
+  return dy < 0 ? '上' : '下'
+}
+
+function zoneOf(
+  center: { x: number; y: number },
+  bounds: { x: number; y: number; w: number; h: number },
+): string {
+  if (bounds.w <= 0 || bounds.h <= 0) return '未知'
+  const px = (center.x - bounds.x) / bounds.w
+  const py = (center.y - bounds.y) / bounds.h
+  const horizontal = px < 1 / 3 ? '左' : px > 2 / 3 ? '右' : ''
+  const vertical = py < 1 / 3 ? '上' : py > 2 / 3 ? '下' : ''
+  if (!horizontal && !vertical) return '中部'
+  return `${horizontal}${vertical}` || '中部'
+}
+
+export function summarizeGraph(
+  graph: Pick<GraphSnapshot, 'nodes' | 'edges'>,
+  selectedIds?: readonly string[],
 ): GraphSummary {
-  const graph = store.getSnapshot()
   // 选中项由调用方给：画布 store 只暴露图快照，选中态在视图层
-  const only = scope === 'selection' ? new Set(selectedIds) : null
+  const only = selectedIds ? new Set(selectedIds) : null
+  const bounds =
+    graph.nodes.length > 0
+      ? {
+          x: Math.min(...graph.nodes.map((node) => node.x)),
+          y: Math.min(...graph.nodes.map((node) => node.y)),
+          w:
+            Math.max(...graph.nodes.map((node) => node.x + node.w)) -
+            Math.min(...graph.nodes.map((node) => node.x)),
+          h:
+            Math.max(...graph.nodes.map((node) => node.y + node.h)) -
+            Math.min(...graph.nodes.map((node) => node.y)),
+        }
+      : { x: 0, y: 0, w: 0, h: 0 }
+  const nodeTitles = new Map(graph.nodes.map((node) => [node.id, node.title] as const))
   /**
    * 产出过图的**承载节点**：批量 / 循环展开时除第一次之外的产物落在它们身上
    * （见 `canvasPlacement` 的 `__carrierOf`）。
@@ -257,10 +447,40 @@ export function readGraphSummary(
       const text = typeof data.prompt === 'string' ? data.prompt : data.text
       const prompt = typeof text === 'string' ? text.trim().slice(0, 160) : ''
       const carrierIds = carriersByOwner.get(n.id) ?? []
+      const center = centerOf(n)
+      const nearby = graph.nodes
+        .filter((other) => other.id !== n.id)
+        .map((other) => {
+          const otherCenter = centerOf(other)
+          return {
+            nodeId: other.id,
+            title: other.title,
+            direction: directionBetween(center, otherCenter),
+            distance: Math.round(Math.hypot(otherCenter.x - center.x, otherCenter.y - center.y)),
+          }
+        })
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 4)
+      const upstream = graph.edges.filter((edge) => edge.target === n.id).map((edge) => edge.source)
+      const downstream = graph.edges
+        .filter((edge) => edge.source === n.id)
+        .map((edge) => edge.target)
       return {
         id: n.id,
         type: n.type,
         title: n.title,
+        x: Math.round(n.x),
+        y: Math.round(n.y),
+        w: Math.round(n.w),
+        h: Math.round(n.h),
+        center: { x: Math.round(center.x), y: Math.round(center.y) },
+        ...(n.parentId
+          ? { parentId: n.parentId, parentTitle: nodeTitles.get(n.parentId) ?? n.parentId }
+          : {}),
+        zone: zoneOf(center, bounds),
+        nearby,
+        upstream,
+        downstream,
         hasOutput:
           typeof data.assetHash === 'string' ||
           carrierIds.some((cid) => {
@@ -273,16 +493,31 @@ export function readGraphSummary(
     })
   const ids = new Set(nodes.map((n) => n.id))
   return {
+    bounds: {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      w: Math.round(bounds.w),
+      h: Math.round(bounds.h),
+    },
     nodes,
     edges: graph.edges
       .filter((e) => ids.has(e.source) && ids.has(e.target))
       .map((e) => ({
+        id: e.id,
         source: e.source,
         target: e.target,
         sourcePort: e.sourcePort ?? 'output',
         targetPort: e.targetPort ?? 'input',
       })),
   }
+}
+
+export function readGraphSummary(
+  store: CanvasStore,
+  scope: unknown,
+  selectedIds: readonly string[] = [],
+): GraphSummary {
+  return summarizeGraph(store.getSnapshot(), scope === 'selection' ? selectedIds : undefined)
 }
 
 /**
@@ -442,6 +677,19 @@ export interface AgentToolContext {
    * 点了生成**一个请求都发不出去**（用户 2026-10-03 让我用 agent 做视频时实测到的）。
    */
   categoryOfModel?: (model: string) => 'image' | 'video' | 'chat' | undefined
+  /** 像素级裁剪 / 提取选区；由画布宿主注入，工具层不碰 AssetPort 与 Canvas。 */
+  sliceImage?: (
+    nodeId: string,
+    mode: 'extract' | 'crop',
+    rect: { x: number; y: number; w: number; h: number },
+    ratio?: string,
+  ) => Promise<{ ok: boolean; nodeId?: string; reason?: string }>
+  /** 宫格切分；由画布宿主注入。 */
+  splitGrid?: (
+    nodeId: string,
+    rows: number,
+    cols: number,
+  ) => Promise<{ ok: boolean; nodeIds?: string[]; reason?: string }>
 }
 
 /**
@@ -596,6 +844,220 @@ export function promptlessGenerationProblems(plan: AgentPlan): string[] {
     )
   }
   return out
+}
+
+function selectedNodes(store: CanvasStore, ids: readonly string[]) {
+  const graph = store.getSnapshot()
+  const unique = [...new Set(ids)]
+  const nodes = unique.map((id) => graph.nodes.find((node) => node.id === id))
+  const missing = unique.filter((_, index) => !nodes[index])
+  return {
+    unique,
+    nodes: nodes.filter((node): node is NonNullable<typeof node> => !!node),
+    missing,
+  }
+}
+
+async function moveNodesInStore(store: CanvasStore, args: Record<string, unknown>) {
+  const ids = asStringArray(args.nodeIds)
+  if (ids.length === 0) return { ok: false, problems: ['没有指定要移动的节点'] }
+  const { unique, nodes, missing } = selectedNodes(store, ids)
+  if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+
+  const positionRows = Array.isArray(args.positions) ? args.positions.map(asRecord) : []
+  const positions = new Map(
+    positionRows.flatMap((row) => {
+      const nodeId = typeof row.nodeId === 'string' ? row.nodeId : ''
+      const x = Number(row.x)
+      const y = Number(row.y)
+      return nodeId && Number.isFinite(x) && Number.isFinite(y)
+        ? [[nodeId, { x, y }] as const]
+        : []
+    }),
+  )
+  const dx = Number.isFinite(Number(args.dx)) ? Number(args.dx) : 0
+  const dy = Number.isFinite(Number(args.dy)) ? Number(args.dy) : 0
+  if (positions.size === 0 && dx === 0 && dy === 0) {
+    return { ok: false, problems: ['请提供 positions，或非零的 dx / dy'] }
+  }
+  if (positions.size > 0 && unique.some((id) => !positions.has(id))) {
+    return { ok: false, problems: ['positions 必须覆盖 nodeIds 里的每一个节点'] }
+  }
+
+  store.beginPlan(`agent-move:${createId('plan')}`, 'Agent 移动节点')
+  for (const node of nodes) {
+    const target = positions.get(node.id)
+    const moveX = target ? target.x - node.x : dx
+    const moveY = target ? target.y - node.y : dy
+    if (moveX === 0 && moveY === 0) continue
+    store.dispatch({ kind: 'node.move', ids: [node.id], dx: moveX, dy: moveY, phase: 'end' })
+  }
+  store.endPlan()
+  await store.flush()
+  const after = store.getSnapshot().nodes
+  return {
+    ok: true,
+    moved: nodes.map((node) => {
+      const latest = after.find((item) => item.id === node.id) ?? node
+      return { nodeId: node.id, x: Math.round(latest.x), y: Math.round(latest.y) }
+    }),
+  }
+}
+
+async function arrangeNodesInStore(store: CanvasStore, args: Record<string, unknown>) {
+  const ids = asStringArray(args.nodeIds)
+  if (ids.length < 2) return { ok: false, problems: ['至少需要 2 个节点才能排列'] }
+  const { nodes, missing } = selectedNodes(store, ids)
+  if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
+  const parents = new Set(nodes.map((node) => node.parentId ?? null))
+  if (parents.size > 1) {
+    return { ok: false, problems: ['一次只能排列同一层级的节点，不能混排分组内外的节点'] }
+  }
+  const layout = String(args.layout ?? '')
+  if (!['horizontal', 'vertical', 'grid'].includes(layout)) {
+    return { ok: false, problems: ['layout 只能是 horizontal / vertical / grid'] }
+  }
+  const gapRaw = Number(args.gap)
+  const gap = Number.isFinite(gapRaw) ? Math.min(240, Math.max(8, gapRaw)) : 32
+  const ordered = [...nodes].sort((a, b) => a.y - b.y || a.x - b.x)
+  const left = Math.min(...ordered.map((node) => node.x))
+  const top = Math.min(...ordered.map((node) => node.y))
+  const targets = new Map<string, { x: number; y: number }>()
+
+  if (layout === 'horizontal') {
+    let cursor = left
+    for (const node of ordered) {
+      targets.set(node.id, { x: cursor, y: top })
+      cursor += node.w + gap
+    }
+  } else if (layout === 'vertical') {
+    let cursor = top
+    for (const node of ordered) {
+      targets.set(node.id, { x: left, y: cursor })
+      cursor += node.h + gap
+    }
+  } else {
+    const columnsRaw = Number(args.columns)
+    const columns = Number.isFinite(columnsRaw)
+      ? Math.min(ordered.length, Math.max(1, Math.floor(columnsRaw)))
+      : Math.min(ordered.length, Math.ceil(Math.sqrt(ordered.length)))
+    const rows = Math.ceil(ordered.length / columns)
+    const colWidths = Array.from({ length: columns }, (_, col) =>
+      Math.max(...ordered.filter((_, index) => index % columns === col).map((node) => node.w)),
+    )
+    const rowHeights = Array.from({ length: rows }, (_, row) =>
+      Math.max(
+        ...ordered
+          .slice(row * columns, (row + 1) * columns)
+          .map((node) => node.h),
+      ),
+    )
+    ordered.forEach((node, index) => {
+      const col = index % columns
+      const row = Math.floor(index / columns)
+      targets.set(node.id, {
+        x: left + colWidths.slice(0, col).reduce((sum, width) => sum + width + gap, 0),
+        y: top + rowHeights.slice(0, row).reduce((sum, height) => sum + height + gap, 0),
+      })
+    })
+  }
+
+  store.beginPlan(`agent-arrange:${createId('plan')}`, 'Agent 排列节点')
+  for (const node of ordered) {
+    const target = targets.get(node.id)!
+    store.dispatch({
+      kind: 'node.move',
+      ids: [node.id],
+      dx: target.x - node.x,
+      dy: target.y - node.y,
+      phase: 'end',
+    })
+  }
+  store.endPlan()
+  await store.flush()
+  return {
+    ok: true,
+    layout,
+    positions: [...targets.entries()].map(([nodeId, point]) => ({
+      nodeId,
+      x: Math.round(point.x),
+      y: Math.round(point.y),
+    })),
+  }
+}
+
+async function deleteEdgesInStore(store: CanvasStore, args: Record<string, unknown>) {
+  const graph = store.getSnapshot()
+  const requested = new Set(asStringArray(args.edgeIds))
+  const pairs = Array.isArray(args.pairs) ? args.pairs.map(asRecord) : []
+  for (const edge of graph.edges) {
+    if (
+      pairs.some(
+        (pair) =>
+          pair.source === edge.source &&
+          pair.target === edge.target,
+      )
+    ) {
+      requested.add(edge.id)
+    }
+  }
+  const existing = [...requested].filter((id) => graph.edges.some((edge) => edge.id === id))
+  if (existing.length === 0) {
+    return { ok: false, problems: ['没有找到要删除的连线'] }
+  }
+  store.beginPlan(`agent-unlink:${createId('plan')}`, 'Agent 取消连线')
+  for (const id of existing) store.dispatch({ kind: 'edge.remove', id })
+  store.endPlan()
+  await store.flush()
+  return { ok: true, deletedEdgeIds: existing }
+}
+
+async function compareNodesInStore(
+  store: CanvasStore,
+  args: Record<string, unknown>,
+) {
+  const leftId = typeof args.leftNodeId === 'string' ? args.leftNodeId : ''
+  const rightId = typeof args.rightNodeId === 'string' ? args.rightNodeId : ''
+  if (!leftId || !rightId || leftId === rightId) {
+    return { ok: false, problems: ['需要两个不同的节点 id'] }
+  }
+  const graph = store.getSnapshot()
+  const left = graph.nodes.find((node) => node.id === leftId)
+  const right = graph.nodes.find((node) => node.id === rightId)
+  if (!left || !right) return { ok: false, problems: ['对比节点不存在'] }
+  if (
+    !(left.data as { assetHash?: unknown }).assetHash ||
+    !(right.data as { assetHash?: unknown }).assetHash
+  ) {
+    return { ok: false, problems: ['两个节点都必须已有图片'] }
+  }
+  if ((left.parentId ?? null) !== (right.parentId ?? null)) {
+    return { ok: false, problems: ['对比的两个节点必须在同一层级'] }
+  }
+  const spec = getSpec('compare')
+  if (!spec) return { ok: false, problems: ['对比节点尚未注册'] }
+  const id = createId('node')
+  const at = {
+    x: Math.max(left.x + left.w, right.x + right.w) + 80,
+    y: Math.min(left.y, right.y),
+  }
+  store.beginPlan(`agent-compare:${id}`, 'Agent 创建对比')
+  store.dispatch({
+    kind: 'node.create',
+    projectId: graph.projectId,
+    type: 'compare',
+    id,
+    at,
+    title: `${left.title} / ${right.title} 对比`,
+    ...(left.parentId ? { parentId: left.parentId } : {}),
+    data: spec.createDefaultData(),
+  })
+  store.dispatch({ kind: 'edge.connect', source: left.id, target: id })
+  store.dispatch({ kind: 'edge.connect', source: right.id, target: id })
+  store.endPlan()
+  store.setSelection([id])
+  await store.flush()
+  return { ok: true, compareNodeId: id }
 }
 
 export async function executeConfirmedTool(
@@ -766,6 +1228,62 @@ export async function executeConfirmedTool(
       if (!resolved.ok) return resolved
       const outcomes = await ctx.runNodes(resolved.ids)
       return { ok: outcomes.every((o) => o.ok), outcomes }
+    }
+    case 'moveNodes':
+      return moveNodesInStore(ctx.store, a)
+    case 'arrangeNodes':
+      return arrangeNodesInStore(ctx.store, a)
+    case 'deleteEdges':
+      return deleteEdgesInStore(ctx.store, a)
+    case 'compareNodes':
+      return compareNodesInStore(ctx.store, a)
+    case 'sliceImage': {
+      const nodeId = typeof a.nodeId === 'string' ? a.nodeId : ''
+      const mode = a.mode === 'crop' ? 'crop' : a.mode === 'extract' ? 'extract' : null
+      if (!nodeId || !mode) return { ok: false, problems: ['需要 nodeId 与 extract / crop 模式'] }
+      const node = ctx.store.getSnapshot().nodes.find((item) => item.id === nodeId)
+      if (!node) return { ok: false, problems: ['节点不存在'] }
+      if (!(node.data as { assetHash?: unknown }).assetHash) {
+        return { ok: false, problems: ['这个节点还没有图片'] }
+      }
+      const rect = asRecord(a.rect)
+      const x = Number(rect.x)
+      const y = Number(rect.y)
+      const w = Number(rect.w)
+      const h = Number(rect.h)
+      if ([x, y, w, h].every(Number.isFinite) && w > 0 && h > 0) {
+        if (!ctx.sliceImage) return { ok: false, problems: ['当前画布没有接入裁剪能力'] }
+        return ctx.sliceImage(
+          nodeId,
+          mode,
+          { x, y, w, h },
+          typeof a.ratio === 'string' ? a.ratio : undefined,
+        )
+      }
+      ctx.store.openCropLightbox(nodeId, { plain: mode === 'crop' })
+      return {
+        ok: true,
+        waitingForSelection: true,
+        message: `已在灯箱打开「${mode === 'crop' ? '裁剪' : '提取选区'}」，请在图上框选后确认`,
+      }
+    }
+    case 'splitGrid': {
+      const nodeId = typeof a.nodeId === 'string' ? a.nodeId : ''
+      const rows = Math.floor(Number(a.rows))
+      const cols = Math.floor(Number(a.cols))
+      if (
+        !nodeId ||
+        !Number.isFinite(rows) ||
+        !Number.isFinite(cols) ||
+        rows < 1 ||
+        cols < 1 ||
+        rows > 64 ||
+        cols > 64
+      ) {
+        return { ok: false, problems: ['需要 nodeId、rows 与 cols，且行列数必须在 1–64'] }
+      }
+      if (!ctx.splitGrid) return { ok: false, problems: ['当前画布没有接入宫格切分能力'] }
+      return ctx.splitGrid(nodeId, rows, cols)
     }
     default:
       return { ok: false, problems: [`没有这个工具：${name}`] }

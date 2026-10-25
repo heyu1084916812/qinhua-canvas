@@ -120,6 +120,49 @@
   cursor: grabbing;
 }
 
+/*
+ * 多选灯箱导航：只出现在查看模式，左右各一枚。
+ * 采用灯箱自己的表面样式，不叠阴影；焦点用项目统一的 focus ring。
+ */
+.galleryNav {
+  position: absolute;
+  top: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+.galleryNav:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-3);
+}
+
+.galleryNav:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.galleryPrev {
+  left: var(--space-4);
+}
+
+.galleryNext {
+  right: var(--space-4);
+}
+
 /* 已知尺寸：由 JS 按视口模型算出 left/top/width/height（世界 → 屏幕） */
 .media {
   position: absolute;
