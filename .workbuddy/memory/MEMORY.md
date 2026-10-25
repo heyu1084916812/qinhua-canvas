@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 浅色画布与节点内部纯白（2026-10-25 → 对账 #748）
+
+- 浅色画布底 `--canvas-tone-slate: #ecf5f9`；浅色节点内部 `--node-fill` / `--node-inset`
+  统一纯白 `#ffffff`，深色节点保持 `#222222`。
+- 批量节点内部不描边：`.body` 边框透明、`.empty` 无描边并与节点同色
+  （见 `workbenches/canvas/frame/ContainerBody.module.css`）。
+
 ### Agent 视觉输入与节点尺寸避让（2026-10-25 → 对账 #746）
 
 - **Agent 看不见图的根因不是图片尺寸**：`askModel()` 曾写死 `inputs: []`，

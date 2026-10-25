@@ -63,12 +63,12 @@
 :global([data-node-type='batch']) .body {
   background: var(--node-fill);
   border-style: solid;
+  border-color: transparent;
 }
 
 :global([data-node-type='batch']) .empty {
-  background: var(--node-inset);
-  border-style: solid;
-  border-color: var(--node-border-inner);
+  background: var(--node-fill);
+  border: none;
 }
 
 /*

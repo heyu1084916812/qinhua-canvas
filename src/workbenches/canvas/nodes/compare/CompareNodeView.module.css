@@ -12,12 +12,12 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  border: 1px solid var(--node-border-inner);
+  border: none;
   /* 同心圆角（§3.2）：相对外框内缩 7px（1px 外框描边 + 6px 本体内边距），
      半径 = 外框半径 − 内缩量；沿用 --radius-control（10px）会在角上留下两条不同弧 */
   border-radius: calc(var(--radius-node) - 7px);
   overflow: hidden;
-  background: var(--node-inset);
+  background: var(--node-fill);
   /* 拖动期间禁用图片原生拖拽与文本选择 */
   user-select: none;
   touch-action: none;
@@ -99,28 +99,6 @@
   margin-right: 3px;
 }
 
-.empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  background: var(--node-inset);
-}
-
-.emptyText {
-  font-size: var(--fs-label);
-  font-weight: 600;
-  color: var(--text-3);
-}
-
-.emptyHint {
-  font-size: 10px;
-  color: var(--text-3);
-}
-
 .labels {
   display: flex;
   justify-content: space-between;
@@ -134,7 +112,7 @@
   padding: 0 6px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
-  background: var(--node-inset);
+  background: var(--node-fill);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);

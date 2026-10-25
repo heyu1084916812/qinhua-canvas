@@ -78,8 +78,8 @@
   /* —— 画布节点表层 ——
      中性冷灰只拉开三层，不给不同节点分别上色。边框比填充再淡一档，
      因此空节点不是几块灰框；主要动作才使用深色强调。 */
-  --node-fill: #ececec;
-  --node-inset: #e5e5e5;
+  --node-fill: #ffffff;
+  --node-inset: #ffffff;
   --node-control: #dfdfdf;
   --node-control-hover: #d5d5d5;
   --node-border: #d7d7d7;
@@ -106,7 +106,7 @@
      第 1 档 = 原来的画布底色（亮 #ffffff / 暗 #161616），所以老项目观感不变；
      与上面容器那六档同色相，但**独立成画布令牌** —— 容器底色与画布底色是两件事，
      将来单独调谁都不会牵连另一个。 */
-  --canvas-tone-slate: #ffffff;
+  --canvas-tone-slate: #ecf5f9;
   --canvas-tone-blue: #f5f8fe;
   --canvas-tone-green: #f4faf6;
   --canvas-tone-amber: #fdf9f1;
@@ -299,7 +299,7 @@
 
   /* 深色不靠亮白描边区分层级：面、舞台、控件有稳定的明度梯度。 */
   --node-fill: #222222;
-  --node-inset: #1c1c1c;
+  --node-inset: #222222;
   --node-control: #2b2b2b;
   --node-control-hover: #353535;
   --node-border: #353535;
