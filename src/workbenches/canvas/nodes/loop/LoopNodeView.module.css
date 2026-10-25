@@ -58,7 +58,7 @@
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-control);
-  background: var(--node-control);
+  background: transparent;
   border: 1px solid var(--node-border-inner);
 }
 
@@ -100,7 +100,7 @@
   padding: 0 9px;
   border-radius: var(--radius-control);
   border: 1px solid var(--node-border-inner);
-  background: var(--node-control);
+  background: transparent;
   color: var(--text-2);
   display: inline-flex;
   align-items: center;
@@ -129,9 +129,9 @@
 }
 
 .toggleActive {
-  background: var(--node-control-hover);
-  color: var(--text-1);
-  border-color: var(--node-border-inner);
+  background: var(--node-action);
+  color: var(--node-action-text);
+  border-color: var(--node-action);
 }
 
 /* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
@@ -410,7 +410,7 @@
   padding: 0 13px;
   border-radius: 999px;
   border: 1px solid var(--node-border-inner);
-  background: var(--node-control);
+  background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -418,7 +418,7 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: var(--shadow-float);
+  box-shadow: none;
 }
 
 .counterToken:hover {
@@ -433,7 +433,7 @@
   box-sizing: border-box;
   display: grid;
   place-items: center;
-  background: var(--bg-surface);
+  background: transparent;
   border: 1px solid var(--stroke);
   color: var(--text-2);
   line-height: 0;
@@ -448,9 +448,9 @@
 }
 
 .addPrompt:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
+  background: transparent;
+  border-color: var(--text-1);
+  color: var(--text-1);
 }
 
 /* ── ⑤ 底栏三格（大雄 .loop-smart-footer） ── */
@@ -490,9 +490,9 @@
   min-height: 30px;
   padding: 0;
   border-radius: var(--radius-control);
-  border: 1px solid var(--node-action);
-  background: var(--node-action);
-  color: var(--node-action-text);
+  border: 1px solid var(--node-border-inner);
+  background: transparent;
+  color: var(--text-1);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -500,7 +500,13 @@
   gap: 4px;
   overflow: hidden;
   cursor: pointer;
-  box-shadow: var(--shadow-float);
+  box-shadow: none;
+}
+
+.run:not(:disabled):hover {
+  background: var(--node-action);
+  border-color: var(--node-action);
+  color: var(--node-action-text);
 }
 
 /*
@@ -534,7 +540,7 @@
  * （这正是「点了没反应」那类反馈的预防）。执行未接，如实置灰。
  */
 .run:disabled {
-  background: var(--node-control);
+  background: transparent;
   border-color: var(--stroke);
   color: var(--text-3);
   box-shadow: none;
@@ -569,7 +575,7 @@
   padding: 0 8px;
   border-radius: var(--radius-control);
   border: 1px solid var(--node-border-inner);
-  background: var(--node-control);
+  background: transparent;
   color: var(--text-2);
   display: flex;
   flex-direction: row;
@@ -636,7 +642,7 @@
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius-control);
-  background: var(--node-control);
+  background: transparent;
   border: 1px solid var(--stroke);
 }
 
@@ -659,8 +665,8 @@
 }
 
 .numCellActive {
-  background: var(--accent);
-  color: var(--accent-text);
+  background: var(--node-action);
+  color: var(--node-action-text);
 }
 
 .numCustom {
