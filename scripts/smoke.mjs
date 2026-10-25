@@ -11498,6 +11498,38 @@ async function g67(browser) {
   await node.locator('[data-loop-insert-counter]').click()
   await sleep(600)
   const inserted = await readLoopPrompt(node.locator('[data-loop-prompt="0"]'))
+  const tokenChip = await node.locator('[data-token]').first().evaluate((el) => ({
+    radius: getComputedStyle(el).borderRadius,
+    deleteButtons: el.querySelectorAll('[data-token-delete]').length,
+  }))
+  rec(
+    g,
+    '★ 插入的计数 chip 是圆角矩形且没有删除 ×',
+    tokenChip.radius !== '999px' && tokenChip.deleteButtons === 0,
+    JSON.stringify(tokenChip),
+  )
+  const promptShell = await node.locator('[data-loop-prompt-panel]').evaluate((el) => {
+    const cs = getComputedStyle(el)
+    const editor = el.querySelector('[data-loop-token-editor]')
+    const eb = editor?.getBoundingClientRect()
+    const pb = el.getBoundingClientRect()
+    return {
+      border: cs.borderTopWidth,
+      background: cs.backgroundColor,
+      padding: cs.paddingLeft,
+      editorWidth: eb ? Math.round(eb.width) : 0,
+      panelWidth: Math.round(pb.width),
+    }
+  })
+  rec(
+    g,
+    '★ 提示词外层不画框，内框撑满宽度',
+    promptShell.border === '0px' &&
+      promptShell.background === 'rgba(0, 0, 0, 0)' &&
+      promptShell.padding === '0px' &&
+      promptShell.editorWidth === promptShell.panelWidth,
+    JSON.stringify(promptShell),
+  )
   rec(g, '「计数」按钮把变量插进第一条', inserted.includes('[计数]'), inserted)
 
   // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──

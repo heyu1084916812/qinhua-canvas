@@ -184,6 +184,9 @@
 .promptPanel {
   min-height: 0;
   flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 /* 上游缩略图：横向滚动，不换行（换行会把面板撑得忽高忽低） */
@@ -320,7 +323,7 @@
    * 就在 item 右边缘的 `y = 4px` 处。圆点与删除按钮都用绝对定位 + 反向平移，
    * 让**圆心**正好压在这两个顶点上（用户 2026-09-28 的要求）。
    */
-  padding: 4px 0 0 4px;
+  padding: 0;
   border-radius: var(--radius-control);
 }
 
@@ -333,8 +336,8 @@
  */
 .promptIndex {
   position: absolute;
-  left: 4px;
-  top: 4px;
+  left: 0;
+  top: 0;
   z-index: 2;
   width: 18px;
   height: 18px;
@@ -423,7 +426,7 @@
 .counterToken {
   height: 28px;
   padding: 0 13px;
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--node-border-inner);
   background: transparent;
   color: var(--text-1);
@@ -448,9 +451,9 @@
   box-sizing: border-box;
   display: grid;
   place-items: center;
-  background: transparent;
-  border: 1px solid var(--stroke);
-  color: var(--text-2);
+  background: var(--node-contrast-bg);
+  border: none;
+  color: var(--node-contrast-text);
   line-height: 0;
   cursor: pointer;
 }
@@ -463,9 +466,8 @@
 }
 
 .addPrompt:hover {
-  background: transparent;
-  border-color: var(--text-1);
-  color: var(--text-1);
+  background: var(--node-contrast-hover);
+  color: var(--node-contrast-text);
 }
 
 /* ── ⑤ 底栏三格（大雄 .loop-smart-footer） ── */
@@ -661,7 +663,7 @@
   padding: 3px;
   border-radius: var(--radius-control);
   background: transparent;
-  border: 1px solid var(--stroke);
+  border: none;
 }
 
 .numCell,
@@ -693,7 +695,7 @@
   padding: 0 4px 0 8px;
   border-radius: calc(var(--radius-control) - 1px);
   border: 1px solid var(--stroke);
-  background: var(--node-control);
+  background: transparent;
   display: flex;
   align-items: center;
   gap: 6px;

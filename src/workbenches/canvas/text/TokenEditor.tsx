@@ -70,14 +70,7 @@ function makeChip(doc: Document, token: string): HTMLElement {
   chip.setAttribute('data-token', token)
   const label = doc.createElement('span')
   label.textContent = chipLabel(token)
-  const del = doc.createElement('button')
-  del.type = 'button'
-  del.className = styles.chipDel ?? ''
-  del.setAttribute('data-token-delete', token)
-  del.setAttribute('aria-label', `删除${chipLabel(token)}变量`)
-  del.title = `删除${chipLabel(token)}变量`
-  del.textContent = '×'
-  chip.append(label, del)
+  chip.append(label)
   return chip
 }
 
