@@ -26,8 +26,7 @@ describe('assetNodeSize（导入素材的节点尺寸）', () => {
 
   it('小图不会被拉大到超过上限（只放大到能放下最小尺寸）', () => {
     const s = assetNodeSize({ width: 64, height: 64 })
-    expect(s.w).toBe(MIN.w)
-    expect(s.h).toBe(MIN.h)
+    expect(s).toEqual({ w: 240, h: 240 })
   })
 
   it('极端细长图不会算出一个比画布还宽的巨物（退回最小方框，由节点 cover 裁切）', () => {
@@ -43,6 +42,12 @@ describe('assetNodeSize（导入素材的节点尺寸）', () => {
 
   it('不改传入的最小尺寸对象（返回副本）', () => {
     assetNodeSize({ width: 800, height: 600 })
-    expect(NODE_MINIMUMS.generation).toEqual({ w: 240, h: 240 })
+    expect(NODE_MINIMUMS.generation).toEqual({ w: 240, h: 192 })
+  })
+
+  it('生成、对比、批量节点共用 5:4 的开箱尺寸', () => {
+    expect(NODE_MINIMUMS.generation).toEqual({ w: 240, h: 192 })
+    expect(NODE_MINIMUMS.compare).toEqual({ w: 240, h: 192 })
+    expect(NODE_MINIMUMS.batch).toEqual({ w: 240, h: 192 })
   })
 })

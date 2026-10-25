@@ -601,7 +601,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(dataOf(store, genId).assetHash).toBeUndefined()
   })
 
-  it('§6.16 单一产物：不建结果组，节点按产物真实比例（16:9 → 427×240）', async () => {
+  it('§6.16 单一产物：不建结果组，节点按产物真实比例（16:9 → 341×192）', async () => {
     const { store, promptId, genId } = setup()
     store.dispatch({ kind: 'node.updateData', id: genId, patch: { ratio: '16:9' } })
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
@@ -611,8 +611,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // mock 按请求比例出图：16:9 → 64×36
     expect(dataOf(store, genId).naturalSize).toEqual({ width: 64, height: 64 * (9 / 16) })
     const node = store.getSnapshot().nodes.find((n) => n.id === genId)!
-    // 240（最小高）→ 等比 427×240：比例 ≈ 16/9，而不是方框的 1
-    expect(node.h).toBe(240)
+    // 192（最小高）→ 等比 341×192：比例 ≈ 16/9，而不是默认框的 5:4
+    expect(node.h).toBe(192)
     expect(Math.round(node.w / node.h * 100) / 100).toBeCloseTo(16 / 9, 1)
   })
 

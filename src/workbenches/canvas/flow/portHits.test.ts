@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { PORT_HIT_SIZE, portHitsOf } from './portHits'
+import { PORT_HIT_SIZE, portHitsOf, portInverseScale } from './portHits'
 import {
   PORT_CENTER_OFFSET,
   PORT_HIT_INNER_PAD,
@@ -49,7 +49,7 @@ describe('端点命中层几何', () => {
       ['output', 340 + PORT_CENTER_OFFSET, 280],
     ])
     expect(hits.map((h) => h.edgeX)).toEqual([100, 340])
-    // 命中方块按世界单位给（随缩放一起缩，与端口视觉同比例）
+    // 命中方块按世界单位给；视图层用反向缩放把它固定为屏幕像素尺寸
     expect(hits[0].size).toBe(PORT_HIT_SIZE)
   })
 
@@ -86,6 +86,13 @@ describe('端点命中层几何', () => {
     expect(PORT_HIT_SIZE).toBe(
       Math.max(PORT_HIT_RADIUS * 2, PORT_HIT_INNER_PAD + PORT_CENTER_OFFSET + PORT_SIZE / 2),
     )
+  })
+
+  it('★ 端点视觉尺寸与反向缩放相乘后保持屏幕像素不变', () => {
+    for (const zoom of [1, 0.5, 0.29, 0.15]) {
+      expect(PORT_SIZE * zoom * portInverseScale(zoom)).toBeCloseTo(PORT_SIZE)
+      expect(PORT_HIT_SIZE * zoom * portInverseScale(zoom)).toBeCloseTo(PORT_HIT_SIZE)
+    }
   })
 
   it('★★ 容器子节点也给端点，且坐标换算到世界系（用户 2026-10-14）', () => {

@@ -59,6 +59,7 @@ export function CompareNodeView(props: NodeViewProps) {
   )
 
   const bothReady = Boolean(leftUrl && rightUrl)
+  const empty = !leftFallback && !rightFallback
 
   const reportNatural = (width: number, height: number) => {
     if (!width || !height) return
@@ -129,6 +130,12 @@ export function CompareNodeView(props: NodeViewProps) {
               aria-label="对比分割线"
             />
           </>
+        )}
+        {empty && (
+          <div className={styles.empty} data-compare-empty>
+            <span className={styles.emptyText}>拖入两张图片素材</span>
+            <span className={styles.emptyHint}>左右叠放对比，拖动分割线查看细节</span>
+          </div>
         )}
       </div>
     </div>

@@ -34,7 +34,7 @@ export function assetNodeSize(
   const w = w0 * shrink
   const h = h0 * shrink
 
-  // 等比放大到能盖住最小框（240×240）
+  // 等比放大到能盖住该类型的最小框（默认生成框为 240×192）
   const grow = Math.max(min.w / w, min.h / h, 1)
   if (Math.max(w, h) * grow > maxSide * 3) return { ...min }
 

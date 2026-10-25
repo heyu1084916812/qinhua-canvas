@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useSelection, useViewportState } from '../storeContext'
 import {
   PORT_EDGE_GAP,
@@ -13,7 +13,7 @@ import {
 import { NO_MAGNET, portMagnet } from '../../../domain/canvas/geometry/portMagnet'
 import { useSelectionKeyHeld } from '../../../features/canvas/useSelectionKeyHeld'
 import { IconPlus } from '../toolbar/icons'
-import { portHitsOf, type PortHit } from './portHits'
+import { portHitsOf, portInverseScale, type PortHit } from './portHits'
 import styles from './FlowPortLayer.module.css'
 
 type PortDown = (e: ReactPointerEvent, nodeId: string, portId: string) => void
@@ -24,7 +24,8 @@ type PortDown = (e: ReactPointerEvent, nodeId: string, portId: string) => void
  * 只画**顶层节点**的端口：容器子节点按 §6.11 隐藏端口（与老表面 `NodeFrame.portsHidden` 一致）。
  * 层本身铺满 surface，只有端点是可点的 —— 节点选框、平移、框选照常落在下面那层。
  *
- * 位置分两段算（**别合成一个组件**）：世界坐标只跟图走，视口换算挂成一个 transform。
+ * 位置分两段算（**别合成一个组件**）：世界坐标只跟图走，视口换算挂成一个 transform；
+ * 端点子树再用 `1 / zoom` 反向缩放，保持屏幕尺寸恒定。
  */
 export function FlowPortLayer({ onPortDown }: { onPortDown: PortDown }) {
   const graph = useGraph()
@@ -67,7 +68,8 @@ const PortHitViewport = memo(function PortHitViewport({
         className={styles.layer}
         style={{
           transform: `translate(${-viewport.x * zoom}px, ${-viewport.y * zoom}px) scale(${zoom})`,
-        }}
+          '--port-inverse-scale': String(portInverseScale(zoom)),
+        } as CSSProperties}
       >
         <PortDots hits={hits} onPortDown={onPortDown} />
       </div>
@@ -76,10 +78,9 @@ const PortHitViewport = memo(function PortHitViewport({
 })
 
 /**
- * 端点圆点的**吸附最大位移**（世界单位）。
+ * 端点圆点的**吸附最大位移**（屏幕像素）。
  *
- * 与"离边缘多远"那几条一样，用画布自己的像素 —— 端点长在节点上，吸的幅度也该跟节点
- * 一起缩放（缩得很小时吸 8px 会显得整个点在乱窜）。
+ * 与出场阈值一样固定在屏幕坐标，缩放画布不会让吸附距离变短。
  */
 const MAX_PULL = 8
 
@@ -139,8 +140,7 @@ const PortDots = memo(function PortDots({
         const el = refs.current.get(hit.key)
         if (!el) continue
         const r = el.getBoundingClientRect()
-        /** 命中块是"世界单位"画的 ⇒ 它的屏幕宽度 ÷ 声明宽度 = 缩放 */
-        const zoom = hit.size > 0 ? r.width / hit.size || 1 : 1
+        /** 命中块经过反向缩放，data 锚点偏移已经是屏幕像素 */
         /**
          * 距离从**锚点**（节点边缘上、线的起点）算，**不是**从命中块的中心算：
          * 命中块为了罩住"从边缘起拖"往节点里探了一段（`PORT_HIT_INNER_PAD`），圆点又浮在边缘外面 ⇒
@@ -148,8 +148,8 @@ const PortDots = memo(function PortDots({
          * **隔壁那个面对面节点的输入口**（实测：融合节点那组第二张局部图连不上）。
          * 锚点才是这次手势真正的起点（冒烟 / 探针也正是按它起拖的）。
          */
-        const ax = r.left + Number(el.dataset.portAnchorX ?? 0) * zoom
-        const ay = r.top + Number(el.dataset.portAnchorY ?? 0) * zoom
+        const ax = r.left + Number(el.dataset.portAnchorX ?? 0)
+        const ay = r.top + Number(el.dataset.portAnchorY ?? 0)
         if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue
         const d = Math.hypot(x - ax, y - ay)
         if (d < bestDist) {
@@ -185,8 +185,6 @@ const PortDots = memo(function PortDots({
       const box = layer.getBoundingClientRect()
       /** `clientWidth` 是**布局**宽度（不含 transform）⇒ 比值就是 zoom，不必再从 store 传一个进来 */
       const zoom = layer.clientWidth > 0 ? box.width / layer.clientWidth || 1 : 1
-      /** 指针在**世界坐标**下的位置（只算这一次，逐个端点复用） */
-      const world = { x: (e.clientX - box.left) / zoom, y: (e.clientY - box.top) / zoom }
 
       /**
        * ★★ 先定出**唯一的活动节点**（用户 2026-10-07 图二：「我选择悬停左边的节点的时候，
@@ -198,15 +196,15 @@ const PortDots = memo(function PortDots({
         if (rects.has(hit.nodeId)) continue
         rects.set(hit.nodeId, {
           id: hit.nodeId,
-          left: hit.nodeLeft,
-          right: hit.nodeRight,
-          top: hit.nodeTop,
-          bottom: hit.nodeBottom,
+          left: box.left + hit.nodeLeft * zoom,
+          right: box.left + hit.nodeRight * zoom,
+          top: box.top + hit.nodeTop * zoom,
+          bottom: box.top + hit.nodeBottom * zoom,
         })
       }
       /** 端点也一起交进去：指针正戳在端点上时，那只端点所属的节点优先（见 `activePortNode`） */
       const active = activePortNode(
-        world,
+        { x: e.clientX, y: e.clientY },
         [...rects.values()],
         /**
          * ⚠️ 交**锚点**（节点边缘上、线的起点），**不是圆点圆心**：
@@ -215,7 +213,11 @@ const PortDots = memo(function PortDots({
          *（实测：下游节点压在端点上时，`activePortNode` 选了压在下面的那个，
          *  这只口于是**不展开**（`pointer-events: none`），整段拖线手势静默失效）。
          */
-        hits.map((h) => ({ nodeId: h.nodeId, x: h.edgeX, y: h.y })),
+        hits.map((h) => ({
+          nodeId: h.nodeId,
+          x: box.left + h.edgeX * zoom,
+          y: box.top + h.y * zoom,
+        })),
       )
 
       for (const hit of hits) {
@@ -224,10 +226,13 @@ const PortDots = memo(function PortDots({
         const reveal =
           hit.nodeId === active
             ? portReveal({
-                edgeGap: hit.side === 'left' ? hit.edgeX - world.x : world.x - hit.edgeX,
-                pointerY: world.y,
-                nodeTop: hit.nodeTop,
-                nodeBottom: hit.nodeBottom,
+                edgeGap:
+                  hit.side === 'left'
+                    ? box.left + hit.edgeX * zoom - e.clientX
+                    : e.clientX - (box.left + hit.edgeX * zoom),
+                pointerY: e.clientY,
+                nodeTop: box.top + hit.nodeTop * zoom,
+                nodeBottom: box.top + hit.nodeBottom * zoom,
               })
           : { progress: 0, hot: false, scale: PORT_MIN_SCALE, pop: PORT_EDGE_GAP }
         el.dataset.portOpen = reveal.progress > 0 ? '1' : '0'
@@ -240,7 +245,13 @@ const PortDots = memo(function PortDots({
         el.style.setProperty('--port-progress', String(reveal.progress))
         el.style.setProperty('--port-scale', String(reveal.scale))
 
-        const magnet = reveal.hot ? portMagnet(hit, world, { radius: PORT_REVEAL_FULL, maxPull: MAX_PULL }) : NO_MAGNET
+        const magnet = reveal.hot
+          ? portMagnet(
+              { x: box.left + hit.x * zoom, y: box.top + hit.y * zoom },
+              { x: e.clientX, y: e.clientY },
+              { radius: PORT_REVEAL_FULL, maxPull: MAX_PULL },
+            )
+          : NO_MAGNET
         if (magnet.hot) {
           el.dataset.portHot = '1'
           el.style.setProperty('--port-pull-x', `${magnet.dx}px`)
@@ -278,7 +289,7 @@ const PortDots = memo(function PortDots({
             data-port-side={hit.side}
             data-port-kind={hit.kind}
             data-port-open="0"
-            /** 锚点（节点边缘上、线的起点）相对命中块左上角的偏移（**世界单位**，命中手势按它算远近） */
+            /** 锚点（节点边缘上、线的起点）相对命中块左上角的偏移（屏幕像素，命中手势按它算远近） */
             data-port-anchor-x={hit.edgeX - hitLeft}
             data-port-anchor-y={hit.y - hitTop}
             title={hit.label}
@@ -292,6 +303,8 @@ const PortDots = memo(function PortDots({
               top: hitTop,
               width: hit.size,
               height: hit.size,
+              transform: 'scale(var(--port-inverse-scale))',
+              transformOrigin: `${hit.edgeX - hitLeft}px ${hit.y - hitTop}px`,
             }}
             onPointerDown={(e) => {
               e.stopPropagation()

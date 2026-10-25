@@ -47,8 +47,8 @@ export const RATIO_FOLLOW_SOURCE_HINT = '用第一张参考图的原始比例'
 /** 各节点类型最小尺寸（产品文档 §6.6 / §6.10 / §6.11） */
 export const NODE_MINIMUMS: Record<NodeType, Size> = {
   prompt: { w: 240, h: 160 },
-  generation: { w: 240, h: 240 },
-  compare: { w: 240, h: 180 },
+  generation: { w: 240, h: 192 },
+  compare: { w: 240, h: 192 },
   group: { w: 240, h: 192 },
   batch: { w: 240, h: 192 },
   /**

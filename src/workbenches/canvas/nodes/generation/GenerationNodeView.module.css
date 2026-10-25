@@ -95,12 +95,13 @@
  */
 .uploadHint {
   margin-top: var(--space-2);
-  max-width: 120px;
+  max-width: 100%;
   text-align: center;
   color: var(--text-3);
   font-family: var(--font-sans);
   font-size: 10px;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 /* 状态 B：素材铺满，保持原始比例（contain，不裁切） */

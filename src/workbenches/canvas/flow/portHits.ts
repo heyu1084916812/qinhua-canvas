@@ -14,7 +14,7 @@ import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
  * 那里 `.port` 是 14px、`::after` 再往外扩 8px（有效命中 ≈ 30px）。
  *
  * ⚠️ 单位是**世界坐标**：命中层整体挂一个 `translate + scale` 的 transform，
- * 所以圆点随缩放一起缩（与端口视觉同比例，也与老表面一致）——**不要**在这里乘 `zoom`。
+ * 世界层缩放后，视图层再按 `1 / zoom` 反向缩放圆点与命中块，使它们固定在屏幕像素尺寸。
  */
 /**
  * 命中方块要同时罩住两处，所以边长取两者的**较大者**：
@@ -29,6 +29,11 @@ import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 export const PORT_HIT_REACH = PORT_CENTER_OFFSET + PORT_SIZE / 2
 /** 命中块边长 = max(圆点容错圈, 边缘**内侧** 18.5px → 圆点外沿) */
 export const PORT_HIT_SIZE = Math.max(PORT_HIT_RADIUS * 2, PORT_HIT_INNER_PAD + PORT_HIT_REACH)
+
+/** 世界层会乘 `zoom`；端点子树再乘这个值，最终屏幕上仍是原始像素尺寸。 */
+export function portInverseScale(zoom: number): number {
+  return 1 / Math.max(0.01, zoom)
+}
 
 export interface PortHit {
   key: string

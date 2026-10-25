@@ -10,6 +10,10 @@ import { deflateSync, crc32 } from 'node:zlib'
 import { resolve as resolvePath } from 'node:path'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:1420'
+const STORE_BASE = String(process.env.SMOKE_STORE_BASE ?? 'http://127.0.0.1:18765').replace(
+  /\/$/,
+  '',
+)
 const OUT = '.playwright-verify'
 mkdirSync(OUT, { recursive: true })
 
@@ -509,7 +513,7 @@ async function readNodeData(page, nodeId) {
   return page.evaluate(
     async (id) => {
       try {
-        const response = await fetch('http://127.0.0.1:18765/query', {
+        const response = await fetch(`${STORE_BASE}/query`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -539,7 +543,7 @@ async function readRunStatuses(page) {
   return page.evaluate(async () => {
     try {
       const response = await fetch(
-        'http://127.0.0.1:18765/rows?table=runRecords&offset=0&limit=1000&includePayload=0',
+        `${STORE_BASE}/rows?table=runRecords&offset=0&limit=1000&includePayload=0`,
       )
       if (!response.ok) return []
       const body = await response.json()
@@ -563,7 +567,7 @@ async function sharedRows(page, table, limit = 1000) {
     async ({ table, limit }) => {
       try {
         const response = await fetch(
-          `http://127.0.0.1:18765/rows?table=${encodeURIComponent(table)}&offset=0&limit=${limit}&includePayload=0`,
+          `${STORE_BASE}/rows?table=${encodeURIComponent(table)}&offset=0&limit=${limit}&includePayload=0`,
         )
         if (!response.ok) return []
         const body = await response.json()
@@ -580,7 +584,7 @@ async function sharedRows(page, table, limit = 1000) {
 async function sharedRowsWithPayload(page, table, limit = 1000) {
   return page.evaluate(
     async ({ table, limit }) => {
-      const response = await fetch('http://127.0.0.1:18765/query', {
+      const response = await fetch(`${STORE_BASE}/query`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, filter: {}, includePayload: true, limit }),
@@ -598,7 +602,7 @@ async function sharedRow(page, table, id) {
   return page.evaluate(
     async ({ table, id }) => {
       try {
-        const response = await fetch('http://127.0.0.1:18765/query', {
+        const response = await fetch(`${STORE_BASE}/query`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ table, filter: { id }, includePayload: false }),
@@ -646,7 +650,7 @@ async function sharedPut(page, table, row) {
         }
         return String(value)
       }
-      const response = await fetch('http://127.0.0.1:18765/put', {
+      const response = await fetch(`${STORE_BASE}/put`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, row: encode(row) }),
@@ -660,7 +664,7 @@ async function sharedPut(page, table, row) {
 async function sharedDelete(page, table, id) {
   return page.evaluate(
     async ({ table, id }) => {
-      const response = await fetch('http://127.0.0.1:18765/delete', {
+      const response = await fetch(`${STORE_BASE}/delete`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, id }),
@@ -697,7 +701,7 @@ async function sharedBulkPut(page, table, rows) {
         }
         return String(value)
       }
-      const response = await fetch('http://127.0.0.1:18765/bulkPut', {
+      const response = await fetch(`${STORE_BASE}/bulkPut`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, rows: encode(rows) }),
@@ -1359,7 +1363,7 @@ async function seedOwnedChatChannel(page) {
     id: 'ch_smoke_owned_chat',
     name: 'Studio Relay',
     protocol: 'openai-compatible',
-    baseUrl: 'http://127.0.0.1:18765/v1',
+    baseUrl: `${STORE_BASE}/v1`,
     enabled: true,
     order: 998,
     priority: 998,
@@ -1690,6 +1694,24 @@ async function checkModelOption(row) {
 
 async function newCtx(browser, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts })
+  /** `page.evaluate()` 的探针在浏览器上下文执行，必须把 Node 侧地址注入页面全局。 */
+  await ctx.addInitScript((storeBase) => {
+    globalThis.STORE_BASE = storeBase
+  }, STORE_BASE)
+  /**
+   * `SMOKE_STORE_BASE` 不仅供脚本直连，也要把页面默认写死的 18765 请求转过去。
+   * 这样桌面开发壳继续占用 18765 时，冒烟仍可复用热 Vite，并只写隔离库。
+   */
+  if (process.env.SMOKE_STORE_BASE) {
+    const target = new URL(STORE_BASE)
+    await ctx.route('http://127.0.0.1:18765/**', async (route) => {
+      const url = new URL(route.request().url())
+      url.protocol = target.protocol
+      url.hostname = target.hostname
+      url.port = target.port
+      await route.continue({ url: url.toString() })
+    })
+  }
   /*
    * Playwright + 当前 Chrome 在部分有下载 / 大素材的组里会卡在 `ctx.close()`。
    * 这会让后面 100 多组根本没机会执行。测试台统一给关闭动作加上限；
@@ -3235,6 +3257,14 @@ async function g14(browser) {
 
     rec(g, '对比节点空态占位（上游不足 2 张）', (await cmp.locator('img').count()) === 0)
     rec(g, '空态不出现分割线手柄', (await cmp.locator('[data-compare-handle]').count()) === 0)
+    const compareEmptyText = await cmp.locator('[data-compare-empty]').innerText()
+    rec(
+      g,
+      '对比空态包含功能说明，与批量空态同一信息层级',
+      compareEmptyText.includes('拖入两张图片素材') &&
+        compareEmptyText.includes('拖动分割线查看细节'),
+      compareEmptyText.replace(/\s+/g, ' | '),
+    )
     await page.screenshot({ path: `${OUT}/23-g14-compare-empty.png` })
 
     // 拖线：提示词 → 对比（compare 只接受 generation/compare）→ 应被拒绝
@@ -8425,7 +8455,7 @@ async function g52(browser) {
 // G53 产物比例（§6.16）
 //
 // 起因是用户一句「我导入的素材应该要符合我素材原本的比例」，牵出**三处不一致**：
-//  1. 生成写回只写 `assetHash`、不动尺寸 —— 16:9 的图塞在 240×240 方框里被裁掉两边。
+//  1. 生成写回只写 `assetHash`、不动尺寸 —— 16:9 的图塞在默认框里被裁掉两边。
 //  2. N=1 也建结果组 —— 组里孤零零一张，却占了「结果容器」的语义（用户拍板废掉）。
 //  3. 导入两条路两套尺寸：拖放新建按原始比例，点 `+` 上传不按。
 //
@@ -8528,7 +8558,7 @@ async function g53(browser) {
   rec(g, '★ N=1 不建结果组（孤零零一张也进容器的旧语义已废）', groups1 === 0, `groups=${groups1}`)
   const b1 = await gen1.boundingBox()
   const r1 = b1 ? b1.width / b1.height : 0
-  // 容差 0.12：节点框有 1px 描边，且 427×240 是取整后的近似 16:9（1.779）
+  // 容差 0.12：节点框有 1px 描边，且 341×192 是取整后的近似 16:9（1.776）
   rec(
     g,
     '★ 生成节点按产物真实比例（16:9 ≈ 1.78，不再是 1:1 方框）',
@@ -11136,7 +11166,7 @@ async function g67(browser) {
    * 先配一个渠道：一键运行需要下游生成节点**渠道与模型齐备**才点得动
    * （循环自己不产图，下游没配好就是空跑）。
    */
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
 
   await gotoProjects(page)
   await sleep(400)
@@ -11161,6 +11191,18 @@ async function g67(browser) {
     await ctx.close()
     return
   }
+  const disabledRunStyle = await node.locator('[data-loop-run]').evaluate((el) => {
+    const style = getComputedStyle(el)
+    return { disabled: el.disabled, background: style.backgroundColor, color: style.color }
+  })
+  rec(
+    g,
+    '浅色主题禁用运行键仍保持黑底白字',
+    disabledRunStyle.disabled &&
+      disabledRunStyle.background === 'rgb(0, 0, 0)' &&
+      disabledRunStyle.color === 'rgb(255, 255, 255)',
+    JSON.stringify(disabledRunStyle),
+  )
 
   // ── 节点内 UI 齐全 ──
   const ui = await node.evaluate((el) => ({
@@ -11239,15 +11281,15 @@ async function g67(browser) {
    * ① 选中态配色。
    *
    * 用户要的是「深色按钮 + 浅色文字」，所以判据也是这两件事本身：
-   *  · 选中态按钮的底色 = `--control-inverse-bg`、字色 = `--control-inverse-text`
-   *    （不能用 `--accent*`：深色主题下它是近白底，选中反而变浅）；
+   *  · 选中态按钮的底色 = `--node-contrast-bg`、字色 = `--node-contrast-text`
+   *    （浅色黑底白字，深色浅底深字，方向始终相反）；
    *  · 底色亮度必须**低于**字色亮度 —— 万一有人把令牌值改反了也能拦住。
    * 探针元素现场取令牌的计算值当基准，不写死具体色值。
    */
   const toggleStyle = await node.evaluate((el) => {
     const probe = document.createElement('div')
-    probe.style.background = 'var(--control-inverse-bg)'
-    probe.style.color = 'var(--control-inverse-text)'
+    probe.style.background = 'var(--node-contrast-bg)'
+    probe.style.color = 'var(--node-contrast-text)'
     el.appendChild(probe)
     const ps = getComputedStyle(probe)
     const wantBg = ps.backgroundColor
@@ -11584,6 +11626,15 @@ async function g67(browser) {
 
   // ── 参数能改且写进数据（走浮层的自定义输入，与大雄的交互一致） ──
   // 点击开合（不再是 hover）：见上方「数字控件点开后浮出快捷档位」那条的说明
+  const directEditor = node.locator('[data-loop-prompt="0"]')
+  await directEditor.click({ position: { x: 30, y: 20 } })
+  await page.keyboard.type('直接点击输入')
+  await sleep(120)
+  const directTyped = await readLoopPrompt(directEditor)
+  rec(g, '直接点击提示词输入框即可输入，无需先点计数', directTyped.includes('直接点击输入'), directTyped)
+  await setLoopPrompt(page, directEditor, '')
+  await sleep(250)
+
   await node.locator('[data-loop-number-trigger="count"]').click()
   await node.locator('[data-loop-quick="count:6"]').waitFor({ state: 'visible', timeout: 5000 })
   /*
@@ -11613,8 +11664,8 @@ async function g67(browser) {
   })
   rec(
     g,
-    '数字快捷档位点击后立即回显并收起浮层',
-    immediateCount.trim() === '6' && popoverAfterPick === 0,
+    '数字快捷档位点击后立即回显并保持浮层打开',
+    immediateCount.trim() === '6' && popoverAfterPick === 1,
     `显示 ${immediateCount} / 浮层 ${popoverAfterPick}`,
   )
   rec(
@@ -11625,6 +11676,21 @@ async function g67(browser) {
       Math.abs(numberAlignment.labelBottomGap - numberAlignment.valueBottomGap) <= 1,
     JSON.stringify(numberAlignment),
   )
+  await node.locator('[data-loop-number-input="count"]').fill('7')
+  await node.locator('[data-loop-number-apply="count"]').click()
+  await sleep(100)
+  const customCount = (await node.locator('[data-loop-number="count"]').innerText()).trim()
+  const popoverAfterCustom = await node.locator('[data-loop-number-popover="count"]').count()
+  rec(
+    g,
+    '自定义数量加号可用，应用后仍保持浮层打开',
+    customCount === '7' && popoverAfterCustom === 1,
+    `显示 ${customCount} / 浮层 ${popoverAfterCustom}`,
+  )
+  await page.mouse.click(60, 60)
+  await sleep(120)
+  const popoverAfterOutside = await node.locator('[data-loop-number-popover="count"]').count()
+  rec(g, '点击数字面板外部后才关闭浮层', popoverAfterOutside === 0)
   const themeBeforeDarkCheck = await page.locator('html').evaluate((el) => el.getAttribute('data-theme'))
   await page.locator('html').evaluate((el) => el.setAttribute('data-theme', 'dark'))
   await sleep(250)
@@ -11735,6 +11801,20 @@ async function g67(browser) {
   await page.locator('[data-toolbar-menu-item="generation"]').click()
   await sleep(500)
   const gen = page.locator('[data-node-type="generation"]').first()
+  const uploadHintStyle = await gen.locator('[data-node-upload-hint]').evaluate((el) => {
+    const style = getComputedStyle(el)
+    const lineHeight = Number.parseFloat(style.lineHeight)
+    return {
+      whiteSpace: style.whiteSpace,
+      lines: Math.round(el.getBoundingClientRect().height / lineHeight),
+    }
+  })
+  rec(
+    g,
+    '生成节点上传说明保持单行',
+    uploadHintStyle.whiteSpace === 'nowrap' && uploadHintStyle.lines === 1,
+    JSON.stringify(uploadHintStyle),
+  )
 
   /**
    * 先把两个节点**拉开距离**再拖线：新建的节点落在视口中心，
@@ -11757,6 +11837,60 @@ async function g67(browser) {
   rec(g, '两端都有可用端点（循环有输出、生成有输入）', hasPorts)
 
   if (hasPorts) {
+    /**
+     * 端点固定在屏幕像素，而不是跟世界层一起缩小。
+     *
+     * 只量节点锚点会假通过（Handle 本身没有视觉尺寸），所以直接量端点的
+     * 命中块与圆点。先在上游悬停让端点完成出场，再缩到 40% 以下复测；
+     * 两端宽度都保持不变，才证明小节点仍能稳定点中、拖线。
+     */
+    const genId = await gen.getAttribute('data-node-id')
+    if (!genId) throw new Error('生成节点缺少 data-node-id')
+    const inHit = page.locator(`[data-flow-port-hit="${genId}:input"]`)
+    const readPortSize = () =>
+      inHit.evaluate((el) => {
+        const hit = el.getBoundingClientRect()
+        const dot = el.querySelector('[data-port-dot]')?.getBoundingClientRect()
+        return {
+          open: el.getAttribute('data-port-open'),
+          hitWidth: hit.width,
+          dotWidth: dot?.width ?? 0,
+        }
+      })
+
+    await gen.hover()
+    await sleep(350)
+    const fullPort = await readPortSize()
+    const surface = await page.locator('[data-canvas-surface]').boundingBox()
+    if (!surface) throw new Error('缺少画布工作区')
+    await page.mouse.move(surface.x + surface.width / 2, surface.y + surface.height / 2)
+    for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 400)
+    await sleep(450)
+    const zoomLabel = (await page.locator('[data-canvas-zoom]').innerText()).trim()
+    const zoomPercent = Number.parseInt(zoomLabel, 10)
+    /**
+     * 低缩放下命中块固定为屏幕尺寸，会盖住节点中心，不能再对整节点调用 `hover()`。
+     * 直接移到锚点，既符合真实拖线起手位置，也能触发同一套 pointermove 出场逻辑。
+     */
+    const smallInAnchor = await inPort.boundingBox()
+    if (!smallInAnchor) throw new Error('缩放后找不到生成节点输入锚点')
+    await page.mouse.move(
+      smallInAnchor.x + smallInAnchor.width / 2,
+      smallInAnchor.y + smallInAnchor.height / 2,
+    )
+    await sleep(350)
+    const smallPort = await readPortSize()
+    rec(
+      g,
+      '★★ 画布缩至 40% 以下，端点视觉与命中区仍保持屏幕尺寸',
+      zoomPercent < 40 &&
+        fullPort.open === '1' &&
+        smallPort.open === '1' &&
+        Math.abs(fullPort.hitWidth - smallPort.hitWidth) <= 1 &&
+        Math.abs(fullPort.dotWidth - smallPort.dotWidth) <= 1,
+      `${zoomLabel} / ${JSON.stringify(fullPort)} → ${JSON.stringify(smallPort)}`,
+    )
+
     const ob = await loopOut.boundingBox()
     const ib = await inPort.boundingBox()
     await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
@@ -11772,6 +11906,8 @@ async function g67(browser) {
       (await page.locator('[data-edge]').count()) >= 1,
       `连线 ${await page.locator('[data-edge]').count()}`,
     )
+    await resetView(page)
+    await sleep(350)
   }
 
   /**
@@ -17180,7 +17316,7 @@ async function g90(browser) {
       const encoded = rows.map((row) =>
         row.bytes === bytes ? { ...row, bytes: marker } : row,
       )
-      const response = await fetch('http://127.0.0.1:18765/tx', {
+      const response = await fetch(`${STORE_BASE}/tx`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows: encoded }] }),
@@ -18070,7 +18206,7 @@ async function g91(browser) {
    *
    * ⚠️ 位置必须**不重叠**：`nodeAtPoint` 取最上层命中的节点，若上游生成节点
    * 压在融合节点上，拖线的落点会被**上游自己**吃掉（表现为「连不上、也不报错」）。
-   * 上传 64×36 的图后生成节点会自动变成 427×240（`assetNodeSize` 放大到盖住最小框），
+    * 上传 64×36 的图后生成节点会自动变成 341×192（`assetNodeSize` 放大到盖住最小框），
    * 比它看上去宽得多。
    */
   const fusionId = await fusion.getAttribute('data-node-id')
@@ -18514,7 +18650,7 @@ async function g92(browser) {
   }
   const sampleSharedAsset = (hash) =>
     page.evaluate(async (id) => {
-      const response = await fetch('http://127.0.0.1:18765/query', {
+      const response = await fetch(`${STORE_BASE}/query`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table: 'assets', filter: { id }, includePayload: true }),
@@ -21676,13 +21812,13 @@ async function g96(browser) {
   const seeded = await page.evaluate(async () => {
     const all = async (table) => {
       const response = await fetch(
-        `http://127.0.0.1:18765/rows?table=${encodeURIComponent(table)}&offset=0&limit=1000&includePayload=0`,
+        `${STORE_BASE}/rows?table=${encodeURIComponent(table)}&offset=0&limit=1000&includePayload=0`,
       )
       const body = await response.json()
       return body.rows ?? []
     }
     const put = async (table, rows) => {
-      const response = await fetch('http://127.0.0.1:18765/tx', {
+      const response = await fetch(`${STORE_BASE}/tx`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows }] }),
@@ -25652,7 +25788,7 @@ async function g111(browser) {
  * G112 导入素材的节点框必须按**原始比例**（对账 #266）。
  *
  * 用户报的两条症状其实是同一件事：导入的图片「上下会有空隙」、视频「不是按照原视频的比例」。
- * 根因是**尺寸读不到时退化成最小方框 240×240**（`NODE_MINIMUMS.generation`）——
+ * 根因是**尺寸读不到时退化成默认框 240×192**（`NODE_MINIMUMS.generation`）——
  * 16:9 的素材落在方框里就上下各留一条白边。
  *
  * 种子里**刻意不写 `naturalSize`**：那正是"当年落库时没带宽高的老素材"与
@@ -25705,7 +25841,7 @@ async function g112(browser) {
         return value
       }
       const put = async (table, rows) => {
-        const response = await fetch('http://127.0.0.1:18765/tx', {
+        const response = await fetch(`${STORE_BASE}/tx`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -25790,7 +25926,7 @@ async function g112(browser) {
         { id: 'p-g112', name: '比例', workbench: 'canvas', createdAt: now, updatedAt: now },
       ])
 
-      /** 框刻意给**最小方框** 240×240，且 `data` 里**没有** `naturalSize` —— 这就是要修的形状 */
+      /** 框刻意给**默认框** 240×192，且 `data` 里**没有** `naturalSize` —— 这就是要修的形状 */
       const node = (id, x, title, mode, hash) => ({
         id,
         projectId: 'p-g112',
@@ -25799,7 +25935,7 @@ async function g112(browser) {
         x,
         y: 180,
         w: 240,
-        h: 240,
+        h: 192,
         title,
         disabled: false,
         data: {
@@ -25855,14 +25991,14 @@ async function g112(browser) {
   await page.goto(`${BASE}/canvas/p-g112`, { waitUntil: 'networkidle' })
   /**
    * 量两样东西：
-   * ① **节点框**（纠正有没有发生）——期望 427×240（16:9）；
+   * ① **节点框**（纠正有没有发生）——期望 341×192（16:9）；
    * ② **上下白边**（用户看到的症状）——`object-fit: contain` 下，
    *    图像实际画出来的高度 = 短边受限的等比高度，白边 = (框高 − 画出来高) / 2。
    *    这一条是**直接量症状**：只断言"框的比例对了"会被 1px 描边之类的巧合蒙过去。
    *
    * ⚠️ **轮询等元数据解码完再量**（2026-10-16 修假红）：视频的 `videoWidth/Height` 要等解码、
    * 图片要等 `onLoad`，"睡固定 3.2s 后量一次"在并发跑全量时不够 —— 实测 3 路并发下
-   * 这条报 `node=240×240 白边=nullpx`（元数据还没到），**solo 重跑 7/7 全绿**。
+   * 这条报 `node=240×192 白边=nullpx`（元数据还没到），**solo 重跑 7/7 全绿**。
    * 判据一个字没放宽（仍要 16:9 且白边 < 2px），只是给它一个窗口。
    */
   const readBoxes = () =>
@@ -25973,11 +26109,11 @@ async function g112(browser) {
   }
   rec(
     g,
-    '★★ 真实像素回写进节点，且**框的尺寸也落库**（图片：naturalSize 64×36、框 427×240）',
+    '★★ 真实像素回写进节点，且**框的尺寸也落库**（图片：naturalSize 64×36、框 341×192）',
     stored.img?.data?.naturalSize?.width === 64 &&
       stored.img?.data?.naturalSize?.height === 36 &&
-      stored.img?.w === 427 &&
-      stored.img?.h === 240,
+      stored.img?.w === 341 &&
+      stored.img?.h === 192,
     `naturalSize=${JSON.stringify(stored.img?.data?.naturalSize ?? null)} box=${stored.img?.w}×${stored.img?.h}`,
   )
   if (seeded.video) {
@@ -26018,7 +26154,7 @@ async function g113(browser) {
 
   await page.evaluate(async () => {
     const put = async (table, rows) => {
-      const response = await fetch('http://127.0.0.1:18765/tx', {
+      const response = await fetch(`${STORE_BASE}/tx`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows }] }),
@@ -26239,7 +26375,7 @@ async function g114(browser) {
       return value
     }
     const put = async (table, rows) => {
-      const response = await fetch('http://127.0.0.1:18765/tx', {
+      const response = await fetch(`${STORE_BASE}/tx`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -26260,7 +26396,7 @@ async function g114(browser) {
       { id: 'h-vid', hash: 'h-vid', mime: 'video/mp4', bytes, width: 1280, height: 720 },
       { id: 'h-old', hash: 'h-old', mime: 'image/png', bytes, width: 512, height: 512 },
     ])
-    await fetch('http://127.0.0.1:18765/tx', {
+    await fetch(`${STORE_BASE}/tx`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -29278,7 +29414,7 @@ async function g166(browser) {
       return value
     }
     const bulk = async (table, rows) => {
-      const response = await fetch('http://127.0.0.1:18765/bulkPut', {
+      const response = await fetch(`${STORE_BASE}/bulkPut`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, rows: encode(rows) }),
@@ -29290,14 +29426,14 @@ async function g166(browser) {
      * 不清掉的话下一次“三条历史结果”会读成 5 条，测试结论完全失真。
      */
     const clearProjectRows = async (table) => {
-      const response = await fetch('http://127.0.0.1:18765/query', {
+      const response = await fetch(`${STORE_BASE}/query`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ table, filter: { projectId: 'p-wb' }, includePayload: false, limit: 1000 }),
       })
       const rows = response.ok ? (await response.json()).rows ?? [] : []
       for (const row of rows) {
-        await fetch('http://127.0.0.1:18765/delete', {
+        await fetch(`${STORE_BASE}/delete`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ table, id: row.id }),
@@ -29313,7 +29449,7 @@ async function g166(browser) {
     ]) {
       await clearProjectRows(table)
     }
-    await fetch('http://127.0.0.1:18765/delete', {
+    await fetch(`${STORE_BASE}/delete`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ table: 'projects', id: 'p-wb' }),
@@ -29502,7 +29638,7 @@ async function g166(browser) {
   const previewReady = await page
     .waitForFunction(
       async () => {
-        const response = await fetch('http://127.0.0.1:18765/query', {
+        const response = await fetch(`${STORE_BASE}/query`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -36122,7 +36258,7 @@ async function g151(browser) {
 
 // ────────────────────────────────────────────────────────────
 // G152 键盘微移与键盘改尺寸（§4.5「拖拽替代」/ §6.20；对账 #449）：
-//   ① 基础：点一下节点 = 选中 + 开箱 240×240
+//   ① 基础：点一下节点 = 选中 + 开箱 240×192
 //   ② **普通方向键只换选中、坐标一像素都不动**（这条是既有缺陷的回归锚点：
 //      修前 React Flow 自带那套会顺手挪 5px —— 见 `.playwright-verify/probe-rf-arrow-move.mjs`）
 //   ③ `Alt + 方向键` 微移**正好 1px**（修前实测 6px = 我们的 1 + RF 的 5），
@@ -36145,7 +36281,7 @@ async function g152(browser) {
 
   await gotoProjects(page)
   await sleep(400)
-  // 模板「文生图」：提示词 + 图片生成两个节点，生成节点默认就是最小尺寸 240×240
+  // 模板「文生图」：提示词 + 图片生成两个节点，生成节点默认就是最小尺寸 240×192
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
   await sleep(900)
@@ -36197,8 +36333,8 @@ async function g152(browser) {
   const base = await rowOf(genId)
   rec(
     g,
-    '★ 开箱尺寸 = 最小尺寸 240×240（下面的"收回"才有明确终点）',
-    base.w === 240 && base.h === 240,
+    '★ 开箱尺寸 = 最小尺寸 240×192（下面的"收回"才有明确终点）',
+    base.w === 240 && base.h === 192,
     `${base.w}×${base.h}`,
   )
 

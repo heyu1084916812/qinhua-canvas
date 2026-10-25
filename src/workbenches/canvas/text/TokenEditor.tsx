@@ -233,7 +233,7 @@ export const TokenEditor = forwardRef<TokenEditorHandle, {
   return (
     <div
       ref={ref}
-      className={[styles.editor, className].filter(Boolean).join(' ')}
+      className={['nodrag', styles.editor, className].filter(Boolean).join(' ')}
       contentEditable
       suppressContentEditableWarning
       role="textbox"
@@ -257,17 +257,22 @@ export const TokenEditor = forwardRef<TokenEditorHandle, {
          * 点击不会触发 click（被编辑器接管），故在 pointerdown 阶段处理。
          */
         const target = e.target as HTMLElement
-        if (!target.hasAttribute('data-token-delete')) return
-        e.preventDefault()
+        if (target.hasAttribute('data-token-delete')) {
+          e.preventDefault()
+          e.stopPropagation()
+          const chip = target.closest('[data-token]')
+          chip?.remove()
+          const el = ref.current
+          if (!el) return
+          const next = readEditorText(el)
+          currentRef.current = next
+          onChange(next)
+          focusEnd()
+          return
+        }
         e.stopPropagation()
-        const chip = target.closest('[data-token]')
-        chip?.remove()
         const el = ref.current
-        if (!el) return
-        const next = readEditorText(el)
-        currentRef.current = next
-        onChange(next)
-        focusEnd()
+        if (el && document.activeElement !== el) el.focus()
       }}
     />
   )

@@ -574,9 +574,10 @@
  * （这正是「点了没反应」那类反馈的预防）。执行未接，如实置灰。
  */
 .run:disabled {
-  background: var(--node-control);
+  background: var(--node-contrast-bg);
   border: none;
-  color: var(--text-3);
+  color: var(--node-contrast-text);
+  opacity: 1;
   box-shadow: none;
   cursor: not-allowed;
 }

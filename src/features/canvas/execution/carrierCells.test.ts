@@ -26,7 +26,7 @@ describe('carrierCellAt · 复用 §6.9 格位规则', () => {
     const ys = [...new Set(p.map((c) => c.y))].sort((a, b) => a - b)
     expect(xs).toHaveLength(2)
     expect(ys).toHaveLength(2)
-    // 步长 = 节点实际尺寸 + 间距 16（未指定比例时用最小尺寸 240×240）
+    // 步长 = 节点实际尺寸 + 间距 16（未指定比例时用最小尺寸 240×192）
     const cell = ratioNodeSize(undefined)
     expect(xs[1]! - xs[0]!).toBe(cell.w + GAP)
     expect(ys[1]! - ys[0]!).toBe(cell.h + GAP)
@@ -58,12 +58,12 @@ describe('carrierCellAt · 复用 §6.9 格位规则', () => {
   /**
    * ★ 按**节点实际边界**排布，相邻行必须留出 16px 可见间隔（用户 2026-09-17 报「重叠一点点」）。
    *
-   * 根因是格位固定 200×200 而节点按产物比例更高（16:9 → 427×240），
+   * 根因是格位固定 200×200 而节点按产物比例更宽（16:9 → 341×192），
    * 行距 216 < 240 于是叠住。改为按实际尺寸排布后：下一行 y - 上一行 y = 实际高 + 16。
    */
   it('★ 相邻行按实际边界留出 16px 间隔（不再轻微重叠）', () => {
     const cell = ratioNodeSize('16:9')
-    expect(cell.h).toBeGreaterThan(200) // 16:9 会算得比固定格位高
+    expect(cell.h).toBeGreaterThanOrEqual(192)
     const p = at(4, '16:9')
     const ys = [...new Set(p.map((c) => c.y))].sort((a, b) => a - b)
     expect(ys[1]! - ys[0]!).toBe(cell.h + GAP)

@@ -17,10 +17,10 @@ import { NODE_MINIMUMS } from './constants'
 const DEFAULT_BOX = NODE_MINIMUMS.generation
 
 describe('assetBoxCorrection', () => {
-  it('★★ 尺寸未知 + 还是默认方框 ⇒ 记下真实像素并换成原比例（16:9 → 427×240）', () => {
+  it('★★ 尺寸未知 + 还是默认框 ⇒ 记下真实像素并换成原比例（16:9 → 341×192）', () => {
     const fix = assetBoxCorrection({ ...DEFAULT_BOX }, { width: 1920, height: 1080 })
     expect(fix?.naturalSize).toEqual({ width: 1920, height: 1080 })
-    expect(fix?.size).toEqual({ w: 427, h: 240 })
+    expect(fix?.size).toEqual({ w: 341, h: 192 })
     // 比例真的对上了（这是"没有上下空隙"的充要条件）
     expect(fix!.size!.w / fix!.size!.h).toBeCloseTo(1920 / 1080, 2)
   })
@@ -42,7 +42,7 @@ describe('assetBoxCorrection', () => {
   })
 
   it('★★ 比例已经对了就什么都不做（返回 null）——别制造无意义的撤销步', () => {
-    expect(assetBoxCorrection({ w: 427, h: 240 }, { width: 1920, height: 1080 })).toBeNull()
+    expect(assetBoxCorrection({ w: 341, h: 192 }, { width: 1920, height: 1080 })).toBeNull()
   })
 
   it('★ 比例差得极小时也不动（0.5% 折合一两个像素，肉眼看不见）', () => {
@@ -52,7 +52,7 @@ describe('assetBoxCorrection', () => {
   it('★ 图文不一致（框被改成方框 / 任意形状）⇒ 以真实素材为准', () => {
     const fix = assetBoxCorrection({ w: 500, h: 300 }, { width: 1920, height: 1080 })
     expect(fix?.naturalSize).toEqual({ width: 1920, height: 1080 })
-    expect(fix?.size).toEqual({ w: 427, h: 240 })
+    expect(fix?.size).toEqual({ w: 341, h: 192 })
   })
 
   it('元数据不可用（0 / 缺失）⇒ 不猜，返回 null', () => {

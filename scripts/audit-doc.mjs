@@ -59,8 +59,8 @@ const eq = (a, b) => a != null && b != null && String(a.w ?? a) === String(b.w ?
 /** [章节, 声明, 文档值, 实测值] */
 const CODE_CLAIMS = [
   ['§6.6 / §6.16', '提示词节点最小尺寸', { w: 240, h: 160 }, () => nodeMinimum('prompt')],
-  ['§6.6 / §6.8 / §6.16', '图片·视频生成节点最小尺寸', { w: 200, h: 160 }, () => nodeMinimum('generation')],
-  ['§6.6 / §6.10 / §6.16', '对比节点最小尺寸', { w: 240, h: 180 }, () => nodeMinimum('compare')],
+  ['§6.6 / §6.8 / §6.16', '图片·视频生成节点最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('generation')],
+  ['§6.6 / §6.10 / §6.16', '对比节点最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('compare')],
   ['§6.6 / §6.11', '分组节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('group')],
   ['§6.6 / §6.12', '批量节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('batch')],
   ['§6.11 / §6.12', '分组·批量内部单元尺寸', { w: 200, h: 160 }, () => constSize(LAYOUT, 'PACKED_CELL')],
@@ -146,12 +146,12 @@ async function runtimeChecks(browser) {
     await page.waitForURL(/\/canvas\//)
     await sleep(800)
 
-    // 生成节点最小尺寸（文档 200×160）
+    // 生成节点最小尺寸（文档 240×192）
     try {
       const got = await measureMinSize(page, 'generation')
-      out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 200, h: 160 }, got])
+      out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 240, h: 192 }, got])
     } catch (e) {
-      out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 200, h: 160 }, null, String(e).slice(0, 80)])
+      out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 240, h: 192 }, null, String(e).slice(0, 80)])
     }
 
     /**

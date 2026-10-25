@@ -58,7 +58,7 @@ export function GenerationNodeView(props: NodeViewProps) {
    * 媒体**真实像素到手之后**纠正节点框（对账 #266）。
    *
    * 用户报的两条症状其实是同一件事：导入的图"上下有空隙"、视频"不按原视频比例"——
-   * 都是**尺寸未知时退化成 240×240 方框**（`NODE_MINIMUMS.generation`），
+   * 都是**尺寸未知时退化成 240×192 方框**（`NODE_MINIMUMS.generation`），
    * 宽图落在方框里就上下各留一条白边。
    *
    * 为什么在**显示这一层**补而不是在每条导入路径上各修一遍：路径有四条

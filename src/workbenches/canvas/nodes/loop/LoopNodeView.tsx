@@ -490,7 +490,6 @@ function NumberControl({
     const next = clampValue(n)
     setShownValue(next)
     setDraft(String(next))
-    setOpen(false)
     onChange(next)
   }
 
@@ -537,7 +536,7 @@ function NumberControl({
 
   return (
     <div
-      className={styles.numControl}
+      className={`${styles.numControl} nodrag`}
       data-loop-number-bar={dataKey}
       ref={rootRef}
     >
@@ -569,7 +568,7 @@ function NumberControl({
               </button>
             ))}
           </div>
-          <label className={styles.numCustom}>
+          <div className={styles.numCustom}>
             {/* 「自定义」标签：与大雄一致，也让「上面是快捷档、这里是任意值」一目了然 */}
             <span className={styles.numCustomLabel}>自定义</span>
             <input
@@ -591,11 +590,14 @@ function NumberControl({
               data-loop-number-apply={dataKey}
               aria-label={`应用${label}`}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={applyDraft}
+              onClick={(e) => {
+                e.stopPropagation()
+                applyDraft()
+              }}
             >
               <IconPlus />
             </button>
-          </label>
+          </div>
         </div>
       )}
     </div>

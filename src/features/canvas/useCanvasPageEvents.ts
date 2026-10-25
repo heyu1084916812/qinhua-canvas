@@ -33,7 +33,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         id: nodeId,
         patch: { assetHash: asset.hash, assetMime: asset.mime, naturalSize: natural },
         // 有内容即锁原始比例（§6.16）：不换框的话，一张 2:1 的图会缩在
-        // 240×240 的方框中间、上下各留一条白边。
+        // 240×192 的默认框中间，长图会留出白边。
         ...(natural ? { size: assetNodeSize(natural) } : {}),
         transient: false,
       })
