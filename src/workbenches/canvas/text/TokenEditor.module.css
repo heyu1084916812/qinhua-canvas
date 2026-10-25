@@ -52,13 +52,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   height: 1.72em;
   padding: 0 3px;
   margin: 0 1px;
   border-radius: 6px;
-  border: none;
-  background: var(--node-contrast-bg);
-  color: var(--node-contrast-text);
+  border: 1px solid var(--node-border-inner);
+  background: transparent;
+  color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 400;

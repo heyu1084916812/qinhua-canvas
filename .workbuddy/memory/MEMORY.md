@@ -1,8 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent @ chip 与输入框表面（2026-10-25 → 对账 #754）
+
+- `MentionEditor.chip` 与循环变量 chip 共用一套几何规则：正文同字号、`height:1.72em`、
+  `padding:0 3px`、`margin:0 1px`、圆角 6px、透明底 + 1px 描边、垂直居中。
+- Agent composer 底色改 `--bg-surface`：浅色白、深色主题表面；不要再回 `--bg-subtle`。
+
+### 循环提示词删除按钮（2026-10-25 → 对账 #755）
+
+- 右侧删除 × 与左侧编号同款：`--accent` 实心圆 + `--accent-text` + 2px `--bg-surface` 外圈，
+  两者都是实际 18px 尺寸；`promptIndex` 必须 `box-sizing:border-box`，
+  否则 18px + 2px 双边会变成 22px。不要恢复成半透明灰底，也不要单边放大。
+
 ### 循环变量 chip 比例（2026-10-25 → 对账 #753）
 
-- 输入框内 chip 以正文 11px 为基准按参考等比复刻：实测 29×19px、圆角 6px、黑底白字、无描边。
+- 输入框内 chip 以正文 11px 为基准按参考等比复刻：实测 29×19px、圆角 6px、透明底、1px 描边。
 - chip 内字号 11px / 字重 400，与正文 11px / 400 一致；内边距 `0 3px`、左右外边距 `1px`，
   用 `inline-flex` 居中内容，并用 `vertical-align:middle` 与正文行对齐。
   不要回退成 999px 胶囊、粗体或更大的内边距。

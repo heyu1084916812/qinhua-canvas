@@ -470,7 +470,7 @@
   padding: var(--space-2);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-node);
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
 }
 
 .send {

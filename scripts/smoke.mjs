@@ -11270,6 +11270,8 @@ async function g67(browser) {
     const addSvg = add.querySelector('svg')
     const ab = add.getBoundingClientRect()
     const as = addSvg ? addSvg.getBoundingClientRect() : null
+    const bcs = getComputedStyle(badge)
+    const dcs = getComputedStyle(del)
     return {
       leftDx: Math.abs(bc.x - ib.left),
       leftDy: Math.abs(bc.y - ib.top),
@@ -11279,6 +11281,20 @@ async function g67(browser) {
       delDy: ds ? Math.abs((db.top + db.bottom) / 2 - (ds.top + ds.bottom) / 2) : null,
       addDx: as ? Math.abs((ab.left + ab.right) / 2 - (as.left + as.right) / 2) : null,
       addDy: as ? Math.abs((ab.top + ab.bottom) / 2 - (as.top + as.bottom) / 2) : null,
+      badgeStyle: {
+        background: bcs.backgroundColor,
+        color: bcs.color,
+        border: bcs.borderTopWidth,
+        width: Math.round(badge.getBoundingClientRect().width),
+        height: Math.round(badge.getBoundingClientRect().height),
+      },
+      delStyle: {
+        background: dcs.backgroundColor,
+        color: dcs.color,
+        border: dcs.borderTopWidth,
+        width: Math.round(del.getBoundingClientRect().width),
+        height: Math.round(del.getBoundingClientRect().height),
+      },
     }
   })
   rec(
@@ -11298,6 +11314,19 @@ async function g67(browser) {
     '★ 删除按钮里的 × 居中（矢量图标，不是字形）',
     !!cornerGeo && cornerGeo.delDx !== null && cornerGeo.delDx <= 1 && cornerGeo.delDy <= 1,
     cornerGeo ? `dx=${cornerGeo.delDx?.toFixed(2)} dy=${cornerGeo.delDy?.toFixed(2)}` : '没找到元素',
+  )
+  rec(
+    g,
+    '★ 右侧删除 × 与左侧编号使用同一套实心圆样式',
+    !!cornerGeo &&
+      cornerGeo.badgeStyle.background === cornerGeo.delStyle.background &&
+      cornerGeo.badgeStyle.color === cornerGeo.delStyle.color &&
+      cornerGeo.badgeStyle.border === cornerGeo.delStyle.border &&
+      cornerGeo.badgeStyle.width === cornerGeo.delStyle.width &&
+      cornerGeo.badgeStyle.height === cornerGeo.delStyle.height,
+    cornerGeo
+      ? `badge=${JSON.stringify(cornerGeo.badgeStyle)} del=${JSON.stringify(cornerGeo.delStyle)}`
+      : 'missing',
   )
   rec(
     g,
@@ -11525,9 +11554,9 @@ async function g67(browser) {
       tokenChip.padding === '0px 3px' &&
       tokenChip.margin === '0px 1px' &&
       tokenChip.height === 19 &&
-      tokenChip.background === 'rgb(0, 0, 0)' &&
-      tokenChip.color === 'rgb(255, 255, 255)' &&
-      tokenChip.border === '0px' &&
+      tokenChip.background === 'rgba(0, 0, 0, 0)' &&
+      tokenChip.color === 'rgb(23, 23, 23)' &&
+      tokenChip.border === '1px' &&
       tokenChip.deleteButtons === 0,
     JSON.stringify(tokenChip),
   )
@@ -20219,6 +20248,42 @@ async function g95(browser) {
    * 对话框中参与对话」），第一枚未必是刚点的这一颗。
    */
   const mentionChip = page.locator('[data-agent-input] [data-mention-kind="node"]').first()
+  const agentChipStyle = await mentionChip.evaluate((el) => {
+    const cs = getComputedStyle(el)
+    const composer = el.closest('[data-agent-composer]')
+    const editor = el.closest('[data-agent-input]')
+    return {
+      height: Math.round(el.getBoundingClientRect().height),
+      font: cs.fontSize,
+      editorFont: editor ? getComputedStyle(editor).fontSize : '',
+      padding: cs.padding,
+      margin: cs.margin,
+      radius: cs.borderRadius,
+      background: cs.backgroundColor,
+      border: cs.borderTopWidth,
+      composerBg: composer ? getComputedStyle(composer).backgroundColor : '',
+      theme: document.documentElement.dataset.theme ?? 'light',
+    }
+  })
+  rec(
+    g,
+    '★ Agent @ chip 与正文同字号，使用紧凑描边规格',
+    agentChipStyle.height >= 21 &&
+      agentChipStyle.font === agentChipStyle.editorFont &&
+      agentChipStyle.padding === '0px 3px' &&
+      agentChipStyle.margin === '0px 1px' &&
+      agentChipStyle.radius === '6px' &&
+      agentChipStyle.background === 'rgba(0, 0, 0, 0)' &&
+      agentChipStyle.border === '1px',
+    JSON.stringify(agentChipStyle),
+  )
+  rec(
+    g,
+    '★ Agent 输入框使用主题表面色（浅色为白）',
+    agentChipStyle.composerBg ===
+      (agentChipStyle.theme === 'dark' ? 'rgb(34, 34, 34)' : 'rgb(255, 255, 255)'),
+    JSON.stringify({ theme: agentChipStyle.theme, bg: agentChipStyle.composerBg }),
+  )
   const mentionTokenText = (await mentionChip.getAttribute('data-token').catch(() => '')) ?? ''
   rec(
     g,

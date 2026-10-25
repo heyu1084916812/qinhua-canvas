@@ -47,9 +47,10 @@
  * 表示不同语义：变量是「会被替换掉的槽」，引用是「指到某个具体东西的名字」。
  */
 .chip {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 0.3em;
+  gap: 0.2em;
   max-width: 220px;
   /**
    * 尺寸一律走 `em`，让它**跟着所在编辑器的正文字号走**：
@@ -60,16 +61,16 @@
    * 预设框能大一点没事，图标需要大一点」——所以 `font-size: inherit`（与正文同号）、
    * 外框与图标按 `em` 放大。写死 px 的话，同一个组件在对话窗里会变成巨块。
    */
-  height: 1.45em;
-  padding: 0 0.4em;
-  margin: 0 0.1em;
+  height: 1.72em;
+  padding: 0 3px;
+  margin: 0 1px;
   border: 1px solid var(--stroke);
-  border-radius: calc(var(--radius-control) - 6px);
-  background: var(--bg-hover);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-1);
   font-size: inherit;
   line-height: 1;
-  vertical-align: baseline;
+  vertical-align: middle;
   user-select: none;
   white-space: nowrap;
 }
