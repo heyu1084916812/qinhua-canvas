@@ -11509,6 +11509,7 @@ async function g67(browser) {
       margin: cs.margin,
       height: Math.round(el.getBoundingClientRect().height),
       background: cs.backgroundColor,
+      color: cs.color,
       border: cs.borderTopWidth,
       editorFontSize: editor ? getComputedStyle(editor).fontSize : '',
       deleteButtons: el.querySelectorAll('[data-token-delete]').length,
@@ -11523,9 +11524,10 @@ async function g67(browser) {
       tokenChip.editorFontSize === '11px' &&
       tokenChip.padding === '4px' &&
       tokenChip.margin === '0px 4px' &&
-      tokenChip.height === 20 &&
-      tokenChip.background !== 'rgba(0, 0, 0, 0)' &&
-      tokenChip.border === '1px' &&
+      tokenChip.height === 18 &&
+      tokenChip.background === 'rgb(0, 0, 0)' &&
+      tokenChip.color === 'rgb(255, 255, 255)' &&
+      tokenChip.border === '0px' &&
       tokenChip.deleteButtons === 0,
     JSON.stringify(tokenChip),
   )

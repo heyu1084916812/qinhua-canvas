@@ -55,10 +55,10 @@
   justify-content: center;
   padding: var(--token-chip-gap);
   margin: 0 var(--token-chip-gap);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--node-border-inner);
-  background: var(--node-fill);
-  color: var(--text-1);
+  border-radius: calc(var(--radius-control) - 4px);
+  border: none;
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
   font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 400;
