@@ -11522,9 +11522,9 @@ async function g67(browser) {
       tokenChip.fontSize === '10px' &&
       tokenChip.fontWeight === '400' &&
       tokenChip.editorFontSize === '11px' &&
-      tokenChip.padding === '4px' &&
-      tokenChip.margin === '0px 1px' &&
-      tokenChip.height === 18 &&
+      tokenChip.padding === '2px' &&
+      tokenChip.margin === '0px 2px' &&
+      tokenChip.height === 14 &&
       tokenChip.background === 'rgb(0, 0, 0)' &&
       tokenChip.color === 'rgb(255, 255, 255)' &&
       tokenChip.border === '0px' &&
