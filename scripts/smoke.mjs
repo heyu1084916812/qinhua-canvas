@@ -11504,6 +11504,9 @@ async function g67(browser) {
     return {
       radius: cs.borderRadius,
       fontSize: cs.fontSize,
+      fontWeight: cs.fontWeight,
+      padding: cs.padding,
+      margin: cs.margin,
       height: Math.round(el.getBoundingClientRect().height),
       background: cs.backgroundColor,
       border: cs.borderTopWidth,
@@ -11513,11 +11516,14 @@ async function g67(browser) {
   })
   rec(
     g,
-    '★ 插入的计数 chip 是加大圆角矩形，内字更小且没有删除 ×',
+    '★ 插入的计数 chip 字重/内外边距与正文协调且没有删除 ×',
     tokenChip.radius !== '999px' &&
       tokenChip.fontSize === '10px' &&
+      tokenChip.fontWeight === '400' &&
       tokenChip.editorFontSize === '11px' &&
-      tokenChip.height >= 28 &&
+      tokenChip.padding === '4px' &&
+      tokenChip.margin === '0px 4px' &&
+      tokenChip.height === 20 &&
       tokenChip.background !== 'rgba(0, 0, 0, 0)' &&
       tokenChip.border === '1px' &&
       tokenChip.deleteButtons === 0,
