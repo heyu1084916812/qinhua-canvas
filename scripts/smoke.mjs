@@ -11518,13 +11518,13 @@ async function g67(browser) {
   rec(
     g,
     '★ 插入的计数 chip 字重/内外边距与正文协调且没有删除 ×',
-    tokenChip.radius === '4px' &&
-      tokenChip.fontSize === '10px' &&
+    tokenChip.radius === '6px' &&
+      tokenChip.fontSize === '11px' &&
       tokenChip.fontWeight === '400' &&
       tokenChip.editorFontSize === '11px' &&
-      tokenChip.padding === '2px' &&
-      tokenChip.margin === '0px 2px' &&
-      tokenChip.height === 14 &&
+      tokenChip.padding === '0px 3px' &&
+      tokenChip.margin === '0px 1px' &&
+      tokenChip.height === 19 &&
       tokenChip.background === 'rgb(0, 0, 0)' &&
       tokenChip.color === 'rgb(255, 255, 255)' &&
       tokenChip.border === '0px' &&

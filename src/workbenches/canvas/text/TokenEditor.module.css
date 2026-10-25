@@ -49,18 +49,18 @@
  * 明暗两套自动反转（大雄是 `#111827` + `.theme-dark` 覆写）。
  */
 .chip {
-  --token-chip-space: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: var(--token-chip-space);
-  margin: 0 var(--token-chip-space);
-  border-radius: calc(var(--radius-control) - 6px);
+  height: 1.72em;
+  padding: 0 3px;
+  margin: 0 1px;
+  border-radius: 6px;
   border: none;
   background: var(--node-contrast-bg);
   color: var(--node-contrast-text);
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
   line-height: 1;
   vertical-align: middle;
