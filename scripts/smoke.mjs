@@ -11370,6 +11370,7 @@ async function g67(browser) {
       delDy: ds ? Math.abs((db.top + db.bottom) / 2 - (ds.top + ds.bottom) / 2) : null,
       addDx: as ? Math.abs((ab.left + ab.right) / 2 - (as.left + as.right) / 2) : null,
       addDy: as ? Math.abs((ab.top + ab.bottom) / 2 - (as.top + as.bottom) / 2) : null,
+      addSize: { width: ab.width, height: ab.height },
       badgeStyle: {
         background: bcs.backgroundColor,
         color: bcs.color,
@@ -11427,6 +11428,12 @@ async function g67(browser) {
     '★ 「＋新增一条」按钮里的加号居中（矢量图标）',
     !!cornerGeo && cornerGeo.addDx !== null && cornerGeo.addDx <= 1 && cornerGeo.addDy <= 1,
     cornerGeo ? `dx=${cornerGeo.addDx?.toFixed(2)} dy=${cornerGeo.addDy?.toFixed(2)}` : '没找到元素',
+  )
+  rec(
+    g,
+    '★ 「＋新增一条」按钮恢复为 28px，不再缩成小点',
+    !!cornerGeo && cornerGeo.addSize.width >= 27 && cornerGeo.addSize.height >= 27,
+    JSON.stringify(cornerGeo?.addSize ?? null),
   )
 
   /*
@@ -11677,15 +11684,49 @@ async function g67(browser) {
     JSON.stringify(numberAlignment),
   )
   await node.locator('[data-loop-number-input="count"]').fill('7')
-  await node.locator('[data-loop-number-apply="count"]').click()
+  const applyButton = node.locator('[data-loop-number-apply="count"]')
+  const applyBox = await applyButton.boundingBox()
+  if (!applyBox) throw new Error('自定义数量加号不可见')
+  const applyCenter = {
+    x: applyBox.x + applyBox.width / 2,
+    y: applyBox.y + applyBox.height / 2,
+  }
+  const applyTopmost = await page.evaluate(
+    ({ x, y }) => {
+      const el = document.elementFromPoint(x, y)
+      return {
+        apply: !!el?.closest('[data-loop-number-apply="count"]'),
+        addPrompt: !!el?.closest('[data-loop-prompt-add]'),
+        tag: el?.tagName ?? null,
+      }
+    },
+    applyCenter,
+  )
+  /**
+   * 用真实鼠标坐标点击，而不是 locator.click()。
+   * 用户看到的是缩放后的画布，浮层与下方「新增提示词」加号空间上相邻；
+   * 这条同时证明应用加号在命中最上层，没有被后面那颗加号截走。
+   */
+  await page.mouse.click(applyCenter.x, applyCenter.y)
   await sleep(100)
   const customCount = (await node.locator('[data-loop-number="count"]').innerText()).trim()
   const popoverAfterCustom = await node.locator('[data-loop-number-popover="count"]').count()
+  const applyFeedback = await applyButton.evaluate((el) => ({
+    applied: el.getAttribute('data-loop-number-applied'),
+    width: el.getBoundingClientRect().width,
+    height: el.getBoundingClientRect().height,
+  }))
   rec(
     g,
-    '自定义数量加号可用，应用后仍保持浮层打开',
-    customCount === '7' && popoverAfterCustom === 1,
-    `显示 ${customCount} / 浮层 ${popoverAfterCustom}`,
+    '自定义数量加号是真实命中目标，点击后应用 7、显示成功反馈且保持浮层打开',
+    applyTopmost.apply &&
+      !applyTopmost.addPrompt &&
+      customCount === '7' &&
+      popoverAfterCustom === 1 &&
+      applyFeedback.applied === '1' &&
+      applyFeedback.width >= 23 &&
+      applyFeedback.height >= 23,
+    `命中 ${JSON.stringify(applyTopmost)} / 反馈 ${JSON.stringify(applyFeedback)} / 显示 ${customCount} / 浮层 ${popoverAfterCustom}`,
   )
   await page.mouse.click(60, 60)
   await sleep(120)

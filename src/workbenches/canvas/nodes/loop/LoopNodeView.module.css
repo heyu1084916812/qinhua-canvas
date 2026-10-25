@@ -449,8 +449,8 @@
 }
 
 .addPrompt {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border-radius: 999px;
   box-sizing: border-box;
@@ -465,8 +465,8 @@
 
 .addPrompt svg {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   pointer-events: none;
 }
 
@@ -706,8 +706,8 @@
 
 .numCustom {
   margin-top: 6px;
-  height: 28px;
-  padding: 0 4px 0 8px;
+  height: 30px;
+  padding: 0 3px 0 8px;
   border-radius: calc(var(--radius-control) - 1px);
   border: 1px solid var(--stroke);
   background: transparent;
@@ -746,8 +746,8 @@
 
 .numApply {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 999px;
@@ -758,11 +758,33 @@
   place-items: center;
   line-height: 0;
   cursor: pointer;
+  transition:
+    transform var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out);
 }
 
 .numApply svg {
   display: block;
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   pointer-events: none;
+}
+
+.numApply[data-loop-number-applied='1'] {
+  transform: scale(1.08);
+}
+
+.numApply:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .numApply {
+    transition: none;
+  }
+
+  .numApply[data-loop-number-applied='1'] {
+    transform: none;
+  }
 }
