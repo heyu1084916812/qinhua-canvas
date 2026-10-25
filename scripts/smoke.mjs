@@ -11362,6 +11362,7 @@ async function g67(browser) {
       count: g('[data-loop-number-bar="count"]'),
       batch: g('[data-loop-number-bar="batch"]'),
       run: g('[data-loop-run]'),
+      footer: g('[data-loop-footer]'),
       footerTop: el.querySelector('[data-loop-footer]')?.getBoundingClientRect().top ?? null,
       startLabel: el.querySelector('[data-loop-number-bar="loopStart"]')?.textContent?.trim() ?? '',
     }
@@ -11385,12 +11386,12 @@ async function g67(browser) {
   rec(
     g,
     '★ 底栏三格一排：起始计数 / 次数 / 一键运行',
-    !!align.start && !!align.count && !!align.run &&
+    !!align.batch && !!align.start && !!align.count &&
+      align.batch.top === align.start.top &&
       align.start.top === align.count.top &&
-      align.count.top === align.run.top &&
-      align.start.left < align.count.left &&
-      align.count.left < align.run.left,
-    `y: ${align.start?.top}/${align.count?.top}/${align.run?.top} x: ${align.start?.left}/${align.count?.left}/${align.run?.left}`,
+      align.batch.left < align.start.left &&
+      align.start.left < align.count.left,
+    `y: ${align.batch?.top}/${align.start?.top}/${align.count?.top} x: ${align.batch?.left}/${align.start?.left}/${align.count?.left}`,
   )
   rec(g, '★ 第一格标签是「起始计数」', align.startLabel.startsWith('起始计数'), align.startLabel)
   // 两个通道都开时的高度，供后面「自适应」断言对比
@@ -11400,10 +11401,10 @@ async function g67(browser) {
   rec(
     g,
     '★ 批次在图片面板内，不混进底栏那排',
-    !!align.batch && !!align.imagePanel &&
-      align.batch.top >= align.imagePanel.top &&
-      align.batch.top < align.footerTop,
-    `batch.top=${align.batch?.top} panel.top=${align.imagePanel?.top} footer.top=${align.footerTop}`,
+    !!align.run && !!align.footer && !!align.batch &&
+      align.run.top > align.batch.top &&
+      Math.abs(align.run.w - align.footer.w) <= 1,
+    `run.top=${align.run?.top} batch.top=${align.batch?.top} run.w=${align.run?.w} footer.w=${align.footer?.w}`,
   )
   /**
    * ★ 通道开关后节点高度自适应（关掉面板后下方不再空一大块）。
@@ -17895,10 +17896,11 @@ async function g91(browser) {
   const emptyReason = (
     (await page.locator('[data-fusion-reason]').innerText().catch(() => '')) ?? ''
   ).trim()
+  const emptyReasonCount = await page.locator('[data-fusion-reason]').count()
   rec(
     g,
     '★ 空输入时节点里直接显示下一步，而不是只在 tooltip 里',
-    emptyReason === '先连接一张完整原图',
+    emptyReasonCount === 0 && emptyReason === '',
     emptyReason,
   )
   rec(g, '★ 禁用时说清了先接什么', /原图|局部修改图/.test(emptyTitle ?? ''), emptyTitle ?? '')
@@ -18031,6 +18033,40 @@ async function g91(browser) {
   )
   const chipOriginal = ((await page.locator('[data-fusion-chip="original"]').textContent()) ?? '').trim()
   const chipPatch = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+  const fusionActions = await page.locator('[data-fusion-node]').first().evaluate((el) => {
+    const box = (s) => {
+      const n = el.querySelector(s)
+      if (!n) return null
+      const b = n.getBoundingClientRect()
+      return { left: Math.round(b.left), top: Math.round(b.top), w: Math.round(b.width) }
+    }
+    const run = el.querySelector('[data-fusion-run]')
+    const reason = el.querySelector('[data-fusion-reason]')
+    return {
+      color: box('[data-fusion-color-match]'),
+      run: box('[data-fusion-run]'),
+      runIcons: run?.querySelectorAll('svg').length ?? -1,
+      runBorder: run ? getComputedStyle(run).borderTopWidth : '',
+      reason: reason?.textContent?.trim() ?? '',
+    }
+  })
+  rec(
+    g,
+    '★ 颜色匹配与开始融合同排；开始融合无图标、无描边',
+    !!fusionActions.color && !!fusionActions.run &&
+      Math.abs(fusionActions.color.top - fusionActions.run.top) <= 1 &&
+      fusionActions.color.left < fusionActions.run.left &&
+      fusionActions.run.w < 260 &&
+      fusionActions.runIcons === 0 &&
+      fusionActions.runBorder === '0px',
+    JSON.stringify(fusionActions),
+  )
+  rec(
+    g,
+    '★ 真实缺上下文错误才显示提示区',
+    /选区上下文/.test(fusionActions.reason),
+    fusionActions.reason,
+  )
   rec(g, '★ 连接提醒：原图已连接', chipOriginal === '原图', chipOriginal)
   rec(g, '★ 连接提醒：局部修改 1 张', /局部修改 1 张/.test(chipPatch), chipPatch)
   /**

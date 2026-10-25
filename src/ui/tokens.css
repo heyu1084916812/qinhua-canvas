@@ -87,6 +87,9 @@
   --node-action: #171716;
   --node-action-text: #ffffff;
   --node-action-hover: #343434;
+  --node-contrast-bg: #000000;
+  --node-contrast-text: #ffffff;
+  --node-contrast-hover: #1a1a1a;
 
   /* —— 容器的背景色档位（六档，用户 2026-10-06 第 13 批第 5 条：「背景色给六档」） ——
      容器（分组）要给一块**常显**的底色，且用户可以挑；六档都是**低饱和的浅色**——
@@ -307,6 +310,9 @@
   --node-action: #efefef;
   --node-action-text: #161616;
   --node-action-hover: #d9d9d9;
+  --node-contrast-bg: #000000;
+  --node-contrast-text: #ffffff;
+  --node-contrast-hover: #1a1a1a;
 
   /* 容器背景六档（深色）：同色相、压暗到「比画布 #161616 亮一点」——
      深色下容器要**浮起来**，不能再往暗走。第 1 档仍是默认。 */

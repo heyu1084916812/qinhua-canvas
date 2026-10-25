@@ -64,13 +64,7 @@ export function FusionNodeView(props: NodeViewProps) {
   const canRun = !!original && patches.length > 0 && missingContextAt < 0 && !props.running
   const missingKind =
     missingContextAt >= 0 ? patches[missingContextAt]?.missingContextKind : undefined
-  const reasonShort = !original
-    ? '先连接一张完整原图'
-    : patches.length === 0
-      ? '再连接一张局部修改图'
-      : missingContextAt >= 0
-        ? shortContextReason(missingKind)
-        : null
+  const reasonShort = missingContextAt >= 0 ? shortContextReason(missingKind) : null
 
   const hint = !original
     ? '先把一张完整原图连到左侧'
@@ -156,6 +150,7 @@ export function FusionNodeView(props: NodeViewProps) {
           </div>
         ) : null}
 
+        <div className={styles.actions}>
         <label
           className={styles.check}
           data-fusion-color-match
@@ -188,9 +183,9 @@ export function FusionNodeView(props: NodeViewProps) {
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.emit({ type: 'requestRun', mode: 'single' })}
         >
-          <IconBlend />
           <span>{props.running ? '融合中…' : '开始融合'}</span>
         </button>
+        </div>
       </div>
     </div>
   )
@@ -309,16 +304,6 @@ function IconAlert() {
       <path d="M12 3 2.8 20h18.4L12 3Z" />
       <path d="M12 9v5" />
       <circle cx="12" cy="17.2" r=".8" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
-
-function IconBlend() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinejoin="round" aria-hidden="true">
-      <rect x="2.5" y="6.5" width="8" height="11" rx="1.6" />
-      <rect x="13.5" y="6.5" width="8" height="11" rx="1.6" />
-      <path d="M10.5 12h3" />
     </svg>
   )
 }

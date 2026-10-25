@@ -51,6 +51,7 @@
 
 /* ── ① 循环 / 并发：两格分段（大雄 .loop-smart-seg） ── */
 .seg {
+  position: relative;
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -60,10 +61,29 @@
   border-radius: var(--radius-control);
   background: transparent;
   border: 1px solid var(--node-border-inner);
+  overflow: hidden;
+}
+
+.segThumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  z-index: 0;
+  width: calc((100% - 6px) / 2);
+  border-radius: calc(var(--radius-control) - 1px);
+  background: var(--node-contrast-bg);
+  transition: transform 180ms var(--ease-out);
+}
+
+.seg[data-mode='parallel'] .segThumb {
+  transform: translateX(calc(100% + 2px));
 }
 
 .segBtn,
 .segActive {
+  position: relative;
+  z-index: 1;
   height: 25px;
   min-width: 0;
   padding: 0 8px;
@@ -83,8 +103,8 @@
 }
 
 .segActive {
-  background: var(--node-action);
-  color: var(--node-action-text);
+  background: transparent;
+  color: var(--node-contrast-text);
 }
 
 .segBtn:hover {
@@ -129,9 +149,9 @@
 }
 
 .toggleActive {
-  background: var(--node-action);
-  color: var(--node-action-text);
-  border-color: var(--node-action);
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
+  border-color: var(--node-contrast-bg);
 }
 
 /* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
@@ -241,11 +261,6 @@
    * 让 `.numControl` 拉满后，胶囊与面板同宽，也和大雄原版
    * （`.loop-smart-mini .loop-number-control { flex:1 1 100% }`）一致。
    */
-}
-
-.mini .numControl {
-  flex: 1 1 100%;
-  min-width: 0;
 }
 
 .note {
@@ -456,7 +471,8 @@
 /* ── ⑤ 底栏三格（大雄 .loop-smart-footer） ── */
 .footer {
   width: 100%;
-  display: grid;
+  display: flex;
+  flex-direction: column;
     /*
      * 三格一排：起始计数 / 次数 / 一键运行。
      *
@@ -466,9 +482,6 @@
      * 余下约 24px 给运行按钮当图标位。
      * 故数字格 1.15fr、运行格 0.7fr —— 比例偏数字侧，保证四字标签不被截。
      */
-    grid-template-columns: 1.15fr 1.15fr 0.7fr;
-  grid-auto-rows: auto;
-  align-items: stretch;
   gap: 7px;
   /*
    * 不再 `margin-top: auto`。
@@ -483,16 +496,34 @@
   margin-top: 0;
 }
 
+.paramsRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 7px;
+  align-items: stretch;
+}
+
+.paramsRow .numTrigger {
+  padding: 0 5px;
+  gap: 2px;
+  font-size: 9px;
+}
+
+.paramsRow .numTrigger strong {
+  font-size: 11px;
+}
+
 /* 运行按钮与另两格同排同高（形态对齐） */
 .run {
   width: 100%;
   /* 与左侧两个数字格同高（30px），整排才齐 */
-  min-height: 30px;
-  padding: 0;
+  min-height: 32px;
+  padding: 0 12px;
   border-radius: var(--radius-control);
-  border: 1px solid var(--node-border-inner);
-  background: transparent;
-  color: var(--text-1);
+  border: none;
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -501,12 +532,15 @@
   overflow: hidden;
   cursor: pointer;
   box-shadow: none;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .run:not(:disabled):hover {
-  background: var(--node-action);
-  border-color: var(--node-action);
-  color: var(--node-action-text);
+  background: var(--node-contrast-hover);
+  color: var(--node-contrast-text);
 }
 
 /*
@@ -519,29 +553,13 @@
  * 用**容器查询**而不是媒体查询：判断依据是「这个节点有多宽」，
  * 不是「浏览器窗口有多宽」——后者在画布上完全不相干。
  */
-.run span {
-  display: none;
-}
-
-@container (min-width: 300px) {
-  .run span {
-    display: inline;
-  }
-}
-
-.run svg {
-  width: 13px;
-  height: 13px;
-  flex: none;
-}
-
 /*
  * 禁用态必须与可点态**明显不同**：否则用户会反复点它找原因
  * （这正是「点了没反应」那类反馈的预防）。执行未接，如实置灰。
  */
 .run:disabled {
-  background: transparent;
-  border-color: var(--stroke);
+  background: var(--node-control);
+  border: none;
   color: var(--text-3);
   box-shadow: none;
   cursor: not-allowed;
@@ -665,8 +683,8 @@
 }
 
 .numCellActive {
-  background: var(--node-action);
-  color: var(--node-action-text);
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
 }
 
 .numCustom {

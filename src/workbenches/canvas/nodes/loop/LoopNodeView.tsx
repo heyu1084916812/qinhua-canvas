@@ -120,6 +120,7 @@ export function LoopNodeView(props: NodeViewProps) {
    * 跑起来只会得到「无法构建请求」——那种情况按钮该是禁用的。
    */
   const canRun = !!props.hasRunnableDownstream
+  const runLabel = data.mode === 'parallel' ? '开始并发' : '开始循环'
 
   /**
    * 节点高度**跟随内容**（用户 2026-09-24：「上下的距离完全自适应」）。
@@ -216,7 +217,13 @@ export function LoopNodeView(props: NodeViewProps) {
       <div className={styles.content} ref={contentRef} data-loop-content>
       {/* ① 循环 / 并发：两格分段 */}
       <div className={styles.row}>
-        <div className={styles.seg} role="group" aria-label="循环方式">
+        <div
+          className={styles.seg}
+          data-mode={data.mode === 'parallel' ? 'parallel' : 'serial'}
+          role="group"
+          aria-label="循环方式"
+        >
+          <span className={styles.segThumb} aria-hidden="true" />
           <button
             type="button"
             className={data.mode !== 'parallel' ? styles.segActive : styles.segBtn}
@@ -279,15 +286,6 @@ export function LoopNodeView(props: NodeViewProps) {
             与「起始计数 / 次数」混在一起，反而看不出它只作用于图片。
             底栏那排留给两个**全局**参数 + 运行按钮。
           */}
-          <div className={styles.mini}>
-            <NumberControl
-              label="批次"
-              value={data.batch}
-              max={100}
-              dataKey="batch"
-              onChange={(v) => patchLater({ batch: v }, 'batch')}
-            />
-          </div>
           <div className={styles.note} data-loop-image-note>
             {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
           </div>
@@ -376,6 +374,14 @@ export function LoopNodeView(props: NodeViewProps) {
         批次已放回图片面板（它只作用于图片通道），底栏留给两个全局参数 + 主操作。
       */}
       <div className={styles.footer} data-loop-footer>
+        <div className={styles.paramsRow}>
+        <NumberControl
+          label="批次"
+          value={data.batch}
+          max={100}
+          dataKey="batch"
+          onChange={(v) => patchLater({ batch: v }, 'batch')}
+        />
         <NumberControl
           label="起始计数"
           value={p.loopStart}
@@ -390,6 +396,7 @@ export function LoopNodeView(props: NodeViewProps) {
           dataKey="count"
           onChange={(v) => patchLater({ count: v }, 'count')}
         />
+        </div>
         {/*
           一键运行（用户 2026-09-23：「下方链接好生成节点的时候他就可以一键运行了，
           走的就是生成节点的参数」）。
@@ -404,7 +411,7 @@ export function LoopNodeView(props: NodeViewProps) {
           data-loop-run
           disabled={!canRun}
           /* 文字在窄节点里会被 CSS 隐藏，故按钮的可读名称必须由 aria-label 兜住 */
-          aria-label="一键运行"
+          aria-label={runLabel}
           title={
             canRun
               ? `按当前参数跑 ${p.count} 轮（下游生成节点的渠道与模型已就绪）`
@@ -414,8 +421,7 @@ export function LoopNodeView(props: NodeViewProps) {
           }
           onClick={() => props.emit({ type: 'requestRun', mode: 'single' })}
         >
-          <IconWorkflow />
-          <span>一键运行</span>
+          {runLabel}
         </button>
       </div>
       </div>
@@ -638,16 +644,6 @@ function IconTextCursor() {
       <path d="M4 7V5h16v2" />
       <path d="M12 5v14" />
       <path d="M9 19h6" />
-    </svg>
-  )
-}
-
-function IconWorkflow() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-      <path d="M10 6.5h4a3 3 0 0 1 3 3v4" />
     </svg>
   )
 }

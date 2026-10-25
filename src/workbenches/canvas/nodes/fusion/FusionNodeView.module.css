@@ -205,18 +205,33 @@
 
 .reason span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  width: 100%;
 }
 
 .check {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  height: 40px;
+  padding: 0 14px;
   min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--node-border-inner);
+  border-radius: var(--radius-control);
+  background: transparent;
   color: var(--text-1);
   font-size: var(--fs-body);
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -226,37 +241,37 @@
  * `check()` 会静默失败（渠道启用开关那次踩过）。
  */
 .checkBox {
-  appearance: none;
-  width: 15px;
-  height: 15px;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
-  flex: none;
-  box-sizing: border-box;
-  border: 1px solid var(--stroke);
-  border-radius: 4px;
-  background: var(--node-control);
+  opacity: 0;
   cursor: pointer;
 }
 
-.checkBox:checked {
-  background: var(--node-action);
-  border-color: var(--node-action);
-  /* 对勾用 inset 阴影示意（与外扩口的环形同一手法，不再塞伪元素） */
-  box-shadow: inset 0 0 0 2px var(--node-action-text);
+.check:has(.checkBox:checked) {
+  background: var(--node-contrast-bg);
+  border-color: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
 }
 
+.check:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+  /* 对勾用 inset 阴影示意（与外扩口的环形同一手法，不再塞伪元素） */
 /* ── ④ 全宽主按钮 ── */
 .run {
-  width: 100%;
+  width: auto;
   height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border: 1px solid var(--node-action);
+  border: none;
   border-radius: var(--radius-control);
-  background: var(--node-action);
-  color: var(--node-action-text);
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
   font-family: var(--font-sans);
   font-size: var(--fs-body);
   font-weight: 700;
@@ -265,17 +280,17 @@
 }
 
 .run:not(:disabled):hover {
-  background: var(--node-action-hover);
-  color: var(--node-action-text);
+  background: var(--node-contrast-hover);
+  color: var(--node-contrast-text);
 }
 
 .run:disabled {
-  opacity: 0.45;
+  background: var(--node-contrast-bg);
+  color: var(--node-contrast-text);
+  opacity: 1;
   cursor: not-allowed;
 }
 
 .run svg {
-  width: 18px;
-  height: 18px;
-  flex: none;
+  display: none;
 }
