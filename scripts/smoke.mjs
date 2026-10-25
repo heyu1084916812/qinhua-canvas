@@ -11257,6 +11257,7 @@ async function g67(browser) {
     const del = el.querySelector('[data-loop-prompt-delete="0"]')
     const add = el.querySelector('[data-loop-prompt-add]')
     if (!input || !badge || !del || !add) return null
+    const frame = el.closest('[data-node-id]')
     const ib = input.getBoundingClientRect()
     const center = (n) => {
       const b = n.getBoundingClientRect()
@@ -11266,6 +11267,8 @@ async function g67(browser) {
     const dc = center(del)
     const delSvg = del.querySelector('svg')
     const db = del.getBoundingClientRect()
+    const br = badge.getBoundingClientRect()
+    const fb = frame?.getBoundingClientRect()
     const ds = delSvg ? delSvg.getBoundingClientRect() : null
     const addSvg = add.querySelector('svg')
     const ab = add.getBoundingClientRect()
@@ -11295,6 +11298,9 @@ async function g67(browser) {
         width: Math.round(del.getBoundingClientRect().width),
         height: Math.round(del.getBoundingClientRect().height),
       },
+      leftNodeGap: fb ? Math.round(br.left - fb.left) : null,
+      rightNodeGap: fb ? Math.round(fb.right - db.right) : null,
+      topGap: Math.round(Math.abs(br.top - db.top)),
     }
   })
   rec(
@@ -11323,7 +11329,9 @@ async function g67(browser) {
       cornerGeo.badgeStyle.color === cornerGeo.delStyle.color &&
       cornerGeo.badgeStyle.border === cornerGeo.delStyle.border &&
       cornerGeo.badgeStyle.width === cornerGeo.delStyle.width &&
-      cornerGeo.badgeStyle.height === cornerGeo.delStyle.height,
+      cornerGeo.badgeStyle.height === cornerGeo.delStyle.height &&
+      cornerGeo.leftNodeGap === cornerGeo.rightNodeGap &&
+      cornerGeo.topGap <= 1,
     cornerGeo
       ? `badge=${JSON.stringify(cornerGeo.badgeStyle)} del=${JSON.stringify(cornerGeo.delStyle)}`
       : 'missing',

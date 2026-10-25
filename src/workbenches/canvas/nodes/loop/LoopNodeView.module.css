@@ -375,7 +375,7 @@
 .iconBtn {
   position: absolute;
   right: 0;
-  top: 4px;
+  top: 0;
   z-index: 2;
   width: 18px;
   height: 18px;
