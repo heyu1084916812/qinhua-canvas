@@ -1,5 +1,11 @@
 # CanvasFlow（轻画）项目记忆
 
+### 循环变量 chip 比例（2026-10-25 → 对账 #753）
+
+- 输入框内 chip 是浅底 + 1px 描边的圆角矩形，不是黑底胶囊；高度 26px（含边框 28px）、圆角 10px。
+- chip 内字号 10px，外部正文保持 11px；用 `inline-flex` 居中内容，并用 `vertical-align:middle`
+  与正文行对齐。不要回退成 999px 胶囊或与外文同字号。
+
 ### 循环提示词区与数字浮层（2026-10-25 → 对账 #752）
 
 - 循环提示词的 `.promptPanel` 不再画外框：`border:0 / background:transparent / padding:0`，

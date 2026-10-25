@@ -11498,14 +11498,29 @@ async function g67(browser) {
   await node.locator('[data-loop-insert-counter]').click()
   await sleep(600)
   const inserted = await readLoopPrompt(node.locator('[data-loop-prompt="0"]'))
-  const tokenChip = await node.locator('[data-token]').first().evaluate((el) => ({
-    radius: getComputedStyle(el).borderRadius,
-    deleteButtons: el.querySelectorAll('[data-token-delete]').length,
-  }))
+  const tokenChip = await node.locator('[data-token]').first().evaluate((el) => {
+    const cs = getComputedStyle(el)
+    const editor = el.closest('[data-loop-token-editor]')
+    return {
+      radius: cs.borderRadius,
+      fontSize: cs.fontSize,
+      height: Math.round(el.getBoundingClientRect().height),
+      background: cs.backgroundColor,
+      border: cs.borderTopWidth,
+      editorFontSize: editor ? getComputedStyle(editor).fontSize : '',
+      deleteButtons: el.querySelectorAll('[data-token-delete]').length,
+    }
+  })
   rec(
     g,
-    '★ 插入的计数 chip 是圆角矩形且没有删除 ×',
-    tokenChip.radius !== '999px' && tokenChip.deleteButtons === 0,
+    '★ 插入的计数 chip 是加大圆角矩形，内字更小且没有删除 ×',
+    tokenChip.radius !== '999px' &&
+      tokenChip.fontSize === '10px' &&
+      tokenChip.editorFontSize === '11px' &&
+      tokenChip.height >= 28 &&
+      tokenChip.background !== 'rgba(0, 0, 0, 0)' &&
+      tokenChip.border === '1px' &&
+      tokenChip.deleteButtons === 0,
     JSON.stringify(tokenChip),
   )
   const promptShell = await node.locator('[data-loop-prompt-panel]').evaluate((el) => {
