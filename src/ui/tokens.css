@@ -77,19 +77,20 @@
 
   /* —— 画布节点表层 ——
      中性冷灰只拉开三层，不给不同节点分别上色。边框比填充再淡一档，
-     因此空节点不是几块灰框；主要动作才使用深色强调。 */
+     因此空节点不是几块灰框。主操作、选中态、加号等黑底按钮统一跟随
+     `--accent` / `--accent-text`；hover 由强调色与表面色混合，不再写死黑色。 */
   --node-fill: #ffffff;
   --node-inset: #ffffff;
   --node-control: #dfdfdf;
   --node-control-hover: #d5d5d5;
   --node-border: #d7d7d7;
   --node-border-inner: #d0d0d0;
-  --node-action: #171716;
-  --node-action-text: #ffffff;
-  --node-action-hover: #343434;
-  --node-contrast-bg: #000000;
-  --node-contrast-text: #ffffff;
-  --node-contrast-hover: #1a1a1a;
+  --node-action: var(--accent);
+  --node-action-text: var(--accent-text);
+  --node-action-hover: color-mix(in srgb, var(--accent) 88%, var(--bg-surface));
+  --node-contrast-bg: var(--accent);
+  --node-contrast-text: var(--accent-text);
+  --node-contrast-hover: color-mix(in srgb, var(--accent) 88%, var(--bg-surface));
 
   /* —— 容器的背景色档位（六档，用户 2026-10-06 第 13 批第 5 条：「背景色给六档」） ——
      容器（分组）要给一块**常显**的底色，且用户可以挑；六档都是**低饱和的浅色**——
@@ -307,12 +308,12 @@
   --node-control-hover: #353535;
   --node-border: #353535;
   --node-border-inner: #3e3e3e;
-  --node-action: #efefef;
-  --node-action-text: #161616;
-  --node-action-hover: #d9d9d9;
-  --node-contrast-bg: #efefef;
-  --node-contrast-text: #161616;
-  --node-contrast-hover: #d9d9d9;
+  --node-action: var(--accent);
+  --node-action-text: var(--accent-text);
+  --node-action-hover: color-mix(in srgb, var(--accent) 88%, var(--bg-surface));
+  --node-contrast-bg: var(--accent);
+  --node-contrast-text: var(--accent-text);
+  --node-contrast-hover: color-mix(in srgb, var(--accent) 88%, var(--bg-surface));
 
   /* 容器背景六档（深色）：同色相、压暗到「比画布 #161616 亮一点」——
      深色下容器要**浮起来**，不能再往暗走。第 1 档仍是默认。 */

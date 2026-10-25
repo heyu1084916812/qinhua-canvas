@@ -44,45 +44,32 @@ export function InterfacePanel() {
           </div>
         </div>
 
-        <div className={styles.accentRow}>
+        <div className={styles.row}>
           <span className={styles.rowLabel}>强调色</span>
-          <div className={styles.accentGroups}>
-            {(
-              [
-                ['neutral', '黑色系'],
-                ['color', '彩色'],
-              ] as const
-            ).map(([group, label]) => (
-              <div className={styles.accentGroup} key={group}>
-                <span className={styles.groupLabel}>{label}</span>
-                <div className={styles.swatches} role="radiogroup" aria-label={`${label}强调色`}>
-                  {ACCENT_PALETTES.filter((palette) => palette.group === group).map((palette) => {
-                    const tokens = accentTokens(palette.id, setting)
-                    const on = appearance.accent === palette.id
-                    const pairLabel = `${palette.label} · 浅色 ${palette.light.accent} / 深色 ${palette.dark.accent}`
-                    return (
-                      <button
-                        key={palette.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        aria-label={pairLabel}
-                        title={pairLabel}
-                        className={on ? `${styles.swatch} ${styles.swatchOn}` : styles.swatch}
-                        data-accent={palette.id}
-                        data-accent-group={group}
-                        /* 色值来自 JS 常量：CSS 里写不了（主题守卫会拦字面量颜色），
-                           而且这里展示的就该是**当前主题下**那一套值 —— 所见即所得。 */
-                        style={{ background: tokens.accent, color: tokens.text }}
-                        onClick={() => setAccent(palette.id)}
-                      >
-                        {on ? '✓' : ''}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
+          <div className={styles.swatches} role="radiogroup" aria-label="强调色">
+            {ACCENT_PALETTES.map((palette) => {
+              const tokens = accentTokens(palette.id, setting)
+              const on = appearance.accent === palette.id
+              const pairLabel = `${palette.label} · 浅色 ${palette.light.accent} / 深色 ${palette.dark.accent}`
+              return (
+                <button
+                  key={palette.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  aria-label={pairLabel}
+                  title={pairLabel}
+                  className={on ? `${styles.swatch} ${styles.swatchOn}` : styles.swatch}
+                  data-accent={palette.id}
+                  /* 色值来自 JS 常量：CSS 里写不了（主题守卫会拦字面量颜色），
+                     而且这里展示的就该是**当前主题下**那一套值 —— 所见即所得。 */
+                  style={{ background: tokens.accent, color: tokens.text }}
+                  onClick={() => setAccent(palette.id)}
+                >
+                  {on ? '✓' : ''}
+                </button>
+              )
+            })}
           </div>
         </div>
         <p className={styles.caption}>浅色与深色主题分别使用对应色值，切换主题自动更新。</p>

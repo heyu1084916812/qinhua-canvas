@@ -11197,9 +11197,9 @@ async function g67(browser) {
   })
   rec(
     g,
-    '浅色主题禁用运行键仍保持黑底白字',
+    '浅色主题禁用运行键跟随默认强调色（墨黑底白字）',
     disabledRunStyle.disabled &&
-      disabledRunStyle.background === 'rgb(0, 0, 0)' &&
+      disabledRunStyle.background === 'rgb(23, 23, 22)' &&
       disabledRunStyle.color === 'rgb(255, 255, 255)',
     JSON.stringify(disabledRunStyle),
   )
@@ -11735,9 +11735,8 @@ async function g67(browser) {
   await sleep(120)
   const popoverAfterOutside = await node.locator('[data-loop-number-popover="count"]').count()
   rec(g, '点击数字面板外部后才关闭浮层', popoverAfterOutside === 0)
-  const themeBeforeDarkCheck = await page.locator('html').evaluate((el) => el.getAttribute('data-theme'))
-  await page.locator('html').evaluate((el) => el.setAttribute('data-theme', 'dark'))
-  await sleep(250)
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(350)
   const darkContrast = await node.evaluate((el) => {
     const run = el.querySelector('[data-loop-run]')
     const add = el.querySelector('[data-loop-prompt-add]')
@@ -11752,10 +11751,8 @@ async function g67(browser) {
     if (run) run.disabled = !!wasDisabled
     return { run: runColors, add: read(add) }
   })
-  await page.locator('html').evaluate((el, previous) => {
-    if (previous === null) el.removeAttribute('data-theme')
-    else el.setAttribute('data-theme', previous)
-  }, themeBeforeDarkCheck)
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(300)
   rec(
     g,
     '深色主题主操作按钮反色为浅底深字',
@@ -12018,7 +12015,10 @@ async function g67(browser) {
   const runNotices = []
   for (let i = 0; i < 20; i += 1) {
     await sleep(700)
-    const t = await page.locator('[data-canvas-notice]').innerText().catch(() => '')
+    const t = await page
+      .locator('[data-canvas-notice]')
+      .innerText({ timeout: 500 })
+      .catch(() => '')
     if (t && !runNotices.includes(t)) runNotices.push(t)
     if ((await page.locator('[data-node-asset]').count()) > beforeAssets + 1) break
   }
@@ -27117,37 +27117,51 @@ async function g115(browser) {
   // 强调色 / 减少动效 / 显示小地图（#379 剩余项）：都是**本机**偏好
   const rootToken = (name) =>
     page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
-  const neutralAccents = await page.locator('[data-accent-group="neutral"]').count()
-  const colorAccents = await page.locator('[data-accent-group="color"]').count()
+  const accentCount = await page.locator('[data-accent]').count()
   rec(
     g,
-    '★★ 强调色分为黑色系与彩色：黑色系补齐 5 档、彩色 7 档',
-    neutralAccents === 5 && colorAccents === 7,
-    `黑色系=${neutralAccents} 彩色=${colorAccents}`,
+    '★★ 强调色仍为单一普通色板，共 8 档（不另列黑色系）',
+    accentCount === 8,
+    `色板=${accentCount}`,
   )
   const accentBefore = await rootToken('--accent')
-  await page.locator('[data-accent="pureBlack"]').click()
-  await sleep(250)
-  const accentBlack = await rootToken('--accent')
-  await page.locator('[data-theme-choice="dark"]').click()
-  await sleep(300)
-  const accentBlackDark = await rootToken('--accent')
-  rec(
-    g,
-    '★★ 纯黑强调色：浅色 #000000、深色自动反白 #efefef',
-    accentBlack.toLowerCase() === '#000000' && accentBlackDark.toLowerCase() === '#efefef',
-    `浅色=${accentBlack} 深色=${accentBlackDark}`,
-  )
-  await page.locator('[data-theme-choice="light"]').click()
-  await sleep(300)
   await page.locator('[data-accent="blue"]').click()
   await sleep(300)
   const accentAfter = await rootToken('--accent')
+  const lightContrast = await page.evaluate(() => {
+    const probe = document.createElement('div')
+    probe.style.background = 'var(--node-contrast-bg)'
+    probe.style.color = 'var(--node-contrast-text)'
+    document.body.appendChild(probe)
+    const style = getComputedStyle(probe)
+    const color = { background: style.backgroundColor, color: style.color }
+    probe.remove()
+    return color
+  })
+  await page.locator('[data-theme-choice="dark"]').click()
+  await sleep(300)
+  const darkContrast = await page.evaluate(() => {
+    const probe = document.createElement('div')
+    probe.style.background = 'var(--node-contrast-bg)'
+    probe.style.color = 'var(--node-contrast-text)'
+    document.body.appendChild(probe)
+    const style = getComputedStyle(probe)
+    const color = { background: style.backgroundColor, color: style.color }
+    probe.remove()
+    return color
+  })
+  await page.locator('[data-theme-choice="light"]').click()
+  await sleep(300)
   rec(
     g,
-    '★★ 强调色十二档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
-    accentAfter !== accentBefore && accentAfter.toLowerCase() === '#2f5ad9',
-    `${accentBefore} → ${accentAfter}`,
+    '★★ 节点黑底按钮跟随强调色：浅色靛蓝 / 深色反白都取自 --accent',
+    accentAfter !== accentBefore &&
+      accentAfter.toLowerCase() === '#2f5ad9' &&
+      lightContrast.background === 'rgb(47, 90, 217)' &&
+      lightContrast.color === 'rgb(255, 255, 255)' &&
+      darkContrast.background === 'rgb(143, 168, 255)' &&
+      darkContrast.color === 'rgb(16, 20, 31)',
+    `${accentBefore} → ${accentAfter} / 浅 ${JSON.stringify(lightContrast)} / 深 ${JSON.stringify(darkContrast)}`,
   )
 
   await page.locator('[data-motion-toggle]').check()
