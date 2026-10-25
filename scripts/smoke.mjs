@@ -27057,6 +27057,28 @@ async function g115(browser) {
       customGrid !== grid0,
     `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${customBg} 网格=${customGrid}`,
   )
+  await page.locator('[data-canvas-hex-input]').fill('1234')
+  await page.locator('[data-canvas-hex-input]').press('Enter')
+  await sleep(150)
+  rec(
+    g,
+    '★ 非法 HEX 不清空当前颜色，并给出 3 / 6 位提示',
+    (await page.locator('[data-canvas-hex-input]').getAttribute('aria-invalid')) === 'true' &&
+      (await page.locator('[data-canvas-look-panel]').getByText('请输入 3 位或 6 位十六进制色值').count()) === 1 &&
+      (await surfaceColor()) === customBg,
+    `invalid=${await page.locator('[data-canvas-hex-input]').getAttribute('aria-invalid')} color=${await surfaceColor()}`,
+  )
+  await page.locator('[data-canvas-hex-input]').fill('ABCDEF')
+  await page.locator('[data-canvas-hex-apply]').click()
+  await sleep(300)
+  const hexColor = await surfaceColor()
+  rec(
+    g,
+    '★★ 自定义颜色支持手填 HEX：ABCDEF 应用后画布变为 rgb(171,205,239)',
+    hexColor === 'rgb(171, 205, 239)' &&
+      (await surface.getAttribute('data-canvas-custom-hex')) === '#abcdef',
+    `颜色=${hexColor}`,
+  )
 
   // 换色调：画布底色与网格线都跟着变，节点卡片不变
   await page.locator('[data-canvas-tone="blue"]').click()
@@ -27095,6 +27117,14 @@ async function g115(browser) {
   // 强调色 / 减少动效 / 显示小地图（#379 剩余项）：都是**本机**偏好
   const rootToken = (name) =>
     page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
+  const neutralAccents = await page.locator('[data-accent-group="neutral"]').count()
+  const colorAccents = await page.locator('[data-accent-group="color"]').count()
+  rec(
+    g,
+    '★★ 强调色分为黑色系与彩色：黑色系补齐 5 档、彩色 7 档',
+    neutralAccents === 5 && colorAccents === 7,
+    `黑色系=${neutralAccents} 彩色=${colorAccents}`,
+  )
   const accentBefore = await rootToken('--accent')
   await page.locator('[data-accent="pureBlack"]').click()
   await sleep(250)
@@ -27115,7 +27145,7 @@ async function g115(browser) {
   const accentAfter = await rootToken('--accent')
   rec(
     g,
-    '★★ 强调色九档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
+    '★★ 强调色十二档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
     accentAfter !== accentBefore && accentAfter.toLowerCase() === '#2f5ad9',
     `${accentBefore} → ${accentAfter}`,
   )

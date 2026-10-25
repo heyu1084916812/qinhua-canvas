@@ -66,6 +66,9 @@ export const LETTER_SPACINGS: readonly LetterSpacing[] = ['normal', 'wide']
 export type AccentId =
   | 'ink'
   | 'pureBlack'
+  | 'textBlack'
+  | 'hoverBlack'
+  | 'surfaceBlack'
   | 'slate'
   | 'blue'
   | 'cyan'
@@ -77,22 +80,26 @@ export type AccentId =
 export interface AccentPalette {
   id: AccentId
   label: string
+  group: 'neutral' | 'color'
   light: { accent: string; text: string }
   dark: { accent: string; text: string }
 }
 
 export const ACCENT_PALETTES: readonly AccentPalette[] = [
   // ink = 现状（亮色近黑 / 深色近白），是默认档 —— 升级后观感一个像素不变
-  { id: 'ink', label: '墨黑', light: { accent: '#171716', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
+  { id: 'ink', label: '墨黑', group: 'neutral', light: { accent: '#171716', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
   // 节点主操作使用的纯黑；深色主题自动反白，不能把纯黑直接垫在深底上
-  { id: 'pureBlack', label: '纯黑', light: { accent: '#000000', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
-  { id: 'slate', label: '石板', light: { accent: '#3f4a5a', text: '#ffffff' }, dark: { accent: '#b9c3d4', text: '#12161d' } },
-  { id: 'blue', label: '靛蓝', light: { accent: '#2f5ad9', text: '#ffffff' }, dark: { accent: '#8fa8ff', text: '#10141f' } },
-  { id: 'cyan', label: '青', light: { accent: '#0f7490', text: '#ffffff' }, dark: { accent: '#6fd0e8', text: '#0b1a1f' } },
-  { id: 'green', label: '松绿', light: { accent: '#2f7d5a', text: '#ffffff' }, dark: { accent: '#6fd3a2', text: '#0d1a14' } },
-  { id: 'amber', label: '琥珀', light: { accent: '#8a5a12', text: '#ffffff' }, dark: { accent: '#e8b566', text: '#1a1408' } },
-  { id: 'rose', label: '绛', light: { accent: '#b3475e', text: '#ffffff' }, dark: { accent: '#f09aac', text: '#1d1013' } },
-  { id: 'violet', label: '紫', light: { accent: '#6b4fc9', text: '#ffffff' }, dark: { accent: '#b7a4ff', text: '#140f21' } },
+  { id: 'pureBlack', label: '纯黑', group: 'neutral', light: { accent: '#000000', text: '#ffffff' }, dark: { accent: '#efefef', text: '#161616' } },
+  { id: 'textBlack', label: '正文黑', group: 'neutral', light: { accent: '#171717', text: '#ffffff' }, dark: { accent: '#f5f4ef', text: '#161616' } },
+  { id: 'hoverBlack', label: '悬浮黑', group: 'neutral', light: { accent: '#1a1a1a', text: '#ffffff' }, dark: { accent: '#e2e2e2', text: '#161616' } },
+  { id: 'surfaceBlack', label: '碳黑', group: 'neutral', light: { accent: '#222222', text: '#ffffff' }, dark: { accent: '#d9d9d9', text: '#161616' } },
+  { id: 'slate', label: '石板', group: 'color', light: { accent: '#3f4a5a', text: '#ffffff' }, dark: { accent: '#b9c3d4', text: '#12161d' } },
+  { id: 'blue', label: '靛蓝', group: 'color', light: { accent: '#2f5ad9', text: '#ffffff' }, dark: { accent: '#8fa8ff', text: '#10141f' } },
+  { id: 'cyan', label: '青', group: 'color', light: { accent: '#0f7490', text: '#ffffff' }, dark: { accent: '#6fd0e8', text: '#0b1a1f' } },
+  { id: 'green', label: '松绿', group: 'color', light: { accent: '#2f7d5a', text: '#ffffff' }, dark: { accent: '#6fd3a2', text: '#0d1a14' } },
+  { id: 'amber', label: '琥珀', group: 'color', light: { accent: '#8a5a12', text: '#ffffff' }, dark: { accent: '#e8b566', text: '#1a1408' } },
+  { id: 'rose', label: '绛', group: 'color', light: { accent: '#b3475e', text: '#ffffff' }, dark: { accent: '#f09aac', text: '#1d1013' } },
+  { id: 'violet', label: '紫', group: 'color', light: { accent: '#6b4fc9', text: '#ffffff' }, dark: { accent: '#b7a4ff', text: '#140f21' } },
 ]
 
 /** 减少动效两档（`full` = 现状） */

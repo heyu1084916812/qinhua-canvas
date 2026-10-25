@@ -121,9 +121,9 @@ describe('强调色色板', () => {
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
   }
 
-  it('九档色板，id 各不相同', () => {
-    expect(ACCENT_PALETTES).toHaveLength(9)
-    expect(new Set(ACCENT_PALETTES.map((p) => p.id)).size).toBe(9)
+  it('十二档色板，id 各不相同', () => {
+    expect(ACCENT_PALETTES).toHaveLength(12)
+    expect(new Set(ACCENT_PALETTES.map((p) => p.id)).size).toBe(12)
   })
 
   it('★ 每一档在亮 / 暗两套下：accent 对 accent-text 都 ≥ 4.5:1（算式，不靠肉眼）', () => {
@@ -148,6 +148,15 @@ describe('强调色色板', () => {
   it('★ 纯黑档：浅色为 #000000 白字，深色自动反白', () => {
     expect(accentTokens('pureBlack', 'light')).toEqual({ accent: '#000000', text: '#ffffff' })
     expect(accentTokens('pureBlack', 'dark')).toEqual({ accent: '#efefef', text: '#161616' })
+  })
+
+  it('★ 黑色系补齐节点控件实际使用的四档近黑，并各有深色配对', () => {
+    expect(accentTokens('textBlack', 'light').accent).toBe('#171717')
+    expect(accentTokens('hoverBlack', 'light').accent).toBe('#1a1a1a')
+    expect(accentTokens('surfaceBlack', 'light').accent).toBe('#222222')
+    expect(accentTokens('textBlack', 'dark').accent).toBe('#f5f4ef')
+    expect(accentTokens('hoverBlack', 'dark').accent).toBe('#e2e2e2')
+    expect(accentTokens('surfaceBlack', 'dark').accent).toBe('#d9d9d9')
   })
 
   it('非法 / 缺失 id 一律回落默认档（不留半截引用）', () => {

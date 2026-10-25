@@ -10,6 +10,7 @@ import {
   canvasBackgroundLabel,
   canvasToneLabel,
   nodeDensityLabel,
+  normalizeHexColor,
 } from '../../domain/project/canvasStyle'
 import styles from './CanvasLookPanel.module.css'
 
@@ -36,10 +37,27 @@ export function CanvasLookPanel() {
   const disabled = !projectId
   const fallbackColor = setting === 'dark' ? '#161616' : '#ecf5f9'
   const [pickerColor, setPickerColor] = useState(current.customColor ?? fallbackColor)
+  const [hexDraft, setHexDraft] = useState((current.customColor ?? fallbackColor).slice(1).toUpperCase())
+  const [hexInvalid, setHexInvalid] = useState(false)
 
   useEffect(() => {
-    setPickerColor(current.customColor ?? fallbackColor)
+    const next = current.customColor ?? fallbackColor
+    setPickerColor(next)
+    setHexDraft(next.slice(1).toUpperCase())
+    setHexInvalid(false)
   }, [current.customColor, fallbackColor])
+
+  const normalizedDraft = normalizeHexColor(`#${hexDraft}`)
+  const applyHex = () => {
+    if (!normalizedDraft) {
+      setHexInvalid(true)
+      return
+    }
+    setHexInvalid(false)
+    setPickerColor(normalizedDraft)
+    setHexDraft(normalizedDraft.slice(1).toUpperCase())
+    update({ customColor: normalizedDraft })
+  }
 
   return (
     <div className={styles.panel} data-canvas-look-panel>
@@ -102,26 +120,95 @@ export function CanvasLookPanel() {
           </div>
         </div>
 
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>自定义颜色</span>
-          <div className={styles.colorTool}>
-            <input
-              type="color"
-              className={
-                current.customColor ? `${styles.colorInput} ${styles.colorInputOn}` : styles.colorInput
-              }
-              value={pickerColor}
-              aria-label="自定义画布背景颜色"
-              data-canvas-custom-color
-              disabled={disabled}
-              onChange={(e) => {
-                const color = e.target.value.toLowerCase()
-                setPickerColor(color)
-                update({ customColor: color })
-              }}
-            />
-            <span className={styles.colorValue}>{current.customColor ?? '选择颜色'}</span>
+        <div className={styles.customColorRow}>
+          <div className={styles.customColorMeta}>
+            <span className={styles.rowLabel}>自定义颜色</span>
+            <span className={styles.customColorHint}>使用取色器，或填写 HEX 色值</span>
           </div>
+          <div className={styles.customColorControls}>
+            <label
+              className={
+                current.customColor
+                  ? `${styles.colorWell} ${styles.colorWellOn}`
+                  : styles.colorWell
+              }
+              title="打开取色器"
+            >
+              <span
+                className={styles.colorWellFill}
+                style={{ background: current.customColor ?? pickerColor }}
+              />
+              <input
+                type="color"
+                className={styles.colorPicker}
+                value={pickerColor}
+                aria-label="自定义画布背景颜色"
+                data-canvas-custom-color
+                disabled={disabled}
+                onChange={(e) => {
+                  const color = e.target.value.toLowerCase()
+                  setPickerColor(color)
+                  setHexDraft(color.slice(1).toUpperCase())
+                  setHexInvalid(false)
+                  update({ customColor: color })
+                }}
+              />
+            </label>
+            <div
+              className={
+                hexInvalid ? `${styles.hexField} ${styles.hexFieldInvalid}` : styles.hexField
+              }
+            >
+              <span className={styles.hexHash}>#</span>
+              <input
+                className={styles.hexInput}
+                value={hexDraft}
+                maxLength={6}
+                spellCheck={false}
+                autoComplete="off"
+                aria-label="画布背景 HEX 色值"
+                aria-invalid={hexInvalid}
+                data-canvas-hex-input
+                disabled={disabled}
+                onChange={(e) => {
+                  setHexDraft(
+                    e.target.value
+                      .replace(/[^0-9a-f]/gi, '')
+                      .slice(0, 6)
+                      .toUpperCase(),
+                  )
+                  setHexInvalid(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') applyHex()
+                  if (e.key === 'Escape') {
+                    setHexDraft((current.customColor ?? pickerColor).slice(1).toUpperCase())
+                    setHexInvalid(false)
+                  }
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              className={styles.colorApply}
+              disabled={disabled || !normalizedDraft}
+              data-canvas-hex-apply
+              onClick={applyHex}
+            >
+              应用
+            </button>
+          </div>
+          <span
+            className={hexInvalid ? styles.colorError : styles.colorStatus}
+            role={hexInvalid ? 'alert' : undefined}
+            aria-live="polite"
+          >
+            {hexInvalid
+              ? '请输入 3 位或 6 位十六进制色值'
+              : current.customColor
+                ? `正在使用 #${current.customColor.slice(1).toUpperCase()}`
+                : '当前使用预设色调'}
+          </span>
         </div>
       </section>
 
