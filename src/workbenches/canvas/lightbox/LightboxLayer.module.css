@@ -419,7 +419,6 @@
   min-width: 0;
   /* 比例档有 9 个，窗口窄时允许这一组自己横向滚动，不去挤旁边的按钮 */
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .barDivider {

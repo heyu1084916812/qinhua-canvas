@@ -10601,17 +10601,34 @@ async function g64(browser) {
     await page.keyboard.press('Escape')
     await sleep(600)
 
-    const sb = await prompt.evaluate((el) => {
+    const sb = await prompt.evaluate(async (el) => {
       // 编辑态/非编辑态是两个容器（textarea / div.text），取当下那个有溢出的
       const cands = [el.querySelector('textarea'), el.querySelector('div[class*="text"]')].filter(Boolean)
       const t = cands.find((c) => c.scrollHeight > c.clientHeight + 1) ?? cands[0]
       if (!t) return null
       const g = (p) => getComputedStyle(t, p)
-      return {
+      const sample = () => ({
         barWidth: g('::-webkit-scrollbar').width,
         buttonDisplay: g('::-webkit-scrollbar-button').display,
         trackBg: g('::-webkit-scrollbar-track').backgroundColor,
+        thumbBg: g('::-webkit-scrollbar-thumb').backgroundColor,
+        active: document.documentElement.dataset.scrollActive,
         scrolls: t.scrollHeight > t.clientHeight + 1,
+      })
+      const idle = sample()
+      t.scrollTop += 1
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()))
+      const active = sample()
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      const idleAgain = sample()
+      return {
+        idle,
+        active,
+        idleAgain,
+        barWidth: idle.barWidth,
+        buttonDisplay: idle.buttonDisplay,
+        trackBg: active.trackBg,
+        scrolls: idle.scrolls,
       }
     })
     rec(g, '★ 节点正文溢出（滚动条真的出现了，否则下两条恒真）', !!sb?.scrolls)
@@ -10632,6 +10649,33 @@ async function g64(browser) {
       '★ 节点本体滚动条轨道与节点内部同色（无缝嵌入，不是单独一条）',
       !!sb && sb.trackBg === 'rgb(255, 255, 255)',
       `track=${sb?.trackBg}`,
+    )
+    rec(
+      g,
+      '★★ 空闲时轨道与拇指都透明',
+      !!sb &&
+        sb.idle.active === 'false' &&
+        sb.idle.trackBg === 'rgba(0, 0, 0, 0)' &&
+        sb.idle.thumbBg === 'rgba(0, 0, 0, 0)',
+      JSON.stringify(sb?.idle),
+    )
+    rec(
+      g,
+      '★★ 滚动时轨道与拇指立即出现',
+      !!sb &&
+        sb.active.active === 'true' &&
+        sb.active.trackBg === 'rgb(255, 255, 255)' &&
+        sb.active.thumbBg !== 'rgba(0, 0, 0, 0)',
+      JSON.stringify(sb?.active),
+    )
+    rec(
+      g,
+      '★★ 停止滚动 1 秒后再次完全隐藏',
+      !!sb &&
+        sb.idleAgain.active === 'false' &&
+        sb.idleAgain.trackBg === 'rgba(0, 0, 0, 0)' &&
+        sb.idleAgain.thumbBg === 'rgba(0, 0, 0, 0)',
+      JSON.stringify(sb?.idleAgain),
     )
 
     /**
@@ -11552,8 +11596,65 @@ async function g67(browser) {
    * 自定义输入的交互由真机探针单独覆盖过（几何与命中都核实过）。
    */
   await node.locator('[data-loop-quick="count:6"]').click()
-  await sleep(700)
+  const immediateCount = await node.locator('[data-loop-number="count"]').innerText()
+  const popoverAfterPick = await node.locator('[data-loop-number-popover="count"]').count()
   const countShown = await node.locator('[data-loop-number="count"]').innerText()
+  const numberAlignment = await node.locator('[data-loop-number-trigger="batch"]').evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    const label = el.querySelector('span')?.getBoundingClientRect()
+    const value = el.querySelector('strong')?.getBoundingClientRect()
+    if (!label || !value) return null
+    return {
+      labelTopGap: label.top - box.top,
+      valueTopGap: value.top - box.top,
+      labelBottomGap: box.bottom - label.bottom,
+      valueBottomGap: box.bottom - value.bottom,
+    }
+  })
+  rec(
+    g,
+    '数字快捷档位点击后立即回显并收起浮层',
+    immediateCount.trim() === '6' && popoverAfterPick === 0,
+    `显示 ${immediateCount} / 浮层 ${popoverAfterPick}`,
+  )
+  rec(
+    g,
+    '批次文字与数字上下间距一致',
+    !!numberAlignment &&
+      Math.abs(numberAlignment.labelTopGap - numberAlignment.valueTopGap) <= 1 &&
+      Math.abs(numberAlignment.labelBottomGap - numberAlignment.valueBottomGap) <= 1,
+    JSON.stringify(numberAlignment),
+  )
+  const themeBeforeDarkCheck = await page.locator('html').evaluate((el) => el.getAttribute('data-theme'))
+  await page.locator('html').evaluate((el) => el.setAttribute('data-theme', 'dark'))
+  await sleep(250)
+  const darkContrast = await node.evaluate((el) => {
+    const run = el.querySelector('[data-loop-run]')
+    const add = el.querySelector('[data-loop-prompt-add]')
+    const read = (target) => {
+      if (!target) return null
+      const style = getComputedStyle(target)
+      return { background: style.backgroundColor, color: style.color }
+    }
+    const wasDisabled = run?.disabled
+    if (run) run.disabled = false
+    const runColors = read(run)
+    if (run) run.disabled = !!wasDisabled
+    return { run: runColors, add: read(add) }
+  })
+  await page.locator('html').evaluate((el, previous) => {
+    if (previous === null) el.removeAttribute('data-theme')
+    else el.setAttribute('data-theme', previous)
+  }, themeBeforeDarkCheck)
+  rec(
+    g,
+    '深色主题主操作按钮反色为浅底深字',
+    darkContrast.run?.background === 'rgb(239, 239, 239)' &&
+      darkContrast.run?.color === 'rgb(22, 22, 22)' &&
+      darkContrast.add?.background === 'rgb(239, 239, 239)' &&
+      darkContrast.add?.color === 'rgb(22, 22, 22)',
+    JSON.stringify(darkContrast),
+  )
   rec(g, '改轮数后回读一致', countShown.trim() === '6', `显示 ${countShown}`)
 
   await node.locator('[data-loop-mode="parallel"]').click()

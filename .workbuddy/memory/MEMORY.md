@@ -1,5 +1,16 @@
 # CanvasFlow（轻画）项目记忆
 
+### 全局滚动条与循环数字即时反馈（2026-10-25 → 对账 #757）
+
+- 全局滚动条由 `ui/scrollActivity.ts` 在 `document` 捕获阶段维护
+  `<html data-scroll-active>`：滚动立即显示，停止 1 秒后轨道与拇指同时透明。
+  监听器必须 `passive`；不要再让组件写 `scrollbar-width` / `scrollbar-color` 接管滚轮。
+- 循环数字控件的快捷档位是明确提交：本地乐观值先更新、浮层立即关闭，再调用 `onChange`。
+  “外部 value 同步”与“面板开合时同步 draft”必须是两个 effect，不能合并；否则关闭浮层会把
+  刚点中的乐观值写回旧值。
+- 深色主题的主操作按钮使用 `--node-contrast-*`：浅色主题 `#000` / `#fff`，
+  深色主题反转为 `#efefef` / `#161616`。融合、循环和选中态共用这套令牌。
+
 ### 循环图片状态与控件居中（2026-10-25 → 对账 #756）
 
 - 上游有图但 `willOutput=0` 不等于“没有上游图片”。统一走 `loopImageStatusText()`：

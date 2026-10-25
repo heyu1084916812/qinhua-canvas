@@ -310,9 +310,9 @@
   --node-action: #efefef;
   --node-action-text: #161616;
   --node-action-hover: #d9d9d9;
-  --node-contrast-bg: #000000;
-  --node-contrast-text: #ffffff;
-  --node-contrast-hover: #1a1a1a;
+  --node-contrast-bg: #efefef;
+  --node-contrast-text: #161616;
+  --node-contrast-hover: #d9d9d9;
 
   /* 容器背景六档（深色）：同色相、压暗到「比画布 #161616 亮一点」——
      深色下容器要**浮起来**，不能再往暗走。第 1 档仍是默认。 */

@@ -515,10 +515,19 @@
   padding: 0 6px;
   gap: 4px;
   font-size: 9px;
+  line-height: 1;
 }
 
 .paramsRow .numTrigger strong {
   font-size: 11px;
+}
+
+.paramsRow .numTrigger > span,
+.paramsRow .numTrigger strong {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  line-height: 1;
 }
 
 /* 运行按钮与另两格同排同高（形态对齐） */
@@ -627,7 +636,7 @@
   color: var(--text-1);
   font-size: 12px;
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 

@@ -93,7 +93,6 @@
    * 而不是把每张压成一条缝。容器本身仍然不长高 —— 滚动发生在容器内部。
    */
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .patchStack .pane {

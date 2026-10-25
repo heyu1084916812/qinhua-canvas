@@ -382,21 +382,21 @@ export function LoopNodeView(props: NodeViewProps) {
           value={data.batch}
           max={100}
           dataKey="batch"
-          onChange={(v) => patchLater({ batch: v }, 'batch')}
+          onChange={(v) => patchNow({ batch: v })}
         />
         <NumberControl
           label="起始计数"
           value={p.loopStart}
           max={9999}
           dataKey="loopStart"
-          onChange={(v) => patchLater({ loopStart: v }, 'loopStart')}
+          onChange={(v) => patchNow({ loopStart: v })}
         />
         <NumberControl
           label="次数"
           value={p.count}
           max={100}
           dataKey="count"
-          onChange={(v) => patchLater({ count: v }, 'count')}
+          onChange={(v) => patchNow({ count: v })}
         />
         </div>
         {/*
@@ -477,12 +477,22 @@ function NumberControl({
   onChange: (v: number) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [shownValue, setShownValue] = useState(value)
   const [draft, setDraft] = useState(String(value))
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   /** 自定义输入的上限：1–99（档位固定到 10，见上面的说明） */
   const CUSTOM_MAX = 99
-  const clampSet = (n: number) => onChange(Math.max(1, Math.min(Math.min(max, CUSTOM_MAX), Math.floor(n))))
+  const clampValue = (n: number) =>
+    Math.max(1, Math.min(Math.min(max, CUSTOM_MAX), Math.floor(n)))
+
+  const commit = (n: number) => {
+    const next = clampValue(n)
+    setShownValue(next)
+    setDraft(String(next))
+    setOpen(false)
+    onChange(next)
+  }
 
   /**
    * 面板收起时把草稿同步回当前值。
@@ -491,12 +501,16 @@ function NumberControl({
    * 而胶囊上显示的是真实值（比如 3）—— 又是一处「显示与实际不一致」。
    */
   useEffect(() => {
+    setShownValue(value)
+  }, [value])
+
+  useEffect(() => {
     if (!open) setDraft(String(value))
   }, [open, value])
 
   const applyDraft = () => {
     const n = Number(draft)
-    if (Number.isFinite(n)) clampSet(n)
+    if (Number.isFinite(n)) commit(n)
   }
 
   /**
@@ -537,7 +551,7 @@ function NumberControl({
       >
         <span>{label}</span>
         {/* 数值单独包一层并带 data 锚点：自动化与既有冒烟都按它读当前值 */}
-        <strong data-loop-number={dataKey}>{value}</strong>
+        <strong data-loop-number={dataKey}>{shownValue}</strong>
       </button>
       {open && (
         <div className={styles.numPopover} data-loop-number-popover={dataKey}>
@@ -546,10 +560,10 @@ function NumberControl({
               <button
                 key={v}
                 type="button"
-                className={v === value ? styles.numCellActive : styles.numCell}
+                className={v === shownValue ? styles.numCellActive : styles.numCell}
                 data-loop-quick={`${dataKey}:${v}`}
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => clampSet(v)}
+                onClick={() => commit(v)}
               >
                 {v}
               </button>

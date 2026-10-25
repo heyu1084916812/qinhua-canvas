@@ -1,8 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
+import { installScrollActivity } from './ui/scrollActivity'
 import './ui/tokens.css'
 import './ui/base.css'
+
+installScrollActivity()
 
 const container = document.getElementById('root')
 if (container) {
