@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 循环图片状态与控件居中（2026-10-25 → 对账 #756）
+
+- 上游有图但 `willOutput=0` 不等于“没有上游图片”。统一走 `loopImageStatusText()`：
+  无图 / 正常输出 / 起始越界三态；越界文案例如“无可取图片：起始 8 / 共 2 张”。
+- `.counterToken` 和 `.numTrigger` 必须内容整体居中：flex `align-items/justify-content:center`，
+  左右 padding 相等；文字+数字不能再用 `space-between` 顶到两边。
+
 ### Agent @ chip 与输入框表面（2026-10-25 → 对账 #754）
 
 - `MentionEditor.chip` 与循环变量 chip 共用一套几何规则：正文同字号、`height:1.72em`、

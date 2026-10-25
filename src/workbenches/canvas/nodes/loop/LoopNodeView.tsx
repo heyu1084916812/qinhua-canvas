@@ -40,6 +40,7 @@ import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
 import { useAssetThumbUrl } from '../../hooks/useAsset'
 import { TokenEditor, type TokenEditorHandle } from '../../text/TokenEditor'
 import styles from './LoopNodeView.module.css'
+import { loopImageStatusText } from '../../../../domain/canvas/loop/loopImageStatus'
 
 /**
  * 数字控件的快捷档位（照抄大雄的 `quick:[1,2,3,4,5,6,8,10]`）。
@@ -109,6 +110,7 @@ export function LoopNodeView(props: NodeViewProps) {
   const willOutput = data.useImageInput
     ? Math.max(0, Math.min(p.batch, upstreamImages - (p.loopStart - 1)))
     : 0
+  const imageStatus = loopImageStatusText({ upstreamImages, willOutput, loopStart: p.loopStart })
   const promptHint = upstreamPrompts
     ? `识别到 ${upstreamPrompts} 条上游提示词，按计数轮流输出`
     : '可使用 [计数] 作为变量'
@@ -287,7 +289,7 @@ export function LoopNodeView(props: NodeViewProps) {
             底栏那排留给两个**全局**参数 + 运行按钮。
           */}
           <div className={styles.note} data-loop-image-note>
-            {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
+            {imageStatus}
           </div>
         </div>
       )}

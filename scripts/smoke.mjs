@@ -11405,6 +11405,42 @@ async function g67(browser) {
     }
   })
 
+  const controlCenter = await node.evaluate((el) => {
+    const probe = (selector) => {
+      const box = el.querySelector(selector)
+      if (!box) return null
+      const b = box.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(box)
+      const c = range.getBoundingClientRect()
+      const cs = getComputedStyle(box)
+      return {
+        dx: Math.abs((b.left + b.right) / 2 - (c.left + c.right) / 2),
+        dy: Math.abs((b.top + b.bottom) / 2 - (c.top + c.bottom) / 2),
+        paddingLeft: cs.paddingLeft,
+        paddingRight: cs.paddingRight,
+      }
+    }
+    return {
+      counter: probe('[data-loop-insert-counter]'),
+      batch: probe('[data-loop-number-trigger="batch"]'),
+      start: probe('[data-loop-number-trigger="loopStart"]'),
+      count: probe('[data-loop-number-trigger="count"]'),
+    }
+  })
+  rec(
+    g,
+    '★ 计数 / 批次 / 起始计数 / 次数内容均居中，左右内边距相等',
+    Object.values(controlCenter).every(
+      (v) =>
+        v &&
+        v.dx <= 1 &&
+        v.dy <= 1 &&
+        v.paddingLeft === v.paddingRight,
+    ),
+    JSON.stringify(controlCenter),
+  )
+
   const centered = (box, inner) =>
     !!box && !!inner && Math.abs((box.left + box.right) / 2 - (inner.left + inner.right) / 2) <= 1
 
