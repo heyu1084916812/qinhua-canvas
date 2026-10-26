@@ -56,6 +56,7 @@ import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { asAppError, describeError } from '../../shared/result'
 import { createId } from '../../shared/id'
+import { directTextTrace } from '../../state/shared/directRun'
 import { createPackStore } from '../../state/project/packStore'
 import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
 import { createEcommerceTaskRepository } from '../../state/project/ecommerceTaskRepository'
@@ -332,6 +333,8 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 用户点两下就花两次对话额度（而且要等两遍）。
    */
   const [preparingShots, setPreparingShots] = useState(false)
+  /** 文字调用已成功、但运行记录落库失败时的持久可见提示。 */
+  const [textRecordWarning, setTextRecordWarning] = useState('')
   /**
    * 只覆盖“校验 → 分析 → 建节点 → 提交 API”这段提交期。
    * 请求一旦发出，结果行和占位已经可见，按钮必须释放，允许用户继续下一批；
@@ -339,6 +342,10 @@ function StudioHost({ projectId }: { projectId: string }) {
    */
   const [submitting, setSubmitting] = useState(false)
   const [generationStage, setGenerationStage] = useState<EcommerceGenerationStage | null>(null)
+  const showTextRecordWarning = useCallback((warning: string) => {
+    platform.logger.log('warn', '[ecommerce] 文字调用运行记录写入失败', { warning })
+    setTextRecordWarning(`结果已返回，但运行记录写入失败：${warning}`)
+  }, [platform])
   const customModels = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().customModels,
@@ -896,7 +903,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
     setParsingIntent(true)
     setIntentError('')
+    setTextRecordWarning('')
     setIntent(null)
+    const operationId = createId('op')
     /* 30 秒兜底：解析是"一句话"的小请求，卡住不该让按钮一直转 */
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 30_000)
@@ -911,6 +920,19 @@ function StudioHost({ projectId }: { projectId: string }) {
           { role: 'user', content: buildIntentText(text, platforms) },
         ],
         signal: ac.signal,
+        trace: directTextTrace({
+          projectId,
+          workbench: 'ecommerce',
+          subjectId: `project:${projectId}:intent`,
+          scopeId: `session:${operationId}`,
+          operationId,
+          purpose: 'ecommerce-intent',
+          channelId: chatTarget.channelId,
+          model: chatTarget.upstreamModel,
+          prompt: text,
+          params: { messageCount: 2 },
+        }),
+        onRecordWarning: showTextRecordWarning,
       })
       const parsed = parseEcommerceIntent(result.text, { platforms, fallbackNote: text })
       if (parsed.ok) {
@@ -935,11 +957,20 @@ function StudioHost({ projectId }: { projectId: string }) {
     if (!chatTarget) {
       throw new Error('没有可用的对话模型 —— 先在模型服务里勾选一个对话模型')
     }
+    setTextRecordWarning('')
+    const operationId = createId('op')
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 30_000)
     try {
       const platform =
         ECOMMERCE_PLATFORMS.find((item) => item.id === request.platformId)?.name ?? '通用'
+      const userText = [
+        `功能：${request.modeLabel ?? '电商图片'}`,
+        `平台：${platform}`,
+        `文案语言：${languageLabel(request.language)}`,
+        `用户已有要求：${request.note?.trim() || '无'}`,
+        `专属配置：${request.modePrompt?.trim() || '无'}`,
+      ].join('\n')
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
         model: chatTarget.upstreamModel,
@@ -954,16 +985,26 @@ function StudioHost({ projectId }: { projectId: string }) {
           },
           {
             role: 'user',
-            content: [
-              `功能：${request.modeLabel ?? '电商图片'}`,
-              `平台：${platform}`,
-              `文案语言：${languageLabel(request.language)}`,
-              `用户已有要求：${request.note?.trim() || '无'}`,
-              `专属配置：${request.modePrompt?.trim() || '无'}`,
-            ].join('\n'),
+            content: userText,
           },
         ],
         signal: ac.signal,
+        trace: directTextTrace({
+          projectId,
+          workbench: 'ecommerce',
+          subjectId:
+            request.productNodeId ||
+            request.productNodeIds?.[0] ||
+            `project:${projectId}:selling-points`,
+          scopeId: `session:${operationId}`,
+          operationId,
+          purpose: 'ecommerce-selling-points',
+          channelId: chatTarget.channelId,
+          model: chatTarget.upstreamModel,
+          prompt: userText,
+          params: { messageCount: 2, mode: request.modeLabel ?? '' },
+        }),
+        onRecordWarning: showTextRecordWarning,
       })
       const text = result.text.trim().replace(/^```(?:text)?\s*|\s*```$/g, '').trim()
       if (!text) throw new Error('模型没有返回可用的卖点文案')
@@ -1074,6 +1115,8 @@ function StudioHost({ projectId }: { projectId: string }) {
         error: '没有可用的对话模型 —— 先去「设置 → 模型服务」给一条服务勾上对话模型',
       }
     }
+    setTextRecordWarning('')
+    const operationId = createId('op')
     const visualInputs = await visualInputsFor(request)
     if (visualInputs.length === 0) {
       return {
@@ -1086,11 +1129,14 @@ function StudioHost({ projectId }: { projectId: string }) {
       label: '正在分析商品原图与需求',
       detail: `已附 ${visualInputs.length} 张视觉素材`,
     })
+    const subjectId =
+      visualInputs[0]?.nodeId || `project:${projectId}:shot-plan`
 
     const runPass = async (
       system: string,
       user: string,
       timeoutMessage: string,
+      purpose: 'ecommerce-shots' | 'ecommerce-review',
     ): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), 60_000)
@@ -1106,6 +1152,24 @@ function StudioHost({ projectId }: { projectId: string }) {
             { role: 'user', content: user },
           ],
           signal: ac.signal,
+          trace: directTextTrace({
+            projectId,
+            workbench: 'ecommerce',
+            subjectId,
+            scopeId: `session:${operationId}`,
+            operationId,
+            purpose,
+            channelId: chatTarget.channelId,
+            model: chatTarget.upstreamModel,
+            prompt: user,
+            inputs: visualInputs,
+            params: {
+              messageCount: 2,
+              count: request.count,
+              mode: request.modeLabel ?? '',
+            },
+          }),
+          onRecordWarning: showTextRecordWarning,
         })
         return { ok: true, text: result.text }
       } catch (e) {
@@ -1127,6 +1191,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       buildShotsSystem(),
       buildShotsText(request, platforms, visualInputs.length),
       '商品分析与提示词请求超时（60 秒没回）。',
+      'ecommerce-shots',
     )
     if (!draftPass.ok) return draftPass
     const draft = parseShotsReply(draftPass.text, request.count, {
@@ -1160,6 +1225,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         visualInputs.length,
       ),
       'AI 自审方案超时（60 秒没回）。',
+      'ecommerce-review',
     )
     if (!reviewPass.ok) return { ok: false, error: `AI 自审失败：${reviewPass.error}` }
     const reviewed = parseShotsReply(reviewPass.text, request.count, {
@@ -2037,6 +2103,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       onPlanShots={onPlanShots}
       shotPlanNote={shotPlanNote}
       generationStage={generationStage}
+      textRecordWarning={textRecordWarning}
       onOpenLongImage={() => setLongOpen(true)}
       longImage={(tools) =>
         longOpen ? (

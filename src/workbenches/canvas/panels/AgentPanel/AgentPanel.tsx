@@ -72,6 +72,8 @@ import {
   decideToolMode,
   ensureToolSupport,
 } from '../../../../features/shared/agent/toolSupport'
+import { directTextTrace } from '../../../../state/shared/directRun'
+import { createId } from '../../../../shared/id'
 import {
   IconAuto,
   IconArrowUp,
@@ -731,6 +733,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const loopDeps = useCallback(
     (
       session: AgentSession,
+      operationId: string,
       toolMode: 'native' | 'json' = 'native',
       visualNodeIds: readonly string[] = [],
     ) => {
@@ -754,6 +757,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ...(data.naturalSize ? { naturalSize: data.naturalSize } : {}),
         }]
       })
+      const traceOf = (
+        req: TextRunRequest,
+        purpose: 'agent' | 'agent-tool-probe',
+      ) =>
+        directTextTrace({
+          projectId: store.getSnapshot().projectId,
+          workbench: 'canvas',
+          subjectId: session.id,
+          scopeId: `session:${session.id}`,
+          operationId,
+          purpose,
+          channelId: req.channelId,
+          model: req.model,
+          prompt: req.prompt,
+          inputs: req.inputs,
+          params: {
+            toolMode,
+            messageCount: req.messages?.length ?? 0,
+          },
+        })
+      const onRecordWarning = (warning: string) =>
+        store.notify(`结果已返回，但运行记录写入失败：${warning}`, 'error')
       return {
         adapter: {
           completeText: (req: TextRunRequest, signal: AbortSignal) =>
@@ -764,6 +789,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               messages: req.messages ?? [],
               inputs: req.inputs,
               signal,
+              trace: traceOf(req, 'agent'),
+              onRecordWarning,
             }),
         },
         channelId: route?.channelId ?? '',
@@ -896,6 +923,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       })
       return
     }
+    const operationId = createId('op')
     const controller = new AbortController()
     abortRefs.current.set(current.id, controller)
     setStatusFor(current.id, { kind: 'thinking' })
@@ -921,6 +949,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             tools: req.tools ?? AGENT_TOOLS,
             messages: req.messages ?? [],
             signal,
+            trace: directTextTrace({
+              projectId: store.getSnapshot().projectId,
+              workbench: 'canvas',
+              subjectId: current.id,
+              scopeId: `session:${current.id}`,
+              operationId,
+              purpose: 'agent-tool-probe',
+              channelId: req.channelId,
+              model: req.model,
+              prompt: req.prompt,
+              inputs: req.inputs,
+              params: {
+                messageCount: req.messages?.length ?? 0,
+                toolMode: 'probe',
+              },
+            }),
+            onRecordWarning: (warning) =>
+              store.notify(`结果已返回，但运行记录写入失败：${warning}`, 'error'),
             /** 探测自带一个更短的等待上限（见 `PROBE_TIMEOUT_MS`） */
             ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}),
           }),
@@ -1077,7 +1123,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         .filter((mention): mention is MentionRef & { kind: 'node' } => mention.kind === 'node')
         .map((mention) => mention.id),
     ])]
-    const currentLoopDeps = loopDeps(current, toolMode, visualNodeIds)
+    const currentLoopDeps = loopDeps(current, operationId, toolMode, visualNodeIds)
     let outcome = await runAgentTurn(withSystem, currentLoopDeps)
     /**
      * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
@@ -1161,6 +1207,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     )]
     const currentLoopDeps = loopDeps(
       current,
+      createId('op'),
       toolModeRef.current.get(current.id) ?? 'native',
       imageNodeIds,
     )
@@ -1185,6 +1232,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       .find((message) => message.role === 'user')?.imageNodeIds ?? []
     const currentLoopDeps = loopDeps(
       current,
+      createId('op'),
       toolModeRef.current.get(current.id) ?? 'native',
       imageNodeIds,
     )

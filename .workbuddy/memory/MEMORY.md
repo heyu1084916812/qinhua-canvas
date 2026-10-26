@@ -10,6 +10,11 @@
   `workbench="storyboard"`，不能从画布 Store 猜业务来源。
 - 直连 `runDirectGeneration` 的 trace 已收紧为必填作用域。`operationId` 必须每次用户动作
   重新生成，不能用稳定的 `kind:subjectId` 代替。
+- **P0-2 付费文字旁路已收口**：`directTextTrace / runDirectText` 统一文字调用作用域；
+  画布优化 / 翻译 / 反推 / 技能 / 草稿成文 / 人脸识别、Agent 工具探测与多轮、电商意图 /
+  卖点 / 方案 / 自审均写终态 RunRecord。`onRecordWarning` 必须穿透到页内提示，
+  日志失败只重试写库两次，不得重发模型。Agent 同一次用户回合共用一个 `operationId`，
+  `scopeId` 固定为 `session:<id>`；确认后继续执行按新的用户动作生成新 ID。
 - 多 Key 电商执行不能只准备第一把 Key：目标携带 `credentialGroupIds`，Provider 按分组建
   适配器，`channelResolver` 按 `routingAttempt` 选择。显式渠道也必须先看实际分组再判断 Key。
 - 电商素材写入失败不是普通投影失败：结果进入“已生成、待保存”，清空旧 assetHash，

@@ -12,6 +12,8 @@ import { asAppError, describeError } from '../../../shared/result'
 export type PromptToolCompleteText = (req: {
   channelId: string
   model: string
+  subjectId: string
+  purpose: PromptToolAction
   system: string
   text: string
   /** 随请求一起送出的素材（反推提示词要把上游图片发给模型） */
@@ -23,6 +25,8 @@ export interface UsePromptToolsOptions {
   completeText: PromptToolCompleteText
   channelId?: string
   model?: string
+  /** 提示词节点 id；日志作用域必须绑定真实业务对象。 */
+  subjectId: string
   /** 上游图片素材（反推用）；不带即纯文本动作 */
   imageInputs?: NodeInput[]
   /**
@@ -66,7 +70,12 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
    * 取消、错误处理、trim、并发保护这些细节迟早分叉 ——
    * 表现就是「技能能跑但取消不了」这类只有一边做了的差异。
    */
-  const invoke = useCallback((args: { system: string; text: string; withImages: boolean }) => {
+  const invoke = useCallback((args: {
+    purpose: PromptToolAction
+    system: string
+    text: string
+    withImages: boolean
+  }) => {
     const o = optsRef.current
     const ac = new AbortController()
     abortRef.current?.abort() // 连点时取消上一次
@@ -77,6 +86,8 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
       .completeText({
         channelId: o.channelId!,
         model: o.model!,
+        subjectId: o.subjectId,
+        purpose: args.purpose,
         system: args.system,
         text: args.text,
         // 只有需要图的动作才带图：给纯文本任务也带图既浪费带宽，
@@ -130,6 +141,7 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
         return
       }
       invoke({
+        purpose: action,
         /**
          * 用**生效值**而不是常量：用户在后台改过预设词就按改过的跑。
          * `effectivePresetText` 在覆盖缺失 / 空白 / 超限时一律回落出厂默认，

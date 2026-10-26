@@ -1257,6 +1257,8 @@ export interface EcommerceStudioProps {
   shotPlanNote?: string
   /** 当前生成阶段；页面负责推进，工作台只负责如实显示。 */
   generationStage?: EcommerceGenerationStage | null
+  /** 文字调用成功但运行记录写入失败；与生成阶段分开，不能被后续阶段覆盖。 */
+  textRecordWarning?: string
 }
 
 export function EcommerceStudio({
@@ -1288,6 +1290,7 @@ export function EcommerceStudio({
   onIntentModelChange,
   onConfigureChannels,
   generationStage = null,
+  textRecordWarning = '',
 }: EcommerceStudioProps) {
   const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
   const initialMode =
@@ -2436,6 +2439,11 @@ export function EcommerceStudio({
           {running ? '生成中…' : mode.mediaKind === 'video' ? '生成视频' : `生成${mode.label}`}
         </button>
         <GenerationStageView stage={generationStage} />
+        {textRecordWarning ? (
+          <p className={styles.error} role="alert" data-ecommerce-record-warning>
+            {textRecordWarning}
+          </p>
+        ) : null}
 
       </aside>
 

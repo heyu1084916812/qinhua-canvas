@@ -122,6 +122,7 @@ export function PanelLayer({
   )
   const promptTools = usePromptTools({
     completeText: exec.completeText,
+    subjectId: selectedNode?.id ?? '',
     channelId: promptData?.channelId,
     model: promptData?.model,
     imageInputs: promptImageInputs,
@@ -494,12 +495,15 @@ function presetFieldsOf(data: GenerationData): Pick<
  * 两条路共用这一份：**打开面板时的后台识别** 与 **点生成时的识别**。
  * 各写一份的话，「候选怎么排」迟早漂移成两种行为。
  */
-async function faceDepsOf(input: {
-  platform: ReturnType<typeof usePlatform>
-  store: ReturnType<typeof useCanvasStore>
-  exec: ReturnType<typeof useCanvasExecution>
-  channels: ReturnType<typeof useChannels>
-}): Promise<Parameters<typeof resolveFaceBox>[0]> {
+async function faceDepsOf(
+  input: {
+    platform: ReturnType<typeof usePlatform>
+    store: ReturnType<typeof useCanvasStore>
+    exec: ReturnType<typeof useCanvasExecution>
+    channels: ReturnType<typeof useChannels>
+  },
+  subjectId: string,
+): Promise<Parameters<typeof resolveFaceBox>[0]> {
   /**
    * 候选**允许为空**：本机检测不需要任何渠道（一个对话模型都没配也能用情绪调节）。
    * 排一串是因为**不是每个对话模型都能看图** —— 默认对话模型排第一，后面跟上
@@ -529,6 +533,8 @@ async function faceDepsOf(input: {
       input.exec.completeText({
         channelId: req.channelId,
         model: req.model,
+        subjectId,
+        purpose: 'face-detect',
         system: req.system,
         text: req.text,
         inputs: req.inputs,
@@ -566,7 +572,7 @@ async function detectFaceInBackground(
   if (!node || !data?.assetHash || data.faceBox) return
   faceDetectInFlight.add(nodeId)
   try {
-    const out = await resolveFaceBox(await faceDepsOf(deps), { nodeId })
+    const out = await resolveFaceBox(await faceDepsOf(deps, nodeId), { nodeId })
     if (out.ok) {
       deps.store.dispatch({ kind: 'node.updateData', id: nodeId, patch: { faceBox: out.box } })
       deps.store.notify('已识别人脸：预览上已框出，确认后点「生成」')
@@ -819,9 +825,10 @@ function handlePanelEvent(
          * 候选与调用都收在 `faceDepsOf` 里 —— 与**打开面板时的后台识别**共用同一份，
          * 免得「候选怎么排」在两处漂移。
          */
-        const out = await resolveFaceBox(await faceDepsOf({ platform, store, exec, channels }), {
-          nodeId: node.id,
-        })
+        const out = await resolveFaceBox(
+          await faceDepsOf({ platform, store, exec, channels }, node.id),
+          { nodeId: node.id },
+        )
         if (!out.ok) {
           /**
            * 自动认不出来**不是死胡同**：说清为什么，并直接把框选灯箱开出来

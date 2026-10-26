@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
 import { createChannelStore } from './channelStore'
+import { directTextTrace } from '../shared/directRun'
 
 /** 可编程网络响应：探测用例要能分别构造「这台机器支持该协议 / 不支持」两种现实 */
 function jsonResponse(status: number, body: unknown): NetworkResponse {
@@ -19,6 +20,13 @@ function jsonResponse(status: number, body: unknown): NetworkResponse {
       return new TextEncoder().encode(text).buffer as ArrayBuffer
     },
   }
+}
+
+function storageWithPut(
+  base: ReturnType<typeof createMemoryPlatform>['storage'],
+  put: ReturnType<typeof createMemoryPlatform>['storage']['put'],
+) {
+  return { ...base, put }
 }
 
 describe('channelStore', () => {
@@ -588,6 +596,89 @@ describe('channelStore', () => {
       status: 'succeeded',
       outputHashes: [outputs[0]!.hash],
     })
+  })
+
+  it('Agent 文字调用带 trace 时写一条终态 RunRecord，并透传实际渠道 / 模型', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+    await store.setModelMapping(ch.id, 'Agent Logical', 'mock-chat-1')
+
+    const result = await store.completeWithTools({
+      channelId: ch.id,
+      model: 'Agent Logical',
+      tools: [],
+      messages: [{ role: 'user', content: '给这张图加一盏暖灯' }],
+      signal: new AbortController().signal,
+      trace: directTextTrace({
+        projectId: 'proj_canvas',
+        workbench: 'canvas',
+        subjectId: 'chat_session',
+        scopeId: 'session:chat_session',
+        operationId: 'op-agent-1',
+        purpose: 'agent',
+        channelId: ch.id,
+        model: 'Agent Logical',
+        prompt: '给这张图加一盏暖灯',
+        params: { messageCount: 1 },
+      }),
+    })
+
+    expect(result.text).toBeTruthy()
+    const records = await p.storage.query('runRecords', { projectId: 'proj_canvas' })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      scopeVersion: 1,
+      workbench: 'canvas',
+      subjectId: 'chat_session',
+      scopeId: 'session:chat_session',
+      operationId: 'op-agent-1',
+      sentChannelId: ch.id,
+      sentModel: 'mock-chat-1',
+      status: 'succeeded',
+      outputHashes: [],
+    })
+  })
+
+  it('文字调用成功但日志写入失败时不重发模型，警告通过回调返回', async () => {
+    const base = createMemoryPlatform()
+    let logAttempts = 0
+    const storage = storageWithPut(base.storage, async (table, row) => {
+      if (table === 'runRecords') {
+        logAttempts += 1
+        throw new Error('disk busy')
+      }
+      return base.storage.put(table, row)
+    })
+    const platform = { ...base, storage }
+    const store = createChannelStore(platform, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+    const warnings: string[] = []
+
+    const result = await store.completeWithTools({
+      channelId: ch.id,
+      model: 'mock-chat-1',
+      tools: [],
+      messages: [{ role: 'user', content: '只调用一次' }],
+      signal: new AbortController().signal,
+      trace: directTextTrace({
+        projectId: 'proj_canvas',
+        workbench: 'canvas',
+        subjectId: 'chat_session',
+        scopeId: 'session:chat_session',
+        operationId: 'op-agent-warning',
+        purpose: 'agent',
+        channelId: ch.id,
+        model: 'mock-chat-1',
+        prompt: '只调用一次',
+      }),
+      onRecordWarning: (warning) => warnings.push(warning),
+    })
+
+    expect(result.text).toBeTruthy()
+    expect(logAttempts).toBe(2)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('disk busy')
   })
 
   /**

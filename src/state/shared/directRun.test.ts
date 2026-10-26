@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { PlatformKit } from '../../platform/ports'
 import { ChannelError } from '../../platform/channels/types'
-import { runDirectGeneration, type DirectRunTraceInput } from './directRun'
+import {
+  directTextTrace,
+  runDirectGeneration,
+  runDirectText,
+  type DirectRunTraceInput,
+} from './directRun'
 
 const trace: DirectRunTraceInput = {
   projectId: 'p1',
@@ -110,6 +115,8 @@ describe('runDirectGeneration', () => {
   it('日志写入失败只重试日志，不把成功生成改成失败', async () => {
     const platform = createMemoryPlatform()
     let attempts = 0
+    let calls = 0
+    const warnings: string[] = []
     const storage = storageWithPut(platform.storage, async (table, row) => {
       if (table === 'runRecords') {
         attempts += 1
@@ -121,13 +128,93 @@ describe('runDirectGeneration', () => {
     const finished = await runDirectGeneration({
       storage,
       trace,
-      call: async () => 'generated',
+      call: async () => {
+        calls += 1
+        return 'generated'
+      },
       outputHashesOf: () => [],
+      onRecordWarning: (warning) => warnings.push(warning),
     })
 
     expect(finished.result).toBe('generated')
+    expect(calls).toBe(1)
     expect(attempts).toBe(2)
     expect(finished.recordWarning).toContain('disk busy')
+    expect(warnings).toEqual([finished.recordWarning])
     expect(finished.record.status).toBe('succeeded')
+  })
+
+  it('失败时日志也写不进去，仍透出日志警告并且只调用一次付费请求', async () => {
+    const platform = createMemoryPlatform()
+    const error = new ChannelError({ kind: 'http', status: 500, body: 'model failed' })
+    let calls = 0
+    const warnings: string[] = []
+    const storage = storageWithPut(platform.storage, async (table, row) => {
+      if (table === 'runRecords') throw new Error('disk busy')
+      return platform.storage.put(table, row)
+    })
+
+    await expect(
+      runDirectText({
+        storage,
+        trace,
+        call: async () => {
+          calls += 1
+          throw error
+        },
+        onRecordWarning: (warning) => warnings.push(warning),
+      }),
+    ).rejects.toBe(error)
+
+    expect(calls).toBe(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('disk busy')
+  })
+
+  it('画布提示词工具、Agent、电商文字动作共用同一作用域契约', async () => {
+    const platform = createMemoryPlatform()
+    const cases = [
+      { workbench: 'canvas', subjectId: 'node:tool', scopeId: 'session:node:tool', operationId: 'op:optimize', purpose: 'canvas-optimize' },
+      { workbench: 'canvas', subjectId: 'node:tool', scopeId: 'session:node:tool', operationId: 'op:translate', purpose: 'canvas-translate' },
+      { workbench: 'canvas', subjectId: 'node:tool', scopeId: 'session:node:tool', operationId: 'op:describe', purpose: 'canvas-describe' },
+      { workbench: 'canvas', subjectId: 'node:tool', scopeId: 'session:node:tool', operationId: 'op:skill', purpose: 'canvas-skill' },
+      { workbench: 'canvas', subjectId: 'chat_session', scopeId: 'session:chat_session', operationId: 'op:agent', purpose: 'agent' },
+      { workbench: 'canvas', subjectId: 'chat_session', scopeId: 'session:chat_session', operationId: 'op:agent', purpose: 'agent-tool-probe' },
+      { workbench: 'ecommerce', subjectId: 'project:p1:intent', scopeId: 'session:ec-intent', operationId: 'op:ec-intent', purpose: 'ecommerce-intent' },
+      { workbench: 'ecommerce', subjectId: 'node:product', scopeId: 'session:ec-selling', operationId: 'op:ec-selling', purpose: 'ecommerce-selling-points' },
+      { workbench: 'ecommerce', subjectId: 'node:product', scopeId: 'session:ec-shots', operationId: 'op:ec-plan', purpose: 'ecommerce-shots' },
+      { workbench: 'ecommerce', subjectId: 'node:product', scopeId: 'session:ec-shots', operationId: 'op:ec-plan', purpose: 'ecommerce-review' },
+    ] as const
+
+    for (const item of cases) {
+      await runDirectText({
+        storage: platform.storage,
+        trace: directTextTrace({
+          projectId: 'p1',
+          ...item,
+          channelId: 'ch1',
+          model: 'm1',
+          prompt: item.purpose,
+        }),
+        call: async () => `${item.purpose}:ok`,
+      })
+    }
+
+    const rows = await platform.storage.query('runRecords', { projectId: 'p1' })
+    expect(rows).toHaveLength(cases.length)
+    for (const [index, row] of rows.entries()) {
+      const expected = cases[index]!
+      expect(row).toMatchObject({
+        scopeVersion: 1,
+        workbench: expected.workbench,
+        subjectId: expected.subjectId,
+        scopeId: expected.scopeId,
+        operationId: expected.operationId,
+        sentChannelId: 'ch1',
+        sentModel: 'm1',
+        status: 'succeeded',
+      })
+    }
+    expect(new Set(rows.map((row) => row.operationId)).size).toBe(8)
   })
 })

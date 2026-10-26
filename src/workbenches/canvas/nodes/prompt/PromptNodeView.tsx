@@ -87,6 +87,7 @@ export function PromptNodeView(props: NodeViewProps) {
 
   const tools = usePromptTools({
     completeText: exec.completeText,
+    subjectId: props.node.id,
     channelId: data.channelId,
     model: data.model,
     imageInputs,

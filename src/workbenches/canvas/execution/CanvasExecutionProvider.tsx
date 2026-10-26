@@ -67,6 +67,7 @@ import type { PromptData } from '../../../domain/canvas/model/node'
 import { trimToolResult } from '../../../features/shared/promptTools/promptTools'
 import { composePromptFromDraft } from '../../../features/canvas/execution/composePrompt'
 import { asAppError, describeError } from '../../../shared/result'
+import { directTextTrace, runDirectText } from '../../../state/shared/directRun'
 import { emitRunRecordChanged } from './runRecordEvents'
 import {
   resolveNodeRoute,
@@ -120,6 +121,10 @@ export interface CanvasExecutionApi {
   completeText(req: {
     channelId: string
     model: string
+    /** 稳定业务对象：提示词节点 / 生成节点 id。 */
+    subjectId: string
+    /** 日志用途：优化 / 翻译 / 反推 / 技能 / 草稿成文 / 人脸识别。 */
+    purpose: 'optimize' | 'translate' | 'describe' | 'skill' | 'compose' | 'face-detect' | 'text'
     /** 系统指令（优化 / 翻译 / 反推），与用户文本拼成最终 prompt */
     system: string
     text: string
@@ -1002,6 +1007,8 @@ export function CanvasExecutionProvider({
     async ({
       channelId,
       model,
+      subjectId,
+      purpose,
       system,
       text,
       inputs,
@@ -1009,6 +1016,8 @@ export function CanvasExecutionProvider({
     }: {
       channelId: string
       model: string
+      subjectId: string
+      purpose: 'optimize' | 'translate' | 'describe' | 'skill' | 'compose' | 'face-detect' | 'text'
       system: string
       text: string
       inputs?: NodeInput[]
@@ -1017,25 +1026,46 @@ export function CanvasExecutionProvider({
       const ch = channels.getState().channels.find((c) => c.id === channelId)
       if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
       const prompt = system ? `${system}\n\n${text}` : text
-      const result = await generation.completeText(
-        {
-          channel: ch,
-          model,
-          request: {
-            kind: 'text',
-            prompt,
-            inputs: inputs ?? [],
-            params: {},
-          },
-          hints: {
-            operationId: `text:${channelId}:${model}`,
-          },
-        },
+      const sentModel = resolveUpstreamModel(ch.modelMap, model) ?? model
+      const operationId = createId('op')
+      return runDirectText({
+        storage: platform.storage,
+        trace: directTextTrace({
+          projectId: store.getSnapshot().projectId,
+          workbench,
+          subjectId,
+          scopeId: `session:${subjectId}`,
+          operationId,
+          purpose,
+          channelId,
+          model: sentModel,
+          prompt: text,
+          inputs: inputs ?? [],
+          params: { system, requestedModel: model },
+        }),
         signal,
-      )
-      return result.text
+        call: async () => {
+          const result = await generation.completeText(
+            {
+              channel: ch,
+              model,
+              request: {
+                kind: 'text',
+                prompt,
+                inputs: inputs ?? [],
+                params: {},
+              },
+              hints: { operationId },
+            },
+            signal,
+          )
+          return result.text
+        },
+        onRecordWarning: (warning) =>
+          store.notify(`结果已返回，但运行日志写入失败：${warning}`, 'error'),
+      })
     },
-    [channels, generation],
+    [channels, generation, platform.storage, store, workbench],
   )
 
   /**
@@ -1108,6 +1138,8 @@ export function CanvasExecutionProvider({
         const result = await completeText({
           channelId,
           model,
+          subjectId: node.id,
+          purpose: 'skill',
           system: skill.content,
           text,
           inputs,
@@ -1151,7 +1183,16 @@ export function CanvasExecutionProvider({
         graph: store.getSnapshot(),
         presetOverrides: presetText.overrides,
         completeText: ({ channelId, model, system, text, inputs, signal }) =>
-          completeText({ channelId, model, system, text, inputs, signal }),
+          completeText({
+            channelId,
+            model,
+            subjectId: node.id,
+            purpose: 'compose',
+            system,
+            text,
+            inputs,
+            signal,
+          }),
       })
       if (result.kind === 'skip') return 'none'
       if (result.kind === 'failed') {

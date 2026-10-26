@@ -16,6 +16,7 @@ import {
 } from '../../domain/project/protocol'
 import {
   buildDefaultModelMap,
+  resolveUpstreamModel,
   setModelMapping,
 } from '../../domain/project/modelMapping'
 import type { RouteStrategy } from '../../domain/project/modelRouting'
@@ -289,6 +290,8 @@ export interface ChannelStoreActions {
     timeoutMs?: number
     /** 直连动作的统一运行记录；不传时只执行、不留痕（兼容旧调用）。 */
     trace?: DirectRunTraceInput
+    /** 业务成功但日志写入失败时的可见回调；不会触发第二次付费请求。 */
+    onRecordWarning?: (warning: string) => void
   }): Promise<TextResult>
   /** 单次 TTS：文本 → 音频字节；调用方负责把产物写进 assets。 */
   generateSpeech(
@@ -1301,9 +1304,13 @@ export function createChannelStore(
     signal,
     timeoutMs,
     trace,
+    onRecordWarning,
   }) => {
     const ch = store.getState().channels.find((c) => c.id === requestedChannelId)
     if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+    const sentModel = modelIsUpstream
+      ? requestedModel
+      : resolveUpstreamModel(ch.modelMap, requestedModel) ?? requestedModel
     const call = () => generation.completeText(
       {
         channel: ch,
@@ -1320,7 +1327,7 @@ export function createChannelStore(
         },
         hints: {
           modelIsUpstream,
-          operationId: `text:${requestedChannelId}:${requestedModel}`,
+          operationId: trace?.operationId ?? `text:${requestedChannelId}:${requestedModel}`,
         },
       },
       signal,
@@ -1332,10 +1339,13 @@ export function createChannelStore(
         trace: {
           ...trace,
           inputs: trace.inputs ?? [...inputs],
+          sentChannelId: requestedChannelId,
+          sentModel,
         },
         signal,
         call,
         outputHashesOf: () => [],
+        ...(onRecordWarning ? { onRecordWarning } : {}),
       })
     ).result
   }
