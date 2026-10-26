@@ -56,16 +56,13 @@ import { asAppError, describeError } from '../../shared/result'
 import { fingerprintBytesSync } from '../../domain/shared/hash'
 import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
 import {
-  buildEpisodePack,
   episodeTimeline,
-  ffmpegArgs,
   srtOf,
-  type PackClip,
 } from '../../domain/storyboard/ffmpegPack'
-import { toBytes } from '../../platform/assets'
 import { mixAudioSequentially } from '../../platform/web/audioMix'
 import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
+import { createStoryboardExportController } from '../../workbenches/storyboard/useStoryboardExportController'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
 import {
@@ -82,7 +79,6 @@ import {
   bindShotScene,
   DEFAULT_TRANSITION_SECONDS,
   dismissMerge,
-  exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
   mergeAsset,
@@ -2505,10 +2501,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     )
   }
 
-  /** 导出文件名的主干（剧名 → 项目名 → 未命名；顺手把文件名里不能用的字符换掉） */
-  const exportBaseName = () =>
-    (doc.script.title.trim() || projectName.trim() || '未命名漫剧').replace(/[\\/:*?"<>|]/g, '_')
-
   const onPickBgm = async () => {
     if (!selected) return
     setStatus('正在导入背景音乐…')
@@ -2543,246 +2535,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setStatus('已移除背景音乐')
   }
 
-  const onExport = async () => {
-    try {
-      await flush()
-      const markdown = exportStoryboardMarkdown(doc)
-      await platform.files.saveFile(
-        `${exportBaseName()}-分镜表.md`,
-        new Blob([markdown], { type: 'text/markdown;charset=utf-8' }),
-      )
-      setStatus('已导出分镜表')
-    } catch {
-      setStatus('导出失败')
-    }
-  }
-
-  /** 只逐条读这一集真正会用到的素材元数据，不把整张 assets 表拉进内存。 */
-  const loadPackAssetInfo = async (episode: StoryboardEpisode) => {
-    const wanted = new Set<string>()
-    for (const shot of shotsOf(doc, episode.id)) {
-      const hash = shot.videoHash ?? shot.imageHash
-      if (hash) wanted.add(hash)
-      for (const line of shot.lines) {
-        if (line.audioHash) wanted.add(line.audioHash)
-      }
-    }
-    if (episode.bgmHash) wanted.add(episode.bgmHash)
-    const info = new Map<string, { mime: string; local: boolean }>()
-    for (const hash of wanted) {
-      const rows = await platform.storage.query('assets', { id: hash })
-      const row = rows[0] as { mime?: unknown; bytes?: unknown } | undefined
-      if (!row) continue
-      const bytes = toBytes(row.bytes)
-      info.set(hash, {
-        mime: typeof row.mime === 'string' && row.mime ? row.mime : 'image/png',
-        local: !!bytes && bytes.length > 0,
-      })
-    }
-    return info
-  }
-
-  /**
-   * **导出合成包**（对账 #431；《轻画-漫剧形态调研.md》§M7-6）。
-   *
-   * 一份纯文本：素材清单 + **一条可直接跑的 FFmpeg 命令** + SRT 字幕。应用不替用户编码
-   * （架构 §16.2：无服务端 / 无 WASM / 无原生模块），真正出片在用户本地的 FFmpeg 里。
-   *
-   * 素材的两种"不在本地"要**分开说**，混成一句用户就会以为包是完整的：
-   * ① 还没出图的镜头 ⇒ 进不了命令（列在「缺料的镜头」）；
-   * ② 出了图但只是**远端产物**（`assets` 行里只有 `url`、没有 `bytes`）⇒ 命令里有它、
-   *    素材文件夹里却没有那个文件（列在「这几份素材不在素材文件夹里」）。
-   */
-  const onExportPack = async () => {
-    if (!selected) return
-    const episodeNo = episodes.findIndex((e) => e.id === selected.id) + 1
-    setStatus('正在准备合成包…')
-    try {
-      await flush()
-      /**
-       * mime 与"有没有本地字节"要**逐条**查（`query('assets', { id })`）：
-       * `assets` 每行都带全分辨率字节，按项目整表拉一次 = 把这一集的图全读进内存
-       * （`ports.ts` 那条注释记着这个内存峰值的教训）。
-       */
-      const info = await loadPackAssetInfo(selected)
-      const pack = buildEpisodePack({
-        doc,
-        episode: selected,
-        episodeNo,
-        assetOf: (hash) => info.get(hash),
-        folderName: platform.assetFolder?.current()?.name ?? null,
-      })
-      if (pack.clips.length === 0) {
-        setStatus('这一集还没有能合成的素材：先「铺到画布」再出图')
-        return
-      }
-      const base = exportBaseName()
-      await platform.files.saveFile(
-        `${base}-第${episodeNo}集-合成包.md`,
-        new Blob([pack.markdown], { type: 'text/markdown;charset=utf-8' }),
-      )
-      let files = 1
-      if (pack.srt) {
-        await platform.files.saveFile(
-          `${base}-第${episodeNo}集.srt`,
-          new Blob([pack.srt], { type: 'application/x-subrip;charset=utf-8' }),
-        )
-        files = 2
-      }
-      const remote = pack.clips.filter((c) => !c.local).length
-      const remoteBgm = pack.bgm && !pack.bgm.local ? 1 : 0
-      const remoteVoices = pack.voices.filter((voice) => !voice.local).length
-      const notes = [
-        pack.missing.length > 0 ? `${pack.missing.length} 镜没素材` : '',
-        remote + remoteBgm + remoteVoices > 0
-          ? `${remote + remoteBgm + remoteVoices} 份素材要先去下载`
-          : '',
-        pack.bgmMissing ? '背景音乐缺失，未进命令' : '',
-        pack.voicesMissing.length > 0 ? `${pack.voicesMissing.length} 句配音缺失` : '',
-      ].filter(Boolean)
-      setStatus(
-        `已导出合成包（${files} 个文件）${notes.length > 0 ? ` —— 包里写明了：${notes.join('、')}` : ''}`,
-      )
-    } catch {
-      setStatus('导出合成包失败')
-    }
-  }
-
-  /** 单独导出这一集的 SRT；时间轴与应用内内嵌字幕轨同源。 */
-  const onExportSrt = async () => {
-    if (!selected || !timelineSrt) return
-    const episodeNo = episodes.findIndex((episode) => episode.id === selected.id) + 1
-    try {
-      await flush()
-      await platform.files.saveFile(
-        `${exportBaseName()}-第${episodeNo}集-字幕.srt`,
-        new Blob([timelineSrt], {
-          type: 'application/x-subrip;charset=utf-8',
-        }),
-      )
-      setStatus(`第 ${episodeNo} 集字幕已导出（${timelineSrtCues} 条）`)
-    } catch {
-      setStatus('导出 SRT 字幕失败')
-    }
-  }
-
-  /**
-   * 桌面内直接调用本机 FFmpeg 出片。
-   *
-   * 浏览器没有子进程，入口不显示；桌面版把共享库素材通过本机回环 HTTP 地址交给
-   * FFmpeg，避免把整集视频经 IPC / Base64 来回搬运。真正的成片仍由用户保存到本地。
-   */
-  const renderEpisode = async () => {
-    if (!selected || !platform.cli) return
-    const cli = platform.cli
-    setRendering(true)
-    setStatus('正在检查本机 FFmpeg…')
-    try {
-      await flush()
-      const ffmpeg = await cli.which('ffmpeg')
-      if (!ffmpeg) {
-        setStatus('没找到本机 FFmpeg：先安装 FFmpeg，并让它能在终端里直接运行')
-        return
-      }
-      const info = await loadPackAssetInfo(selected)
-      const episodeNo = episodes.findIndex((episode) => episode.id === selected.id) + 1
-      const pack = buildEpisodePack({
-        doc,
-        episode: selected,
-        episodeNo,
-        assetOf: (hash) => info.get(hash),
-        folderName: platform.assetFolder?.current()?.name ?? null,
-      })
-      if (pack.clips.length === 0) {
-        setStatus('这一集还没有能合成的素材：先「铺到画布」再出图')
-        return
-      }
-
-      const urls = new Map<string, string>()
-      const sourceOf = async (hash: string) => {
-        const existing = urls.get(hash)
-        if (existing) return existing
-        const meta = info.get(hash)
-        if (!meta) throw new Error(`素材库缺少 ${hash.slice(0, 8)}…，无法合成`)
-        if (meta.local) {
-          const local = platform.assets.sourceUrl?.(hash)
-          if (local) {
-            urls.set(hash, local)
-            return local
-          }
-        }
-        const remote = await platform.assets.readUrl(hash)
-        if (remote?.url) {
-          urls.set(hash, remote.url)
-          return remote.url
-        }
-        throw new Error(`素材 ${hash.slice(0, 8)}… 既没有本地字节，也没有可读取的远端地址`)
-      }
-
-      const renderClips: PackClip[] = []
-      for (const clip of pack.clips) {
-        renderClips.push({ ...clip, file: await sourceOf(clip.hash) })
-      }
-      const bgmFile = pack.bgm ? await sourceOf(pack.bgm.hash) : ''
-      const voiceFiles: { file: string; start: number }[] = []
-      for (const voice of pack.voices) {
-        voiceFiles.push({ file: await sourceOf(voice.hash), start: voice.start })
-      }
-
-      const outDir = await cli.outDir()
-      const sep = outDir.includes('\\') ? '\\' : '/'
-      const renderBase = `${exportBaseName()}-第${episodeNo}集-${Date.now()}`
-      const output = `${outDir}${outDir.endsWith(sep) ? '' : sep}${renderBase}.mp4`
-      let subtitleFile = ''
-      if (pack.srt) {
-        const writeOut = cli.writeOut
-        if (!writeOut) {
-          setStatus('当前桌面壳不支持写入字幕文件，请更新桌面版后重试')
-          return
-        }
-        subtitleFile = await writeOut(
-          `${renderBase}.srt`,
-          new TextEncoder().encode(pack.srt),
-        )
-      }
-      const args = ffmpegArgs(renderClips, {
-        output,
-        ...(pack.bgm
-          ? { bgm: { file: bgmFile, volume: pack.bgm.volume } }
-          : {}),
-        ...(voiceFiles.length > 0 ? { voices: voiceFiles } : {}),
-        ...(subtitleFile ? { subtitles: { file: subtitleFile } } : {}),
-      })
-      setStatus(`正在用本机 FFmpeg 合成第 ${episodeNo} 集…`)
-      const outcome = await cli.run({
-        id: `storyboard-render-${Date.now()}`,
-        program: ffmpeg,
-        args,
-        timeoutMs: 30 * 60_000,
-      })
-      if (outcome.timedOut) {
-        setStatus('本机 FFmpeg 合成超时（30 分钟）')
-        return
-      }
-      if (outcome.code !== 0) {
-        const reason = outcome.stderr.trim().slice(-500) || `退出码 ${String(outcome.code)}`
-        setStatus(`本机 FFmpeg 合成失败：${reason}`)
-        return
-      }
-      const bytes = await cli.readOut(output)
-      await platform.files.saveFile(
-        `${exportBaseName()}-第${episodeNo}集-成片.mp4`,
-        new Blob([Uint8Array.from(bytes).buffer], { type: 'video/mp4' }),
-      )
-      setStatus(`第 ${episodeNo} 集成片已生成并保存`)
-    } catch (error) {
-      const appError = asAppError(error)
-      setStatus(appError ? describeError(appError) : String(error))
-    } finally {
-      setRendering(false)
-    }
-  }
-
+  const { onExport, onExportPack, onExportSrt, renderEpisode } =
+    createStoryboardExportController({
+      doc,
+      projectName,
+      episodes,
+      selected,
+      timelineSrt,
+      timelineSrtCues,
+      platform,
+      flush,
+      setStatus,
+      setRendering,
+    })
   return (
     <div className={styles.page} data-storyboard-page>
       <header className={styles.bar}>
