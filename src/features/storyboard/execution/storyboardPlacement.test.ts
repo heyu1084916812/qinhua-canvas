@@ -76,7 +76,7 @@ describe('StoryboardPlacement', () => {
     expect(JSON.stringify(commands[0])).not.toContain('node.updateData')
   })
 
-  it('记录与投影也走漫剧中性别名', () => {
+  it('记录走漫剧中性别名，结算不再伪造画布投影命令', () => {
     const placement = createStoryboardPlacement('project-1')
     const input = task()
     const record = {
@@ -96,13 +96,6 @@ describe('StoryboardPlacement', () => {
       scope: 'node',
       mode: 'single',
     }
-    expect(placement.finalize(plan, [] as CollectedAsset[])).toEqual([
-      {
-        kind: 'storyboard.projection.sync',
-        planId: 'plan-1',
-        taskIds: [input.id],
-        projectId: 'project-1',
-      },
-    ])
+    expect(placement.finalize(plan, [] as CollectedAsset[])).toEqual([])
   })
 })

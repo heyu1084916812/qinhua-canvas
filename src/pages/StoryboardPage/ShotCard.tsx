@@ -94,15 +94,16 @@ export function ShotCard({
   }
   const videoTools = useShotVideoTools(model, actions)
 
-  const kind = !laidOut
-    ? 'idle'
-    : state?.kind === 'failed'
+  const kind =
+    state?.kind === 'failed'
       ? 'failed'
       : state?.kind === 'queued' || state?.kind === 'running'
         ? 'running'
         : shot.imageHash
           ? 'done'
-          : 'laid'
+          : laidOut
+            ? 'laid'
+            : 'idle'
   const stateText =
     kind === 'idle'
       ? '还没铺到画布'

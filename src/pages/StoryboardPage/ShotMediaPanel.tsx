@@ -17,7 +17,7 @@ export function ShotMediaPanel({
   tools: ShotVideoToolsController
   busy: boolean
 }) {
-  const { shot, laidOut, state, videoPairHint } = model
+  const { shot, state, videoPairHint } = model
 
   return (
     <>
@@ -37,7 +37,7 @@ export function ShotMediaPanel({
             type="button"
             className={styles.ghost}
             data-storyboard-shot-run={shot.id}
-            disabled={!laidOut || busy}
+            disabled={busy}
             onClick={actions.onRun}
           >
             {shot.imageHash ? '重出这一镜' : '出图'}

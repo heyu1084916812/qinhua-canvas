@@ -6,7 +6,7 @@ export function StoryboardAssetPanel({
   doc,
   confirming,
   liveNodeIds,
-  canvas,
+  executionStatus,
   speechTarget,
   merge,
   merges,
@@ -76,18 +76,20 @@ export function StoryboardAssetPanel({
             character.nodeId && liveNodeIds.has(character.nodeId),
           )}
           state={
-            character.nodeId
-              ? canvas.nodeStateOf(character.nodeId)
-              : undefined
+            executionStatus.subjectStateOf(
+              `char:${character.id}:base`,
+              'asset-base',
+            )
           }
           hasTurnaroundNode={Boolean(
             character.turnaroundNodeId &&
               liveNodeIds.has(character.turnaroundNodeId),
           )}
           turnaroundState={
-            character.turnaroundNodeId
-              ? canvas.nodeStateOf(character.turnaroundNodeId)
-              : undefined
+            executionStatus.subjectStateOf(
+              `char:${character.id}:turnaround`,
+              'asset-turnaround',
+            )
           }
           voices={speechTarget?.voices ?? []}
           onPatch={(patch) => actions.patchCharacter(character.id, patch)}
@@ -116,7 +118,10 @@ export function StoryboardAssetPanel({
           usedBy={doc.shots.filter((shot) => shot.sceneId === scene.id).length}
           confirming={confirming === `scene:${scene.id}`}
           hasNode={Boolean(scene.nodeId && liveNodeIds.has(scene.nodeId))}
-          state={scene.nodeId ? canvas.nodeStateOf(scene.nodeId) : undefined}
+          state={executionStatus.subjectStateOf(
+            `scene:${scene.id}:base`,
+            'asset-base',
+          )}
           onPatch={(patch) => actions.patchScene(scene.id, patch)}
           onRemove={() => actions.removeAsset('scene', scene.id)}
           onMake={() => void imageActions.makeAssetBase('scene', scene.id)}

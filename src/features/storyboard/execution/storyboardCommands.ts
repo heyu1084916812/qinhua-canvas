@@ -34,9 +34,3 @@ export type StoryboardExecutionCommand =
       taskId: string
       record: RunRecord
     }
-  | {
-      kind: 'storyboard.projection.sync'
-      planId: string
-      taskIds: readonly string[]
-      projectId: string
-    }

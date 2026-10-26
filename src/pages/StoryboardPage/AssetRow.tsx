@@ -67,15 +67,16 @@ export function AssetRow({
    * 没节点 → idle；有节点没图 → laid；跑着 → running；失败 → failed；有图 → done。
    * **失败优先于"有图"**：重出失败时旧图还在，但用户此刻要知道的是"这次失败了"。
    */
-  const statusKind = !hasNode
-    ? 'idle'
-    : state?.kind === 'failed'
+  const statusKind =
+    state?.kind === 'failed'
       ? 'failed'
       : state?.kind === 'queued' || state?.kind === 'running'
         ? 'running'
         : asset.baseHash
           ? 'done'
-          : 'laid'
+          : hasNode
+            ? 'laid'
+            : 'idle'
   const statusText =
     statusKind === 'idle'
       ? `还没出${label}`
@@ -91,15 +92,16 @@ export function AssetRow({
   const busy = state?.kind === 'queued' || state?.kind === 'running'
   const turnaroundBusy =
     turnaroundState?.kind === 'queued' || turnaroundState?.kind === 'running'
-  const turnaroundStatusKind = !hasTurnaroundNode
-    ? 'idle'
-    : turnaroundState?.kind === 'failed'
+  const turnaroundStatusKind =
+    turnaroundState?.kind === 'failed'
       ? 'failed'
       : turnaroundBusy
         ? 'running'
         : asset.turnaroundHash
           ? 'done'
-          : 'laid'
+          : hasTurnaroundNode
+            ? 'laid'
+            : 'idle'
   const turnaroundStatusText =
     turnaroundStatusKind === 'idle'
       ? '还没出多视角'

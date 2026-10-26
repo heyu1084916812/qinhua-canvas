@@ -13,7 +13,7 @@ import type { StoryboardStore } from '../../state/project/storyboardStore'
 import type { PlatformKit } from '../../platform'
 import type {
   StoryboardCanvasGraph,
-  StoryboardCanvasPort,
+  StoryboardProjectionPort,
 } from '../../features/storyboard/canvasPort'
 import { useStoryboardExecution } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import { useStoryboardTargets } from '../../features/storyboard/useStoryboardTargets'
@@ -78,7 +78,7 @@ interface StoryboardEditorRuntimeProps {
   doc: StoryboardDoc
   platform: PlatformKit
   channels: ChannelStore
-  canvas: StoryboardCanvasPort
+  projection: StoryboardProjectionPort
   graph: StoryboardCanvasGraph
   projectName: string
   status: string
@@ -107,7 +107,7 @@ export function StoryboardEditorRuntime({
   doc,
   platform,
   channels,
-  canvas,
+  projection,
   graph,
   projectName,
   status,
@@ -236,12 +236,8 @@ export function StoryboardEditorRuntime({
   ).length
   const videoPending = shots.filter(
     (shot) =>
-      shot.nodeId &&
-      liveNodeIds.has(shot.nodeId) &&
       shot.imageHash &&
-      (!shot.videoHash ||
-        !shot.videoNodeId ||
-        !liveNodeIds.has(shot.videoNodeId)),
+      !shot.videoHash,
   ).length
   const voicePending = shots.reduce(
     (count, shot) =>
@@ -320,7 +316,7 @@ export function StoryboardEditorRuntime({
     liveNodeIds,
     channels,
     storage: platform.storage,
-    canvas,
+    projection,
     execution: storyboardExecution,
     documents: store,
     projectId,
@@ -335,23 +331,22 @@ export function StoryboardEditorRuntime({
     selectedEpisodeId: selected?.id,
     liveNodeIds,
     channels,
-    canvas,
+    projection,
     execution: storyboardExecution,
     documents: store,
     projectId,
     flush,
     replaceDoc,
+    actionState,
     setLay,
   })
   const digitalHumanActions =
     createStoryboardDigitalHumanExecutionController({
       currentDoc: () => docRef.current,
-      graphNodes: graph.nodes,
-      liveNodeIds,
       digitalHumanTarget,
       platform,
       storage: platform.storage,
-      canvas,
+      projection,
       execution: storyboardExecution,
       documents: store,
       projectId,
@@ -368,7 +363,7 @@ export function StoryboardEditorRuntime({
     needNodes,
     graphNodes: graph.nodes,
     liveNodeIds,
-    canvas,
+    projection,
     apply: replaceDoc,
     setLay,
   })
@@ -407,7 +402,6 @@ export function StoryboardEditorRuntime({
     shots,
     speechTarget,
     platform,
-    canvas,
     execution: storyboardExecution,
     documents: store,
     projectId,
@@ -553,9 +547,11 @@ export function StoryboardEditorRuntime({
     videoEraseTargets,
     videoEditTargets,
     videoExtendTargets,
-    canvas: {
-      nodeStateOf: canvas.nodeStateOf,
-      isRunning: canvas.isRunning,
+    projection,
+    graph,
+    executionStatus: {
+      subjectStateOf: storyboardExecution.subjectStateOf,
+      isRunning: storyboardExecution.isRunning,
     },
     canRenderLocally: Boolean(platform.cli),
     actions,

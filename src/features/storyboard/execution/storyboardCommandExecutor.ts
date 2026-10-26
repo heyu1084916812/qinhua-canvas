@@ -21,10 +21,6 @@ export interface StoryboardDocumentPort {
   save(doc: StoryboardDoc): Promise<void>
 }
 
-export interface StoryboardProjectionPort {
-  syncProject(projectId: string): Promise<void>
-}
-
 export interface StoryboardCommandExecutionResult {
   warnings: string[]
   failures: {
@@ -44,7 +40,6 @@ interface StoryboardCommandExecutorDeps {
   storage: StoragePort
   assets: AssetPort
   documents: StoryboardDocumentPort
-  projection?: StoryboardProjectionPort
   now?: () => number
 }
 
@@ -196,11 +191,6 @@ export function createStoryboardCommandExecutor(
           continue
         }
 
-        try {
-          await deps.projection?.syncProject(command.projectId)
-        } catch (error) {
-          warnings.push(`storyboard.projection.sync: ${errorTextOf(error)}`)
-        }
       }
 
       return { warnings, failures }

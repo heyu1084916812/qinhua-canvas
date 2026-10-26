@@ -30,7 +30,7 @@ export function StoryboardShotListPanel({
   videoEraseTargets,
   videoEditTargets,
   videoExtendTargets,
-  canvas,
+  executionStatus,
   actions,
   imageActions,
   videoActions,
@@ -65,7 +65,10 @@ export function StoryboardShotListPanel({
           total={shots.length}
           confirming={confirming === `shot:${shot.id}`}
           laidOut={Boolean(shot.nodeId && liveNodeIds.has(shot.nodeId))}
-          state={shot.nodeId ? canvas.nodeStateOf(shot.nodeId) : undefined}
+          state={executionStatus.subjectStateOf(
+            `shot:${shot.id}`,
+            'shot-image',
+          )}
           characters={doc.characters}
           scenes={doc.scenes}
           onPatch={actions.patchShot}
@@ -94,21 +97,15 @@ export function StoryboardShotListPanel({
               : undefined
           }
           onMakeVideo={
-            shot.nodeId && liveNodeIds.has(shot.nodeId) && shot.imageHash
+            shot.imageHash
               ? () => void videoActions.makeShotVideo(shot)
               : undefined
           }
-          videoPairHint={Boolean(
-            shots[index + 1]?.nodeId &&
-              liveNodeIds.has(shots[index + 1]!.nodeId!) &&
-              shots[index + 1]?.imageHash,
-          )}
+          videoPairHint={Boolean(shots[index + 1]?.imageHash)}
           videoUpscaleTargets={videoUpscaleTargets}
           videoUpscaleBusyShotId={busyShotId(videoUpscaleBusy, shot.id)}
           onVideoUpscale={
             shot.videoHash &&
-            shot.videoNodeId &&
-            liveNodeIds.has(shot.videoNodeId) &&
             videoUpscaleTargets.length > 0
               ? (target, resolution, frameRate) =>
                   void videoActions.makeVideoUpscale(
@@ -123,8 +120,6 @@ export function StoryboardShotListPanel({
           videoEraseBusyShotId={busyShotId(videoEraseBusy, shot.id)}
           onVideoErase={
             shot.videoHash &&
-            shot.videoNodeId &&
-            liveNodeIds.has(shot.videoNodeId) &&
             videoEraseTargets.length > 0
               ? (target) => void videoActions.makeVideoErase(shot, target)
               : undefined
@@ -133,8 +128,6 @@ export function StoryboardShotListPanel({
           videoEditBusyShotId={busyShotId(videoEditBusy, shot.id)}
           onVideoEdit={
             shot.videoHash &&
-            shot.videoNodeId &&
-            liveNodeIds.has(shot.videoNodeId) &&
             videoEditTargets.length > 0
               ? (target, instruction, resolution, useReferenceImage) =>
                   void videoActions.makeVideoEdit(
@@ -150,8 +143,6 @@ export function StoryboardShotListPanel({
           videoExtendBusyShotId={busyShotId(videoExtendBusy, shot.id)}
           onVideoExtend={
             shot.videoHash &&
-            shot.videoNodeId &&
-            liveNodeIds.has(shot.videoNodeId) &&
             videoExtendTargets.length > 0
               ? (target, instruction, resolution, duration) =>
                   void videoActions.makeVideoExtend(

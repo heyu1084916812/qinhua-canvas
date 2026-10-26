@@ -1,7 +1,6 @@
 import {
-  createContext,
-  useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react'
@@ -16,37 +15,14 @@ import {
   useCanvasStore,
   useGraph,
 } from '../../workbenches/canvas/storeContext'
-import {
-  CanvasExecutionProvider,
-  useCanvasExecution,
-} from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type { StoryboardProjectionPort } from '../../features/storyboard/canvasPort'
+import { StoryboardProjectionProvider } from '../../features/storyboard/StoryboardProjectionContext'
 import {
   applyDefaults,
   resolveDefaults,
 } from '../../features/canvas/createNodeWithDefaults'
-import { storyboardRunRecordScopeOf } from '../../features/storyboard/runScope'
-
-type CanvasRuntime = {
-  canvas: StoryboardCanvasPort
-  graph: ReturnType<typeof useGraph>
-}
-
-const StoryboardCanvasRuntimeContext = createContext<CanvasRuntime | null>(null)
-
-/**
- * 漫剧页面只通过这个中性入口拿运行时；画布 Store、Provider 和 graph Hook
- * 都封在 app 层的组合根里，不能反向散进页面或 storyboard workbench。
- */
-export function useStoryboardCanvasRuntime(): CanvasRuntime {
-  const runtime = useContext(StoryboardCanvasRuntimeContext)
-  if (!runtime) {
-    throw new Error('StoryboardCanvasHost is not mounted')
-  }
-  return runtime
-}
 
 function RuntimeBridge({
   projectId,
@@ -57,71 +33,56 @@ function RuntimeBridge({
 }) {
   const canvasStore = useCanvasStore()
   const graph = useGraph()
-  const execution = useCanvasExecution()
   const channels = useChannels()
-  const canvas: StoryboardCanvasPort = {
-    getSnapshot: () => canvasStore.getSnapshot(),
-    beginPlan: (id, label) => canvasStore.beginPlan(id, label),
-    endPlan: () => canvasStore.endPlan(),
-    resolveGenerationData: (extraData) =>
-      resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData,
-      }),
-    createGenerationNode: ({ data, at }) =>
-      applyDefaults({
-        store: canvasStore,
-        channels,
-        projectId,
-        type: 'generation',
-        at,
-        data,
-      }),
-    updateNodeData: (id, patch, transient) => {
-      canvasStore.dispatch({
-        kind: 'node.updateData',
-        id,
-        patch,
-        ...(transient === undefined ? {} : { transient }),
-      })
-    },
-    connectEdge: (source, target) => {
-      canvasStore.dispatch({ kind: 'edge.connect', source, target })
-    },
-    removeEdge: (id) => {
-      canvasStore.dispatch({ kind: 'edge.remove', id })
-    },
-    putAsset: (asset) => {
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          ...asset,
-          createdAt: Date.now(),
+  const projection = useMemo<StoryboardProjectionPort>(
+    () => ({
+      getSnapshot: () => canvasStore.getSnapshot(),
+      beginPlan: (id, label) => canvasStore.beginPlan(id, label),
+      endPlan: () => canvasStore.endPlan(),
+      resolveGenerationData: (extraData) =>
+        resolveDefaults({
+          channels,
+          type: 'generation',
+          extraData,
+        }),
+      createGenerationNode: ({ data, at }) =>
+        applyDefaults({
+          store: canvasStore,
+          channels,
           projectId,
-        },
-      })
-    },
-    runNode: (nodeId, opts) => execution.runNode(nodeId, opts),
-    nodeStateOf: (nodeId) => execution.nodeStateOf(nodeId),
-    get isRunning() {
-      return execution.isRunning
-    },
-  }
+          type: 'generation',
+          at,
+          data,
+        }),
+      updateNodeData: (id, patch, transient) => {
+        canvasStore.dispatch({
+          kind: 'node.updateData',
+          id,
+          patch,
+          ...(transient === undefined ? {} : { transient }),
+        })
+      },
+      connectEdge: (source, target) => {
+        canvasStore.dispatch({ kind: 'edge.connect', source, target })
+      },
+      removeEdge: (id) => {
+        canvasStore.dispatch({ kind: 'edge.remove', id })
+      },
+    }),
+    [canvasStore, channels, projectId],
+  )
   return (
-    <StoryboardCanvasRuntimeContext.Provider
-      value={{ canvas, graph }}
-    >
+    <StoryboardProjectionProvider value={{ projection, graph }}>
       {children}
-    </StoryboardCanvasRuntimeContext.Provider>
+    </StoryboardProjectionProvider>
   )
 }
 
 /**
- * 漫剧的画布运行时组合根。
+ * 漫剧的可选画布投影组合根。
  *
  * 水合门、写盘保险和共享 canvasStore 实例都留在这里；页面只提供项目 id 与加载态。
- * Provider 内部继续复用唯一画布执行内核，不创建第二套节点图或执行器。
+ * 这里不挂画布执行器；业务 RunPlan 由 StoryboardExecutionProvider 独立执行。
  */
 export function StoryboardCanvasHost({
   projectId,
@@ -182,14 +143,7 @@ export function StoryboardCanvasHost({
 
   return (
     <CanvasStoreProvider store={store}>
-      <CanvasExecutionProvider
-        workbench="storyboard"
-        recordScopeOverride={({ nodeData, planId }) =>
-          storyboardRunRecordScopeOf(nodeData, planId)
-        }
-      >
-        <RuntimeBridge projectId={projectId}>{children}</RuntimeBridge>
-      </CanvasExecutionProvider>
+      <RuntimeBridge projectId={projectId}>{children}</RuntimeBridge>
     </CanvasStoreProvider>
   )
 }

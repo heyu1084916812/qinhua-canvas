@@ -1,5 +1,4 @@
 import type { SpeechTarget } from '../../domain/shared/chatTarget'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
 import { buildStoryboardRunPlan } from '../../features/storyboard/execution/storyboardRunPlan'
@@ -23,7 +22,6 @@ export interface StoryboardAudioControllerArgs {
   shots: readonly StoryboardShot[]
   speechTarget: SpeechTarget | null
   platform: PlatformKit
-  canvas: StoryboardCanvasPort
   execution: StoryboardExecutionApi
   documents: StoryboardDocumentPort
   projectId: string
@@ -41,7 +39,6 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     shots,
     speechTarget,
     platform,
-    canvas,
     execution,
     documents,
     projectId,
@@ -164,7 +161,11 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     if (!selected) return
     setStatus('正在导入背景音乐…')
     try {
-      const asset = await importAudioAsset({ platform, canvas })
+      const asset = await importAudioAsset({
+        platform,
+        storage: platform.storage,
+        projectId,
+      })
       if (!asset) {
         setStatus('')
         return

@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type {
   StoryboardCanvasNode,
-  StoryboardCanvasPort,
+  StoryboardProjectionPort,
 } from '../../features/storyboard/canvasPort'
 import type {
   StoryboardDoc,
@@ -24,7 +24,7 @@ export interface StoryboardShotControllerArgs {
   needNodes: readonly StoryboardShot[]
   graphNodes: readonly StoryboardCanvasNode[]
   liveNodeIds: ReadonlySet<string>
-  canvas: StoryboardCanvasPort
+  projection: StoryboardProjectionPort
   apply: (doc: StoryboardDoc) => void
   setLay: Dispatch<
     SetStateAction<{
@@ -45,7 +45,7 @@ export function createStoryboardShotController<
     needNodes,
     graphNodes,
     liveNodeIds,
-    canvas,
+    projection,
     apply,
     setLay,
   } = args
@@ -72,7 +72,7 @@ export function createStoryboardShotController<
    * ③ **只断我们自己接的那些** —— 用户手工连进来的参考图一律不动（见 `planShotRefEdges`）。
    */
   const syncShotRefs = (shot: StoryboardShot, targetNodeId: string) => {
-    const snapshot = canvas.getSnapshot()
+    const snapshot = projection.getSnapshot()
     const live = new Set(snapshot.nodes.map((n) => n.id))
     if (!live.has(targetNodeId)) return
     const incoming = snapshot.edges
@@ -83,12 +83,12 @@ export function createStoryboardShotController<
     for (const source of plan.disconnect) {
       for (const edge of snapshot.edges) {
         if (edge.source === source && edge.target === targetNodeId) {
-          canvas.removeEdge(edge.id)
+          projection.removeEdge(edge.id)
         }
       }
     }
     for (const source of plan.connect) {
-      canvas.connectEdge(source, targetNodeId)
+      projection.connectEdge(source, targetNodeId)
     }
   }
 
@@ -115,7 +115,7 @@ export function createStoryboardShotController<
       const prescribed: { shotId: string; data: Record<string, unknown> }[] = []
       for (const shot of targets) {
         const data = withStoryboardRunScope(
-          await canvas.resolveGenerationData({
+          await projection.resolveGenerationData({
             mode: 'image',
             prompt: shotPromptWithAssets(doc, shot),
           }),
@@ -128,10 +128,10 @@ export function createStoryboardShotController<
         prescribed.push({ shotId: shot.id, data })
       }
       const pairs: { shotId: string; nodeId: string }[] = []
-      canvas.beginPlan('storyboard:lay-out', `漫剧铺到画布 ×${prescribed.length}`)
+      projection.beginPlan('storyboard:lay-out', `漫剧铺到画布 ×${prescribed.length}`)
       try {
         prescribed.forEach((item, i) => {
-          const nodeId = canvas.createGenerationNode({
+          const nodeId = projection.createGenerationNode({
             at: { x: 40, y: 40 + (base + i) * 200 },
             data: item.data,
           })
@@ -147,7 +147,7 @@ export function createStoryboardShotController<
           if (shot) syncShotRefs(shot, pair.nodeId)
         }
       } finally {
-        canvas.endPlan()
+        projection.endPlan()
       }
       const current = currentDoc()
       if (current && pairs.length > 0) apply(attachShotNodes(current, pairs, 0))
@@ -170,17 +170,17 @@ export function createStoryboardShotController<
       setLay({ kind: 'done', text: '还没有铺到画布的镜头' })
       return
     }
-    canvas.beginPlan('storyboard:sync-prompt', `按资产刷新提示词 ×${targets.length}`)
+    projection.beginPlan('storyboard:sync-prompt', `按资产刷新提示词 ×${targets.length}`)
     try {
       for (const shot of targets) {
-        canvas.updateNodeData(
+        projection.updateNodeData(
           shot.nodeId!,
           { prompt: shotPromptWithAssets(doc, shot) },
           false,
         )
       }
     } finally {
-      canvas.endPlan()
+      projection.endPlan()
     }
     setLay({ kind: 'done', text: `已按当前资产刷新 ${targets.length} 个节点的提示词` })
   }

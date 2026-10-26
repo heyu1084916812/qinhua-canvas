@@ -47,17 +47,8 @@ export function createStoryboardPlacement(
       }
     },
 
-    finalize(plan: RunPlan<StoryboardRunTask>) {
-      return plan.tasks.length > 0
-        ? [
-            {
-              kind: 'storyboard.projection.sync',
-              planId: plan.id,
-              taskIds: plan.tasks.map((task) => task.id),
-              projectId,
-            },
-          ]
-        : []
+    finalize(_plan: RunPlan<StoryboardRunTask>) {
+      return []
     },
   }
 }

@@ -194,21 +194,15 @@ describe('StoryboardCommandExecutor', () => {
     expect(stored.errorText).toContain('业务保存失败')
   })
 
-  it('资产、台词和视频写回各自更新业务真相，投影失败只记 warning', async () => {
+  it('资产、台词和视频写回各自更新业务真相', async () => {
     const platform = createMemoryPlatform()
     const store = createStoryboardStore(platform.storage)
     const { doc, characterId, episodeId, shotId, lineId } = fixture()
     await store.save(doc)
-    const projection = {
-      syncProject: vi.fn(async () => {
-        throw new Error('projection unavailable')
-      }),
-    }
     const executor = createStoryboardCommandExecutor({
       storage: platform.storage,
       assets: platform.assets,
       documents: store,
-      projection,
       now: () => 20,
     })
     const placement = createStoryboardPlacement('project-1')
@@ -259,19 +253,11 @@ describe('StoryboardCommandExecutor', () => {
       ...placement.commit(baseTask, baseSubject.id, [base]),
       ...placement.commit(speechTask, speechSubject.id, [speech]),
       ...placement.commit(videoTask, videoSubject.id, [video]),
-      {
-        kind: 'storyboard.projection.sync',
-        planId: 'plan-1',
-        taskIds: [videoTask.id],
-        projectId: 'project-1',
-      },
     ])
     const persisted = await store.load('project-1')
 
     expect(result.failures).toEqual([])
-    expect(result.warnings).toEqual([
-      'storyboard.projection.sync: projection unavailable',
-    ])
+    expect(result.warnings).toEqual([])
     expect(persisted.characters[0]!.baseHash).toBe(base.hash)
     expect(persisted.shots[0]!.lines[0]).toMatchObject({
       audioHash: speech.hash,

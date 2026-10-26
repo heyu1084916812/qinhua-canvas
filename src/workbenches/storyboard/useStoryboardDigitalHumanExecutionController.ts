@@ -1,8 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type {
-  StoryboardCanvasNode,
-  StoryboardCanvasPort,
-} from '../../features/storyboard/canvasPort'
+import type { StoryboardProjectionPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
 import { buildStoryboardRunPlan } from '../../features/storyboard/execution/storyboardRunPlan'
@@ -26,15 +23,13 @@ import type { StoryboardActionStatePort } from './useStoryboardActionState'
 
 export interface StoryboardDigitalHumanExecutionControllerArgs {
   currentDoc: () => StoryboardDoc | null
-  graphNodes: readonly StoryboardCanvasNode[]
-  liveNodeIds: ReadonlySet<string>
   digitalHumanTarget: {
     channelId: string
     model: string
   } | null
   platform: PlatformKit
   storage: StoragePort
-  canvas: StoryboardCanvasPort
+  projection: StoryboardProjectionPort
   execution: StoryboardExecutionApi
   documents: StoryboardDocumentPort
   projectId: string
@@ -63,12 +58,10 @@ export function createStoryboardDigitalHumanExecutionController(
 ) {
   const {
     currentDoc,
-    graphNodes,
-    liveNodeIds,
     digitalHumanTarget,
     platform,
     storage,
-    canvas,
+    projection,
     execution,
     documents,
     projectId,
@@ -121,7 +114,7 @@ export function createStoryboardDigitalHumanExecutionController(
       })
       return
     }
-    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId) || !shot.imageHash) {
+    if (!shot.imageHash) {
       setLay({ kind: 'error', text: '这一镜还没有可用的图片节点' })
       return
     }
@@ -222,45 +215,56 @@ export function createStoryboardDigitalHumanExecutionController(
         latest,
         Date.now(),
       )
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: digitalHumanTarget.channelId,
-        model: digitalHumanTarget.model,
-        prompt: '数字人口播',
-        durationSec: shot.durationSec,
-        assetHash: output.hash,
-        assetMime: output.mime,
-      })
-      const imageNode = graphNodes.find((node) => node.id === shot.nodeId)
-      let videoNodeId =
-        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId)
-          ? shot.videoNodeId
-          : ''
-      canvas.beginPlan('storyboard:digital-human', '单句数字人口播')
+      let projected = merged
       try {
-        if (videoNodeId) {
-          canvas.updateNodeData(videoNodeId, data)
-        } else {
-          videoNodeId =
-            canvas.createGenerationNode({
-              at: {
-                x: (imageNode?.x ?? 40) + 280,
-                y: imageNode?.y ?? 40,
-              },
-              data,
-            }) ?? ''
+        const snapshot = projection.getSnapshot()
+        const imageNode = snapshot.nodes.find((node) => node.id === shot.nodeId)
+        let videoNodeId =
+          shot.videoNodeId &&
+          snapshot.nodes.some((node) => node.id === shot.videoNodeId)
+            ? shot.videoNodeId
+            : ''
+        const data = await projection.resolveGenerationData({
+          mode: 'video',
+          channelId: digitalHumanTarget.channelId,
+          model: digitalHumanTarget.model,
+          prompt: '数字人口播',
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: output.mime,
+        })
+        projection.beginPlan('storyboard:digital-human', '单句数字人口播')
+        try {
+          if (videoNodeId) {
+            projection.updateNodeData(videoNodeId, data)
+          } else {
+            videoNodeId =
+              projection.createGenerationNode({
+                at: {
+                  x: (imageNode?.x ?? 40) + 280,
+                  y: imageNode?.y ?? 40,
+                },
+                data,
+              }) ?? ''
+          }
+          if (videoNodeId && shot.nodeId) {
+            projection.connectEdge(shot.nodeId, videoNodeId)
+          }
+        } finally {
+          projection.endPlan()
         }
         if (videoNodeId) {
-          canvas.connectEdge(shot.nodeId, videoNodeId)
+          projected = setShotVideoNode(merged, shot.id, videoNodeId, 0)
         }
-      } finally {
-        canvas.endPlan()
+      } catch (error) {
+        console.warn(
+          '[storyboard] digital-human projection skipped:',
+          humanError(error),
+        )
       }
-      if (!videoNodeId) throw new Error('口播视频节点没能建出来')
-      const withNode = setShotVideoNode(merged, shot.id, videoNodeId, 0)
       replaceDoc(
         attachShotVideos(
-          withNode,
+          projected,
           [{ shotId: shot.id, hash: output.hash }],
           0,
         ),

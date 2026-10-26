@@ -1,6 +1,3 @@
-import type { RunTaskState } from '../shared/execution/runEngine'
-import type { GeneratedAsset } from '../../platform/channels/types'
-
 export interface StoryboardCanvasNode {
   id: string
   x: number
@@ -25,13 +22,12 @@ export interface StoryboardCanvasNodeInput {
 }
 
 /**
- * 漫剧工作台依赖的画布能力。
+ * 漫剧工作台依赖的画布投影能力。
  *
  * 这是能力清单，不是画布 Store 的第二份实现：真实对象由 app 组合根创建，
- * 并把调用转发给唯一 canvasStore / CanvasExecutionApi。storyboard workbench
- * 只认这个端口，不直接 import 画布私有层。
+ * 并把调用转发给唯一 canvasStore。漫剧业务执行与状态不得经过这里。
  */
-export interface StoryboardCanvasPort {
+export interface StoryboardProjectionPort {
   getSnapshot(): StoryboardCanvasGraph
   beginPlan(id: string, label: string): void
   endPlan(): void
@@ -46,11 +42,7 @@ export interface StoryboardCanvasPort {
   ): void
   connectEdge(source: string, target: string): void
   removeEdge(id: string): void
-  putAsset(asset: GeneratedAsset): void
-  runNode(
-    nodeId: string,
-    opts?: { alt?: boolean; inPlace?: boolean },
-  ): Promise<void>
-  nodeStateOf(nodeId: string): RunTaskState | undefined
-  readonly isRunning: boolean
 }
+
+/** @deprecated Use {@link StoryboardProjectionPort}; kept only for staged call sites. */
+export type StoryboardCanvasPort = StoryboardProjectionPort

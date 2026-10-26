@@ -4,6 +4,7 @@ import {
   useContext,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react'
 import type { Channel } from '../../../domain/project/channel'
@@ -26,7 +27,6 @@ import {
   createStoryboardCommandExecutor,
   type StoryboardCommandExecutionResult,
   type StoryboardDocumentPort,
-  type StoryboardProjectionPort,
 } from './storyboardCommandExecutor'
 import type { StoryboardExecutionCommand } from './storyboardCommands'
 import { createStoryboardPlacement } from './storyboardPlacement'
@@ -34,6 +34,16 @@ import {
   prepareStoryboardAdapters,
   storyboardAdapterKey,
 } from './storyboardAdapterRouting'
+import {
+  beginStoryboardExecutionPlan,
+  failStoryboardExecutionPlan,
+  finishStoryboardExecutionPlan,
+  runningStoryboardPlanIds,
+  storyboardExecutionVersion,
+  subjectStateOf,
+  subscribeStoryboardExecutionStatus,
+  updateStoryboardExecutionTask,
+} from './storyboardExecutionStatus'
 
 export interface StoryboardRunOutcome {
   summary: RunSummary
@@ -47,6 +57,10 @@ export interface StoryboardExecutionApi {
   isRunning: boolean
   runningPlanIds: string[]
   taskStateOf(taskId: string): RunTaskState | undefined
+  subjectStateOf(
+    subjectId: string,
+    action: StoryboardRunTask['action'],
+  ): RunTaskState | undefined
 }
 
 export interface StoryboardExecutionProviderProps {
@@ -56,7 +70,6 @@ export interface StoryboardExecutionProviderProps {
   documents: StoryboardDocumentPort
   generation: GenerationClient
   channels: () => readonly Channel[]
-  projection?: StoryboardProjectionPort
   children?: ReactNode
 }
 
@@ -83,13 +96,12 @@ export function StoryboardExecutionProvider({
   documents,
   generation,
   channels,
-  projection,
   children,
 }: StoryboardExecutionProviderProps) {
   const placement = useMemo(() => createStoryboardPlacement(projectId), [projectId])
   const commandExecutor = useMemo(
-    () => createStoryboardCommandExecutor({ storage, assets, documents, projection }),
-    [assets, documents, projection, storage],
+    () => createStoryboardCommandExecutor({ storage, assets, documents }),
+    [assets, documents, storage],
   )
   const adaptersRef = useRef(new Map<string, Map<string, ChannelAdapter>>())
   const queuesRef = useRef(
@@ -107,6 +119,15 @@ export function StoryboardExecutionProvider({
       queuesRef.current.set(planId, next)
     },
     [commandExecutor],
+  )
+  const subscribeStatus = useCallback(
+    (listener: () => void) => subscribeStoryboardExecutionStatus(listener),
+    [],
+  )
+  const statusVersion = useSyncExternalStore(
+    subscribeStatus,
+    () => storyboardExecutionVersion(projectId),
+    () => 0,
   )
 
   const execution: UseExecution<StoryboardRunTask> = useExecution<
@@ -131,6 +152,9 @@ export function StoryboardExecutionProvider({
       )
       if (!adapter) throw new Error(`漫剧渠道适配器未就绪：${request.channelId}`)
       return adapter
+    },
+    onTaskUpdate: (planId, taskId, state) => {
+      updateStoryboardExecutionTask(projectId, planId, taskId, state)
     },
   })
 
@@ -176,6 +200,7 @@ export function StoryboardExecutionProvider({
       }
       const operationId = plan.tasks[0]!.operationId
       queuesRef.current.set(plan.id, Promise.resolve(emptyCommandResult()))
+      beginStoryboardExecutionPlan(projectId, plan)
 
       try {
         let prepared: Awaited<ReturnType<typeof prepareStoryboardAdapters>>
@@ -203,6 +228,15 @@ export function StoryboardExecutionProvider({
           })
         } catch (error) {
           await markPreflightFailed(plan, error, operationId)
+          failStoryboardExecutionPlan(
+            projectId,
+            plan.id,
+            asAppError(error) ?? {
+              kind: 'validation',
+              field: 'storyboard execution',
+              reason: errorTextOf(error),
+            },
+          )
           throw error
         }
 
@@ -216,6 +250,15 @@ export function StoryboardExecutionProvider({
             `漫剧执行渠道在预检期间被删除或停用：${unavailable.request.channelId}`,
           )
           await markPreflightFailed(plan, error, operationId)
+          failStoryboardExecutionPlan(
+            projectId,
+            plan.id,
+            asAppError(error) ?? {
+              kind: 'validation',
+              field: 'storyboard execution',
+              reason: errorTextOf(error),
+            },
+          )
           throw error
         }
 
@@ -244,23 +287,29 @@ export function StoryboardExecutionProvider({
       } finally {
         adaptersRef.current.delete(plan.id)
         queuesRef.current.delete(plan.id)
+        finishStoryboardExecutionPlan(projectId, plan.id)
       }
     },
-    [channels, execution, generation, markPreflightFailed],
+    [channels, execution, generation, markPreflightFailed, projectId],
   )
 
   const api = useMemo<StoryboardExecutionApi>(
-    () => ({
-      run,
-      cancel: (planId) => {
-        if (planId) execution.cancelRun(planId)
-        else for (const id of execution.runningPlanIds) execution.cancelRun(id)
-      },
-      isRunning: execution.isRunning,
-      runningPlanIds: execution.runningPlanIds,
-      taskStateOf: (taskId) => execution.taskStates.get(taskId),
-    }),
-    [execution, run],
+    () => {
+      const runningPlanIds = runningStoryboardPlanIds(projectId)
+      return {
+        run,
+        cancel: (planId) => {
+          if (planId) execution.cancelRun(planId)
+          else for (const id of execution.runningPlanIds) execution.cancelRun(id)
+        },
+        isRunning: runningPlanIds.length > 0,
+        runningPlanIds,
+        taskStateOf: (taskId) => execution.taskStates.get(taskId),
+        subjectStateOf: (subjectId, action) =>
+          subjectStateOf(projectId, subjectId, action),
+      }
+    },
+    [execution, projectId, run, statusVersion],
   )
 
   return (

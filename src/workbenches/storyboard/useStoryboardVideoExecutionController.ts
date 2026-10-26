@@ -3,7 +3,7 @@ import type { ChannelStore } from '../../state/channel/channelStore'
 import type {
   StoryboardCanvasEdge,
   StoryboardCanvasNode,
-  StoryboardCanvasPort,
+  StoryboardProjectionPort,
 } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
@@ -82,7 +82,7 @@ export interface StoryboardVideoExecutionControllerArgs {
   liveNodeIds: ReadonlySet<string>
   channels: ChannelStore
   storage: StoragePort
-  canvas: StoryboardCanvasPort
+  projection: StoryboardProjectionPort
   execution: StoryboardExecutionApi
   documents: StoryboardDocumentPort
   projectId: string
@@ -105,6 +105,7 @@ interface PreparedShotVideo {
   videoMode?: string
   endFrameNodeId: string
   endFrameShot?: StoryboardShot
+  includeEndFrame: boolean
   nextFrameAvailable: boolean
   imageNode?: StoryboardCanvasNode
   imageMime: string
@@ -130,7 +131,7 @@ export function createStoryboardVideoExecutionController(
     liveNodeIds,
     channels,
     storage,
-    canvas,
+    projection,
     execution,
     documents,
     projectId,
@@ -144,6 +145,26 @@ export function createStoryboardVideoExecutionController(
     shot.videoNodeId
       ? graphNodes.find((node) => node.id === shot.videoNodeId)
       : undefined
+
+  const assetMimeOf = async (
+    hash: string | undefined,
+    fallback: string,
+  ): Promise<string> => {
+    if (!hash) return fallback
+    try {
+      const rows = await storage.query(
+        'assets',
+        { id: hash },
+        { includePayload: false, fields: ['id', 'mime'] },
+      )
+      const mime = (rows[0] as { mime?: unknown } | undefined)?.mime
+      return typeof mime === 'string' && mime.trim()
+        ? mime.trim()
+        : fallback
+    } catch {
+      return fallback
+    }
+  }
 
   const parentRunIdOf = async (shot: StoryboardShot): Promise<string | undefined> => {
     const rows = await storage.query('runRecords', {
@@ -189,16 +210,10 @@ export function createStoryboardVideoExecutionController(
     shot: StoryboardShot,
     document: StoryboardDoc,
   ): Promise<PreparedShotVideo> => {
-    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId)) {
-      throw new Error('这一镜还没铺到画布 —— 先铺一次，出了图再出视频')
-    }
     if (!shot.imageHash) {
       throw new Error('这一镜还没有图 —— 图生视频要先有画面，先点「出图」')
     }
     const imageNode = graphNodes.find((node) => node.id === shot.nodeId)
-    if (!imageNode) {
-      throw new Error('这一镜的画面节点已经不在画布上')
-    }
     const existingVideoNode =
       shot.videoNodeId && liveNodeIds.has(shot.videoNodeId)
         ? graphNodes.find((node) => node.id === shot.videoNodeId)
@@ -228,19 +243,20 @@ export function createStoryboardVideoExecutionController(
       throw new Error('这一镜已经从分集中删除')
     }
     const nextShot = episodeShots[shotIndex + 1]
-    const nextImageNode =
-      nextShot?.nodeId &&
-      nextShot.imageHash &&
-      liveNodeIds.has(nextShot.nodeId)
-        ? graphNodes.find((node) => node.id === nextShot.nodeId)
-        : undefined
-    const nextFrameNodeId = nextImageNode?.id ?? ''
     const supportsFirstLastFrame =
-      !!nextFrameNodeId &&
+      !!nextShot?.imageHash &&
       (videoSpec
         ? videoSpec.modes.includes('first-last-frame')
         : true)
-    const endFrameNodeId = supportsFirstLastFrame ? nextFrameNodeId : ''
+    const nextImageNode =
+      nextShot?.imageHash &&
+      nextShot.nodeId &&
+      liveNodeIds.has(nextShot.nodeId)
+        ? graphNodes.find((node) => node.id === nextShot.nodeId)
+        : undefined
+    const endFrameNodeId = supportsFirstLastFrame
+      ? nextImageNode?.id ?? ''
+      : ''
     const singleImageMode = videoSpec?.modes.includes('image-to-video')
       ? 'image-to-video'
       : videoSpec?.modes.includes('all-purpose')
@@ -251,22 +267,30 @@ export function createStoryboardVideoExecutionController(
       channelId: recipe.channelId,
       model: recipe.model,
       params: recipe.params,
-      ...((endFrameNodeId ? 'first-last-frame' : singleImageMode)
+      ...((supportsFirstLastFrame ? 'first-last-frame' : singleImageMode)
         ? {
-            videoMode: endFrameNodeId
+            videoMode: supportsFirstLastFrame
               ? 'first-last-frame'
               : singleImageMode,
           }
         : {}),
       endFrameNodeId,
-      ...(endFrameNodeId && nextShot ? { endFrameShot: nextShot } : {}),
-      nextFrameAvailable: !!nextFrameNodeId,
+      ...(supportsFirstLastFrame && nextShot
+        ? { endFrameShot: nextShot }
+        : {}),
+      includeEndFrame: supportsFirstLastFrame,
+      nextFrameAvailable: !!nextShot?.imageHash,
       imageNode,
-      imageMime:
-        (imageNode.data as { assetMime?: string }).assetMime ?? 'image/png',
-      endFrameMime:
+      imageMime: await assetMimeOf(
+        shot.imageHash,
+        (imageNode?.data as { assetMime?: string } | undefined)?.assetMime ??
+          'image/png',
+      ),
+      endFrameMime: await assetMimeOf(
+        nextShot?.imageHash,
         (nextImageNode?.data as { assetMime?: string } | undefined)
           ?.assetMime ?? 'image/png',
+      ),
     }
   }
 
@@ -310,7 +334,7 @@ export function createStoryboardVideoExecutionController(
         const item = byShotId.get(shot.id)
         return {
           includeEndFrame:
-            !!item?.endFrameNodeId &&
+            item?.includeEndFrame === true &&
             !!nextShot &&
             item.endFrameShot?.id === nextShot.id,
           ...(item ? { imageMime: item.imageMime } : {}),
@@ -347,7 +371,7 @@ export function createStoryboardVideoExecutionController(
     plan: StoryboardRunPlan,
     outcome: Awaited<ReturnType<StoryboardExecutionApi['run']>>,
     prepared: readonly PreparedShotVideo[],
-  ): Promise<StoryboardDoc> => {
+  ): Promise<{ document: StoryboardDoc; warnings: string[] }> => {
     type PendingProjection = {
       taskId: string
       shot: StoryboardShot
@@ -366,6 +390,7 @@ export function createStoryboardVideoExecutionController(
       outcome.failures.map((failure) => failure.taskId),
     )
     const pending: PendingProjection[] = []
+    const warnings: string[] = []
     for (const preparedItem of prepared) {
       const task = taskByShotId.get(preparedItem.shot.id)
       if (!task) continue
@@ -385,97 +410,101 @@ export function createStoryboardVideoExecutionController(
       const prompt = shotVideoPrompt(
         document,
         shot,
-        preparedItem.endFrameNodeId
+        preparedItem.includeEndFrame
           ? preparedItem.endFrameShot
           : undefined,
       )
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: preparedItem.channelId,
-        model: preparedItem.model,
-        prompt,
-        count: 1,
-        durationSec: shot.durationSec,
-        ...(preparedItem.videoMode
-          ? { videoMode: preparedItem.videoMode }
-          : {}),
-        assetHash: asset.hash,
-        assetMime: asset.mime,
-      })
-      pending.push({
-        taskId: task.id,
-        shot,
-        prepared: preparedItem,
-        data,
-        hash: asset.hash,
-      })
+      try {
+        const data = await projection.resolveGenerationData({
+          mode: 'video',
+          channelId: preparedItem.channelId,
+          model: preparedItem.model,
+          prompt,
+          count: 1,
+          durationSec: shot.durationSec,
+          ...(preparedItem.videoMode
+            ? { videoMode: preparedItem.videoMode }
+            : {}),
+          assetHash: asset.hash,
+          assetMime: asset.mime,
+        })
+        pending.push({
+          taskId: task.id,
+          shot,
+          prepared: preparedItem,
+          data,
+          hash: asset.hash,
+        })
+      } catch (error) {
+        warnings.push(`video display defaults: ${humanError(error)}`)
+      }
     }
-    if (pending.length === 0) return document
+    if (pending.length === 0) return { document, warnings }
 
     const nodeIdByTask = new Map<string, string>()
-    canvas.beginPlan(
-      plan.tasks.length > 1
-        ? 'storyboard:episode-video'
-        : 'storyboard:shot-video',
-      plan.tasks.length > 1 ? '这一集出视频' : '这一镜出视频',
-    )
     try {
-      for (const item of pending) {
-        let videoNodeId =
-          item.shot.videoNodeId && liveNodeIds.has(item.shot.videoNodeId)
-            ? item.shot.videoNodeId
-            : ''
-        if (videoNodeId) {
-          canvas.updateNodeData(videoNodeId, item.data)
-        } else {
-          videoNodeId =
-            canvas.createGenerationNode({
-              at: {
-                x: (item.prepared.imageNode?.x ?? 40) + 280,
-                y: item.prepared.imageNode?.y ?? 40,
-              },
-              data: item.data,
-            }) ?? ''
-        }
-        if (!videoNodeId) {
-          throw new Error('视频节点没能建出来（模型服务或模型没配全）')
-        }
-        const connected = new Set(
-          graphEdges
-            .filter((edge) => edge.target === videoNodeId)
-            .map((edge) => edge.source),
-        )
-        if (
-          item.shot.videoEndNodeId &&
-          item.shot.videoEndNodeId !== item.prepared.endFrameNodeId &&
-          connected.has(item.shot.videoEndNodeId)
-        ) {
-          const old = graphEdges.find(
-            (edge) =>
-              edge.source === item.shot.videoEndNodeId &&
-              edge.target === videoNodeId,
-          )
-          if (old) {
-            canvas.removeEdge(old.id)
-            connected.delete(item.shot.videoEndNodeId)
+      projection.beginPlan(
+        plan.tasks.length > 1
+          ? 'storyboard:episode-video'
+          : 'storyboard:shot-video',
+        plan.tasks.length > 1 ? '这一集出视频' : '这一镜出视频',
+      )
+      try {
+        for (const item of pending) {
+          let videoNodeId =
+            item.shot.videoNodeId && liveNodeIds.has(item.shot.videoNodeId)
+              ? item.shot.videoNodeId
+              : ''
+          if (videoNodeId) {
+            projection.updateNodeData(videoNodeId, item.data)
+          } else {
+            videoNodeId =
+              projection.createGenerationNode({
+                at: {
+                  x: (item.prepared.imageNode?.x ?? 40) + 280,
+                  y: item.prepared.imageNode?.y ?? 40,
+                },
+                data: item.data,
+              }) ?? ''
           }
+          if (!videoNodeId) continue
+          const connected = new Set(
+            graphEdges
+              .filter((edge) => edge.target === videoNodeId)
+              .map((edge) => edge.source),
+          )
+          if (
+            item.shot.videoEndNodeId &&
+            item.shot.videoEndNodeId !== item.prepared.endFrameNodeId &&
+            connected.has(item.shot.videoEndNodeId)
+          ) {
+            const old = graphEdges.find(
+              (edge) =>
+                edge.source === item.shot.videoEndNodeId &&
+                edge.target === videoNodeId,
+            )
+            if (old) {
+              projection.removeEdge(old.id)
+              connected.delete(item.shot.videoEndNodeId)
+            }
+          }
+          if (item.shot.nodeId && !connected.has(item.shot.nodeId)) {
+            projection.connectEdge(item.shot.nodeId, videoNodeId)
+          }
+          if (
+            item.prepared.endFrameNodeId &&
+            !connected.has(item.prepared.endFrameNodeId)
+          ) {
+            projection.connectEdge(item.prepared.endFrameNodeId, videoNodeId)
+          }
+          nodeIdByTask.set(item.taskId, videoNodeId)
         }
-        if (
-          item.shot.nodeId &&
-          !connected.has(item.shot.nodeId)
-        ) {
-          canvas.connectEdge(item.shot.nodeId, videoNodeId)
-        }
-        if (
-          item.prepared.endFrameNodeId &&
-          !connected.has(item.prepared.endFrameNodeId)
-        ) {
-          canvas.connectEdge(item.prepared.endFrameNodeId, videoNodeId)
-        }
-        nodeIdByTask.set(item.taskId, videoNodeId)
+      } finally {
+        projection.endPlan()
       }
-    } finally {
-      canvas.endPlan()
+    } catch (error) {
+      warnings.push(`video projection: ${humanError(error)}`)
+      nodeIdByTask.clear()
     }
 
     let projected = document
@@ -490,14 +519,17 @@ export function createStoryboardVideoExecutionController(
         item.prepared.endFrameNodeId,
       )
     }
-    return attachShotVideos(
-      projected,
-      pending.map((item) => ({ shotId: item.shot.id, hash: item.hash })),
-      0,
-    )
+    return {
+      document: attachShotVideos(
+        projected,
+        pending.map((item) => ({ shotId: item.shot.id, hash: item.hash })),
+        0,
+      ),
+      warnings,
+    }
   }
 
-  const makeShotVideo = async (
+  const runShotVideo = async (
     shot: StoryboardShot,
     options: { quiet?: boolean } = {},
   ): Promise<boolean> => {
@@ -519,7 +551,7 @@ export function createStoryboardVideoExecutionController(
     const plan = buildShotVideoPlan(document, [prepared])
     report(
       'running',
-      prepared.endFrameNodeId
+      prepared.includeEndFrame
         ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
         : prepared.nextFrameAvailable
           ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
@@ -545,17 +577,17 @@ export function createStoryboardVideoExecutionController(
       )
       if (businessFailure) throw new Error(businessFailure.errorText)
       const merged = await loadMergedDocument()
-      const projected = await projectVideoResults(
+      const projectionResult = await projectVideoResults(
         merged,
         plan,
         outcome,
         [prepared],
       )
-      replaceDoc(projected)
+      replaceDoc(projectionResult.document)
       await flush()
       report(
         'done',
-        prepared.endFrameNodeId
+        prepared.includeEndFrame
           ? '这一镜的视频已出（用了这一镜与下一镜的首尾帧）'
           : '这一镜的视频已出（画布里就挂在这一镜的图右边）',
       )
@@ -572,17 +604,26 @@ export function createStoryboardVideoExecutionController(
     }
   }
 
-  const runEpisodeVideos = async (
+  const makeShotVideo = async (
+    shot: StoryboardShot,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> => {
+    const lease = actionState.tryAcquire('shot-video', shot.id)
+    if (!lease) return false
+    try {
+      return await runShotVideo(shot, options)
+    } finally {
+      lease.release()
+    }
+  }
+
+  const runEpisodeVideoPlan = async (
     shots: readonly StoryboardShot[],
   ): Promise<void> => {
     const targets = shots.filter(
       (shot) =>
-        shot.nodeId &&
-        liveNodeIds.has(shot.nodeId) &&
         shot.imageHash &&
-        (!shot.videoHash ||
-          !shot.videoNodeId ||
-          !liveNodeIds.has(shot.videoNodeId)),
+        !shot.videoHash,
     )
     if (targets.length === 0) {
       setLay({
@@ -614,13 +655,13 @@ export function createStoryboardVideoExecutionController(
     try {
       const outcome = await executePlan(plan)
       const merged = await loadMergedDocument()
-      const projected = await projectVideoResults(
+      const projectionResult = await projectVideoResults(
         merged,
         plan,
         outcome,
         prepared,
       )
-      replaceDoc(projected)
+      replaceDoc(projectionResult.document)
       await flush()
       const businessFailures = new Set(
         outcome.failures.map((failure) => failure.taskId),
@@ -654,6 +695,24 @@ export function createStoryboardVideoExecutionController(
     }
   }
 
+  const runEpisodeVideos = async (
+    shots: readonly StoryboardShot[],
+  ): Promise<void> => {
+    const document = currentDoc()
+    const episodeId = document ? shots[0]?.episodeId : undefined
+    if (!episodeId) {
+      await runEpisodeVideoPlan(shots)
+      return
+    }
+    const lease = actionState.tryAcquire('episode-video', episodeId)
+    if (!lease) return
+    try {
+      await runEpisodeVideoPlan(shots)
+    } finally {
+      lease.release()
+    }
+  }
+
   const runPostprocessWithLease = async (input: {
     shot: StoryboardShot
     action: StoryboardVideoPostprocessAction
@@ -661,7 +720,7 @@ export function createStoryboardVideoExecutionController(
     prompt: string
     params: Record<string, unknown>
     includeReferenceImage?: boolean
-    sourceNode: StoryboardCanvasNode
+    sourceNode?: StoryboardCanvasNode
     referenceNode?: StoryboardCanvasNode | null
     runningText: string
     successText: string
@@ -673,12 +732,16 @@ export function createStoryboardVideoExecutionController(
       setLay({ kind: 'error', text: '漫剧文档还没有加载完成' })
       return false
     }
-    const sourceMime =
-      (input.sourceNode.data as { assetMime?: string }).assetMime ??
-      'video/mp4'
-    const referenceMime =
+    const sourceMime = await assetMimeOf(
+      input.shot.videoHash,
+      (input.sourceNode?.data as { assetMime?: string } | undefined)
+        ?.assetMime ?? 'video/mp4',
+    )
+    const referenceMime = await assetMimeOf(
+      input.shot.imageHash,
       (input.referenceNode?.data as { assetMime?: string } | undefined)
-        ?.assetMime ?? 'image/png'
+        ?.assetMime ?? 'image/png',
+    )
     let parentRunId: string | undefined
     try {
       parentRunId = await parentRunIdOf(input.shot)
@@ -734,49 +797,64 @@ export function createStoryboardVideoExecutionController(
         latest,
         Date.now(),
       )
-      let videoNodeId = ''
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: input.target.channelId,
-        model: input.target.model,
-        prompt: input.prompt,
-        ...input.params,
-        durationSec: input.shot.durationSec,
-        assetHash: output.hash,
-        assetMime: output.mime,
-      })
-      canvas.beginPlan(`storyboard:${input.action}`, input.transactionLabel)
-      try {
-        videoNodeId =
-          canvas.createGenerationNode({
-            at: {
-              x: input.sourceNode.x + 320,
-              y: input.sourceNode.y,
-            },
-            data,
-          }) ?? ''
-        if (videoNodeId) {
-          canvas.connectEdge(input.shot.videoNodeId!, videoNodeId)
-          if (input.referenceNode) {
-            canvas.connectEdge(input.referenceNode.id, videoNodeId)
+      let projected = merged
+      if (input.sourceNode) {
+        let videoNodeId = ''
+        try {
+          const data = await projection.resolveGenerationData({
+            mode: 'video',
+            channelId: input.target.channelId,
+            model: input.target.model,
+            prompt: input.prompt,
+            ...input.params,
+            durationSec: input.shot.durationSec,
+            assetHash: output.hash,
+            assetMime: output.mime,
+          })
+          projection.beginPlan(
+            `storyboard:${input.action}`,
+            input.transactionLabel,
+          )
+          try {
+            videoNodeId =
+              projection.createGenerationNode({
+                at: {
+                  x: input.sourceNode.x + 320,
+                  y: input.sourceNode.y,
+                },
+                data,
+              }) ?? ''
+            if (videoNodeId && input.shot.videoNodeId) {
+              projection.connectEdge(input.shot.videoNodeId, videoNodeId)
+            }
+            if (videoNodeId && input.referenceNode) {
+              projection.connectEdge(input.referenceNode.id, videoNodeId)
+            }
+          } finally {
+            projection.endPlan()
           }
+          if (videoNodeId) {
+            projected = setShotVideoNode(
+              merged,
+              input.shot.id,
+              videoNodeId,
+              0,
+            )
+          }
+        } catch (error) {
+          console.warn(
+            '[storyboard] video postprocess projection skipped:',
+            humanError(error),
+          )
         }
-      } finally {
-        canvas.endPlan()
       }
-      const withNode = videoNodeId
-        ? setShotVideoNode(merged, input.shot.id, videoNodeId, 0)
-        : merged
       replaceDoc(
         attachShotVideos(
-          withNode,
+          projected,
           [{ shotId: input.shot.id, hash: output.hash }],
           0,
         ),
       )
-      if (!videoNodeId) {
-        throw new Error('视频后处理节点没能建出来')
-      }
       setLay({ kind: 'done', text: input.successText })
       return true
     } catch (error) {
@@ -805,19 +883,11 @@ export function createStoryboardVideoExecutionController(
     resolution: string,
     frameRate: number | null,
   ) => {
-    if (
-      !shot.videoHash ||
-      !shot.videoNodeId ||
-      !liveNodeIds.has(shot.videoNodeId)
-    ) {
+    if (!shot.videoHash) {
       setLay({ kind: 'error', text: '这一镜还没有可超清的视频节点' })
       return
     }
     const sourceNode = sourceNodeOf(shot)
-    if (!sourceNode) {
-      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
-      return
-    }
     const action = videoUpscaleActionOf(target.model)
     const actionLabel = action === 'fps' ? '补帧' : '超清'
     await runPostprocess({
@@ -844,19 +914,11 @@ export function createStoryboardVideoExecutionController(
     shot: StoryboardShot,
     target: VideoEraseTarget,
   ) => {
-    if (
-      !shot.videoHash ||
-      !shot.videoNodeId ||
-      !liveNodeIds.has(shot.videoNodeId)
-    ) {
+    if (!shot.videoHash) {
       setLay({ kind: 'error', text: '这一镜还没有可擦除字幕的视频节点' })
       return
     }
     const sourceNode = sourceNodeOf(shot)
-    if (!sourceNode) {
-      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
-      return
-    }
     await runPostprocess({
       shot,
       action: 'video-erase',
@@ -883,26 +945,18 @@ export function createStoryboardVideoExecutionController(
       setLay({ kind: 'error', text: '先写清这段视频要改什么' })
       return
     }
-    if (
-      !shot.videoHash ||
-      !shot.videoNodeId ||
-      !liveNodeIds.has(shot.videoNodeId)
-    ) {
+    if (!shot.videoHash) {
       setLay({ kind: 'error', text: '这一镜还没有可编辑的视频节点' })
       return
     }
     const sourceNode = sourceNodeOf(shot)
-    if (!sourceNode) {
-      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
-      return
-    }
     const referenceNode =
-      useReferenceImage && shot.nodeId && liveNodeIds.has(shot.nodeId)
+      useReferenceImage && shot.nodeId
         ? graphNodes.find((node) => node.id === shot.nodeId)
         : null
     if (
       useReferenceImage &&
-      (!target.supportsReferenceImage || !referenceNode || !shot.imageHash)
+      (!target.supportsReferenceImage || !shot.imageHash)
     ) {
       setLay({ kind: 'error', text: '这一镜没有可引用的画面，取消参考图后再试' })
       return
@@ -922,8 +976,8 @@ export function createStoryboardVideoExecutionController(
       referenceNode,
       runningText: `正在用 ${target.model} 编辑这一镜…`,
       successText: resolution
-        ? `这一镜的视频已按 ${resolution} 编辑完成${referenceNode ? '（已参考当前画面）' : ''}`
-        : `这一镜的视频已编辑完成${referenceNode ? '（已参考当前画面）' : ''}`,
+        ? `这一镜的视频已按 ${resolution} 编辑完成${useReferenceImage ? '（已参考当前画面）' : ''}`
+        : `这一镜的视频已编辑完成${useReferenceImage ? '（已参考当前画面）' : ''}`,
       transactionLabel: '镜头视频编辑',
       busyKind: 'video-edit',
     })
@@ -936,19 +990,11 @@ export function createStoryboardVideoExecutionController(
     resolution: string,
     duration: number | null,
   ) => {
-    if (
-      !shot.videoHash ||
-      !shot.videoNodeId ||
-      !liveNodeIds.has(shot.videoNodeId)
-    ) {
+    if (!shot.videoHash) {
       setLay({ kind: 'error', text: '这一镜还没有可续写的视频节点' })
       return
     }
     const sourceNode = sourceNodeOf(shot)
-    if (!sourceNode) {
-      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
-      return
-    }
     await runPostprocess({
       shot,
       action: 'video-extend',

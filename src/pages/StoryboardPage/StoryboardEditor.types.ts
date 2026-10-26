@@ -10,7 +10,11 @@ import type {
 import type { ChatTarget, SpeechTarget } from '../../domain/shared/chatTarget'
 import type { MergeSuggestion } from '../../domain/storyboard/mergeSuggest'
 import type { episodeTimeline } from '../../domain/storyboard/ffmpegPack'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type {
+  StoryboardCanvasGraph,
+  StoryboardProjectionPort,
+} from '../../features/storyboard/canvasPort'
+import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDigitalHumanTarget } from '../../features/storyboard/useStoryboardTargets'
 import type {
   VideoEditTarget,
@@ -177,7 +181,12 @@ export interface StoryboardEditorViewProps {
   videoEraseTargets: readonly VideoEraseTarget[]
   videoEditTargets: readonly VideoEditTarget[]
   videoExtendTargets: readonly VideoExtendTarget[]
-  canvas: Pick<StoryboardCanvasPort, 'nodeStateOf' | 'isRunning'>
+  projection: StoryboardProjectionPort
+  graph: StoryboardCanvasGraph
+  executionStatus: Pick<
+    StoryboardExecutionApi,
+    'subjectStateOf' | 'isRunning'
+  >
   canRenderLocally: boolean
   actions: StoryboardEditorActions
   imageActions: StoryboardImageActions

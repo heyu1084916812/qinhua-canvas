@@ -18,7 +18,7 @@ export function StoryboardShotToolbar({
   voiceBusy,
   chatTarget,
   speechTarget,
-  canvas,
+  executionStatus,
   canRenderLocally,
   actions,
   authoringActions,
@@ -67,7 +67,7 @@ export function StoryboardShotToolbar({
             type="button"
             className={styles.ghost}
             data-storyboard-run-all
-            disabled={laidCount === 0 || canvas.isRunning}
+            disabled={shots.length === 0 || executionStatus.isRunning}
             onClick={() => void imageActions.runEpisode()}
           >
             这一集出图
@@ -76,7 +76,7 @@ export function StoryboardShotToolbar({
             type="button"
             className={styles.ghost}
             data-storyboard-run-all-video
-            disabled={videoPending === 0 || canvas.isRunning}
+            disabled={videoPending === 0 || executionStatus.isRunning}
             title={
               videoPending > 0
                 ? `逐镜生成这一集还缺视频的 ${videoPending} 个镜头`

@@ -21,6 +21,10 @@ try {
     "import '../../domain/canvas/probe'\n",
   )
   write(
+    'src/pages/StoryboardPage/probe.ts',
+    "import '../../app/workbenchHosts/StoryboardCanvasHost'\n",
+  )
+  write(
     'src/pages/EcommercePage/probe.ts',
     "import '../../domain/canvas/probe'\n",
   )
@@ -30,6 +34,10 @@ try {
   )
   write('src/domain/canvas/probe.ts', 'export const canvasProbe = true\n')
   write('src/workbenches/canvas/probe.ts', 'export const canvasProbe = true\n')
+  write(
+    'src/app/workbenchHosts/StoryboardCanvasHost.ts',
+    'export const storyboardCanvasHostProbe = true\n',
+  )
 
   const config = {
     forbidden: baseConfig.forbidden,
@@ -63,6 +71,7 @@ try {
   const output = `${run.stdout}\n${run.stderr}`
   const expectedRules = [
     'storyboard-no-canvas-runtime',
+    'storyboard-no-app-host',
     'ecommerce-no-canvas-runtime',
     'no-shared-to-workbench',
   ]

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import { useStoryboardCanvasRuntime } from '../../app/workbenchHosts/StoryboardCanvasHost'
 import type { MergeSuggestion } from '../../domain/storyboard/mergeSuggest'
+import { useStoryboardProjection } from '../../features/storyboard/StoryboardProjectionContext'
 import { useStoryboardCanvasMirror } from '../../features/storyboard/useStoryboardCanvasMirror'
 import { useStoryboardDocument } from '../../features/storyboard/useStoryboardDocument'
 import type { NoticeState } from './StoryboardEditor.types'
@@ -12,7 +12,7 @@ import styles from './StoryboardPage.module.css'
 export function StoryboardEditor({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
-  const { canvas, graph } = useStoryboardCanvasRuntime()
+  const { projection, graph } = useStoryboardProjection()
   const {
     doc,
     documents: store,
@@ -60,7 +60,7 @@ export function StoryboardEditor({ projectId }: { projectId: string }) {
       doc={doc}
       platform={platform}
       channels={channels}
-      canvas={canvas}
+      projection={projection}
       graph={graph}
       projectName={projectName}
       status={status}

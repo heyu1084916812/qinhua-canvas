@@ -56,6 +56,18 @@ module.exports = {
       },
     },
     {
+      name: 'storyboard-no-app-host',
+      severity: 'error',
+      comment:
+        '漫剧页面业务组件、工作台和业务能力不得直接依赖 app 层画布宿主；只有 StoryboardProject 组合根可装配 Host',
+      from: {
+        path: '^(src/workbenches/storyboard|src/features/storyboard|src/pages/StoryboardPage/(?!StoryboardProject\\.tsx$|StoryboardPage\\.tsx$).*)',
+      },
+      to: {
+        path: '^src/app/workbenchHosts/Storyboard',
+      },
+    },
+    {
       // M6-1 收口：架构 §5.10 承诺过「共享层不得依赖工作台私有层」，但此前**无工具强制**，
       // 导致 features/shared/execution、useViewport、state/shared/persist 等悄悄反向依赖画布
       // （tsPreCompilationDeps 打开时，纯 type import 也计入）。本规则把该不变量变为可强制。

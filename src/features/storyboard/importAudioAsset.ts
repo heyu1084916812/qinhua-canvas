@@ -1,7 +1,8 @@
 import { assetMimeOfName } from '../../domain/shared/assetLocation'
 import { fingerprintBytes } from '../../domain/shared/hash'
 import type { PlatformKit } from '../../platform/ports'
-import type { StoryboardCanvasPort } from './canvasPort'
+import type { StoragePort } from '../../platform/ports'
+import { putGeneratedAssets } from '../../platform/assets'
 
 export const AUDIO_ACCEPT =
   'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac'
@@ -20,14 +21,15 @@ export interface ImportedAudioAsset {
 }
 
 export interface ImportAudioDeps {
-  platform: Pick<PlatformKit, 'files'>
-  canvas: Pick<StoryboardCanvasPort, 'putAsset'>
+  platform: Pick<PlatformKit, 'files' | 'assets'>
+  storage: StoragePort
+  projectId: string
 }
 
 /**
  * 漫剧 BGM 的独立导入链。
  *
- * 画布素材仍只接受图片 / 视频；音频只落 `assets` 表，不建节点。
+ * 画布素材仍只接受图片 / 视频；音频只落公共 `assets`，不建节点。
  * 因此这里不复用 `importAssetFile`，否则必须放宽 `isImportableMedia`，
  * 会让音频从画布的拖放 / 粘贴入口混进来。
  */
@@ -47,7 +49,12 @@ export async function importAudioAsset(
   const mime = normalizeAudioMime(picked.mime, picked.name)
   if (!mime) throw new Error('只支持 MP3 / WAV / OGG / M4A / AAC / FLAC 音频')
   const hash = await fingerprintBytes(bytes)
-  deps.canvas.putAsset({ hash, mime, bytes })
+  await putGeneratedAssets(
+    deps.storage,
+    deps.platform.assets,
+    deps.projectId,
+    [{ hash, mime, bytes }],
+  )
   return { hash, mime, name: picked.name, size: picked.size }
 }
 

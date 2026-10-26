@@ -8,7 +8,7 @@ import {
 import type {
   StoryboardCanvasEdge,
   StoryboardCanvasNode,
-  StoryboardCanvasPort,
+  StoryboardProjectionPort,
 } from '../../features/storyboard/canvasPort'
 import { createStoryboardShotController } from './useStoryboardShotController'
 
@@ -43,12 +43,12 @@ function harness(doc: StoryboardDoc) {
     needNodes: [],
     graphNodes: [],
     liveNodeIds: new Set(['n1', 'n2']),
-    canvas: {
+    projection: {
       updateNodeData,
       beginPlan,
       endPlan,
       getSnapshot,
-    } as unknown as StoryboardCanvasPort,
+    } as unknown as StoryboardProjectionPort,
     apply: () => undefined,
     setLay,
   })

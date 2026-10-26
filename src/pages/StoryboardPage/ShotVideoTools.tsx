@@ -57,7 +57,6 @@ export function useShotVideoTools(
 ): ShotVideoToolsController {
   const {
     shot,
-    laidOut,
     videoUpscaleTargets,
     videoUpscaleBusyShotId,
     videoEraseTargets,
@@ -94,7 +93,6 @@ export function useShotVideoTools(
     videoExtendTargets[Math.min(videoExtendTargetIndex, videoExtendTargets.length - 1)]
   const canReferenceShotImage =
     Boolean(shot.imageHash) &&
-    laidOut &&
     Boolean(currentVideoEditTarget?.supportsReferenceImage)
 
   const openUpscale = () => {
@@ -114,7 +112,7 @@ export function useShotVideoTools(
     setVideoEditInstruction('')
     setVideoEditResolution(normalizeVideoEditResolution(target.model))
     setVideoEditUseReference(
-      Boolean(target.supportsReferenceImage && shot.imageHash && laidOut),
+      Boolean(target.supportsReferenceImage && shot.imageHash),
     )
     setVideoEditOpen(true)
   }

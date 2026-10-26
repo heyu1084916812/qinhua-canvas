@@ -2,6 +2,27 @@
 
 ### 架构拆分 · UI 冻结（2026-10-26 → 对账 #766）
 
+- **核心拆分已完成（2026-10-26）**：从 `bf880fa` 起的提交序列完成 UI 黄金基线、依赖就绪即派发、
+  `ShotCard` / `StoryboardEditor` 拆分、文档与目标 Hook、U4 同步 lease、R7 整集视频批处理、
+  R9/G3 headless 日志查询和 R8 业务 / 投影分层。最终 `StoryboardProject.tsx` 25 行、
+  `StoryboardEditor.tsx` 86 行、`ShotCard.tsx` 125 行。R9 的漫剧日志入口、总日志和筛选 UI
+  仍受 UI 冻结约束，不能写成 R9 全部交付。
+- **R8 边界**：`StoryboardCanvasHost` 只挂画布 Store，不挂 `CanvasExecutionProvider`；漫剧
+  业务端口不得再出现 `runNode / nodeStateOf / isRunning / putAsset`。业务执行只认
+  `storyboardStore + assets + subjectStateOf(subjectId, action)`；画布节点 / 渠道模型只是可选
+  hint，节点删除不得阻断生成。成功 hash 先写业务文档，投影失败只 warning。
+- **旧画布对账依赖必须是 `nodes`**：`useStoryboardCanvasMirror` 不能只依赖稳定的 projection
+  对象，否则节点 hash 变化时 effect 不重跑；必须保留 `[doc, nodes]`，用
+  `projection.getSnapshot()` 仍会漏掉外置 Store 变化。
+- **业务媒体优先于节点态**：`ShotCard` / `AssetRow` 的状态先看业务 hash 和业务执行状态，再看
+  节点是否存在；单镜“出图”不能因节点被删而禁用。`onLocate` 仍只在节点存活时出现。
+- **UI freeze 相对日期**：项目树 `N 天前` 是动态文本。门禁对可见文本只归一化该 token，
+  同时记录文字元素矩形并只屏蔽该区域像素；不得放宽整张图像素阈值。
+- **最终门禁（R8 收口轮）**：全量 Vitest **3361 passed / 1 skipped**，`npm run check`
+  （694 模块 / 2583 依赖，0 违规）、`npm run build`、`git diff --check` 通过；真实 Tauri
+  `1440×900 / 1024×700 / 1178×762` 的 geometry、runtime、DOM 与 `199a6d9` PNG 基线全部通过，
+  三视口像素差均为 **0**。
+
 - 用户新验收：架构拆分期间 UI 不能改动。冻结基线 `199a6d9`；不新增/删除/移动菜单、按钮、
   文案，不改布局、字号、间距、颜色、圆角、滚动区域和交互。
 - 组件拆分先保 DOM 包裹层、CSS Module 和 `data-*` 锚点；可见 UI 修复必须单独立项，不能作为

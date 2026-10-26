@@ -12,13 +12,24 @@ import {
 import { AssetPlatformProvider } from '../../features/shared/assets/AssetPlatformContext'
 import { StoryboardEditorView } from './StoryboardEditorView'
 import type { StoryboardEditorViewProps } from './StoryboardEditor.types'
+import styles from './StoryboardPage.module.css'
 
-function props(): StoryboardEditorViewProps {
+function props(options: { shotImageHash?: string } = {}): StoryboardEditorViewProps {
   const withEpisode = addEpisode(emptyStoryboard('project-1', 1), 2)
   const episode = withEpisode.episodes[0]!
   const withShot = addShot(withEpisode, episode.id, 3)
   const shot = withShot.shots[0]!
-  const doc = addShotLine(withShot, shot.id, { text: '测试台词' }, 4)
+  const withLine = addShotLine(withShot, shot.id, { text: '测试台词' }, 4)
+  const doc = options.shotImageHash
+    ? {
+        ...withLine,
+        shots: withLine.shots.map((item) =>
+          item.id === shot.id
+            ? { ...item, imageHash: options.shotImageHash }
+            : item,
+        ),
+      }
+    : withLine
   const shots = shotsOf(doc, episode.id)
   const noop = () => undefined
   const actions = new Proxy(
@@ -72,8 +83,10 @@ function props(): StoryboardEditorViewProps {
     videoEraseTargets: [],
     videoEditTargets: [],
     videoExtendTargets: [],
-    canvas: {
-      nodeStateOf: () => undefined,
+    projection: {} as never,
+    graph: { nodes: [], edges: [] },
+    executionStatus: {
+      subjectStateOf: () => undefined,
       isRunning: false,
     },
     canRenderLocally: false,
@@ -134,5 +147,73 @@ describe('StoryboardEditorView structure', () => {
     expect(episodes).toBeLessThan(characters)
     expect(characters).toBeLessThan(workspace)
     expect(workspace).toBeLessThan(shot)
+  })
+
+  it('keeps the frozen page/body/left/right/block/shots layout classes', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        AssetPlatformProvider,
+        {
+          platform: {
+            assets: {
+              read: async () => null,
+              readUrl: async () => null,
+            },
+          } as never,
+        },
+        createElement(StoryboardEditorView, props()),
+      ),
+    )
+
+    for (const className of [
+      styles.page,
+      styles.body,
+      styles.left,
+      styles.right,
+      styles.block,
+      styles.shots,
+    ]) {
+      expect(html).toContain(className)
+    }
+
+    const page = html.indexOf(styles.page)
+    const body = html.indexOf(styles.body)
+    const left = html.indexOf(styles.left)
+    const right = html.indexOf(styles.right)
+    const rightBlock = html.indexOf(styles.block, right)
+    const shots = html.indexOf(styles.shots)
+
+    expect(page).toBeLessThan(body)
+    expect(body).toBeLessThan(left)
+    expect(left).toBeLessThan(right)
+    expect(right).toBeLessThan(rightBlock)
+    expect(rightBlock).toBeLessThan(shots)
+  })
+
+  it('uses business media before canvas projection for status and generation', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        AssetPlatformProvider,
+        {
+          platform: {
+            assets: {
+              read: async () => null,
+              readUrl: async () => null,
+            },
+          } as never,
+        },
+        createElement(
+          StoryboardEditorView,
+          props({ shotImageHash: 'image-hash' }),
+        ),
+      ),
+    )
+    const runButton = html.match(
+      /<button[^>]*data-storyboard-shot-run[^>]*>/,
+    )?.[0]
+
+    expect(html).toContain('data-kind="done"')
+    expect(runButton).toBeDefined()
+    expect(runButton).not.toContain('disabled')
   })
 })

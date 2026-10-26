@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ChannelStore } from '../../state/channel/channelStore'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type { StoryboardProjectionPort } from '../../features/storyboard/canvasPort'
 import {
   addCharacter,
   addEpisode,
@@ -57,6 +57,29 @@ function deferredState(hash = 'new-image'): RunTaskState {
   }
 }
 
+function imageOutcome(plan: StoryboardRunPlan, hash = 'new-image') {
+  const state = deferredState(hash)
+  return {
+    summary: {
+      runPlanId: plan.id,
+      mode: plan.mode,
+      taskResults: plan.tasks.map((task) => ({
+        taskId: task.id,
+        nodeId: task.nodeId,
+        state,
+      })),
+      succeeded: plan.tasks.length,
+      failed: 0,
+      canceled: 0,
+      startedAt: 1,
+      finishedAt: 2,
+      records: [],
+    },
+    warnings: [],
+    failures: [],
+  }
+}
+
 describe('useStoryboardImageExecutionController', () => {
   it('定妆图走资产业务计划，不创建画布节点，只写回 baseHash', async () => {
     const { doc } = fixture()
@@ -93,6 +116,9 @@ describe('useStoryboardImageExecutionController', () => {
         baseHash: 'character-base',
       })),
     }
+    const actionState = {
+      tryAcquire: () => ({ release: () => undefined }),
+    }
     const controller = createStoryboardImageExecutionController({
       doc,
       currentDoc: () => doc,
@@ -105,9 +131,9 @@ describe('useStoryboardImageExecutionController', () => {
           substituted: false,
         }),
       } as unknown as ChannelStore,
-      canvas: {
+      projection: {
         getSnapshot: () => ({ nodes: [], edges: [] }),
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'project-1',
@@ -115,6 +141,7 @@ describe('useStoryboardImageExecutionController', () => {
       replaceDoc: (next) => {
         replaced = next
       },
+      actionState,
       setLay: () => {},
     })
 
@@ -182,6 +209,9 @@ describe('useStoryboardImageExecutionController', () => {
     }
     const updateNodeData = vi.fn()
     let lay = { kind: 'idle', text: '' }
+    const actionState = {
+      tryAcquire: () => ({ release: () => undefined }),
+    }
     const controller = createStoryboardImageExecutionController({
       doc,
       currentDoc: () => doc,
@@ -195,7 +225,7 @@ describe('useStoryboardImageExecutionController', () => {
           substituted: false,
         }),
       } as unknown as ChannelStore,
-      canvas: {
+      projection: {
         getSnapshot: () => ({
           nodes: [
             {
@@ -206,7 +236,7 @@ describe('useStoryboardImageExecutionController', () => {
           edges: [],
         }),
         updateNodeData,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run } as unknown as StoryboardExecutionApi,
       documents,
       projectId: 'project-1',
@@ -214,6 +244,7 @@ describe('useStoryboardImageExecutionController', () => {
       replaceDoc: (next) => {
         replaced = next
       },
+      actionState,
       setLay: (value) => {
         lay =
           typeof value === 'function'
@@ -274,6 +305,9 @@ describe('useStoryboardImageExecutionController', () => {
         failures: [],
       }
     })
+    const actionState = {
+      tryAcquire: () => ({ release: () => undefined }),
+    }
     const controller = createStoryboardImageExecutionController({
       doc,
       currentDoc: () => doc,
@@ -287,7 +321,7 @@ describe('useStoryboardImageExecutionController', () => {
           substituted: false,
         }),
       } as unknown as ChannelStore,
-      canvas: {
+      projection: {
         getSnapshot: () => ({
           nodes: [
             {
@@ -301,12 +335,13 @@ describe('useStoryboardImageExecutionController', () => {
           ],
           edges: [],
         }),
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run } as unknown as StoryboardExecutionApi,
       documents: { load: async () => doc, save: async () => {} },
       projectId: 'project-1',
       flush: async () => {},
       replaceDoc: () => {},
+      actionState,
       setLay: () => {},
     })
 
@@ -317,5 +352,153 @@ describe('useStoryboardImageExecutionController', () => {
         task.subject.kind === 'shot-image' ? task.subject.shotId : '',
       ),
     ).toEqual([doc.shots[0]!.id])
+  })
+
+  it('projection missing still writes asset and shot image hashes exactly once per action', async () => {
+    const prepared = fixture()
+    const characterId = prepared.doc.characters[0]!.id
+    const produced: StoryboardDoc = {
+      ...prepared.doc,
+      characters: prepared.doc.characters.map((item) => ({
+        ...item,
+        baseHash: 'asset-base',
+      })),
+      shots: prepared.doc.shots.map((shot) =>
+        shot.id === prepared.firstShotId
+          ? { ...shot, imageHash: 'shot-image' }
+          : shot,
+      ),
+    }
+    const replaceDoc = vi.fn()
+    const run = vi.fn(async (plan: StoryboardRunPlan) =>
+      imageOutcome(
+        plan,
+        plan.tasks[0]!.action === 'asset-base'
+          ? 'asset-base'
+          : 'shot-image',
+      ),
+    )
+    const controller = createStoryboardImageExecutionController({
+      doc: prepared.doc,
+      currentDoc: () => prepared.doc,
+      selectedEpisodeId: prepared.episodeId,
+      liveNodeIds: new Set(),
+      channels: {
+        defaultForNewNode: async () => ({
+          channelId: 'channel-1',
+          model: 'image-model',
+          params: {},
+          substituted: false,
+        }),
+      } as unknown as ChannelStore,
+      projection: {} as StoryboardProjectionPort,
+      execution: { run } as unknown as StoryboardExecutionApi,
+      documents: {
+        load: async () => produced,
+        save: async () => {},
+      },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc,
+      actionState: {
+        tryAcquire: () => ({ release: () => undefined }),
+      },
+      setLay: () => {},
+    })
+
+    await controller.makeAssetBase('char', characterId)
+    await controller.runShot(prepared.doc.shots[0]!)
+
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(replaceDoc).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        characters: expect.arrayContaining([
+          expect.objectContaining({ id: characterId, baseHash: 'asset-base' }),
+        ]),
+        shots: expect.arrayContaining([
+          expect.objectContaining({
+            id: prepared.firstShotId,
+            imageHash: 'shot-image',
+          }),
+        ]),
+      }),
+    )
+  })
+
+  it('same-shot image double-click sends one paid request', async () => {
+    const prepared = fixture()
+    let plan: StoryboardRunPlan | undefined
+    let resolveRun!: (
+      outcome: ReturnType<typeof imageOutcome>,
+    ) => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const pending = new Promise<ReturnType<typeof imageOutcome>>((resolve) => {
+      resolveRun = resolve
+    })
+    const run = vi.fn((nextPlan: StoryboardRunPlan) => {
+      plan = nextPlan
+      markStarted()
+      return pending
+    })
+    const controller = createStoryboardImageExecutionController({
+      doc: prepared.doc,
+      currentDoc: () => prepared.doc,
+      selectedEpisodeId: prepared.episodeId,
+      liveNodeIds: new Set(['node-1']),
+      channels: {
+        defaultForNewNode: async () => ({
+          channelId: 'channel-1',
+          model: 'image-model',
+          params: {},
+          substituted: false,
+        }),
+      } as unknown as ChannelStore,
+      projection: {
+        getSnapshot: () => ({
+          nodes: [
+            {
+              id: 'node-1',
+              data: { channelId: 'channel-1', model: 'image-model' },
+            },
+          ],
+          edges: [],
+        }),
+        updateNodeData: vi.fn(),
+      } as unknown as StoryboardProjectionPort,
+      execution: { run } as unknown as StoryboardExecutionApi,
+      documents: {
+        load: async () => prepared.doc,
+        save: async () => {},
+      },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc: () => {},
+      actionState: {
+        tryAcquire: (() => {
+          let held = false
+          return () => {
+            if (held) return null
+            held = true
+            return {
+              release: () => {
+                held = false
+              },
+            }
+          }
+        })(),
+      },
+      setLay: () => {},
+    })
+
+    const first = controller.runShot(prepared.doc.shots[0]!)
+    await started
+    await controller.runShot(prepared.doc.shots[0]!)
+    expect(run).toHaveBeenCalledTimes(1)
+
+    resolveRun(imageOutcome(plan!))
+    await first
   })
 })

@@ -8,7 +8,6 @@ import {
   updateEpisode,
 } from '../../domain/storyboard/storyboard'
 import { createMemoryPlatform } from '../../platform/memory'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
 import type { StoryboardRunPlan } from '../../domain/storyboard/runTypes'
@@ -93,7 +92,6 @@ describe('Storyboard audio controller', () => {
         voices: ['nova'],
       },
       platform,
-      canvas: {} as StoryboardCanvasPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents,
       projectId: 'p1',
@@ -147,7 +145,6 @@ describe('Storyboard audio controller', () => {
       shots: [],
       speechTarget: null,
       platform: createMemoryPlatform(),
-      canvas: {} as StoryboardCanvasPort,
       execution: {} as StoryboardExecutionApi,
       documents: {
         load: async () => doc,
@@ -167,6 +164,62 @@ describe('Storyboard audio controller', () => {
     expect(applied.episodes[0]?.bgmHash).toBeUndefined()
     expect(applied.episodes[0]?.bgmName).toBeUndefined()
     expect(applied.episodes[0]?.bgmVolume).toBeUndefined()
+  })
+
+  it('BGM writes the picked bytes to public assets without a canvas projection', async () => {
+    const doc = addEpisode(emptyStoryboard('p1'))
+    const selected = doc.episodes[0]!
+    const memory = createMemoryPlatform()
+    const bytes = new Uint8Array([7, 8, 9])
+    const platform = {
+      ...memory,
+      files: {
+        ...memory.files,
+        pickFile: vi.fn(async () => ({
+          name: 'theme.mp3',
+          size: bytes.length,
+          mime: 'audio/mpeg',
+          blob: new Blob([bytes], { type: 'audio/mpeg' }),
+        })),
+      },
+    }
+    let applied = doc
+    const controller = createStoryboardAudioController({
+      doc,
+      currentDoc: () => doc,
+      selected,
+      shots: [],
+      speechTarget: null,
+      platform,
+      execution: {} as StoryboardExecutionApi,
+      documents: {
+        load: async () => doc,
+        save: async () => {},
+      },
+      projectId: 'p1',
+      flush: async () => {},
+      apply: (next) => {
+        applied = next
+      },
+      setStatus: () => {},
+      actionState: createStoryboardActionStateStore(),
+    })
+
+    await controller.onPickBgm()
+
+    const hash = applied.episodes[0]?.bgmHash
+    expect(hash).toBeTruthy()
+    expect(applied.episodes[0]).toMatchObject({
+      bgmHash: hash,
+      bgmName: 'theme.mp3',
+    })
+    const rows = await memory.storage.query('assets', { id: hash })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      mime: 'audio/mpeg',
+      bytes,
+      projectId: 'p1',
+    })
   })
 
   it('same voice double-click sends once and releases after failure or cancellation', async () => {
@@ -291,7 +344,6 @@ describe('Storyboard audio controller', () => {
         voices: ['nova'],
       },
       platform,
-      canvas: {} as StoryboardCanvasPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'p1',

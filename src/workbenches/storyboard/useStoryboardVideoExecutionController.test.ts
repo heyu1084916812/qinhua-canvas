@@ -3,7 +3,7 @@ import type { ChannelStore } from '../../state/channel/channelStore'
 import type {
   StoryboardCanvasEdge,
   StoryboardCanvasNode,
-  StoryboardCanvasPort,
+  StoryboardProjectionPort,
 } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
@@ -238,7 +238,7 @@ describe('useStoryboardVideoExecutionController', () => {
         }),
       } as unknown as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode,
         updateNodeData: vi.fn(),
         connectEdge: vi.fn(),
@@ -246,7 +246,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: {
         load: async () => produced,
@@ -338,7 +338,7 @@ describe('useStoryboardVideoExecutionController', () => {
       liveNodeIds: new Set(['image-node', 'video-old']),
       channels: {} as ChannelStore,
       storage,
-      canvas: {
+      projection: {
         createGenerationNode: vi.fn(() => 'video-edited-node'),
         updateNodeData: vi.fn(),
         connectEdge: vi.fn(),
@@ -346,7 +346,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan,
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'project-1',
@@ -441,7 +441,7 @@ describe('useStoryboardVideoExecutionController', () => {
       liveNodeIds: new Set(['image-node', 'video-old']),
       channels: {} as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode: vi.fn(() => `result-${actions.length}`),
         updateNodeData: vi.fn(),
         connectEdge: vi.fn(),
@@ -449,7 +449,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: {
         load: async () => ({
@@ -611,7 +611,7 @@ describe('useStoryboardVideoExecutionController', () => {
         }),
       } as unknown as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode,
         updateNodeData,
         connectEdge: vi.fn(),
@@ -619,7 +619,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'project-1',
@@ -698,7 +698,7 @@ describe('useStoryboardVideoExecutionController', () => {
         }),
       } as unknown as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode,
         updateNodeData: vi.fn(),
         connectEdge: vi.fn(),
@@ -706,7 +706,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'project-1',
@@ -753,7 +753,7 @@ describe('useStoryboardVideoExecutionController', () => {
       liveNodeIds: new Set(['image-node']),
       channels: {} as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {} as StoryboardCanvasPort,
+      projection: {} as StoryboardProjectionPort,
       execution: { run: noImageRun, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => noImage, save: async () => {} },
       projectId: 'project-1',
@@ -777,7 +777,7 @@ describe('useStoryboardVideoExecutionController', () => {
         getState: () => ({ channels: [] }),
       } as unknown as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {} as StoryboardCanvasPort,
+      projection: {} as StoryboardProjectionPort,
       execution: { run: noModelRun, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => doc, save: async () => {} },
       projectId: 'project-1',
@@ -848,7 +848,7 @@ describe('useStoryboardVideoExecutionController', () => {
         }),
       } as unknown as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode,
         updateNodeData,
         connectEdge: vi.fn(),
@@ -856,7 +856,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: {
         run: async (plan: StoryboardRunPlan) => outcomeFor(plan, 'new-video'),
         cancel: vi.fn(),
@@ -926,7 +926,7 @@ describe('useStoryboardVideoExecutionController', () => {
           }),
         } as unknown as ChannelStore,
         storage: createMemoryStorage(),
-        canvas: {
+        projection: {
           createGenerationNode: vi.fn(),
           updateNodeData: vi.fn(),
           connectEdge: vi.fn(),
@@ -934,7 +934,7 @@ describe('useStoryboardVideoExecutionController', () => {
           beginPlan: vi.fn(),
           endPlan: vi.fn(),
           resolveGenerationData: async (data: Record<string, unknown>) => data,
-        } as unknown as StoryboardCanvasPort,
+        } as unknown as StoryboardProjectionPort,
         execution: { run, cancel } as unknown as StoryboardExecutionApi,
         documents: { load: async () => doc, save: async () => {} },
         projectId: 'project-1',
@@ -1012,7 +1012,7 @@ describe('useStoryboardVideoExecutionController', () => {
       liveNodeIds: new Set(['image-node', 'video-old']),
       channels: {} as ChannelStore,
       storage: createMemoryStorage(),
-      canvas: {
+      projection: {
         createGenerationNode: vi.fn(() => 'video-edited-node'),
         updateNodeData: vi.fn(),
         connectEdge: vi.fn(),
@@ -1020,7 +1020,7 @@ describe('useStoryboardVideoExecutionController', () => {
         beginPlan: vi.fn(),
         endPlan: vi.fn(),
         resolveGenerationData: async (data: Record<string, unknown>) => data,
-      } as unknown as StoryboardCanvasPort,
+      } as unknown as StoryboardProjectionPort,
       execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
       documents: { load: async () => produced, save: async () => {} },
       projectId: 'project-1',
@@ -1060,5 +1060,189 @@ describe('useStoryboardVideoExecutionController', () => {
     resolveRun(outcomeFor(plan!, 'edited-video'))
     await first
     expect(actionState.isBusy('video-edit', withVideo.shots[0]!.id)).toBe(false)
+  })
+
+  it('shot video keeps its business hash when the projection port is missing', async () => {
+    const { doc, shot, nodes } = fixture()
+    let replaced: StoryboardDoc | undefined
+    const run = vi.fn(async (plan: StoryboardRunPlan) => outcomeFor(plan))
+    const produced: StoryboardDoc = {
+      ...doc,
+      shots: doc.shots.map((item) => ({
+        ...item,
+        videoHash: 'video-hash',
+      })),
+    }
+    const controller = createStoryboardVideoExecutionController({
+      currentDoc: () => doc,
+      graphNodes: nodes,
+      graphEdges: [] as StoryboardCanvasEdge[],
+      liveNodeIds: new Set(['image-node']),
+      channels: {
+        defaultForNewNode: async () => ({
+          channelId: 'video-channel',
+          model: 'video-model',
+          params: {},
+          substituted: false,
+        }),
+        getState: () => ({
+          channels: [
+            { id: 'video-channel', modelMap: {}, models: [], modelCache: [] },
+          ],
+        }),
+      } as unknown as ChannelStore,
+      storage: createMemoryStorage(),
+      projection: {} as StoryboardProjectionPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents: {
+        load: async () => produced,
+        save: async () => {},
+      },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc: (next) => {
+        replaced = next
+      },
+      setLay: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
+    })
+
+    expect(await controller.makeShotVideo(shot)).toBe(true)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(replaced?.shots[0]?.videoHash).toBe('video-hash')
+  })
+
+  it('video postprocess keeps its business hash when projection throws', async () => {
+    const { doc, nodes } = fixture()
+    const withVideo: StoryboardDoc = {
+      ...doc,
+      shots: doc.shots.map((shot) => ({
+        ...shot,
+        videoHash: 'old-video',
+        videoNodeId: 'video-old',
+      })),
+    }
+    const graphNodes = [
+      ...nodes,
+      {
+        id: 'video-old',
+        type: 'generation',
+        x: 300,
+        y: 20,
+        w: 200,
+        h: 200,
+        parentId: null,
+        data: { assetMime: 'video/mp4' },
+      } as StoryboardCanvasNode,
+    ]
+    let replaced: StoryboardDoc | undefined
+    const run = vi.fn(async (plan: StoryboardRunPlan) =>
+      outcomeFor(plan, 'erased-video'),
+    )
+    const controller = createStoryboardVideoExecutionController({
+      currentDoc: () => withVideo,
+      graphNodes,
+      graphEdges: [] as StoryboardCanvasEdge[],
+      liveNodeIds: new Set(['image-node', 'video-old']),
+      channels: {} as ChannelStore,
+      storage: createMemoryStorage(),
+      projection: {
+        resolveGenerationData: async () => {
+          throw new Error('canvas projection unavailable')
+        },
+      } as unknown as StoryboardProjectionPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents: {
+        load: async () => withVideo,
+        save: async () => {},
+      },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc: (next) => {
+        replaced = next
+      },
+      setLay: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
+    })
+
+    await controller.makeVideoErase(withVideo.shots[0]!, {
+      channelId: 'erase-channel',
+      channelName: 'erase channel',
+      model: '火山字幕擦除 标准版',
+      label: 'erase',
+    })
+
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(replaced?.shots[0]?.videoHash).toBe('erased-video')
+  })
+
+  it('same-shot shot video double-click sends one paid request', async () => {
+    const { doc, shot, nodes } = fixture()
+    const actionState = createStoryboardActionStateStore()
+    let plan: StoryboardRunPlan | undefined
+    let resolveRun!: (
+      outcome: ReturnType<typeof outcomeFor>,
+    ) => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const pending = new Promise<ReturnType<typeof outcomeFor>>((resolve) => {
+      resolveRun = resolve
+    })
+    const run = vi.fn((nextPlan: StoryboardRunPlan) => {
+      plan = nextPlan
+      markStarted()
+      return pending
+    })
+    const controller = createStoryboardVideoExecutionController({
+      currentDoc: () => doc,
+      graphNodes: nodes,
+      graphEdges: [] as StoryboardCanvasEdge[],
+      liveNodeIds: new Set(['image-node']),
+      channels: {
+        defaultForNewNode: async () => ({
+          channelId: 'video-channel',
+          model: 'video-model',
+          params: {},
+          substituted: false,
+        }),
+        getState: () => ({
+          channels: [
+            { id: 'video-channel', modelMap: {}, models: [], modelCache: [] },
+          ],
+        }),
+      } as unknown as ChannelStore,
+      storage: createMemoryStorage(),
+      projection: {
+        createGenerationNode: vi.fn(() => 'video-node'),
+        updateNodeData: vi.fn(),
+        connectEdge: vi.fn(),
+        removeEdge: vi.fn(),
+        beginPlan: vi.fn(),
+        endPlan: vi.fn(),
+        resolveGenerationData: async (data: Record<string, unknown>) => data,
+      } as unknown as StoryboardProjectionPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents: {
+        load: async () => doc,
+        save: async () => {},
+      },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc: () => {},
+      setLay: vi.fn(),
+      actionState,
+    })
+
+    const first = controller.makeShotVideo(shot)
+    await started
+    expect(actionState.isBusy('shot-video', shot.id)).toBe(true)
+    expect(await controller.makeShotVideo(shot)).toBe(false)
+    expect(run).toHaveBeenCalledTimes(1)
+
+    resolveRun(outcomeFor(plan!))
+    await expect(first).resolves.toBe(true)
+    expect(actionState.isBusy('shot-video', shot.id)).toBe(false)
   })
 })

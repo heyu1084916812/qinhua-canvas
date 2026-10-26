@@ -1,6 +1,12 @@
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 
 export type StoryboardActionKind =
+  | 'asset-base'
+  | 'asset-turnaround'
+  | 'shot-image'
+  | 'shot-video'
+  | 'episode-image'
+  | 'episode-video'
   | 'voice'
   | 'digital-human'
   | 'video-upscale'
@@ -9,6 +15,12 @@ export type StoryboardActionKind =
   | 'video-extend'
 
 export type StoryboardActionBusySnapshot = Readonly<{
+  assetBase: Readonly<Record<string, true>>
+  assetTurnaround: Readonly<Record<string, true>>
+  shotImage: Readonly<Record<string, true>>
+  shotVideo: Readonly<Record<string, true>>
+  episodeImage: Readonly<Record<string, true>>
+  episodeVideo: Readonly<Record<string, true>>
   voice: Readonly<Record<string, true>>
   digitalHuman: Readonly<Record<string, true>>
   videoUpscale: Readonly<Record<string, true>>
@@ -36,6 +48,12 @@ export interface StoryboardActionStateStore {
 
 const EMPTY_SUBJECTS: Readonly<Record<string, true>> = Object.freeze({})
 const EMPTY_SNAPSHOT: StoryboardActionBusySnapshot = Object.freeze({
+  assetBase: EMPTY_SUBJECTS,
+  assetTurnaround: EMPTY_SUBJECTS,
+  shotImage: EMPTY_SUBJECTS,
+  shotVideo: EMPTY_SUBJECTS,
+  episodeImage: EMPTY_SUBJECTS,
+  episodeVideo: EMPTY_SUBJECTS,
   voice: EMPTY_SUBJECTS,
   digitalHuman: EMPTY_SUBJECTS,
   videoUpscale: EMPTY_SUBJECTS,
@@ -49,6 +67,18 @@ function subjectsOf(
   kind: StoryboardActionKind,
 ): Readonly<Record<string, true>> {
   switch (kind) {
+    case 'asset-base':
+      return busy.assetBase
+    case 'asset-turnaround':
+      return busy.assetTurnaround
+    case 'shot-image':
+      return busy.shotImage
+    case 'shot-video':
+      return busy.shotVideo
+    case 'episode-image':
+      return busy.episodeImage
+    case 'episode-video':
+      return busy.episodeVideo
     case 'voice':
       return busy.voice
     case 'digital-human':
@@ -81,6 +111,18 @@ function withAction(
   subjects: Readonly<Record<string, true>>,
 ): StoryboardActionBusySnapshot {
   switch (kind) {
+    case 'asset-base':
+      return Object.freeze({ ...busy, assetBase: subjects })
+    case 'asset-turnaround':
+      return Object.freeze({ ...busy, assetTurnaround: subjects })
+    case 'shot-image':
+      return Object.freeze({ ...busy, shotImage: subjects })
+    case 'shot-video':
+      return Object.freeze({ ...busy, shotVideo: subjects })
+    case 'episode-image':
+      return Object.freeze({ ...busy, episodeImage: subjects })
+    case 'episode-video':
+      return Object.freeze({ ...busy, episodeVideo: subjects })
     case 'voice':
       return Object.freeze({ ...busy, voice: subjects })
     case 'digital-human':
