@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { assetFileName, downloadAsset, safeFilePrefix } from './downloadAsset'
-import type { AssetPort, FilePort } from '../../platform/ports'
+import type { AssetPort, FilePort } from '../../../platform/ports'
 
 /**
  * 下载素材（用户 2026-09-18）。

@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { PlatformKit } from '../../platform/ports'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
-import { downloadAsset } from './downloadAsset'
+import { downloadAsset } from '../shared/assets/downloadAsset'
 
 /**
  * 单节点下载（节点跟随栏 / 多选浮层的「下载」共用）。

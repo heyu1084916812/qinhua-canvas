@@ -56,6 +56,7 @@ export interface StoryboardRunTask extends RunTask {
   planId: string;
   workbench: "storyboard";
   operationId: string;
+  parentRunId?: string;
   action: StoryboardRunAction;
   subject: StoryboardRunSubject;
 }
@@ -104,7 +105,7 @@ export function subjectKindOfAction(
 }
 
 export function storyboardRunRecordScopeOfTask(
-  task: Pick<StoryboardRunTask, "operationId" | "subject">,
+  task: Pick<StoryboardRunTask, "operationId" | "parentRunId" | "subject">,
 ): RunRecordScope {
   return {
     scopeVersion: 1,
@@ -112,6 +113,7 @@ export function storyboardRunRecordScopeOfTask(
     subjectId: task.subject.id,
     scopeId: task.subject.scopeId,
     operationId: task.operationId,
+    ...(task.parentRunId ? { parentRunId: task.parentRunId } : {}),
   };
 }
 
@@ -144,6 +146,9 @@ export function assertStoryboardRunTask(
   const planId = requireNonEmptyString(task.planId, "planId");
   const taskId = requireNonEmptyString(task.id, "task id");
   requireNonEmptyString(task.operationId, "operationId");
+  if (task.parentRunId !== undefined) {
+    requireNonEmptyString(task.parentRunId, "parentRunId");
+  }
   const nodeId = requireNonEmptyString(task.nodeId, "nodeId");
 
   const subject: unknown = task.subject;

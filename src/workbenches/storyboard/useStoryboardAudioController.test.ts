@@ -7,26 +7,13 @@ import {
   emptyStoryboard,
   updateEpisode,
 } from '../../domain/storyboard/storyboard'
-import type { ChannelStore } from '../../state/channel/channelStore'
 import { createMemoryPlatform } from '../../platform/memory'
-import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
+import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
+import type { StoryboardRunPlan } from '../../domain/storyboard/runTypes'
+import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { createStoryboardAudioController } from './useStoryboardAudioController'
-
-function trace(args: {
-  subjectId: string
-  scopeId?: string
-}): DirectRunTraceInput {
-  return {
-    projectId: 'p1',
-    scopeVersion: 1,
-    workbench: 'storyboard',
-    subjectId: args.subjectId,
-    scopeId: args.scopeId ?? 'project:p1',
-    operationId: 'op-audio-1',
-    fingerprint: 'fp',
-  }
-}
 
 describe('Storyboard audio controller', () => {
   it('生成配音后把 hash 写回台词', async () => {
@@ -42,12 +29,55 @@ describe('Storyboard audio controller', () => {
     const line = updatedShot.lines[0]!
     expect(line.text).toBe('你好')
     const applied: typeof doc[] = []
-    const putAsset = vi.fn()
-    const generateSpeech = vi.fn(async () => ({
-      hash: 'audio1',
-      mime: 'audio/mpeg',
-      bytes: new Uint8Array([1, 2]),
-    }))
+    let captured: StoryboardRunPlan | undefined
+    const run = vi.fn(async (plan: StoryboardRunPlan) => {
+      captured = plan
+      const state: RunTaskState = {
+        kind: 'succeeded',
+        result: [
+          {
+            hash: 'audio1',
+            mime: 'audio/mpeg',
+            bytes: new Uint8Array([1, 2]),
+          },
+        ],
+        duration: 1,
+      }
+      return {
+        summary: {
+          runPlanId: plan.id,
+          mode: plan.mode,
+          taskResults: plan.tasks.map((task) => ({
+            taskId: task.id,
+            nodeId: task.nodeId,
+            state,
+          })),
+          succeeded: 1,
+          failed: 0,
+          canceled: 0,
+          startedAt: 1,
+          finishedAt: 2,
+          records: [],
+        },
+        warnings: [],
+        failures: [],
+      }
+    })
+    const produced = {
+      ...doc,
+      shots: doc.shots.map((item) => ({
+        ...item,
+        lines: item.lines.map((itemLine) => ({
+          ...itemLine,
+          audioHash: 'audio1',
+          audioName: `${character.name}-你好.mp3`,
+        })),
+      })),
+    }
+    const documents: StoryboardDocumentPort = {
+      load: async () => produced,
+      save: async () => {},
+    }
     let status = ''
 
     const controller = createStoryboardAudioController({
@@ -62,9 +92,11 @@ describe('Storyboard audio controller', () => {
         voices: ['nova'],
       },
       platform,
-      channels: { generateSpeech } as unknown as ChannelStore,
-      canvas: { putAsset } as unknown as StoryboardCanvasPort,
-      directTrace: trace,
+      canvas: {} as StoryboardCanvasPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents,
+      projectId: 'p1',
+      flush: async () => {},
       apply: (next) => applied.push(next),
       setStatus: (text) => {
         status = text
@@ -75,18 +107,23 @@ describe('Storyboard audio controller', () => {
     const ok = await controller.voiceLine(updatedShot, line.id)
 
     expect(ok, status).toBe(true)
-    expect(generateSpeech).toHaveBeenCalledTimes(1)
-    expect(generateSpeech).toHaveBeenCalledWith(
-      expect.objectContaining({
-        trace: expect.objectContaining({
-          subjectId: `shot:${updatedShot.id}:line:${line.id}:speech`,
-          scopeId: `episode:${updatedShot.episodeId}`,
-        }),
-      }),
-    )
-    expect(putAsset).toHaveBeenCalledWith(
-      expect.objectContaining({ hash: 'audio1', mime: 'audio/mpeg' }),
-    )
+    expect(captured?.tasks[0]).toMatchObject({
+      action: 'speech',
+      subject: {
+        kind: 'speech',
+        episodeId: updatedShot.episodeId,
+        shotId: updatedShot.id,
+        lineId: line.id,
+      },
+      request: {
+        kind: 'speech',
+        prompt: '你好',
+        params: {
+          voice: 'nova',
+          responseFormat: 'mp3',
+        },
+      },
+    })
     expect(applied[0]?.shots[0]?.lines[0]).toMatchObject({
       audioHash: 'audio1',
     })
@@ -109,9 +146,14 @@ describe('Storyboard audio controller', () => {
       shots: [],
       speechTarget: null,
       platform: createMemoryPlatform(),
-      channels: {} as ChannelStore,
       canvas: {} as StoryboardCanvasPort,
-      directTrace: trace,
+      execution: {} as StoryboardExecutionApi,
+      documents: {
+        load: async () => doc,
+        save: async () => {},
+      },
+      projectId: 'p1',
+      flush: async () => {},
       apply: (next) => {
         applied = next
       },

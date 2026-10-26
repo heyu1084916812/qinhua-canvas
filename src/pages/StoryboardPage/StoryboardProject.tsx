@@ -13,7 +13,6 @@ import {
   useStoryboardCanvasRuntime,
 } from '../../app/workbenchHosts/StoryboardCanvasHost'
 import { StoryboardExecutionHost } from '../../app/workbenchHosts/StoryboardExecutionHost'
-import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { resolveSpeechTarget } from '../../domain/shared/chatTarget'
 import {
@@ -32,11 +31,12 @@ import {
   episodeTimeline,
   srtOf,
 } from '../../domain/storyboard/ffmpegPack'
-import { downloadAsset } from '../../features/canvas/downloadAsset'
+import { downloadAsset } from '../../features/shared/assets/downloadAsset'
 import { createStoryboardExportController } from '../../workbenches/storyboard/useStoryboardExportController'
 import { createStoryboardAudioController } from '../../workbenches/storyboard/useStoryboardAudioController'
 import { createStoryboardAuthoringController } from '../../workbenches/storyboard/useStoryboardAuthoringController'
 import { createStoryboardImageExecutionController } from '../../workbenches/storyboard/useStoryboardImageExecutionController'
+import { createStoryboardDigitalHumanExecutionController } from '../../workbenches/storyboard/useStoryboardDigitalHumanExecutionController'
 import { createStoryboardShotController } from '../../workbenches/storyboard/useStoryboardShotController'
 import {
   createStoryboardVideoExecutionController,
@@ -500,7 +500,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     for (const shot of doc.shots) {
       if (!shot.nodeId) continue
       const node = graph.nodes.find((n) => n.id === shot.nodeId)
-      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      const hash =
+        node &&
+        typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
+          ? (node.data as { assetHash: string }).assetHash
+          : undefined
       if (hash && hash !== shot.imageHash) updates.push({ shotId: shot.id, hash })
     }
     if (updates.length > 0) next = attachShotImages(next, updates, 0)
@@ -512,7 +516,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     for (const shot of doc.shots) {
       if (!shot.videoNodeId) continue
       const node = graph.nodes.find((n) => n.id === shot.videoNodeId)
-      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      const hash =
+        node &&
+        typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
+          ? (node.data as { assetHash: string }).assetHash
+          : undefined
       if (hash && hash !== shot.videoHash) videoUpdates.push({ shotId: shot.id, hash })
     }
     if (videoUpdates.length > 0) next = attachShotVideos(next, videoUpdates, 0)
@@ -525,12 +533,21 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       for (const asset of list) {
         if (!asset.nodeId) continue
         const node = graph.nodes.find((n) => n.id === asset.nodeId)
-        const hash = node ? assetHashesOfNode(node)[0] : undefined
+        const hash =
+          node &&
+          typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
+            ? (node.data as { assetHash: string }).assetHash
+            : undefined
         /* 与镜头同一条判据：**变了才写**（重出定妆图时 hash 会换，也要镜像过来） */
         if (hash && hash !== asset.baseHash) next = setAssetBaseHash(next, kind, asset.id, hash, 0)
         if (kind === 'char' && asset.turnaroundNodeId) {
           const turnaroundNode = graph.nodes.find((n) => n.id === asset.turnaroundNodeId)
-          const turnaroundHash = turnaroundNode ? assetHashesOfNode(turnaroundNode)[0] : undefined
+          const turnaroundHash =
+            turnaroundNode &&
+            typeof (turnaroundNode.data as { assetHash?: unknown }).assetHash ===
+              'string'
+              ? (turnaroundNode.data as { assetHash: string }).assetHash
+              : undefined
           if (turnaroundHash && turnaroundHash !== asset.turnaroundHash) {
             next = setAssetTurnaroundHash(next, 'char', asset.id, turnaroundHash, 0)
           }
@@ -686,6 +703,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       graphEdges: graph.edges,
       liveNodeIds,
       channels,
+      storage: platform.storage,
       canvas,
       execution: storyboardExecution,
       documents: store,
@@ -719,24 +737,34 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay,
     })
 
-  const { layOut, makeDigitalHuman, syncPrompts } =
-    createStoryboardShotController({
+  const { makeDigitalHuman } = createStoryboardDigitalHumanExecutionController({
+    currentDoc: () => docRef.current,
+    graphNodes: graph.nodes,
+    liveNodeIds,
+    digitalHumanTarget,
+    platform,
+    storage: platform.storage,
+    canvas,
+    execution: storyboardExecution,
+    documents: store,
+    projectId,
+    flush,
+    replaceDoc: apply,
+    setLay,
+    setDigitalHumanBusy,
+  })
+
+  const { layOut, syncPrompts } = createStoryboardShotController({
       doc,
       currentDoc: () => docRef.current,
       selected,
       shots,
       needNodes,
       graphNodes: graph.nodes,
-      graphEdges: graph.edges,
       liveNodeIds,
-      channels,
       canvas,
-      platform,
-      directTrace,
-      digitalHumanTarget,
       apply,
       setLay,
-      setDigitalHumanBusy,
     })
 
   const {
@@ -784,9 +812,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       shots,
       speechTarget,
       platform,
-      channels,
       canvas,
-      directTrace,
+      execution: storyboardExecution,
+      documents: store,
+      projectId,
+      flush,
       apply,
       setStatus,
       setVoiceBusy,

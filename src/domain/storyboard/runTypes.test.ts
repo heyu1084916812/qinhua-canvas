@@ -318,4 +318,23 @@ describe("storyboard run contracts", () => {
       operationId: "operation-1",
     });
   });
+
+  it("carries a real parent RunRecord id into the execution scope", () => {
+    expect(
+      storyboardRunRecordScopeOfTask({
+        operationId: "operation-1",
+        parentRunId: "record-parent",
+        subject: subjectFor("video-edit"),
+      }),
+    ).toMatchObject({
+      subjectId: "shot:shot-1",
+      operationId: "operation-1",
+      parentRunId: "record-parent",
+    });
+    expect(() =>
+      assertStoryboardRunTask(
+        taskFor("video-edit", { parentRunId: " " }),
+      ),
+    ).toThrow("missing parentRunId");
+  });
 });

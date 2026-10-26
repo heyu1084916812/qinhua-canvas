@@ -1,11 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { screenToWorld, worldToScreen, convertOnReparent, toWorldRect, toWorldRectInGraph, isRectVisible } from './coords'
-import type { NodeLike } from '../model/graph'
+import {
+  screenToWorld,
+  worldToScreen,
+  convertOnReparent,
+  toWorldRect,
+  toWorldRectInGraph,
+  isRectVisible,
+  type NodeLike,
+} from './coords'
+
+type TestNode = NodeLike & { type: string }
 
 const vp = { x: 100, y: 50, zoom: 1.5 }
 const container = { x: 0, y: 0, w: 800, h: 600 }
 
-function node(id: string, x: number, y: number, parentId: string | null = null): NodeLike {
+function node(
+  id: string,
+  x: number,
+  y: number,
+  parentId: string | null = null,
+): TestNode {
   return { id, parentId, type: 'generation', x, y, w: 200, h: 200 }
 }
 

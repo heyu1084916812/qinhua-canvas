@@ -3,6 +3,7 @@ import {
   addCharacter,
   addEpisode,
   addShot,
+  addShotLine,
   emptyStoryboard,
   type StoryboardDoc,
 } from '../../../domain/storyboard/storyboard'
@@ -276,5 +277,88 @@ describe('buildStoryboardRunPlan', () => {
         shotIds: [doc.shots[0]!.id],
       }),
     ).toThrow('还没有视频')
+  })
+
+  it('台词配音生成 speech task，带音色 / 语速并写业务主体', () => {
+    let doc = fixture()
+    doc = addShotLine(doc, doc.shots[0]!.id, {
+      speakerId: doc.characters[0]!.id,
+      text: '你好，世界',
+    })
+    const lineId = doc.shots[0]!.lines[0]!.id
+    const plan = buildStoryboardRunPlan({
+      doc,
+      planId: 'plan-speech',
+      operationId: 'op-speech',
+      target: {
+        channelId: 'speech-channel',
+        model: 'speech-model',
+        params: { speed: 1.2 },
+      },
+      action: 'speech',
+      episodeId: doc.episodes[0]!.id,
+      lineIds: [lineId],
+    })
+
+    expect(plan.tasks[0]).toMatchObject({
+      action: 'speech',
+      subject: {
+        kind: 'speech',
+        episodeId: doc.episodes[0]!.id,
+        shotId: doc.shots[0]!.id,
+        lineId,
+      },
+      request: {
+        kind: 'speech',
+        prompt: '你好，世界',
+        timeoutMs: 120_000,
+        params: {
+          voice: 'alloy',
+          speed: 1.2,
+          responseFormat: 'mp3',
+          audioName: expect.stringContaining('你好，世界'),
+        },
+      },
+    })
+  })
+
+  it('数字人计划同时携带当前画面与合并音轨，并继承父记录', () => {
+    const doc = fixture()
+    const plan = buildStoryboardRunPlan({
+      doc,
+      planId: 'plan-digital-human',
+      operationId: 'op-digital-human',
+      parentRunId: 'record-speech-parent',
+      target: {
+        channelId: 'digital-channel',
+        model: 'digital-model',
+      },
+      action: 'digital-human',
+      episodeId: doc.episodes[0]!.id,
+      shotIds: [doc.shots[0]!.id],
+      audioHash: 'merged-audio',
+      audioMime: 'audio/wav',
+      imageMime: 'image/webp',
+    })
+
+    expect(plan.tasks[0]).toMatchObject({
+      action: 'digital-human',
+      parentRunId: 'record-speech-parent',
+      subject: {
+        kind: 'digital-human',
+        shotId: doc.shots[0]!.id,
+      },
+      request: {
+        kind: 'video',
+        inputs: [
+          { assetHash: 'shot-1-image', mime: 'image/webp' },
+          { assetHash: 'merged-audio', mime: 'audio/wav' },
+        ],
+        params: {
+          action: 'digital-human',
+          durationSec: 5,
+        },
+      },
+    })
   })
 })

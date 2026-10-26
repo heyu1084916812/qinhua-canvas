@@ -22,13 +22,13 @@ import {
   type EcommerceResultRecord,
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
-import type { RunRecord } from '../../domain/canvas/model/runRecord'
+import type { RunRecord } from '../../domain/shared/execution/runRecord'
 import { pixelSummaryOf } from '../../domain/shared/execution/runRecord'
 import {
   screenToWorld as canvasScreenToWorld,
   type Viewport as CanvasViewport,
-} from '../../domain/canvas/geometry/coords'
-import { fitViewport, panBy, zoomAt } from '../../domain/canvas/geometry/transform'
+} from '../../domain/shared/geometry/coords'
+import { fitViewport, panBy, zoomAt } from '../../domain/shared/geometry/transform'
 import { createId } from '../../shared/id'
 import { workbenchBlankDragIntent } from '../../domain/ecommerce/workbenchGesture'
 import {

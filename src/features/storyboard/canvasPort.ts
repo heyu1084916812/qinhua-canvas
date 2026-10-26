@@ -1,6 +1,23 @@
-import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import type { RunTaskState } from '../shared/execution/runEngine'
 import type { GeneratedAsset } from '../../platform/channels/types'
+
+export interface StoryboardCanvasNode {
+  id: string
+  x: number
+  y: number
+  data: object
+}
+
+export interface StoryboardCanvasEdge {
+  id: string
+  source: string
+  target: string
+}
+
+export interface StoryboardCanvasGraph {
+  nodes: readonly StoryboardCanvasNode[]
+  edges: readonly StoryboardCanvasEdge[]
+}
 
 export interface StoryboardCanvasNodeInput {
   data: Record<string, unknown>
@@ -15,7 +32,7 @@ export interface StoryboardCanvasNodeInput {
  * 只认这个端口，不直接 import 画布私有层。
  */
 export interface StoryboardCanvasPort {
-  getSnapshot(): GraphSnapshot
+  getSnapshot(): StoryboardCanvasGraph
   beginPlan(id: string, label: string): void
   endPlan(): void
   resolveGenerationData(

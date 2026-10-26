@@ -1,6 +1,10 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { ChannelStore } from '../../state/channel/channelStore'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type {
+  StoryboardCanvasEdge,
+  StoryboardCanvasNode,
+  StoryboardCanvasPort,
+} from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
 import {
@@ -26,9 +30,8 @@ import {
 import type { VideoEraseModelId } from '../../domain/storyboard/videoErase'
 import type { VideoEditModelId } from '../../domain/storyboard/videoEdit'
 import type { VideoExtendModelId } from '../../domain/storyboard/videoExtend'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import type { Edge } from '../../domain/canvas/model/edge'
-import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
+import { videoParamsFor } from '../../domain/storyboard/videoParams'
+import type { StoragePort } from '../../platform/ports'
 import { createId } from '../../shared/id'
 import { asAppError, describeError } from '../../shared/result'
 
@@ -69,10 +72,11 @@ export interface VideoExtendTarget {
 
 export interface StoryboardVideoExecutionControllerArgs {
   currentDoc: () => StoryboardDoc | null
-  graphNodes: readonly NodeSnapshot[]
-  graphEdges: readonly Edge[]
+  graphNodes: readonly StoryboardCanvasNode[]
+  graphEdges: readonly StoryboardCanvasEdge[]
   liveNodeIds: ReadonlySet<string>
   channels: ChannelStore
+  storage: StoragePort
   canvas: StoryboardCanvasPort
   execution: StoryboardExecutionApi
   documents: StoryboardDocumentPort
@@ -113,6 +117,7 @@ export function createStoryboardVideoExecutionController(
     graphEdges,
     liveNodeIds,
     channels,
+    storage,
     canvas,
     execution,
     documents,
@@ -134,6 +139,46 @@ export function createStoryboardVideoExecutionController(
     shot.videoNodeId
       ? graphNodes.find((node) => node.id === shot.videoNodeId)
       : undefined
+
+  const parentRunIdOf = async (shot: StoryboardShot): Promise<string | undefined> => {
+    const rows = await storage.query('runRecords', {
+      projectId,
+      workbench: 'storyboard',
+      subjectId: `shot:${shot.id}`,
+    })
+    const allowed = new Set([
+      'shot-video',
+      'video-upscale',
+      'video-fps',
+      'video-erase',
+      'video-edit',
+      'video-extend',
+      'digital-human',
+    ])
+    return rows
+      .map((row) => row as unknown as {
+        id?: unknown
+        createdAt?: unknown
+        status?: unknown
+        params?: unknown
+      })
+      .filter((row) => {
+        const action =
+          row.params && typeof row.params === 'object'
+            ? (row.params as Record<string, unknown>).action
+            : undefined
+        return (
+          row.status === 'succeeded' &&
+          typeof row.id === 'string' &&
+          typeof action === 'string' &&
+          allowed.has(action)
+        )
+      })
+      .sort(
+        (left, right) =>
+          Number(right.createdAt ?? 0) - Number(left.createdAt ?? 0),
+      )[0]?.id as string | undefined
+  }
 
   const makeShotVideo = async (
     shot: StoryboardShot,
@@ -433,8 +478,8 @@ export function createStoryboardVideoExecutionController(
     prompt: string
     params: Record<string, unknown>
     includeReferenceImage?: boolean
-    sourceNode: NodeSnapshot
-    referenceNode?: NodeSnapshot | null
+    sourceNode: StoryboardCanvasNode
+    referenceNode?: StoryboardCanvasNode | null
     runningText: string
     successText: string
     transactionLabel: string
@@ -451,10 +496,18 @@ export function createStoryboardVideoExecutionController(
     const referenceMime =
       (input.referenceNode?.data as { assetMime?: string } | undefined)
         ?.assetMime ?? 'image/png'
+    let parentRunId: string | undefined
+    try {
+      parentRunId = await parentRunIdOf(input.shot)
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+      return false
+    }
     const plan = buildStoryboardRunPlan({
       doc: document,
       planId: createId('plan'),
       operationId: createId('op'),
+      parentRunId,
       target: input.target,
       action: input.action,
       episodeId: input.shot.episodeId,

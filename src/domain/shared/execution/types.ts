@@ -184,3 +184,4 @@ export type RunRequest =
   | (RunRequestBase & { kind: 'image' })
   | (RunRequestBase & { kind: 'video' })
   | (RunRequestBase & { kind: 'text' })
+  | (RunRequestBase & { kind: 'speech' })

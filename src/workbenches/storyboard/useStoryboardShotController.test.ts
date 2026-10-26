@@ -5,11 +5,11 @@ import {
   emptyStoryboard,
   type StoryboardDoc,
 } from '../../domain/storyboard/storyboard'
-import type { Edge } from '../../domain/canvas/model/edge'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import type { ChannelStore } from '../../state/channel/channelStore'
-import { createMemoryPlatform } from '../../platform/memory'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type {
+  StoryboardCanvasEdge,
+  StoryboardCanvasNode,
+  StoryboardCanvasPort,
+} from '../../features/storyboard/canvasPort'
 import { createStoryboardShotController } from './useStoryboardShotController'
 
 function shotDoc(): StoryboardDoc {
@@ -22,7 +22,6 @@ function shotDoc(): StoryboardDoc {
     shots: doc.shots.map((shot, index) => ({
       ...shot,
       nodeId: `n${index + 1}`,
-      ...(index === 0 ? { imageHash: 'done-image' } : {}),
     })),
   }
 }
@@ -32,10 +31,9 @@ function harness(doc: StoryboardDoc) {
   const beginPlan = vi.fn()
   const endPlan = vi.fn()
   const setLay = vi.fn()
-  const setDigitalHumanBusy = vi.fn()
   const getSnapshot = vi.fn(() => ({
-    nodes: [] as NodeSnapshot[],
-    edges: [] as Edge[],
+    nodes: [] as StoryboardCanvasNode[],
+    edges: [] as StoryboardCanvasEdge[],
   }))
   const controller = createStoryboardShotController({
     doc,
@@ -44,29 +42,15 @@ function harness(doc: StoryboardDoc) {
     shots: doc.shots,
     needNodes: [],
     graphNodes: [],
-    graphEdges: [],
     liveNodeIds: new Set(['n1', 'n2']),
-    channels: {} as ChannelStore,
     canvas: {
       updateNodeData,
       beginPlan,
       endPlan,
       getSnapshot,
     } as unknown as StoryboardCanvasPort,
-    platform: createMemoryPlatform(),
-    directTrace: () => ({
-      projectId: 'p1',
-      scopeVersion: 1,
-      workbench: 'storyboard',
-      subjectId: 'test',
-      scopeId: 'episode:1',
-      operationId: 'op:test',
-      fingerprint: 'fp',
-    }),
-    digitalHumanTarget: null,
     apply: () => undefined,
     setLay,
-    setDigitalHumanBusy,
   })
   return {
     controller,
@@ -74,7 +58,6 @@ function harness(doc: StoryboardDoc) {
     beginPlan,
     endPlan,
     setLay,
-    setDigitalHumanBusy,
   }
 }
 
@@ -112,19 +95,6 @@ describe('Storyboard shot controller', () => {
     expect(test.setLay).toHaveBeenCalledWith({
       kind: 'done',
       text: '已按当前资产刷新 2 个节点的提示词',
-    })
-  })
-
-  it('数字人缺少目标模型时拒绝，且不进入忙碌态', async () => {
-    const doc = shotDoc()
-    const test = harness(doc)
-
-    await test.controller.makeDigitalHuman(doc.shots[0]!)
-
-    expect(test.setDigitalHumanBusy).not.toHaveBeenCalled()
-    expect(test.setLay).toHaveBeenCalledWith({
-      kind: 'error',
-      text: '当前没有可用的数字人口播模型：在 RunningHub 渠道勾选 Kling V2 数字人口播',
     })
   })
 })

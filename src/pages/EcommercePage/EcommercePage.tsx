@@ -48,12 +48,11 @@ import {
   logicalNames,
   panelModelOptions,
 } from '../../domain/project/modelCatalog'
-import { imageParamsFor } from '../../domain/canvas/layout/imageParams'
-import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
+import { imageParamsFor } from '../../domain/shared/modelParams/imageParams'
 import { imageAssetInputsOf } from '../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../domain/shared/execution/types'
 import { projectRoute } from '../../domain/shared/workbench'
-import { downloadAsset } from '../../features/canvas/downloadAsset'
+import { downloadAsset } from '../../features/shared/assets/downloadAsset'
 import { asAppError, describeError } from '../../shared/result'
 import { createId } from '../../shared/id'
 import { directTextTrace } from '../../state/shared/directRun'
@@ -90,8 +89,7 @@ import {
   type EcommerceLanguage,
 } from '../../domain/ecommerce/types'
 import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import type { RunRecord } from '../../domain/canvas/model/runRecord'
+import type { RunRecord } from '../../domain/shared/execution/runRecord'
 import { createRunLogRepository } from '../../state/shared/runLogRepository'
 import {
   EcommerceWorkbench,
@@ -107,6 +105,37 @@ import {
   type EcommerceUpscaleScale,
 } from '../../domain/ecommerce/upscale'
 import styles from './EcommercePage.module.css'
+
+type LegacyGenerationNode = {
+  id: string
+  type?: string
+  disabled?: boolean
+  data: Record<string, unknown>
+}
+
+function legacyAssetHashesOfNode(node: LegacyGenerationNode): string[] {
+  if (node.disabled) return []
+  const data = node.data
+  const hashes = [
+    data.assetHash,
+    data.compareWith,
+    data.leftAssetHash,
+    data.rightAssetHash,
+  ]
+  const crop = data.cropContext
+  if (crop && typeof crop === 'object' && !('full' in crop)) {
+    const source = (crop as { source?: { assetHash?: unknown } }).source
+    hashes.push(source?.assetHash)
+  }
+  return [
+    ...new Set(
+      hashes.filter(
+        (hash): hash is string =>
+          typeof hash === 'string' && hash.length > 0,
+      ),
+    ),
+  ]
+}
 
 /**
  * 电商工作台页（对账 #384 的 D3/D4/D5/D6）。
@@ -231,13 +260,15 @@ function StudioHost({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
   const exec = useEcommerceExecution()
-  const [legacyNodes, setLegacyNodes] = useState<NodeSnapshot[]>([])
+  const [legacyNodes, setLegacyNodes] = useState<LegacyGenerationNode[]>([])
   useEffect(() => {
     let cancelled = false
     void platform.storage
       .query('nodes', { projectId })
       .then((rows) => {
-        if (!cancelled) setLegacyNodes(rows as unknown as NodeSnapshot[])
+        if (!cancelled) {
+          setLegacyNodes(rows as unknown as LegacyGenerationNode[])
+        }
       })
       .catch((error) => {
         platform.logger.log('warn', '[ecommerce] 旧画布节点只读兼容失败', {
@@ -475,7 +506,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         platform.storage.query('nodes', { projectId }),
       ])
       if (cancelled) return
-      const nodes = rows as unknown as NodeSnapshot[]
+      const nodes = rows as unknown as LegacyGenerationNode[]
       const byId = new Map(nodes.map((n) => [n.id, n]))
       const draftIds = [
         ...new Set([
@@ -494,7 +525,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       const uploadOf = (uploadId: string | null | undefined): EcommerceUpload | null => {
         if (!uploadId) return null
         const node = byId.get(uploadId)
-        const hash = node ? assetHashesOfNode(node)[0] : undefined
+        const hash = node ? legacyAssetHashesOfNode(node)[0] : undefined
         if (hash) {
           return { nodeId: uploadId, hash, preview: <ResultPreview hash={hash} /> }
         }
@@ -510,7 +541,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       const validNodeIds = new Set(
         [
           ...nodes
-            .filter((node) => assetHashesOfNode(node).length > 0)
+            .filter((node) => legacyAssetHashesOfNode(node).length > 0)
             .map((node) => node.id),
           ...assetIds,
         ],
@@ -1110,7 +1141,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         typeof (node.data as { assetMime?: unknown }).assetMime === 'string'
           ? ((node.data as { assetMime: string }).assetMime)
           : 'image/png'
-      for (const assetHash of assetHashesOfNode(node)) {
+      for (const assetHash of legacyAssetHashesOfNode(node)) {
         raw.push({ kind: 'asset', nodeId, assetHash, mime })
       }
     }
@@ -1801,7 +1832,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     if (activeTask) {
       return resultRows.map((row) => {
         const node = graph.nodes.find((n) => n.id === row.nodeId)
-        const hash = row.assetHash ?? (node ? assetHashesOfNode(node)[0] : undefined)
+        const hash =
+          row.assetHash ??
+          (node ? legacyAssetHashesOfNode(node)[0] : undefined)
         const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
           ?.naturalSize
         const width =
@@ -1882,7 +1915,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       const data = node?.data as
         | { prompt?: unknown; model?: unknown; ratio?: unknown; assetMime?: unknown }
         | undefined
-      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      const hash = node ? legacyAssetHashesOfNode(node)[0] : undefined
       const sizeRaw = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
       const pixelSize =

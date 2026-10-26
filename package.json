@@ -10,7 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "prepare:ffmpeg": "node scripts/prepare-ffmpeg.mjs",
     "preview": "vite preview",
-    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-theme.mjs && node scripts/check-contrast.mjs && node scripts/check-shell-geometry.mjs && node scripts/check-rail-buttons.mjs && node scripts/check-doc-index.mjs && node scripts/check-doc-migration.mjs && node scripts/check-libtv-catalog.mjs",
+    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-architecture-rules.mjs && node scripts/check-theme.mjs && node scripts/check-contrast.mjs && node scripts/check-shell-geometry.mjs && node scripts/check-rail-buttons.mjs && node scripts/check-doc-index.mjs && node scripts/check-doc-migration.mjs && node scripts/check-libtv-catalog.mjs",
     "check:ui-freeze": "node scripts/check-tauri-ui-freeze.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -198,6 +198,46 @@ function callChannel(
       return adapter.generateVideo(request, signal)
     case 'text':
       throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+    case 'speech': {
+      if (!adapter.generateSpeech) {
+        throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      }
+      const voice =
+        typeof request.params.voice === 'string' && request.params.voice.trim()
+          ? request.params.voice
+          : 'alloy'
+      const speed =
+        typeof request.params.speed === 'number' &&
+        Number.isFinite(request.params.speed)
+          ? request.params.speed
+          : undefined
+      const format = request.params.responseFormat
+      const responseFormat =
+        format === 'mp3' ||
+        format === 'wav' ||
+        format === 'opus' ||
+        format === 'aac' ||
+        format === 'flac' ||
+        format === 'pcm'
+          ? format
+          : 'mp3'
+      return adapter
+        .generateSpeech(
+          {
+            channelId: request.channelId,
+            model: request.model,
+            text: request.prompt,
+            voice,
+            ...(speed !== undefined ? { speed } : {}),
+            responseFormat,
+            ...(request.timeoutMs !== undefined
+              ? { timeoutMs: request.timeoutMs }
+              : {}),
+          },
+          signal,
+        )
+        .then((asset) => [asset])
+    }
   }
 }
 
@@ -412,6 +452,34 @@ export async function runEngine<TTask extends RunTask, TCommand>(
             break
           }
         }
+        const status: RunRecord['status'] =
+          state.kind === 'succeeded'
+            ? 'succeeded'
+            : state.kind === 'canceled'
+              ? 'canceled'
+              : 'failed'
+        if (state.kind === 'succeeded') {
+          const cmds = placement.commit(task, targetId, assets)
+          if (cmds.length > 0) write(cmds)
+          if (placement.shouldCollect(task, assets)) {
+            collect(task.nodeId, task, assets)
+          }
+        }
+        const finishedAt = now()
+        const record = makeRecord(
+          task,
+          targetId,
+          scope,
+          deps,
+          startedAt,
+          status,
+          state.kind === 'succeeded' ? assets : [],
+          finishedAt - startedAt,
+          state.kind === 'failed' ? describeError(state.error) : undefined,
+        )
+        const recordCommand = placement.record(task, targetId, record)
+        if (recordCommand !== null) write([recordCommand])
+        update(task.id, state)
         return {
           task,
           targetId,
@@ -419,46 +487,20 @@ export async function runEngine<TTask extends RunTask, TCommand>(
           scope,
           state,
           assets,
-          finishedAt: now(),
+          finishedAt,
+          record,
         }
       }),
     )
 
-    for (const { task, targetId, startedAt } of started) {
-      const done = settled.find((entry) => entry.task.id === task.id)!
-      const { state, assets, finishedAt } = done
-      const status: RunRecord['status'] =
-        state.kind === 'succeeded'
-          ? 'succeeded'
-          : state.kind === 'canceled'
-            ? 'canceled'
-            : 'failed'
-
-      if (state.kind === 'succeeded') {
-        const cmds = placement.commit(task, targetId, assets)
-        if (cmds.length > 0) write(cmds)
-        if (placement.shouldCollect(task, assets)) {
-          collect(task.nodeId, task, assets)
-        }
-      }
-      const record = makeRecord(
-        task,
-        targetId,
-        done.scope,
-        deps,
-        startedAt,
-        status,
-        state.kind === 'succeeded' ? assets : [],
-        finishedAt - startedAt,
-        state.kind === 'failed' ? describeError(state.error) : undefined,
-      )
-      const recordCommand = placement.record(task, targetId, record)
-      if (recordCommand !== null) write([recordCommand])
-
-      update(task.id, state)
-      taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
-      stateByTaskId.set(task.id, state)
-      records.push(record)
+    for (const done of settled) {
+      taskResults.push({
+        taskId: done.task.id,
+        nodeId: done.task.nodeId,
+        state: done.state,
+      })
+      stateByTaskId.set(done.task.id, done.state)
+      records.push(done.record)
     }
   }
 

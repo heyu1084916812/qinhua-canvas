@@ -10,7 +10,7 @@
  * 故这里用「宿主按真实签名查表」的方式把契约钉死：
  * 表里有这个 taskId 才算通过，而它只有参数没错位时才查得到。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { runEngine, type RunTaskState } from './runEngine'
 import type { RunTask, RunPlan } from '../../../domain/shared/execution/plan'
 import type {
@@ -680,6 +680,63 @@ describe('runEngine / 拓扑依赖', () => {
     expect(summary.succeeded).toBe(2)
   })
 
+  it('同一波次先完成的任务立即写回留痕，不等待慢任务', async () => {
+    let releaseSlow!: () => void
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve
+    })
+    let slowFinished = false
+    let markFastRecorded!: () => void
+    const fastRecorded = new Promise<void>((resolve) => {
+      markFastRecorded = resolve
+    })
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-early-settle',
+      scope: 'node',
+      mode: 'single',
+      tasks: [dependencyTask('fast'), dependencyTask('slow')],
+    }
+    const running = runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            if (request.prompt === 'slow') {
+              await slowGate
+              slowFinished = true
+            }
+            return [
+              {
+                hash: request.prompt,
+                mime: 'image/png',
+                bytes: new Uint8Array([1]),
+              },
+            ]
+          },
+        }) as never,
+      writeBack: (commands) => {
+        if (
+          commands.some(
+            (command) =>
+              (command as unknown as RunRecord).taskId === 'fast',
+          )
+        ) {
+          markFastRecorded()
+        }
+      },
+      placement,
+      now: () => 0,
+    })
+
+    await fastRecorded
+    expect(slowFinished).toBe(false)
+    releaseSlow()
+    await running
+  })
+
   it('前置失败时后续任务不触网，并以依赖失败收口', async () => {
     const calls: string[] = []
     const plan: RunPlan<RunTask> = {
@@ -719,5 +776,79 @@ describe('runEngine / 拓扑依赖', () => {
       },
     })
     expect(summary.records).toHaveLength(1)
+  })
+})
+
+describe('runEngine / 语音任务', () => {
+  it('speech task 调用适配器 TTS，并将单个音频作为任务产物结算', async () => {
+    const generateSpeech = vi.fn(async () => ({
+      hash: 'speech-hash',
+      mime: 'audio/mpeg',
+      bytes: new Uint8Array([1]),
+    }))
+    const task: RunTask = {
+      id: 'speech-task',
+      nodeId: 'line:line-1',
+      request: {
+        kind: 'speech',
+        channelId: 'channel-1',
+        model: 'speech-model',
+        prompt: '你好',
+        inputs: [],
+        params: {
+          voice: 'alloy',
+          speed: 1.2,
+          responseFormat: 'wav',
+        },
+        timeoutMs: 120_000,
+      },
+      dependsOn: [],
+      fingerprint: 'speech-fp',
+      params: {},
+    }
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-speech',
+      scope: 'node',
+      mode: 'single',
+      tasks: [task],
+    }
+
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          generateSpeech,
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: (item: RunTask) => ({ targetId: item.nodeId, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      now: () => 0,
+    })
+
+    expect(generateSpeech).toHaveBeenCalledWith(
+      {
+        channelId: 'channel-1',
+        model: 'speech-model',
+        text: '你好',
+        voice: 'alloy',
+        speed: 1.2,
+        responseFormat: 'wav',
+        timeoutMs: 120_000,
+      },
+      expect.any(AbortSignal),
+    )
+    expect(summary.succeeded).toBe(1)
+    expect(summary.taskResults[0]?.state).toMatchObject({
+      kind: 'succeeded',
+      result: [{ hash: 'speech-hash', mime: 'audio/mpeg' }],
+    })
   })
 })

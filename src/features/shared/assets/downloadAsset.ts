@@ -8,7 +8,7 @@
  * 依赖注入两个端口（`assets.read` / `files.saveFile`），因此可以在 node 下单测，
  * 不需要真浏览器。
  */
-import type { AssetPort, FilePort } from '../../platform/ports'
+import type { AssetPort, FilePort } from '../../../platform/ports'
 
 /** 扩展名表：与上传侧 `fileSystemAccessFiles` 的 mime 表同源（只取常用几种） */
 const EXT_BY_MIME: Record<string, string> = {

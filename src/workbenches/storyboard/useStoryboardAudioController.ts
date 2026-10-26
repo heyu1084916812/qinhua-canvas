@@ -1,12 +1,12 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { SpeechTarget } from '../../domain/shared/chatTarget'
-import type { DirectRunTraceInput } from '../../state/shared/directRun'
-import type { ChannelStore } from '../../state/channel/channelStore'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
+import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
+import { buildStoryboardRunPlan } from '../../features/storyboard/execution/storyboardRunPlan'
 import {
-  speechSettingsOf,
+  mergeStoryboardRunResults,
   updateEpisode,
-  updateShotLine,
   type StoryboardDoc,
   type StoryboardEpisode,
   type StoryboardShot,
@@ -14,6 +14,7 @@ import {
 import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import type { PlatformKit } from '../../platform/ports'
 import { asAppError, describeError } from '../../shared/result'
+import { createId } from '../../shared/id'
 
 export interface StoryboardAudioControllerArgs {
   doc: StoryboardDoc
@@ -22,18 +23,11 @@ export interface StoryboardAudioControllerArgs {
   shots: readonly StoryboardShot[]
   speechTarget: SpeechTarget | null
   platform: PlatformKit
-  channels: ChannelStore
   canvas: StoryboardCanvasPort
-  directTrace: (args: {
-    subjectId: string
-    scopeId?: string
-    kind: 'text' | 'video' | 'speech'
-    channelId: string
-    model: string
-    payload: unknown
-    inputs?: DirectRunTraceInput['inputs']
-    params?: Record<string, unknown>
-  }) => DirectRunTraceInput
+  execution: StoryboardExecutionApi
+  documents: StoryboardDocumentPort
+  projectId: string
+  flush: () => Promise<void>
   apply: (doc: StoryboardDoc) => void
   setStatus: (text: string) => void
   setVoiceBusy: Dispatch<SetStateAction<Record<string, boolean>>>
@@ -47,9 +41,11 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     shots,
     speechTarget,
     platform,
-    channels,
     canvas,
-    directTrace,
+    execution,
+    documents,
+    projectId,
+    flush,
     apply,
     setStatus,
     setVoiceBusy,
@@ -72,51 +68,54 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
       report('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
       return false
     }
-    const speech = speechSettingsOf(currentDoc(), line)
-    const voice = speech.voice || speechTarget.voices[0] || 'alloy'
-    setVoiceBusy((current) => ({ ...current, [lineId]: true }))
-    const ac = new AbortController()
-    const timer = globalThis.setTimeout(() => ac.abort(), 120_000)
-    try {
-      const asset = await channels.generateSpeech({
+    const base = currentDoc()
+    const plan = buildStoryboardRunPlan({
+      doc: base,
+      planId: createId('plan'),
+      operationId: createId('op'),
+      target: {
         channelId: speechTarget.channelId,
         model: speechTarget.model,
-        text: line.text,
-        voice,
-        speed: speech.speed,
-        responseFormat: 'mp3',
-        timeoutMs: 120_000,
-        signal: ac.signal,
-        trace: directTrace({
-          subjectId: `shot:${shot.id}:line:${lineId}:speech`,
-          scopeId: `episode:${shot.episodeId}`,
-          kind: 'speech',
-          channelId: speechTarget.channelId,
-          model: speechTarget.model,
-          payload: {
-            text: line.text,
-            voice,
-            speed: speech.speed,
-            responseFormat: 'mp3',
-          },
-          params: { voice, speed: speech.speed },
-        }),
-      })
-      canvas.putAsset(asset)
-      const base = currentDoc()
-      const speaker = base.characters.find((item) => item.id === line.speakerId)?.name ?? '旁白'
+        modelIsUpstream: false,
+      },
+      action: 'speech',
+      episodeId: shot.episodeId,
+      shotIds: [shot.id],
+      lineIds: [lineId],
+      defaultVoice: speechTarget.voices[0],
+    })
+    setVoiceBusy((current) => ({ ...current, [lineId]: true }))
+    const timer = globalThis.setTimeout(
+      () => execution.cancel(plan.id),
+      120_000,
+    )
+    try {
+      await flush()
+      const outcome = await execution.run(plan)
+      const failure = outcome.failures[0]
+      if (failure) throw new Error(failure.errorText)
+      const task = plan.tasks[0]!
+      const result = outcome.summary.taskResults.find(
+        (item) => item.taskId === task.id,
+      )?.state
+      if (result?.kind !== 'succeeded' || !result.result[0]) {
+        throw new Error(
+          result?.kind === 'failed'
+            ? describeError(result.error)
+            : '配音模型没有返回音频',
+        )
+      }
+      const latest = await documents.load(projectId)
       apply(
-        updateShotLine(
-          base,
-          shot.id,
-          lineId,
-          {
-            audioHash: asset.hash,
-            audioName: `${speaker}-${line.text.trim().slice(0, 16)}.mp3`,
-          },
+        mergeStoryboardRunResults(
+          currentDoc(),
+          latest,
           Date.now(),
         ),
       )
+      const speaker =
+        currentDoc().characters.find((item) => item.id === line.speakerId)
+          ?.name ?? '旁白'
       report(`已生成配音：${speaker} · ${line.text.trim().slice(0, 20)}`)
       return true
     } catch (error) {

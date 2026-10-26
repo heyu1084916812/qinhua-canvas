@@ -25,7 +25,7 @@ import {
 import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { cropAsset, extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
-import { downloadAsset } from '../../../features/canvas/downloadAsset'
+import { downloadAsset } from '../../../features/shared/assets/downloadAsset'
 import { createId } from '../../../shared/id'
 import {
   ANNOTATE_COLORS,

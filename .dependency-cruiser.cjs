@@ -45,13 +45,14 @@ module.exports = {
     },
     {
       name: 'storyboard-no-canvas-runtime',
+      severity: 'error',
       comment:
         '漫剧页面、工作台和业务能力不得直接依赖画布 Store / 执行器 / Provider / 节点创建入口；只能使用 features/storyboard/canvasPort',
       from: {
         path: '^src/(pages/StoryboardPage|workbenches/storyboard|features/storyboard)',
       },
       to: {
-        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas/(execution|createNodeWithDefaults|importAsset))',
+        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas|domain/canvas)',
       },
     },
     {
@@ -61,6 +62,7 @@ module.exports = {
       // 口径：共享层的定义 = src/shared + src/{domain,state,features}/shared；不允许 import
       // 任何 workbenches|features|state/workbenches|domain 下的 canvas|comic 私有代码。
       name: 'no-shared-to-workbench',
+      severity: 'error',
       comment: '共享层不得依赖任何工作台私有层（架构 §5.10）',
       from: { path: '^src/(shared|domain/shared|state/shared|features/shared)' },
       to: { path: '^src/(workbenches|features|state/workbenches|domain)/(canvas|comic)' },
@@ -73,11 +75,12 @@ module.exports = {
     },
     {
       name: 'ecommerce-no-canvas-runtime',
+      severity: 'error',
       comment:
         '电商页面和工作台不得依赖画布 Store / 执行器 / 节点创建入口（对账 #766 阶段 3）',
       from: { path: '^src/(pages/EcommercePage|workbenches/ecommerce)' },
       to: {
-        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas/(execution|createNodeWithDefaults|importAsset))',
+        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas|domain/canvas)',
       },
     },
   ],

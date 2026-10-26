@@ -5,7 +5,7 @@ import type { ChannelAdapter } from '../../../platform/channels/types'
 export function storyboardAdapterKey(args: {
   channelId: string
   credentialGroupId?: string
-  kind: 'image' | 'video' | 'text'
+  kind: 'image' | 'video' | 'text' | 'speech'
 }): string {
   return `${args.channelId}\u0000${args.credentialGroupId ?? ''}\u0000${args.kind}`
 }

@@ -1,10 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { ChannelStore } from '../../state/channel/channelStore'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
-import type { PlatformKit } from '../../platform/ports'
-import type { DirectRunTraceInput } from '../../state/shared/directRun'
-import type { Edge } from '../../domain/canvas/model/edge'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import type {
+  StoryboardCanvasNode,
+  StoryboardCanvasPort,
+} from '../../features/storyboard/canvasPort'
 import type {
   StoryboardDoc,
   StoryboardEpisode,
@@ -12,14 +10,9 @@ import type {
 } from '../../domain/storyboard/storyboard'
 import {
   attachShotNodes,
-  attachShotVideos,
   planShotRefEdges,
-  setShotVideoNode,
   shotPromptWithAssets,
 } from '../../domain/storyboard/storyboard'
-import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
-import { fingerprintBytesSync } from '../../domain/shared/hash'
-import { mixAudioSequentially } from '../../platform/web/audioMix'
 import { asAppError, describeError } from '../../shared/result'
 import { withStoryboardRunScope } from '../../features/storyboard/runScope'
 
@@ -29,26 +22,9 @@ export interface StoryboardShotControllerArgs {
   selected: StoryboardEpisode | null
   shots: readonly StoryboardShot[]
   needNodes: readonly StoryboardShot[]
-  graphNodes: readonly NodeSnapshot[]
-  graphEdges: readonly Edge[]
+  graphNodes: readonly StoryboardCanvasNode[]
   liveNodeIds: ReadonlySet<string>
-  channels: ChannelStore
   canvas: StoryboardCanvasPort
-  platform: PlatformKit
-  directTrace: (args: {
-    subjectId: string
-    scopeId?: string
-    kind: 'text' | 'video' | 'speech'
-    channelId: string
-    model: string
-    payload: unknown
-    inputs?: DirectRunTraceInput['inputs']
-    params?: Record<string, unknown>
-  }) => DirectRunTraceInput
-  digitalHumanTarget: {
-    channelId: string
-    model: string
-  } | null
   apply: (doc: StoryboardDoc) => void
   setLay: Dispatch<
     SetStateAction<{
@@ -56,12 +32,11 @@ export interface StoryboardShotControllerArgs {
       text: string
     }>
   >
-  setDigitalHumanBusy: Dispatch<SetStateAction<string | null>>
 }
 
-export function createStoryboardShotController(
-  args: StoryboardShotControllerArgs,
-) {
+export function createStoryboardShotController<
+  T extends StoryboardShotControllerArgs,
+>(args: T) {
   const {
     doc,
     currentDoc,
@@ -69,18 +44,11 @@ export function createStoryboardShotController(
     shots,
     needNodes,
     graphNodes,
-    graphEdges,
     liveNodeIds,
-    channels,
     canvas,
-    platform,
-    directTrace,
-    digitalHumanTarget,
     apply,
     setLay,
-    setDigitalHumanBusy,
   } = args
-  const graph = { nodes: graphNodes, edges: graphEdges }
   const humanError = (error: unknown) => {
     const appError = asAppError(error)
     return appError
@@ -143,7 +111,7 @@ export function createStoryboardShotController(
       return
     }
     try {
-      const base = graph.nodes.length
+      const base = graphNodes.length
       const prescribed: { shotId: string; data: Record<string, unknown> }[] = []
       for (const shot of targets) {
         const data = withStoryboardRunScope(
@@ -190,170 +158,6 @@ export function createStoryboardShotController(
   }
 
   /**
-   * 整镜数字人口播：RunningHub 官方数字人端点只接收一条音轨。
-   * 同一角色的多句台词先按顺序合成一条 WAV；多角色镜头仍拒绝，避免把多人
-   * 对白错误地映射到同一个人的口型上。
-   */
-  const makeDigitalHuman = async (shot: StoryboardShot) => {
-    const plan = digitalHumanPlanOf(shot)
-    if (!digitalHumanTarget) {
-      setLay({
-        kind: 'error',
-        text: '当前没有可用的数字人口播模型：在 RunningHub 渠道勾选 Kling V2 数字人口播',
-      })
-      return
-    }
-    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId) || !shot.imageHash) {
-      setLay({ kind: 'error', text: '这一镜还没有可用的图片节点' })
-      return
-    }
-    if (!plan.ok) {
-      setLay({ kind: 'error', text: plan.reason })
-      return
-    }
-    setDigitalHumanBusy(shot.id)
-    setLay({
-      kind: 'running',
-      text: plan.lines.length > 1 ? '正在合并整镜配音并生成数字人视频…' : '正在调用数字人口播模型…',
-    })
-    const ac = new AbortController()
-    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
-    try {
-      const image = await platform.assets.read(shot.imageHash)
-      const audioClips = await Promise.all(
-        plan.lines.map(async (line) => {
-          const audio = await platform.assets.read(line.audioHash!)
-          if (!audio) throw new Error('有台词配音的素材字节已经不在库里')
-          return audio
-        }),
-      )
-      if (!image) {
-        throw new Error('人像图或配音音频的素材字节已经不在库里')
-      }
-      const mixed = plan.lines.length > 1 ? await mixAudioSequentially(audioClips) : audioClips[0]!
-      const audioHash =
-        plan.lines.length > 1 ? fingerprintBytesSync(mixed.bytes) : plan.lines[0]!.audioHash!
-      if (plan.lines.length > 1) {
-        canvas.putAsset({
-          hash: audioHash,
-          mime: mixed.mime,
-          bytes: mixed.bytes,
-        })
-      }
-      const outputs = await channels.generateVideo({
-        kind: 'video',
-        channelId: digitalHumanTarget.channelId,
-        model: digitalHumanTarget.model,
-        prompt:
-          '生成单人数字人口播视频，保持人物身份、服装、构图与画面风格一致，口型自然贴合配音，避免夸张动作和镜头跳变。',
-        inputs: [
-          {
-            kind: 'asset',
-            nodeId: shot.nodeId,
-            assetHash: shot.imageHash,
-            mime: image.mime || 'image/png',
-          },
-          {
-            kind: 'asset',
-            nodeId: shot.nodeId,
-            assetHash: audioHash,
-            mime: mixed.mime || 'audio/mpeg',
-          },
-        ],
-        params: {},
-        signal: ac.signal,
-        trace: directTrace({
-          subjectId: `shot:${shot.id}:digital-human`,
-          scopeId: `episode:${shot.episodeId}`,
-          kind: 'video',
-          channelId: digitalHumanTarget.channelId,
-          model: digitalHumanTarget.model,
-          payload: {
-            prompt:
-              '生成单人数字人口播视频，保持人物身份、服装、构图与画面风格一致，口型自然贴合配音，避免夸张动作和镜头跳变。',
-            imageHash: shot.imageHash,
-            audioHash,
-          },
-        }),
-      })
-      const output = outputs[0]
-      if (!output) throw new Error('数字人口播模型没有返回视频')
-      canvas.putAsset({
-        ...output,
-        mime: output.mime || 'video/mp4',
-      })
-      const data = withStoryboardRunScope(
-        await canvas.resolveGenerationData({
-          mode: 'video',
-          channelId: digitalHumanTarget.channelId,
-          model: digitalHumanTarget.model,
-          prompt: '数字人口播',
-          durationSec: shot.durationSec,
-          assetHash: output.hash,
-          assetMime: output.mime || 'video/mp4',
-        }),
-        {
-          subjectKind: 'digital-human',
-          subjectId: `shot:${shot.id}`,
-          scopeId: `episode:${shot.episodeId}`,
-        },
-      )
-      const imageNode = graph.nodes.find((node) => node.id === shot.nodeId)
-      let videoNodeId =
-        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
-      canvas.beginPlan('storyboard:digital-human', '单句数字人口播')
-      try {
-        if (videoNodeId) {
-          canvas.updateNodeData(videoNodeId, {
-            ...data,
-            mode: 'video',
-            channelId: digitalHumanTarget.channelId,
-            model: digitalHumanTarget.model,
-            prompt: '数字人口播',
-            durationSec: shot.durationSec,
-            assetHash: output.hash,
-            assetMime: output.mime || 'video/mp4',
-          })
-        } else {
-          videoNodeId =
-            canvas.createGenerationNode({
-              at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
-              data,
-            }) ?? ''
-        }
-        if (videoNodeId) {
-          const connected = graph.edges.some(
-            (edge) => edge.source === shot.nodeId && edge.target === videoNodeId,
-          )
-          if (!connected) {
-            canvas.connectEdge(shot.nodeId, videoNodeId)
-          }
-        }
-      } finally {
-        canvas.endPlan()
-      }
-      if (!videoNodeId) throw new Error('口播视频节点没能建出来')
-      const current = currentDoc()
-      if (current) {
-        const withNode = setShotVideoNode(current, shot.id, videoNodeId, 0)
-        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
-      }
-      setLay({
-        kind: 'done',
-        text:
-          plan.lines.length > 1
-            ? `整镜 ${plan.lines.length} 句配音已合并，数字人口播视频已生成`
-            : '这一句的数字人口播视频已生成',
-      })
-    } catch (error) {
-      setLay({ kind: 'error', text: humanError(error) })
-    } finally {
-      setDigitalHumanBusy(null)
-      window.clearTimeout(timer)
-    }
-  }
-
-  /**
    * 「刷新提示词」：把**当前**资产设定重新拼进已经铺到画布的节点（对账 #418）。
    *
    * 为什么需要它：提示词是在**铺的那一刻**按当时的资产拼好的（快照）。改完角色描述，
@@ -383,7 +187,6 @@ export function createStoryboardShotController(
 
   return {
     layOut,
-    makeDigitalHuman,
     syncPrompts,
   }
 }

@@ -11,6 +11,7 @@ import {
   assetTurnaroundPrompt,
   shotPromptWithAssets,
   shotVideoPrompt,
+  speechSettingsOf,
 } from '../../../domain/storyboard/storyboard'
 import {
   assertStoryboardRunTask,
@@ -36,6 +37,7 @@ interface StoryboardPlannerBase {
   doc: StoryboardDoc
   planId: string
   operationId: string
+  parentRunId?: string
   target:
     | StoryboardRunTarget
     | ((task: {
@@ -84,10 +86,32 @@ export interface StoryboardVideoPostprocessPlannerInput
   referenceImageMime?: string
 }
 
+export interface StoryboardSpeechRunPlannerInput extends StoryboardPlannerBase {
+  action: 'speech'
+  episodeId: string
+  shotIds?: readonly string[]
+  lineIds?: readonly string[]
+  defaultVoice?: string
+}
+
+export interface StoryboardDigitalHumanPlannerInput
+  extends StoryboardPlannerBase {
+  action: 'digital-human'
+  episodeId: string
+  shotIds?: readonly string[]
+  audioHash: string
+  audioMime?: string
+  imageMime?: string
+  prompt?: string
+  params?: Record<string, unknown>
+}
+
 export type StoryboardRunPlannerInput =
   | StoryboardAssetRunPlannerInput
   | StoryboardShotRunPlannerInput
   | StoryboardVideoPostprocessPlannerInput
+  | StoryboardSpeechRunPlannerInput
+  | StoryboardDigitalHumanPlannerInput
 
 function assertTarget(target: StoryboardRunTarget): void {
   if (!target.channelId.trim()) throw new Error('漫剧执行计划缺少渠道')
@@ -138,6 +162,7 @@ function taskOf(input: {
   request: RunRequest
   params: Record<string, unknown>
   dependsOn: readonly string[]
+  parentRunId?: string
 }): StoryboardRunTask {
   const id = `${input.planId}:${input.action}:${input.subject.id}`
   return assertStoryboardRunTask({
@@ -146,6 +171,7 @@ function taskOf(input: {
     planId: input.planId,
     workbench: 'storyboard',
     operationId: input.operationId,
+    ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
     action: input.action,
     subject: input.subject,
     request: input.request,
@@ -291,6 +317,7 @@ function assetPlan(input: StoryboardAssetRunPlannerInput): StoryboardRunPlan {
       request: requestOf('image', resolvedTarget, prompt, inputs, params),
       params,
       dependsOn: dependenciesOf(input, action, subject),
+      parentRunId: input.parentRunId,
     })
   })
   return {
@@ -337,6 +364,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
         request: requestOf('image', resolvedTarget, prompt, inputs, params),
         params,
         dependsOn: dependenciesOf(input, action, subject),
+        parentRunId: input.parentRunId,
       })
     }
 
@@ -385,6 +413,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
       request: requestOf('video', resolvedTarget, prompt, inputs, params),
       params,
       dependsOn: dependenciesOf(input, action, subject),
+      parentRunId: input.parentRunId,
     })
   })
 
@@ -467,6 +496,183 @@ function videoPostprocessPlan(
       request: requestOf('video', resolvedTarget, prompt, inputs, params),
       params,
       dependsOn: dependenciesOf(input, input.action, subject),
+      parentRunId: input.parentRunId,
+    })
+  })
+  return {
+    id: input.planId,
+    workbench: 'storyboard',
+    tasks,
+    scope: tasks.length === 1 ? 'node' : 'global',
+    mode: 'single',
+  }
+}
+
+function speechPlan(
+  input: StoryboardSpeechRunPlannerInput,
+): StoryboardRunPlan {
+  const episode = input.doc.episodes.find((item) => item.id === input.episodeId)
+  if (!episode) throw new Error(`漫剧分集不存在：${input.episodeId}`)
+  const selectedShots = input.shotIds ? new Set(input.shotIds) : null
+  const selectedLines = input.lineIds ? new Set(input.lineIds) : null
+  const tasks: StoryboardRunTask[] = []
+
+  for (const shot of input.doc.shots) {
+    if (shot.episodeId !== input.episodeId) continue
+    if (selectedShots && !selectedShots.has(shot.id)) continue
+    for (const line of shot.lines) {
+      if (selectedLines && !selectedLines.has(line.id)) continue
+      if (!line.text.trim()) {
+        throw new Error(`台词 ${line.id} 为空，不能生成配音`)
+      }
+      const subject: StoryboardRunSubject = {
+        kind: 'speech',
+        id: `line:${line.id}`,
+        scopeId: `episode:${shot.episodeId}`,
+        episodeId: shot.episodeId,
+        shotId: shot.id,
+        lineId: line.id,
+      }
+      const resolvedTarget = targetOf(input, 'speech', subject)
+      const speech = speechSettingsOf(input.doc, line)
+      const character = input.doc.characters.find(
+        (item) => item.id === line.speakerId,
+      )
+      const characterSpeed = character?.speed
+      const targetVoice =
+        typeof resolvedTarget.params?.voice === 'string'
+          ? resolvedTarget.params.voice
+          : undefined
+      const voice =
+        speech.voice || targetVoice || input.defaultVoice || 'alloy'
+      const targetSpeed =
+        typeof resolvedTarget.params?.speed === 'number' &&
+        Number.isFinite(resolvedTarget.params.speed)
+          ? resolvedTarget.params.speed
+          : undefined
+      const speed = line.speed ?? characterSpeed ?? targetSpeed ?? speech.speed
+      const speaker =
+        character?.name ?? '旁白'
+      const audioName = `${speaker}-${line.text.trim().slice(0, 16)}.mp3`
+      const params = {
+        ...(resolvedTarget.params ?? {}),
+        action: 'speech' as const,
+        episodeId: shot.episodeId,
+        shotId: shot.id,
+        lineId: line.id,
+        voice,
+        speed,
+        responseFormat: 'mp3',
+        audioName,
+        modelIsUpstream: resolvedTarget.modelIsUpstream === true,
+      }
+      tasks.push(
+        taskOf({
+          planId: input.planId,
+          operationId: input.operationId,
+          action: 'speech',
+          subject,
+          request: {
+            kind: 'speech',
+            channelId: resolvedTarget.channelId,
+            model: resolvedTarget.model,
+            prompt: line.text,
+            inputs: [],
+            params,
+            timeoutMs: 120_000,
+            ...(resolvedTarget.credentialGroupId
+              ? { credentialGroupId: resolvedTarget.credentialGroupId }
+              : {}),
+            ...(resolvedTarget.credentialGroupIds?.length
+              ? {
+                  credentialGroupIds: [
+                    ...resolvedTarget.credentialGroupIds,
+                  ],
+                }
+              : {}),
+          },
+          params,
+          dependsOn: dependenciesOf(input, 'speech', subject),
+          parentRunId: input.parentRunId,
+        }),
+      )
+    }
+  }
+  if (tasks.length === 0) throw new Error('漫剧执行计划没有匹配的台词')
+  return {
+    id: input.planId,
+    workbench: 'storyboard',
+    tasks,
+    scope: tasks.length === 1 ? 'node' : 'global',
+    mode: 'single',
+  }
+}
+
+function digitalHumanPlan(
+  input: StoryboardDigitalHumanPlannerInput,
+): StoryboardRunPlan {
+  const episode = input.doc.episodes.find((item) => item.id === input.episodeId)
+  if (!episode) throw new Error(`漫剧分集不存在：${input.episodeId}`)
+  if (!input.audioHash.trim()) throw new Error('数字人执行缺少音频产物')
+  const selected = input.shotIds ? new Set(input.shotIds) : null
+  const shots = input.doc.shots.filter(
+    (shot) =>
+      shot.episodeId === input.episodeId &&
+      (!selected || selected.has(shot.id)),
+  )
+  if (shots.length === 0) throw new Error('漫剧执行计划没有匹配的镜头')
+  const prompt =
+    input.prompt?.trim() ||
+    '生成单人数字人口播视频，保持人物身份、服装、构图与画面风格一致，口型自然贴合配音，避免夸张动作和镜头跳变。'
+  const tasks = shots.map((shot) => {
+    if (!shot.imageHash) {
+      throw new Error(`镜头 ${shot.id} 没有可用于数字人的画面`)
+    }
+    const subject: StoryboardRunSubject = {
+      kind: 'digital-human',
+      id: `shot:${shot.id}`,
+      scopeId: `episode:${shot.episodeId}`,
+      episodeId: shot.episodeId,
+      shotId: shot.id,
+    }
+    const resolvedTarget = targetOf(input, 'digital-human', subject)
+    const params = {
+      ...(resolvedTarget.params ?? {}),
+      ...(input.params ?? {}),
+      action: 'digital-human',
+      episodeId: shot.episodeId,
+      shotId: shot.id,
+      durationSec: shot.durationSec,
+      modelIsUpstream: resolvedTarget.modelIsUpstream === true,
+    }
+    return taskOf({
+      planId: input.planId,
+      operationId: input.operationId,
+      action: 'digital-human',
+      subject,
+      request: requestOf(
+        'video',
+        resolvedTarget,
+        prompt,
+        [
+          {
+            kind: 'asset',
+            nodeId: `shot:${shot.id}:image`,
+            assetHash: shot.imageHash,
+            mime: input.imageMime ?? 'image/png',
+          },
+          {
+            kind: 'asset',
+            nodeId: `shot:${shot.id}:speech`,
+            assetHash: input.audioHash,
+            mime: input.audioMime ?? 'audio/mpeg',
+          },
+        ],
+        params,
+      ),
+      params,
+      dependsOn: dependenciesOf(input, 'digital-human', subject),
+      parentRunId: input.parentRunId,
     })
   })
   return {
@@ -495,6 +701,10 @@ export function buildStoryboardRunPlan(
     plan = assetPlan(input as StoryboardAssetRunPlannerInput)
   } else if (input.action === 'shot-image' || input.action === 'shot-video') {
     plan = shotPlan(input as StoryboardShotRunPlannerInput)
+  } else if (input.action === 'speech') {
+    plan = speechPlan(input as StoryboardSpeechRunPlannerInput)
+  } else if (input.action === 'digital-human') {
+    plan = digitalHumanPlan(input as StoryboardDigitalHumanPlannerInput)
   } else {
     plan = videoPostprocessPlan(
       input as StoryboardVideoPostprocessPlannerInput,

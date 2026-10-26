@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChannelStore } from '../../state/channel/channelStore'
-import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import type {
+  StoryboardCanvasEdge,
+  StoryboardCanvasNode,
+  StoryboardCanvasPort,
+} from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import type { StoryboardDocumentPort } from '../../features/storyboard/execution/storyboardCommandExecutor'
 import type { StoryboardRunPlan } from '../../domain/storyboard/runTypes'
@@ -11,15 +15,14 @@ import {
   type StoryboardDoc,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import type { Edge } from '../../domain/canvas/model/edge'
 import type { RunTaskState } from '../../features/shared/execution/runEngine'
+import { createMemoryStorage } from '../../platform/memory'
 import { createStoryboardVideoExecutionController } from './useStoryboardVideoExecutionController'
 
 function fixture(): {
   doc: StoryboardDoc
   shot: StoryboardShot
-  nodes: NodeSnapshot[]
+  nodes: StoryboardCanvasNode[]
 } {
   let doc = emptyStoryboard('project-1', 1)
   doc = addEpisode(doc)
@@ -51,7 +54,7 @@ function fixture(): {
           model: 'image-model',
           assetMime: 'image/webp',
         },
-      } as NodeSnapshot,
+      } as StoryboardCanvasNode,
     ],
   }
 }
@@ -113,7 +116,7 @@ describe('useStoryboardVideoExecutionController', () => {
     const controller = createStoryboardVideoExecutionController({
       currentDoc: () => doc,
       graphNodes: nodes,
-      graphEdges: [] as Edge[],
+      graphEdges: [] as StoryboardCanvasEdge[],
       liveNodeIds: new Set(['image-node']),
       channels: {
         defaultForNewNode: async () => ({
@@ -133,6 +136,7 @@ describe('useStoryboardVideoExecutionController', () => {
           ],
         }),
       } as unknown as ChannelStore,
+      storage: createMemoryStorage(),
       canvas: {
         createGenerationNode,
         updateNodeData: vi.fn(),
@@ -200,7 +204,7 @@ describe('useStoryboardVideoExecutionController', () => {
         h: 200,
         parentId: null,
         data: { assetMime: 'video/webm' },
-      } as NodeSnapshot,
+      } as StoryboardCanvasNode,
     ]
     let captured: StoryboardRunPlan | undefined
     let replaced: StoryboardDoc | undefined
@@ -217,13 +221,29 @@ describe('useStoryboardVideoExecutionController', () => {
         videoHash: 'edited-video',
       })),
     }
+    const storage = createMemoryStorage({
+      rows: {
+        runRecords: [
+          {
+            id: 'record-parent-video',
+            projectId: 'project-1',
+            workbench: 'storyboard',
+            subjectId: `shot:${withVideo.shots[0]!.id}`,
+            status: 'succeeded',
+            createdAt: 5,
+            params: { action: 'shot-video' },
+          },
+        ],
+      },
+    })
     const beginPlan = vi.fn()
     const controller = createStoryboardVideoExecutionController({
       currentDoc: () => withVideo,
       graphNodes: videoNodes,
-      graphEdges: [] as Edge[],
+      graphEdges: [] as StoryboardCanvasEdge[],
       liveNodeIds: new Set(['image-node', 'video-old']),
       channels: {} as ChannelStore,
+      storage,
       canvas: {
         createGenerationNode: vi.fn(() => 'video-edited-node'),
         updateNodeData: vi.fn(),
@@ -271,6 +291,7 @@ describe('useStoryboardVideoExecutionController', () => {
 
     expect(captured?.tasks[0]).toMatchObject({
       action: 'video-edit',
+      parentRunId: 'record-parent-video',
       request: {
         prompt: '把天空改成黄昏',
         inputs: [
@@ -320,7 +341,7 @@ describe('useStoryboardVideoExecutionController', () => {
         h: 200,
         parentId: null,
         data: { assetMime: 'video/mp4' },
-      } as NodeSnapshot,
+      } as StoryboardCanvasNode,
     ]
     const actions: string[] = []
     const run = vi.fn(async (plan: StoryboardRunPlan) => {
@@ -330,9 +351,10 @@ describe('useStoryboardVideoExecutionController', () => {
     const controller = createStoryboardVideoExecutionController({
       currentDoc: () => withVideo,
       graphNodes: videoNodes,
-      graphEdges: [] as Edge[],
+      graphEdges: [] as StoryboardCanvasEdge[],
       liveNodeIds: new Set(['image-node', 'video-old']),
       channels: {} as ChannelStore,
+      storage: createMemoryStorage(),
       canvas: {
         createGenerationNode: vi.fn(() => `result-${actions.length}`),
         updateNodeData: vi.fn(),
