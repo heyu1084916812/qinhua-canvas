@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from '../../../platform/memory'
+import type { StoragePort } from '../../../platform/ports'
 import { createEcommerceCanvasRepository } from '../../../state/project/ecommerceCanvasRepository'
 import { createEcommerceTaskRepository } from '../../../state/project/ecommerceTaskRepository'
 import { executeEcommerceCommands } from './ecommerceCommandExecutor'
@@ -184,5 +185,98 @@ describe('executeEcommerceCommands', () => {
       status: 'done',
       assetHash: 'asset2',
     })
+  })
+
+  it('素材写入失败时保持可恢复失败态，成功 RunRecord 不能把结果补成 done', async () => {
+    const { platform, taskRepo, canvasRepo, created } = await fixture()
+    await taskRepo.updateResult({
+      ...created.results[0]!,
+      status: 'done',
+      assetHash: 'old-asset',
+      mime: 'image/jpeg',
+      width: 32,
+      height: 32,
+      updatedAt: 0,
+    })
+    const baseStorage = platform.storage
+    const storage: StoragePort = {
+      ...baseStorage,
+      async put(table, row) {
+        if (table === 'assets') throw new Error('磁盘空间不足')
+        await baseStorage.put(table, row)
+      },
+    }
+    const warnings = await executeEcommerceCommands(
+      [
+        {
+          kind: 'result.status',
+          planId: 'ecommerce:ect_1:run',
+          resultId: created.results[0]!.id,
+          status: 'running',
+        },
+        {
+          kind: 'result.commit',
+          planId: 'ecommerce:ect_1:run',
+          resultId: created.results[0]!.id,
+          prompt: '素材保存失败测试',
+          model: 'image-model',
+          assets: [
+            {
+              hash: 'asset-storage-failed',
+              mime: 'image/png',
+              bytes: new Uint8Array([1, 2, 3]),
+            },
+          ],
+        },
+        {
+          kind: 'runRecord.finalize',
+          planId: 'ecommerce:ect_1:run',
+          record: {
+            id: 'rec-storage-failed',
+            nodeId: created.results[0]!.nodeId,
+            projectId: 'p1',
+            version: 1,
+            createdAt: 1,
+            status: 'succeeded',
+            inputs: [],
+            params: {},
+            outputHashes: ['asset-storage-failed'],
+            fingerprint: 'fp',
+            taskId: 'task1',
+            durationMs: 10,
+            outputWidth: 64,
+            outputHeight: 64,
+          },
+          resultId: created.results[0]!.id,
+        },
+        {
+          kind: 'projection.sync',
+          planId: 'ecommerce:ect_1:run',
+          projectId: 'p1',
+          taskId: created.task.id,
+        },
+      ],
+      {
+        storage,
+        taskRepo,
+        canvasRepo,
+        now: () => 10,
+      },
+    )
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('素材保存失败')
+    expect(await taskRepo.result(created.results[0]!.id)).toMatchObject({
+      status: 'failed',
+      recovery: 'retry-save',
+      errorText: expect.stringContaining('不要重新生成'),
+    })
+    const failedResult = await taskRepo.result(created.results[0]!.id)
+    expect(failedResult?.assetHash).toBeUndefined()
+    expect(failedResult?.mime).toBeUndefined()
+    expect(failedResult?.width).toBeUndefined()
+    expect(failedResult?.height).toBeUndefined()
+    expect(await platform.storage.query('runRecords', { projectId: 'p1' })).toHaveLength(1)
+    expect((await taskRepo.list('p1'))[0]?.status).toBe('failed')
   })
 })

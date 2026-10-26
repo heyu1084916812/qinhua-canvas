@@ -119,6 +119,7 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     ...(stringOrUndefined(row.prompt) ? { prompt: String(row.prompt) } : {}),
     ...(stringOrUndefined(row.model) ? { model: String(row.model) } : {}),
     ...(stringOrUndefined(row.errorText) ? { errorText: String(row.errorText) } : {}),
+    ...(row.recovery === 'retry-save' ? { recovery: 'retry-save' as const } : {}),
     ...resultMetadataOf({
       shotTitle: stringOrUndefined(row.shotTitle),
       brief: stringOrUndefined(row.brief),
@@ -417,7 +418,7 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         }
         const succeeded = runStatus === 'succeeded'
         const assetHash = outputHash ?? row.assetHash
-        const { errorText: _oldError, ...rest } = row
+        const { errorText: _oldError, recovery: _oldRecovery, ...rest } = row
         const next: EcommerceResultRecord = {
           ...rest,
           updatedAt: at,

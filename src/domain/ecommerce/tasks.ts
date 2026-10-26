@@ -17,6 +17,14 @@ export interface EcommerceResultMetadata {
 /** 逐格结果状态（与界面上的 EcommerceResultItem.status 一一对应，canceled 归到 failed 展示） */
 export type EcommerceResultStatus = 'pending' | 'running' | 'done' | 'failed' | 'canceled'
 
+/**
+ * 失败后允许的恢复动作。
+ *
+ * `retry-save` 专指模型已经成功返回、只是素材字节没有落库：
+ * 后续只能重试保存同一份产物，不能重新调用付费生成接口。
+ */
+export type EcommerceResultRecovery = 'retry-save'
+
 /** 电商结果卡真正展示的三种状态（取消归到失败；不存在等待态）。 */
 export type EcommerceDisplayResultStatus = 'running' | 'done' | 'failed'
 
@@ -100,6 +108,8 @@ export interface EcommerceResultRecord extends EcommerceResultMetadata {
   prompt?: string
   model?: string
   errorText?: string
+  /** 仅失败态使用；旧记录没有该字段时按普通生成失败处理。 */
+  recovery?: EcommerceResultRecovery
 }
 
 /**

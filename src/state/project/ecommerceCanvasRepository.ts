@@ -95,6 +95,7 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
       ? { visualSystem: row.visualSystem }
       : {}),
     ...(typeof row.errorText === 'string' ? { errorText: row.errorText } : {}),
+    ...(row.recovery === 'retry-save' ? { recovery: 'retry-save' as const } : {}),
   }
 }
 
