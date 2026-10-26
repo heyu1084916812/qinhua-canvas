@@ -461,4 +461,74 @@ describe('runEngine / 回调参数契约', () => {
     expect(stateOwner.nodeId).toBe(CARRIER)
     expect(stateOwner.nodeId).not.toBe('source-node')
   })
+
+  it.each(['cors', 'dns', 'tls'] as const)(
+    'network %s after POST is unknown and is not resubmitted',
+    async (detail) => {
+      const plan = makePlan()
+      let calls = 0
+      const summary = await runEngine(plan, {
+        signal: new AbortController().signal,
+        projectId: 'p1',
+        recordScope: scopeOf,
+        channelResolver: () =>
+          ({
+            protocol: 'mock',
+            async generateImage() {
+              calls += 1
+              throw { kind: 'network', detail, sendPhase: 'unknown' }
+            },
+          }) as never,
+        writeBack: () => {},
+        placement: {
+          begin: () => ({ targetId: CARRIER, commands: [] }),
+          commit: () => [],
+          shouldCollect: () => false,
+          record: () => null,
+          finalize: () => [],
+        },
+        policy: { maxRetries: 2, backoffBase: 1 },
+        now: () => 0,
+        wait: () => Promise.resolve(),
+      })
+
+      expect(calls).toBe(1)
+      expect(summary.failed).toBe(1)
+    },
+  )
+
+  it('only a proven not-sent network error is retried', async () => {
+    const plan = makePlan()
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            if (calls === 1) {
+              throw { kind: 'network', detail: 'aborted', sendPhase: 'not-sent' }
+            }
+            return [{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array([1]) }]
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 1, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(calls).toBe(2)
+    expect(summary.succeeded).toBe(1)
+  })
 })

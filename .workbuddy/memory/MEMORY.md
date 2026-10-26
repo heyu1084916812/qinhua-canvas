@@ -52,10 +52,12 @@
   适配器，`channelResolver` 按 `routingAttempt` 选择。显式渠道也必须先看实际分组再判断 Key。
 - 电商素材写入失败不是普通投影失败：结果进入“已生成、待保存”，清空旧 assetHash，
   不能被成功 RunRecord 兜成 `done`。没有留存可恢复字节时，不能假装“重试保存”已可用。
-- 408 可能发生在上游已受理之后，任何付费 POST 都不得自动重发；默认策略与
-  `isRetryableStatus()` 都已移除 408。运输层只有 GET 可切原生 HTTP，POST/PUT/DELETE 不得
-  回落；异步任务提交后的轮询 408/429/5xx 只能在 adapter 内继续查询，终态错误使用不可重试的
-  `execution/accepted`，不能让 `runEngine` 重新 POST。仍需逐族审计适配器内部重试循环。
+- 付费 POST 的阶段必须显式表达：`sendPhase:'not-sent'` 才能在网络层重提，
+  缺失或 `unknown` 都按“可能已到达上游”处理。CORS / DNS / TLS / 超时 / 响应丢失不得
+  整任务重提或换组；`fetchNetwork` 只在 fetch 调用前已取消时标 `not-sent`。运输层只有 GET
+  可切原生 HTTP，POST/PUT/DELETE 不得回落。异步任务提交后轮询失败和总超时必须结束为
+  不可重试的 `execution/accepted`。剩余 `openaiImages` SoonStudio、`openaiVideo`、
+  `s65535`、`runninghub` 的提交后轮询仍要逐族迁移，不能因单测全绿就宣称全适配器闭合。
 - **批次一最终复核只认 P0-4 完成**。下一批五个硬边界：删渠道先让内存失效再清凭据；CORS / DNS
   不能在无法证明“请求未发出”时整任务重试；retry-save 必须有可恢复句柄和独立按钮；reconcile
   要校验素材字节可读；漫剧画布执行必须写镜头 / 资产 / 台词业务主体。日志共享查询层也还没落地。
@@ -596,8 +598,9 @@
   modelCache / priority`；渠道级模型只是各组去重后的聚合。老主 / 备用槽读回时自动派生为分组。
 - **执行缓存键必须带分组**：同一个 `channelId` 下不同 Key 是不同适配器，键为
   `channelId + credentialGroupId + kind`。只按渠道缓存会让后一个分组覆盖前一个。
-- **只有可恢复错误才能换组**：401 / 403 / 429 / 5xx 与 DNS / TLS / CORS 允许试下一分组；
-  **timeout / aborted / 响应丢失不能换组重发**，上游可能已计费。任务请求保存按优先级排序的
+- **只有服务端明确响应的可恢复错误才能换组**：401 / 403 / 429 / 5xx 允许试下一分组；
+  **CORS / DNS / TLS / timeout / aborted / 响应丢失不能换组重发**，浏览器无法证明请求未到达，
+  上游可能已计费。A2 后仅显式 `sendPhase:'not-sent'` 可重提或换组。任务请求保存按优先级排序的
   `credentialGroupIds`，`routingAttempt` 只在本机选择对应分组。
 - **分类要有未知档**：`unknown` 不默认塞进 chat；站点原值存 `upstreamCategory`，手动覆盖存
   `categoryManual`，重新拉取保留用户选择。

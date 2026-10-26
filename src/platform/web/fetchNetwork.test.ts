@@ -269,4 +269,60 @@ describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
       globalThis.fetch = original
     }
   })
+
+  it('POST CORS failure is marked unknown and never falls back to shell', async () => {
+    let shellCalls = 0
+    const network = createFetchNetwork({
+      request: async () => {
+        shellCalls += 1
+        return { status: 200, headers: {}, text: '{}' }
+      },
+    })
+    const original = globalThis.fetch
+    globalThis.fetch = (() => {
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    try {
+      await expect(
+        network.request(
+          { url: 'https://soonstudio.ai/v1/images/generations', method: 'POST', body: {} },
+          abort(),
+        ),
+      ).rejects.toMatchObject({
+        kind: 'network',
+        detail: 'dns',
+        sendPhase: 'unknown',
+      })
+      expect(shellCalls).toBe(0)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('an already-aborted request is explicitly not-sent and does not call fetch', async () => {
+    const network = createFetchNetwork()
+    let fetchCalls = 0
+    const original = globalThis.fetch
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      return new Response('should not run')
+    }) as typeof fetch
+    const controller = new AbortController()
+    controller.abort()
+    try {
+      await expect(
+        network.request(
+          { url: 'https://soonstudio.ai/v1/images/generations', method: 'POST', body: {} },
+          controller.signal,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'network',
+        detail: 'aborted',
+        sendPhase: 'not-sent',
+      })
+      expect(fetchCalls).toBe(0)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
 })

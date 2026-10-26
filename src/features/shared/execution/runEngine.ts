@@ -10,7 +10,11 @@ import type { TransactionBoundary } from '../../../state/shared/types'
 import { describeError, type AppError } from '../../../shared/result'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
 import { ChannelError } from '../../../platform/channels/types'
-import { backoffMs, isRetryableStatus } from '../../../domain/shared/task'
+import {
+  backoffMs,
+  isRequestResendSafe,
+  isRetryableStatus,
+} from '../../../domain/shared/task'
 import { createId } from '../../../shared/id'
 import type { CollectedAsset, ExecutionPlacement } from './placement'
 
@@ -121,20 +125,24 @@ function normalizeError(e: unknown): AppError {
   if (e instanceof ChannelError) return e.appError
   if (e && typeof e === 'object' && 'kind' in e) return e as AppError
   if (e instanceof Error) {
-    if (e.name === 'AbortError') return { kind: 'network', detail: 'aborted' }
-    if (e.name === 'TimeoutError') return { kind: 'network', detail: 'timeout' }
+    if (e.name === 'AbortError') {
+      return { kind: 'network', detail: 'aborted', sendPhase: 'unknown' }
+    }
+    if (e.name === 'TimeoutError') {
+      return { kind: 'network', detail: 'timeout', sendPhase: 'unknown' }
+    }
   }
   return { kind: 'parse', raw: String(e) }
 }
 
 function isRetryable(error: AppError, policy: RunPolicy): boolean {
   /**
-   * 超时可能发生在上游已经受理、只是还没返回的时候。自动重发会拉长等待，
-   * 也可能产生第二笔付费生成；让用户看到真实超时后手动决定是否重试。
-   * 地址 / TLS / CORS 这类立刻失败的连接问题仍可按策略重试。
+   * 付费 POST 一旦进入传输层，浏览器就无法证明上游是否已经受理。
+   * DNS / TLS / CORS / 超时 / 响应丢失都必须按“可能已到达”处理；
+   * 只有错误明确标记为 `not-sent` 时才允许再次提交。
    */
   if (error.kind === 'network') {
-    return error.detail !== 'aborted' && error.detail !== 'timeout'
+    return isRequestResendSafe(error)
   }
   if (error.kind === 'http') {
     // 408 可能发生在上游已受理之后；即使宿主误配 retryableStatuses，也不能重发付费 POST。
@@ -160,13 +168,13 @@ function isRetryable(error: AppError, policy: RunPolicy): boolean {
 /**
  * 同一渠道换 Key 分组前允许跨过的错误。
  *
- * 这里刻意不把 `timeout / aborted` 算进来：请求可能已经到达上游并扣费，
- * 自动换组会变成第二次付费提交。DNS / TLS / CORS 属于连接未建立的失败，
- * 401 / 403 / 429 / 5xx 才是换一把 Key 可能恢复的范围。
+ * 网络层无法可靠证明 DNS / TLS / CORS 错误发生在发送之前，自动换组
+ * 同样会变成第二次付费提交。只有显式 `not-sent` 才可换组；
+ * 401 / 403 / 429 / 5xx 才是服务端已给出响应的换 Key 范围。
  */
 function isGroupSwitchable(error: AppError): boolean {
   if (error.kind === 'network') {
-    return error.detail === 'dns' || error.detail === 'tls' || error.detail === 'cors'
+    return isRequestResendSafe(error)
   }
   if (error.kind === 'http') {
     return error.status === 401 || error.status === 403 || error.status === 429 || error.status >= 500

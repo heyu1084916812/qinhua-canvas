@@ -304,6 +304,32 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(assets).toHaveLength(1)
   })
 
+  it('CORS on video submission sends exactly one POST and does not try the fallback body', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+        }
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, {
+      sleep: async () => {},
+      now: () => 0,
+    })
+
+    await expect(
+      adapter.generateVideo(videoRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      kind: 'network',
+      detail: 'cors',
+      sendPhase: 'unknown',
+    })
+    expect(submitPosts).toBe(1)
+  })
+
   /**
    * **2026-10-03 实测推翻旧口径**（对账清单 #115）：
    *

@@ -1,8 +1,18 @@
 /**
  * 错误在产生处分类，在展示处映射文案（架构 §6.2）
  */
+export type RequestSendPhase = 'not-sent' | 'unknown'
+
 export type AppError =
-  | { kind: 'network'; detail: 'dns' | 'tls' | 'cors' | 'timeout' | 'aborted' }
+  | {
+      kind: 'network'
+      detail: 'dns' | 'tls' | 'cors' | 'timeout' | 'aborted'
+      /**
+       * Missing means `unknown` for backward compatibility. Only an explicit
+       * `not-sent` value may be treated as safe for a paid request resubmit.
+       */
+      sendPhase?: RequestSendPhase
+    }
   | { kind: 'http'; status: number; body?: string; verbatim?: boolean }
   | { kind: 'parse'; raw: string }
   | { kind: 'storage'; detail: 'quota' | 'corrupt' | 'permission' }

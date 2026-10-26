@@ -161,7 +161,7 @@ describe('异步任务族适配器', () => {
     ).rejects.toThrow(ChannelError)
   })
 
-  it('轮询超时：处理中一直不落终态，超时报 timeout 而不是无限等待', async () => {
+  it('轮询超时：任务已提交，结束时保留 accepted 阶段而不是误判为可重提', async () => {
     let now = 0
     const platform = createMemoryPlatform({
       handler: async () => json(200, { id: 'task_3', status: 'processing' }),
@@ -176,7 +176,9 @@ describe('异步任务族适配器', () => {
     })
     await expect(
       adapter.generateImage(imageRequest, new AbortController().signal),
-    ).rejects.toThrow(ChannelError)
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
   })
 
   it('verify 仍走 /models：异步站在连通性上与 OpenAI 兼容同形', async () => {
@@ -229,5 +231,55 @@ describe('异步任务族适配器', () => {
       }),
     ).toEqual(['a', 'b', 'c'])
     expect(resultUrlsOf({ status: 'completed' })).toEqual([])
+  })
+
+  it('submission CORS failure sends exactly one POST and keeps unknown phase', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+        }
+        return json(404, {})
+      },
+    })
+    const adapter = createAsyncTaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    })
+
+    await expect(
+      adapter.generateImage(imageRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      kind: 'network',
+      detail: 'cors',
+      sendPhase: 'unknown',
+    })
+    expect(submitPosts).toBe(1)
+  })
+
+  it('poll CORS after submission keeps one POST and ends as accepted', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          return json(200, { data: { task_id: 'task_poll_cors' } })
+        }
+        throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+      },
+    })
+    const adapter = createAsyncTaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    })
+
+    await expect(
+      adapter.generateImage(imageRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
   })
 })

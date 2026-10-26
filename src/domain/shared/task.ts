@@ -1,3 +1,5 @@
+import type { AppError } from '../../shared/result'
+
 /** 异步操作状态机（产品文档 §10.1） */
 export type TaskState =
   | 'idle'
@@ -58,6 +60,10 @@ export function backoffMs(attempt: number, baseMs: number, jitter: number): numb
 export function isRetryableStatus(status: number): boolean {
   if (status === 429) return true
   return status >= 500 && status <= 599
+}
+
+export function isRequestResendSafe(error: AppError): boolean {
+  return error.kind === 'network' && error.sendPhase === 'not-sent'
 }
 
 /** 日志按项目滚动裁剪，保留最近 limit 条 */

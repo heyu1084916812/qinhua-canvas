@@ -278,7 +278,11 @@ export function createAsyncTaskAdapter(
       const payload = (await res.json<TaskPayload>().catch(() => ({}))) as TaskPayload
       if (isTerminalStatus(payload.status)) return payload
       if (now() - startedAt >= pollTimeout) {
-        throw new ChannelError({ kind: 'network', detail: 'timeout' })
+        throw new ChannelError({
+          kind: 'execution',
+          detail: 'accepted',
+          message: `task ${taskId} submitted; result polling timed out`,
+        })
       }
       await sleepFn(pollInterval, signal)
     }

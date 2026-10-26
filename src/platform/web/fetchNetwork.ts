@@ -63,13 +63,15 @@ export function requestInit(req: NetworkRequest): { headers: Record<string, stri
 }
 
 function toAppError(e: unknown, signal: AbortSignal): AppError {
-  if (signal.aborted) return { kind: 'network', detail: 'aborted' }
+  if (signal.aborted) {
+    return { kind: 'network', detail: 'aborted', sendPhase: 'unknown' }
+  }
   if (e && typeof e === 'object' && 'kind' in e) return e as AppError
   const name = e instanceof Error ? e.name : ''
   if (name === 'AbortError' || name === 'TimeoutError') {
-    return { kind: 'network', detail: 'timeout' }
+    return { kind: 'network', detail: 'timeout', sendPhase: 'unknown' }
   }
-  return { kind: 'network', detail: 'dns' }
+  return { kind: 'network', detail: 'dns', sendPhase: 'unknown' }
 }
 
 function toResponse(status: number, headers: Record<string, string>, buffer: ArrayBuffer): NetworkResponse {
@@ -206,6 +208,13 @@ export function createFetchNetwork(remote?: {
 
   return {
     async request(req: NetworkRequest, signal: AbortSignal): Promise<NetworkResponse> {
+      if (signal.aborted) {
+        throw {
+          kind: 'network',
+          detail: 'aborted',
+          sendPhase: 'not-sent',
+        } satisfies AppError
+      }
       const controller = new AbortController()
       const onAbort = (): void => controller.abort()
       signal.addEventListener('abort', onAbort, { once: true })

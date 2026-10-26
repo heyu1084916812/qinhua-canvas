@@ -267,6 +267,34 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('CORS on SoonStudio submission sends exactly one POST and never tries another create endpoint', async () => {
+    let submitPosts = 0
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.method === 'POST') {
+            submitPosts += 1
+            throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    await expect(
+      a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'http', status: 504 },
+    })
+    expect(submitPosts).toBe(1)
+  })
+
   it('★★ SoonStudio 单次轮询超时不会终止任务，下一次成功仍返回图片', async () => {
     const tiny = solidPng(4, 3, [0x11, 0x22, 0x33])
     const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }

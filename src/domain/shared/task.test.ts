@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { backoffMs, isRetryableStatus, trimLog, isInterruptible, isTerminal } from './task'
+import {
+  backoffMs,
+  isRequestResendSafe,
+  isRetryableStatus,
+  trimLog,
+  isInterruptible,
+  isTerminal,
+} from './task'
 
 describe('重试与退避', () => {
   it('退避按 2 的幂增长并叠加抖动', () => {
@@ -20,6 +27,17 @@ describe('重试与退避', () => {
     expect(isRetryableStatus(400)).toBe(false)
     expect(isRetryableStatus(401)).toBe(false)
     expect(isRetryableStatus(404)).toBe(false)
+  })
+
+  it('only explicitly not-sent network errors are safe to resubmit', () => {
+    expect(
+      isRequestResendSafe({ kind: 'network', detail: 'cors', sendPhase: 'not-sent' }),
+    ).toBe(true)
+    expect(
+      isRequestResendSafe({ kind: 'network', detail: 'cors', sendPhase: 'unknown' }),
+    ).toBe(false)
+    expect(isRequestResendSafe({ kind: 'network', detail: 'dns' })).toBe(false)
+    expect(isRequestResendSafe({ kind: 'http', status: 408 })).toBe(false)
   })
 })
 
