@@ -16,7 +16,6 @@ import {
 } from '../../domain/project/protocol'
 import {
   buildDefaultModelMap,
-  resolveUpstreamModel,
   setModelMapping,
 } from '../../domain/project/modelMapping'
 import type { RouteStrategy } from '../../domain/project/modelRouting'
@@ -39,6 +38,7 @@ import {
   createChannelAdapter,
   type ResolvedChannelConfig,
 } from '../../platform/channels/registry'
+import { ChannelError } from '../../platform/channels/types'
 import type {
   GeneratedAsset,
   SpeechRunRequest,
@@ -49,6 +49,14 @@ import type {
 import type { ChatMessage, NodeInput, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
 import { createId } from '../../shared/id'
+import {
+  createGenerationClient,
+  resolvedChannelConfig,
+} from '../../platform/generation'
+import {
+  runDirectGeneration,
+  type DirectRunTraceInput,
+} from '../shared/directRun'
 
 /**
  * zustand 5 的 createStore 类型与本项目装好的 TypeScript 6 泛型推断冲突（见 state/workbenches/canvas/store.ts）。
@@ -279,14 +287,22 @@ export interface ChannelStoreActions {
     signal: AbortSignal
     /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
     timeoutMs?: number
+    /** 直连动作的统一运行记录；不传时只执行、不留痕（兼容旧调用）。 */
+    trace?: DirectRunTraceInput
   }): Promise<TextResult>
   /** 单次 TTS：文本 → 音频字节；调用方负责把产物写进 assets。 */
   generateSpeech(
-    req: SpeechRunRequest & { signal: AbortSignal },
+    req: SpeechRunRequest & {
+      signal: AbortSignal
+      trace?: DirectRunTraceInput
+    },
   ): Promise<GeneratedAsset>
   /** 单次视频调用；给不经过画布节点的直连工作流（如漫剧数字人口播）使用。 */
   generateVideo(
-    req: VideoRunRequest & { signal: AbortSignal },
+    req: VideoRunRequest & {
+      signal: AbortSignal
+      trace?: DirectRunTraceInput
+    },
   ): Promise<GeneratedAsset[]>
 }
 
@@ -309,16 +325,7 @@ function timeoutSignal(ms: number): AbortSignal {
 }
 
 function toSafeConfig(ch: Channel, catalog: ProtocolCatalog): ResolvedChannelConfig {
-  return {
-    id: ch.id,
-    protocol: ch.protocol,
-    protocolDefinition: protocolById(ch.protocol, catalog),
-    baseUrl: ch.baseUrl,
-    credentialRef: ch.credentialRef,
-    modelCache: ch.modelCache,
-    apiKey: null,
-    altApiKey: null,
-  }
+  return resolvedChannelConfig(ch, catalog, null, null)
 }
 
 /**
@@ -333,6 +340,11 @@ export function createChannelStore(
   const seedBuiltins = opts.seedBuiltins !== false
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
   const presets: PresetStore = createPresetStore(platform.storage)
+  const generation = createGenerationClient({
+    platform,
+    catalog: () => catalog(),
+    loadToken: (credentialRef) => repo.loadToken(credentialRef),
+  })
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
     routeStrategy: 'priority',
@@ -1280,52 +1292,52 @@ export function createChannelStore(
    * 不另写一份 —— 那两份迟早分叉（比如只在一处补了协议定义）。
    */
   const completeWithTools: ChannelStoreActions['completeWithTools'] = async ({
-    channelId,
-    model,
+    channelId: requestedChannelId,
+    model: requestedModel,
     modelIsUpstream = false,
     tools,
     messages,
     inputs = [],
     signal,
     timeoutMs,
+    trace,
   }) => {
-    const ch = store.getState().channels.find((c) => c.id === channelId)
-    if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
-    const { apiKey, altApiKey } = await loadKeys(ch)
-    const config: ResolvedChannelConfig = {
-      ...toSafeConfig(ch, catalog()),
-      apiKey,
-      altApiKey,
-    }
-    const adapter = createChannelAdapter(config, platform)
-    /**
-     * 逻辑名 → 上游 ID（M7-4 同一条映射）：调用方发的是**前端显示名**
-     * （「GPT-6 Astra」「Agnes 2.5 Pro」这种），真正发给上游的必须是渠道
-     * 映射后的真实 ID。图片 / 视频链路早就在 `toRunRequest` 里做这一步，
-     * 文本这条此前漏了 —— 直接把显示名当上游 ID 发出去。
-     */
-    /**
-     * `resolveUpstreamModel` 的 null 只发生在「传入的是空串」这一种情况；
-     * 上面已经拦过空模型，这里兜一层保持类型收窄 —— 不静默换模型。
-     */
-    const upstreamModel = modelIsUpstream
-      ? model
-      : (resolveUpstreamModel(ch.modelMap, model) ?? model)
-    return adapter.completeText(
+    const ch = store.getState().channels.find((c) => c.id === requestedChannelId)
+    if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+    const call = () => generation.completeText(
       {
-        kind: 'text',
-        channelId,
-        model: upstreamModel,
-        prompt: '',
-        inputs: [...inputs],
-        params: {},
-        tools,
-        messages,
-        /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
-        timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
+        channel: ch,
+        model: requestedModel,
+        request: {
+          kind: 'text',
+          prompt: '',
+          inputs: [...inputs],
+          params: {},
+          tools,
+          messages,
+          /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
+          timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
+        },
+        hints: {
+          modelIsUpstream,
+          operationId: `text:${requestedChannelId}:${requestedModel}`,
+        },
       },
       signal,
     )
+    if (!trace) return call()
+    return (
+      await runDirectGeneration({
+        storage: platform.storage,
+        trace: {
+          ...trace,
+          inputs: trace.inputs ?? [...inputs],
+        },
+        signal,
+        call,
+        outputHashesOf: () => [],
+      })
+    ).result
   }
 
   const generateSpeech: ChannelStoreActions['generateSpeech'] = async ({
@@ -1337,49 +1349,74 @@ export function createChannelStore(
     speed,
     responseFormat,
     timeoutMs,
+    trace,
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
-    if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
-    const { apiKey, altApiKey } = await loadKeys(ch)
-    const config: ResolvedChannelConfig = {
-      ...toSafeConfig(ch, catalog()),
-      apiKey,
-      altApiKey,
-    }
-    const adapter = createChannelAdapter(config, platform)
-    if (!adapter.generateSpeech) {
-      throw new Error('[channelStore] 当前渠道未实现配音能力')
-    }
-    const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
-    return adapter.generateSpeech(
+    if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+    const call = () => generation.generateSpeech(
       {
-        channelId,
-        model: upstreamModel,
-        text,
-        voice,
-        ...(speed !== undefined ? { speed } : {}),
-        ...(responseFormat ? { responseFormat } : {}),
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        channel: ch,
+        model,
+        request: {
+          text,
+          voice,
+          ...(speed !== undefined ? { speed } : {}),
+          ...(responseFormat ? { responseFormat } : {}),
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        },
+        hints: {
+          operationId: `speech:${channelId}:${model}`,
+        },
       },
       signal,
     )
+    if (!trace) return call()
+    return (
+      await runDirectGeneration({
+        storage: platform.storage,
+        trace,
+        signal,
+        call,
+        outputHashesOf: (result) => [result.hash],
+        outputAssetOf: (result) => result,
+      })
+    ).result
   }
 
   const generateVideo: ChannelStoreActions['generateVideo'] = async ({
     signal,
+    channelId,
+    model,
+    trace,
     ...request
   }) => {
-    const ch = store.getState().channels.find((c) => c.id === request.channelId)
-    if (!ch) throw new Error(`[channelStore] 渠道不存在：${request.channelId}`)
-    const { apiKey, altApiKey } = await loadKeys(ch)
-    const config: ResolvedChannelConfig = {
-      ...toSafeConfig(ch, catalog()),
-      apiKey,
-      altApiKey,
-    }
-    const adapter = createChannelAdapter(config, platform)
-    const upstreamModel = resolveUpstreamModel(ch.modelMap, request.model) ?? request.model
-    return adapter.generateVideo({ ...request, model: upstreamModel }, signal)
+    const ch = store.getState().channels.find((c) => c.id === channelId)
+    if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+    const call = () => generation.generateVideo(
+      {
+        channel: ch,
+        model,
+        request,
+        hints: {
+          operationId: `video:${channelId}:${model}`,
+        },
+      },
+      signal,
+    )
+    if (!trace) return call()
+    return (
+      await runDirectGeneration({
+        storage: platform.storage,
+        trace: {
+          ...trace,
+          inputs: trace.inputs ?? request.inputs,
+        },
+        signal,
+        call,
+        outputHashesOf: (result) => result.map((asset) => asset.hash),
+        outputAssetOf: (result) => result[0],
+      })
+    ).result
   }
 
   return {

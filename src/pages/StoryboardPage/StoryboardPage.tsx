@@ -7,6 +7,7 @@ import { flushOnPageHide } from '../../app/session'
 import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
+import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import { createStore } from '../../state/createStore'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
@@ -341,6 +342,42 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     channels.subscribe,
     channels.getState,
     channels.getState,
+  )
+  const directTrace = useCallback(
+    (args: {
+      subjectId: string
+      kind: 'text' | 'video' | 'speech'
+      channelId: string
+      model: string
+      payload: unknown
+      inputs?: DirectRunTraceInput['inputs']
+      params?: Record<string, unknown>
+    }): DirectRunTraceInput => ({
+      projectId,
+      workbench: 'storyboard',
+      subjectId: args.subjectId,
+      scopeId: projectId,
+      operationId: `${args.kind}:${args.subjectId}`,
+      inputs: args.inputs ?? [],
+      params: {
+        kind: args.kind,
+        channelId: args.channelId,
+        model: args.model,
+        ...args.params,
+      },
+      fingerprint: fingerprintBytesSync(
+        new TextEncoder().encode(
+          JSON.stringify({
+            kind: args.kind,
+            channelId: args.channelId,
+            model: args.model,
+            payload: args.payload,
+            params: args.params ?? {},
+          }),
+        ),
+      ),
+    }),
+    [projectId],
   )
   const digitalHumanTarget = useMemo(() => {
     for (const modelId of DIGITAL_HUMAN_MODEL_IDS) {
@@ -867,15 +904,24 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     /* 30 秒兜底：这是一次"看一眼清单"的小请求，卡住不该让按钮一直转 */
     const timer = setTimeout(() => ac.abort(), 30_000)
     try {
+      const system = buildMergeSystem()
+      const user = buildMergeText(doc)
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
         model: chatTarget.model,
         tools: [],
         messages: [
-          { role: 'system', content: buildMergeSystem() },
-          { role: 'user', content: buildMergeText(doc) },
+          { role: 'system', content: system },
+          { role: 'user', content: user },
         ],
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `project:${projectId}:merge-scan`,
+          kind: 'text',
+          channelId: chatTarget.channelId,
+          model: chatTarget.model,
+          payload: { system, user },
+        }),
       })
       const parsed = parseMergeReply(result.text, doc)
       if (!parsed.ok) {
@@ -1058,15 +1104,24 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       let named = 0
       for (let i = 0; i < batches.length; i += 1) {
         const batch = batches[i]!
+        const system = buildSplitSystem()
+        const user = buildSplitText(batch, i, batches.length)
         const result = await channels.completeWithTools({
           channelId: chatTarget.channelId,
           model: chatTarget.model,
           tools: [],
           messages: [
-            { role: 'system', content: buildSplitSystem() },
-            { role: 'user', content: buildSplitText(batch, i, batches.length) },
+            { role: 'system', content: system },
+            { role: 'user', content: user },
           ],
           signal: ac.signal,
+          trace: directTrace({
+            subjectId: `project:${projectId}:split:${i + 1}`,
+            kind: 'text',
+            channelId: chatTarget.channelId,
+            model: chatTarget.model,
+            payload: { system, user },
+          }),
         })
         if (ac.signal.aborted) return
         const parsed = parseSplitReply(result.text, batch.length)
@@ -1161,15 +1216,24 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     try {
       /* 系统指令取**内置技能**正文（改技能即改行为），后面接机器契约（见 breakdown.ts） */
       const skill = skills.skills.find((s) => s.id === BREAKDOWN_SKILL_ID)
+      const system = buildBreakdownSystem(skill?.content)
+      const user = breakdownText(doc, selected)
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
         model: chatTarget.model,
         tools: [],
         messages: [
-          { role: 'system', content: buildBreakdownSystem(skill?.content) },
-          { role: 'user', content: breakdownText(doc, selected) },
+          { role: 'system', content: system },
+          { role: 'user', content: user },
         ],
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `episode:${selected.id}:breakdown`,
+          kind: 'text',
+          channelId: chatTarget.channelId,
+          model: chatTarget.model,
+          payload: { system, user },
+        }),
       })
       if (ac.signal.aborted) return
       const parsed = parseBreakdownReply(result.text)
@@ -1564,6 +1628,18 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         ],
         params: {},
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:digital-human`,
+          kind: 'video',
+          channelId: digitalHumanTarget.channelId,
+          model: digitalHumanTarget.model,
+          payload: {
+            prompt:
+              '生成单人数字人口播视频，保持人物身份、服装、构图与画面风格一致，口型自然贴合配音，避免夸张动作和镜头跳变。',
+            imageHash: shot.imageHash,
+            audioHash,
+          },
+        }),
       })
       const output = outputs[0]
       if (!output) throw new Error('数字人口播模型没有返回视频')
@@ -1713,6 +1789,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           ...(frameRate !== null ? { fps: String(frameRate) } : {}),
         },
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:video-upscale`,
+          kind: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          payload: {
+            prompt,
+            videoHash: shot.videoHash,
+            resolution,
+            frameRate,
+          },
+          params: { resolution, frameRate },
+        }),
       })
       const output = outputs[0]
       if (!output) throw new Error(`视频${actionLabel}模型没有返回视频`)
@@ -1829,6 +1918,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         ],
         params: {},
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:video-erase`,
+          kind: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          payload: { videoHash: shot.videoHash },
+        }),
       })
       const output = outputs[0]
       if (!output) throw new Error('字幕擦除模型没有返回视频')
@@ -1974,6 +2070,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         ],
         params: resolution ? { resolution } : {},
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:video-edit`,
+          kind: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          payload: {
+            prompt,
+            videoHash: shot.videoHash,
+            referenceHash,
+            resolution,
+          },
+          params: { resolution },
+        }),
       })
       const output = outputs[0]
       if (!output) throw new Error('视频编辑模型没有返回视频')
@@ -2104,6 +2213,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           ...(duration !== null ? { duration } : {}),
         },
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:video-extend`,
+          kind: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          payload: {
+            prompt,
+            videoHash: shot.videoHash,
+            resolution,
+            duration,
+          },
+          params: { resolution, duration },
+        }),
       })
       const output = outputs[0]
       if (!output) throw new Error('视频续写模型没有返回视频')
@@ -2294,6 +2416,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         responseFormat: 'mp3',
         timeoutMs: 120_000,
         signal: ac.signal,
+        trace: directTrace({
+          subjectId: `shot:${shot.id}:line:${lineId}:speech`,
+          kind: 'speech',
+          channelId: speechTarget.channelId,
+          model: speechTarget.model,
+          payload: {
+            text: line.text,
+            voice,
+            speed: speech.speed,
+            responseFormat: 'mp3',
+          },
+          params: { voice, speed: speech.speed },
+        }),
       })
       canvasStore.dispatch({
         kind: 'asset.put',

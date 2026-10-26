@@ -8,9 +8,12 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
-import type { ChannelAdapter } from '../../../platform/channels/types'
+import {
+  ChannelError,
+  type ChannelAdapter,
+} from '../../../platform/channels/types'
 import { protocolNeedsNoToken } from '../../../domain/project/channel'
-import { adapterForChannel } from './channelAdapterConfig'
+import { createGenerationClient } from '../../../platform/generation'
 import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
 import { createId } from '../../../shared/id'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
@@ -198,6 +201,15 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const repo = useMemo(
     () => createChannelRepository(platform.storage, platform.credentials),
     [platform.storage, platform.credentials],
+  )
+  const generation = useMemo(
+    () =>
+      createGenerationClient({
+        platform,
+        catalog: () => channels.protocolCatalog(),
+        loadToken: (credentialRef) => repo.loadToken(credentialRef),
+      }),
+    [channels, platform, repo],
   )
 
   /**
@@ -535,15 +547,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 少了这一步，内置站点协议（`comfly` 等）会解析不出 family ⇒
        * `createChannelAdapter` 抛「不支持的协议」，表现就是**点生成没反应**（2026-09-30 实修）。
        */
-      const catalog = channels.protocolCatalog()
       for (const task of plan.tasks) {
         const id = task.request.channelId
         const ch = list.find((c) => c.id === id)
         if (!ch) continue
-        const legacyApiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-        const altApiKey = ch.altCredentialRef
-          ? await repo.loadToken(ch.altCredentialRef)
-          : null
         const groupIds =
           task.request.credentialGroupIds?.length
             ? task.request.credentialGroupIds
@@ -551,28 +558,22 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         for (const groupId of groupIds) {
           const mapKey = adapterKey(id, groupId, task.request.kind)
           if (map.has(mapKey)) continue
-          const group = groupId
-            ? ch.credentialGroups.find((item) => item.id === groupId)
-            : undefined
-          const groupKey = group ? await repo.loadToken(group.credentialRef) : null
-          const apiKey =
-            ch.protocol === '65535' && task.request.kind !== 'text'
-              ? null
-              : (groupKey ?? legacyApiKey)
-          const effectiveAltApiKey =
-            ch.protocol === '65535' && task.request.kind !== 'text'
-              ? (groupKey ?? altApiKey)
-              : altApiKey
           /**
            * 造不出适配器时**如实报错并中止**，不让异常冒到宿主外。
            * 冒出去的表现是「点了生成既没请求也没提示」，用户只能干瞪眼 ——
            * 这正是这次排查花掉最多时间的地方。
            */
           try {
-            map.set(
-              mapKey,
-              adapterForChannel(ch, catalog, apiKey, platform, effectiveAltApiKey),
-            )
+            const target = await generation.resolve({
+              channel: ch,
+              request: task.request,
+              kind: task.request.kind,
+              hints: {
+                modelIsUpstream: true,
+                ...(groupId ? { credentialGroupId: groupId } : {}),
+              },
+            })
+            map.set(mapKey, target.adapter)
           } catch (e) {
             const app = asAppError(e)
             store.notify(
@@ -731,7 +732,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         if (planIdRef.current === plan.id) planIdRef.current = null
       }
     },
-    [store, channels, repo, platform, startRun, cancelRun],
+    [store, channels, repo, platform, generation, startRun, cancelRun],
   )
 
   /**
@@ -991,37 +992,27 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       signal: AbortSignal
     }): Promise<string> => {
       const ch = channels.getState().channels.find((c) => c.id === channelId)
-      if (!ch) throw new Error(`[promptTools] 未找到渠道：${channelId}`)
-      /**
-       * 逻辑名 → 该渠道的上游 ID（用户 2026-09-27 第 7 轮）。
-       *
-       * 面板里显示的是固定显示名（如 `GPT-6 Astra`），本站可能叫别的
-       * （如 `gpt-6-astra`）。此前这里把**显示名原样**发给上游，
-       * 用户配了映射也不生效 —— 而生成节点那条路早就走映射了。
-       * 提示词节点这条（优化 / 翻译 / 反推 / 技能）补上同一件事，
-       * 两条路才是一套机制，而不是「一条映射、一条不映射」。
-       */
-      const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
-      const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const altApiKey = ch.altCredentialRef
-        ? await repo.loadToken(ch.altCredentialRef)
-        : null
-      /** 同上面那条路：协议定义必须按 id 去目录查（提示词节点也走内置站点协议） */
-      const adapter = adapterForChannel(
-        ch,
-        channels.protocolCatalog(),
-        apiKey,
-        platform,
-        altApiKey,
-      )
+      if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
       const prompt = system ? `${system}\n\n${text}` : text
-      const result = await adapter.completeText(
-        { kind: 'text', channelId, model: upstreamModel, prompt, inputs: inputs ?? [], params: {} },
+      const result = await generation.completeText(
+        {
+          channel: ch,
+          model,
+          request: {
+            kind: 'text',
+            prompt,
+            inputs: inputs ?? [],
+            params: {},
+          },
+          hints: {
+            operationId: `text:${channelId}:${model}`,
+          },
+        },
         signal,
       )
       return result.text
     },
-    [channels, repo, platform],
+    [channels, generation],
   )
 
   /**

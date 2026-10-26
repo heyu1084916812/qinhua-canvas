@@ -1,4 +1,5 @@
 import type { NodeInput, RunStatus } from './types'
+import type { WorkbenchId } from '../workbench'
 
 /**
  * RunRecord = 一次完整生成记录（产品文档 §6.21 / 架构 §4.1）。
@@ -58,6 +59,15 @@ export interface RunRecord<TParams = unknown> {
    */
   outputWidth?: number
   outputHeight?: number
+  /**
+   * 中性作用域字段。画布旧记录可以没有；新工作台与直连动作写入，
+   * 让各自日志只读自己的工作台 / 业务范围，总日志再聚合同一张表。
+   */
+  workbench?: WorkbenchId
+  subjectId?: string
+  scopeId?: string
+  parentRunId?: string
+  operationId?: string
 }
 
 /**
@@ -90,6 +100,11 @@ export function createRunRecord<TParams>(args: {
   errorText?: string
   outputWidth?: number
   outputHeight?: number
+  workbench?: WorkbenchId
+  subjectId?: string
+  scopeId?: string
+  parentRunId?: string
+  operationId?: string
 }): RunRecord<TParams> {
   return { ...args }
 }

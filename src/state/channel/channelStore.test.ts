@@ -552,6 +552,42 @@ describe('channelStore', () => {
     expect(outputs[0]?.hash).toBeTruthy()
   })
 
+  it('直连视频带 trace 时写公共 RunRecord，不影响返回产物', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+
+    const outputs = await store.generateVideo({
+      kind: 'video',
+      channelId: ch.id,
+      model: 'Kling V2 数字人口播 Std',
+      prompt: '留痕测试',
+      inputs: [],
+      params: {},
+      signal: new AbortController().signal,
+      trace: {
+        projectId: 'proj_storyboard',
+        workbench: 'storyboard',
+        subjectId: 'shot:1:digital-human',
+        scopeId: 'episode:1',
+        params: { kind: 'video' },
+        fingerprint: 'fp-video-1',
+      },
+    })
+
+    expect(outputs).toHaveLength(1)
+    const records = await p.storage.query('runRecords', {
+      projectId: 'proj_storyboard',
+    })
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      workbench: 'storyboard',
+      subjectId: 'shot:1:digital-human',
+      status: 'succeeded',
+      outputHashes: [outputs[0]!.hash],
+    })
+  })
+
   /**
    * 生成配方（新建节点默认渠道 + 模型 + 参数，2026-09-18 定稿为**按渠道记忆**）。
    *
