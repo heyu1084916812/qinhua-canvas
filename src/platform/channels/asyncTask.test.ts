@@ -97,6 +97,36 @@ describe('异步任务族适配器', () => {
     expect(assets[0]!.width).toBe(2)
   })
 
+  it('★★ POST 已受理后轮询遇 5xx 只在任务内重试，不重新提交 POST', async () => {
+    const calls: string[] = []
+    let polls = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        calls.push(`${req.method} ${req.url}`)
+        if (req.method === 'POST') {
+          return json(200, { data: { task_id: 'task_retry_poll' } })
+        }
+        polls += 1
+        if (polls === 1) return json(502, { error: { message: '网关暂时不可用' } })
+        return json(200, {
+          id: 'task_retry_poll',
+          status: 'completed',
+          result: { images: [{ url: ['https://upload.apimart.ai/f/retry.png'] }] },
+        })
+      },
+    })
+    const adapter = createAsyncTaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    })
+
+    const assets = await adapter.generateImage(imageRequest, new AbortController().signal)
+
+    expect(calls.filter((call) => call.startsWith('POST '))).toHaveLength(1)
+    expect(calls.filter((call) => call.startsWith('GET ') && call.includes('/tasks/'))).toHaveLength(2)
+    expect(assets).toHaveLength(1)
+  })
+
   it('任务失败：带服务端原因抛出，不是静默返回空数组', async () => {
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
@@ -110,7 +140,12 @@ describe('异步任务族适配器', () => {
     })
     await expect(
       adapter.generateImage(imageRequest, new AbortController().signal),
-    ).rejects.toThrow(ChannelError)
+    ).rejects.toMatchObject({
+      appError: {
+        kind: 'execution',
+        detail: 'accepted',
+      },
+    })
   })
 
   it('提交响应没有 task_id → 如实报解析失败（没有 id 就无从轮询）', async () => {

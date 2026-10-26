@@ -61,6 +61,20 @@ describe('inputsSummaryOf / 输入源摘要（§6.21）', () => {
   })
 })
 
+describe('RunRecordScope / 新记录运行时校验', () => {
+  it('主体、范围或操作 id 为空时拒绝写新记录', () => {
+    expect(() => rec({ id: 'bad-subject', version: 1, subjectId: ' ' })).toThrow(
+      'RunRecord 作用域缺少 subjectId',
+    )
+    expect(() => rec({ id: 'bad-scope', version: 1, scopeId: ' ' })).toThrow(
+      'RunRecord 作用域缺少 scopeId',
+    )
+    expect(() => rec({ id: 'bad-operation', version: 1, operationId: ' ' })).toThrow(
+      'RunRecord 作用域缺少 operationId',
+    )
+  })
+})
+
 describe('filterRunRecords / 时间轴与版本历史共用过滤（§6.21）', () => {
   const records = [
     rec({ id: 'r1', version: 1, nodeId: 'n1', createdAt: 100 }),

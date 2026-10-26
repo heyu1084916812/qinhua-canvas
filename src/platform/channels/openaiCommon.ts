@@ -137,6 +137,8 @@ export function appErrorMessage(e: AppError): string {
      */
     case 'cli':
       return describeError(e)
+    case 'execution':
+      return describeError(e)
   }
 }
 

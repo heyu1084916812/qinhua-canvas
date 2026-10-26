@@ -288,8 +288,8 @@ export interface ChannelStoreActions {
     signal: AbortSignal
     /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
     timeoutMs?: number
-    /** 直连动作的统一运行记录；不传时只执行、不留痕（兼容旧调用）。 */
-    trace?: DirectRunTraceInput
+    /** 直连付费调用的统一运行记录；新调用必须显式提供。 */
+    trace: DirectRunTraceInput
     /** 业务成功但日志写入失败时的可见回调；不会触发第二次付费请求。 */
     onRecordWarning?: (warning: string) => void
   }): Promise<TextResult>

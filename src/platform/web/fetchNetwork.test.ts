@@ -171,7 +171,7 @@ describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
     }
   })
 
-  it('★★ multipart 跨域回落保留 model / prompt / 文件名 / MIME / 图片字节', async () => {
+  it('★★ POST 跨域失败绝不切换到原生 HTTP 重发', async () => {
     const seen: {
       body?: string
       multipart?: {
@@ -201,21 +201,13 @@ describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
       throw new TypeError('Failed to fetch')
     }) as typeof fetch
     try {
-      await network.request(
-        { url: 'https://soonstudio.ai/v1/images/edits', method: 'POST', body: form },
-        abort(),
-      )
-      expect(seen).toHaveLength(1)
-      expect(seen[0]!.multipart?.slice(0, 2)).toEqual([
-        { name: 'model', value: 'gpt-image-2' },
-        { name: 'prompt', value: 'replace the display' },
-      ])
-      expect(seen[0]!.multipart?.[2]).toMatchObject({
-        name: 'image',
-        fileName: 'reference.png',
-        contentType: 'image/png',
-      })
-      expect(atob(seen[0]!.multipart?.[2]?.dataBase64 ?? '')).toBe('\u0089PNG')
+      await expect(
+        network.request(
+          { url: 'https://soonstudio.ai/v1/images/edits', method: 'POST', body: form },
+          abort(),
+        ),
+      ).rejects.toMatchObject({ kind: 'network' })
+      expect(seen).toHaveLength(0)
     } finally {
       globalThis.fetch = original
     }

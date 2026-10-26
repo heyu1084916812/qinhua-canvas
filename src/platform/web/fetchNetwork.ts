@@ -119,10 +119,13 @@ function isCorsLikeNetworkError(err: unknown): boolean {
  * GET 产物下载没有这个副作用，浏览器直连卡住时值得换原生 HTTP 再取一次。
  */
 function canFallbackToShell(req: NetworkRequest, err: unknown): boolean {
+  const method = (req.method ?? 'GET').toUpperCase()
+  // POST/PUT/DELETE 可能已经到达上游；运输层再发一次就是第二笔付费请求。
+  if (method !== 'GET') return false
   if (isCorsLikeNetworkError(err)) return true
   const e = err as { kind?: string; detail?: string } | null
   return (
-    (req.method ?? 'GET').toUpperCase() === 'GET' &&
+    method === 'GET' &&
     e?.kind === 'network' &&
     e.detail === 'timeout'
   )

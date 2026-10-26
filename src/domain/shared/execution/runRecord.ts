@@ -25,6 +25,19 @@ export type ScopedRunRecord<TParams = unknown> = RunRecord<TParams> &
     >
   >
 
+export function assertValidRunRecordScope(scope: RunRecordScope): RunRecordScope {
+  if (scope.scopeVersion !== 1) {
+    throw new Error(`不支持的 RunRecord 作用域版本：${String(scope.scopeVersion)}`)
+  }
+  for (const key of ['subjectId', 'scopeId', 'operationId'] as const) {
+    if (!scope[key]?.trim()) throw new Error(`RunRecord 作用域缺少 ${key}`)
+  }
+  if (scope.parentRunId !== undefined && !scope.parentRunId.trim()) {
+    throw new Error('RunRecord 作用域的 parentRunId 不能为空字符串')
+  }
+  return scope
+}
+
 /**
  * RunRecord = 一次完整生成记录（产品文档 §6.21 / 架构 §4.1）。
  * 从不删除。执行主体的当前生效 LiveFingerprint = 该主体 version 最大且 succeeded 那条的 fingerprint。
@@ -128,14 +141,15 @@ export function createRunRecord<TParams>(args: {
   outputHeight?: number
   scope: RunRecordScope
 }): ScopedRunRecord<TParams> {
+  const scope = assertValidRunRecordScope(args.scope)
   return {
     ...args,
-    scopeVersion: args.scope.scopeVersion,
-    workbench: args.scope.workbench,
-    subjectId: args.scope.subjectId,
-    scopeId: args.scope.scopeId,
-    operationId: args.scope.operationId,
-    ...(args.scope.parentRunId ? { parentRunId: args.scope.parentRunId } : {}),
+    scopeVersion: scope.scopeVersion,
+    workbench: scope.workbench,
+    subjectId: scope.subjectId,
+    scopeId: scope.scopeId,
+    operationId: scope.operationId,
+    ...(scope.parentRunId ? { parentRunId: scope.parentRunId } : {}),
   }
 }
 

@@ -12,6 +12,13 @@ export type AppError =
       detail: 'missingChannel' | 'missingKey' | 'missingModel' | 'unsupported'
     }
   /**
+   * 上游已经受理任务，但后续轮询 / 取结果失败。
+   *
+   * 这类错误**不可重试整个生成**：再次调用会重新提交一笔付费任务。调用方应展示
+   * 任务 id / 服务端原因，并让用户稍后查询或手动决定。
+   */
+  | { kind: 'execution'; detail: 'accepted'; message?: string }
+  /**
    * **本机命令行**（对账 #308）：桌面壳里真的起了一条 CLI 进程，它不认账时用这个。
    *
    * 为什么单独一个 kind 而不是塞进 `channel`：它压根不是渠道的事 ——
@@ -137,6 +144,10 @@ const CLI_TEXT: Record<'notfound' | 'failed' | 'timeout' | 'canceled', string> =
   canceled: '命令被取消了',
 }
 
+const EXECUTION_TEXT: Record<'accepted', string> = {
+  accepted: '请求已经提交，但后续状态查询失败',
+}
+
 export function describeError(e: AppError): string {
   switch (e.kind) {
     case 'network':
@@ -172,6 +183,10 @@ export function describeError(e: AppError): string {
       return `这个设置不对（${e.field}）：${e.reason}`
     case 'channel':
       return `渠道还没配好：${CHANNEL_TEXT[e.detail]}`
+    case 'execution': {
+      const head = EXECUTION_TEXT[e.detail]
+      return e.message ? `${head} —— ${e.message}` : head
+    }
     case 'cli': {
       /* 命令自己的原话优先（`stderr` 里通常就是答案，例如「not logged in」） */
       const head = `本机命令行出错：${CLI_TEXT[e.detail]}`

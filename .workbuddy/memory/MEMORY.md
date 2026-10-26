@@ -20,7 +20,9 @@
 - 电商素材写入失败不是普通投影失败：结果进入“已生成、待保存”，清空旧 assetHash，
   不能被成功 RunRecord 兜成 `done`。没有留存可恢复字节时，不能假装“重试保存”已可用。
 - 408 可能发生在上游已受理之后，任何付费 POST 都不得自动重发；默认策略与
-  `isRetryableStatus()` 都已移除 408。后续还要审计异步轮询 429/5xx 和网络层 POST 回落。
+  `isRetryableStatus()` 都已移除 408。运输层只有 GET 可切原生 HTTP，POST/PUT/DELETE 不得
+  回落；异步任务提交后的轮询 408/429/5xx 只能在 adapter 内继续查询，终态错误使用不可重试的
+  `execution/accepted`，不能让 `runEngine` 重新 POST。仍需逐族审计适配器内部重试循环。
 
 ### 工作台拆分复审与剩余目标（2026-10-26 → 对账 #766）
 

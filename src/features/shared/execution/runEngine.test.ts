@@ -85,7 +85,7 @@ describe('runEngine / 回调参数契约', () => {
     })
   })
 
-  it('★★ 作用域在渠道请求前解析，并使用真实落点作为主体', async () => {
+  it('★★ 作用域在任何落位副作用与渠道请求前解析，并使用真实落点作为主体', async () => {
     const plan = makePlan()
     const order: string[] = []
     const summary = await runEngine(plan, {
@@ -104,19 +104,30 @@ describe('runEngine / 回调参数契约', () => {
           },
         } as never
       },
-      writeBack: () => {},
+      writeBack: () => {
+        order.push('write')
+      },
       placement: {
-        begin: () => ({ targetId: CARRIER, commands: [] }),
+        begin: () => ({ targetId: CARRIER, commands: ['landing'] }),
         commit: () => [],
         shouldCollect: () => false,
         record: () => null,
         finalize: () => [],
       },
+      onTaskTarget: () => {
+        order.push('target')
+      },
+      onTaskUpdate: (_planId, _taskId, state) => {
+        order.push(state.kind)
+      },
       now: () => 0,
       wait: () => Promise.resolve(),
     })
 
-    expect(order).toEqual(['scope', 'channel'])
+    expect(order.indexOf('scope')).toBeLessThan(order.indexOf('write'))
+    expect(order.indexOf('scope')).toBeLessThan(order.indexOf('target'))
+    expect(order.indexOf('scope')).toBeLessThan(order.indexOf('queued'))
+    expect(order.indexOf('scope')).toBeLessThan(order.indexOf('channel'))
     expect(summary.records[0]).toMatchObject({
       nodeId: CARRIER,
       subjectId: CARRIER,

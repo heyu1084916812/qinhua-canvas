@@ -405,6 +405,22 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         const nodeId = String(run.nodeId ?? '')
         if (nodeId && !latestByNode.has(nodeId)) latestByNode.set(nodeId, run)
       }
+      const outputHashesToVerify = new Set<string>()
+      for (const row of results) {
+        const run = latestByNode.get(row.nodeId)
+        if (String(run?.status ?? '') !== 'succeeded') continue
+        const hash = firstOutputHashOf(run)
+        if (hash) outputHashesToVerify.add(hash)
+      }
+      const existingAssetHashes = new Set<string>()
+      for (const hash of outputHashesToVerify) {
+        const found = await storage.query(
+          'assets',
+          { id: hash },
+          { fields: ['id'] },
+        )
+        if (found.length > 0) existingAssetHashes.add(hash)
+      }
       const changed: EcommerceResultRecord[] = []
       const nextResults = results.map((row) => {
         const run = latestByNode.get(row.nodeId)
@@ -417,13 +433,27 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
           return row
         }
         const succeeded = runStatus === 'succeeded'
-        const assetHash = outputHash ?? row.assetHash
-        const { errorText: _oldError, recovery: _oldRecovery, ...rest } = row
+        const outputAssetExists = !outputHash || existingAssetHashes.has(outputHash)
+        const assetHash = succeeded
+          ? outputHash && outputAssetExists
+            ? outputHash
+            : undefined
+          : row.assetHash
+        const {
+          errorText: _oldError,
+          recovery: _oldRecovery,
+          assetHash: _oldAssetHash,
+          mime: _oldMime,
+          width: _oldWidth,
+          height: _oldHeight,
+          ...rest
+        } = row
         const next: EcommerceResultRecord = {
           ...rest,
           updatedAt: at,
           status: succeeded ? (assetHash ? 'done' : 'failed') : 'failed',
           ...(assetHash ? { assetHash } : {}),
+          ...(assetHash && row.mime ? { mime: row.mime } : {}),
           ...(succeeded && typeof run?.sentModel === 'string'
             ? { model: run.sentModel }
             : {}),
@@ -433,7 +463,13 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
           ...(typeof run?.outputHeight === 'number' && run.outputHeight > 0
             ? { height: run.outputHeight }
             : {}),
-          ...(!succeeded || !assetHash
+          ...(succeeded && outputHash && !outputAssetExists
+            ? {
+                recovery: 'retry-save' as const,
+                errorText:
+                  '生成已成功，但素材字节不在库中。请重试保存同一产物，不要重新生成。',
+              }
+            : !succeeded || !assetHash
             ? {
                 errorText:
                   !succeeded &&

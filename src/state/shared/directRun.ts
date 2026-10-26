@@ -1,6 +1,7 @@
-import type {
-  RunRecord,
-  RunRecordScope,
+import {
+  createRunRecord,
+  type RunRecord,
+  type RunRecordScope,
 } from '../../domain/shared/execution/runRecord'
 import type { NodeInput, RunStatus } from '../../domain/shared/execution/types'
 import type { GeneratedAsset } from '../../platform/channels/types'
@@ -147,12 +148,14 @@ export async function runDirectGeneration<T>(args: {
     params: args.trace.params,
     fingerprint: args.trace.fingerprint,
     taskId: createId('task'),
-    scopeVersion: args.trace.scopeVersion,
-    workbench: args.trace.workbench,
-    subjectId: args.trace.subjectId,
-    ...(args.trace.scopeId ? { scopeId: args.trace.scopeId } : {}),
-    ...(args.trace.parentRunId ? { parentRunId: args.trace.parentRunId } : {}),
-    ...(args.trace.operationId ? { operationId: args.trace.operationId } : {}),
+    scope: {
+      scopeVersion: args.trace.scopeVersion,
+      workbench: args.trace.workbench,
+      subjectId: args.trace.subjectId,
+      scopeId: args.trace.scopeId,
+      operationId: args.trace.operationId,
+      ...(args.trace.parentRunId ? { parentRunId: args.trace.parentRunId } : {}),
+    } satisfies RunRecordScope,
     ...(args.trace.sentChannelId ? { sentChannelId: args.trace.sentChannelId } : {}),
     ...(args.trace.sentModel ? { sentModel: args.trace.sentModel } : {}),
   }
@@ -161,14 +164,14 @@ export async function runDirectGeneration<T>(args: {
     const result = await args.call()
     const finishedAt = now()
     const asset = args.outputAssetOf?.(result)
-    const record: RunRecord = {
+    const record: RunRecord = createRunRecord({
       ...base,
       status: 'succeeded',
       outputHashes: args.outputHashesOf(result),
       durationMs: Math.max(0, finishedAt - startedAt),
       ...(asset?.width ? { outputWidth: asset.width } : {}),
       ...(asset?.height ? { outputHeight: asset.height } : {}),
-    }
+    })
     const recordWarning = await persistRecord(args.storage, record)
     reportRecordWarning(args.onRecordWarning, recordWarning)
     return {
@@ -180,7 +183,7 @@ export async function runDirectGeneration<T>(args: {
     const finishedAt = now()
     const status = statusOf(error, args.signal)
     const app = asAppError(error)
-    const record: RunRecord = {
+    const record: RunRecord = createRunRecord({
       ...base,
       status,
       outputHashes: [],
@@ -190,7 +193,7 @@ export async function runDirectGeneration<T>(args: {
             errorText: app ? describeError(app) : errorTextOf(error),
           }
         : {}),
-    }
+    })
     const recordWarning = await persistRecord(args.storage, record)
     reportRecordWarning(args.onRecordWarning, recordWarning)
     throw error

@@ -310,6 +310,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     const slotCount = plan.tasks.length
     const began = placement.begin(task, { isRepeat, slotIndex, slotCount })
     const targetId = began.targetId
+    const scope = deps.recordScope(plan, task, targetId)
     if (began.commands.length > 0) write(began.commands)
     // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
     deps.onTaskTarget?.(plan.id, task.id, targetId)
@@ -317,7 +318,6 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })
-    const scope = deps.recordScope(plan, task, targetId)
     started.push({ task, targetId, startedAt: taskStartedAt, scope })
   }
 

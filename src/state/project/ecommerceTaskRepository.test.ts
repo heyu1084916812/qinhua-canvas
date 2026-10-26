@@ -173,6 +173,22 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
       taskId: 'task-2',
       durationMs: 10,
     })
+    await storage.put('assets', {
+      id: 'hash-n1',
+      hash: 'hash-n1',
+      mime: 'image/png',
+      bytes: new Uint8Array([1]),
+      createdAt: 120,
+      projectId: 'p1',
+    })
+    await storage.put('assets', {
+      id: 'hash-n2',
+      hash: 'hash-n2',
+      mime: 'image/png',
+      bytes: new Uint8Array([2]),
+      createdAt: 130,
+      projectId: 'p1',
+    })
 
     const reconciled = await repo.reconcileFromRunRecords('p1', 200)
     expect(reconciled.results.map((row) => [row.status, row.assetHash ?? ''])).toEqual([
@@ -213,6 +229,41 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(reconciled.results[0]?.status).toBe('failed')
     expect(reconciled.results[0]?.errorText).toContain('没有找到可展示的产物')
     expect(reconciled.results[0]?.id).toBe(results[0]?.id)
+  })
+
+  it('成功 RunRecord 只给 hash、素材字节缺失时停在 retry-save', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { results } = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-missing-bytes',
+      request,
+      nodeIds: ['n1'],
+      at: 100,
+    })
+    await storage.put('runRecords', {
+      id: 'run-missing-bytes',
+      nodeId: 'n1',
+      projectId: 'p1',
+      version: 1,
+      createdAt: 120,
+      status: 'succeeded',
+      inputs: [],
+      params: {},
+      outputHashes: ['missing-bytes'],
+      fingerprint: 'fp-missing-bytes',
+      taskId: 'task-missing-bytes',
+      durationMs: 10,
+    })
+
+    const reconciled = await repo.reconcileFromRunRecords('p1', 200)
+    expect(reconciled.results[0]).toMatchObject({
+      status: 'failed',
+      recovery: 'retry-save',
+      id: results[0]?.id,
+    })
+    expect(reconciled.results[0]?.assetHash).toBeUndefined()
+    expect(reconciled.results[0]?.errorText).toContain('素材字节不在库中')
   })
 
   it('失败记录可单独移除：成功结果保留，任务节点与状态重新收口', async () => {

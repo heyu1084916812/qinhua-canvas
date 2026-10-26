@@ -24,6 +24,7 @@
 
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
+import { asAppError, errorTextOf } from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -228,14 +229,51 @@ export function createAsyncTaskAdapter(
     const startedAt = now()
     const taskUrl = `${base}/tasks/${encodeURIComponent(taskId)}`
     for (;;) {
-      const res = await deps.network.request(
-        { url: taskUrl, method: 'GET', headers: authHeader(config.apiKey), timeoutMs: VERIFY_TIMEOUT_MS },
-        signal,
-      )
+      let res: Awaited<ReturnType<ChannelDeps['network']['request']>>
+      try {
+        res = await deps.network.request(
+          {
+            url: taskUrl,
+            method: 'GET',
+            headers: authHeader(config.apiKey),
+            timeoutMs: VERIFY_TIMEOUT_MS,
+          },
+          signal,
+        )
+      } catch (error) {
+        if (signal.aborted) throw error
+        const app = asAppError(error)
+        if (
+          app?.kind === 'network' &&
+          app.detail === 'timeout' &&
+          now() - startedAt < pollTimeout
+        ) {
+          await sleepFn(pollInterval, signal)
+          continue
+        }
+        throw new ChannelError({
+          kind: 'execution',
+          detail: 'accepted',
+          message: `任务 ${taskId}：${errorTextOf(error)}`,
+        })
+      }
       if (res.status < 200 || res.status >= 300) {
         const detail = await res.text().catch(() => '')
+        if (
+          (res.status === 408 ||
+            res.status === 429 ||
+            (res.status >= 500 && res.status <= 599)) &&
+          now() - startedAt < pollTimeout
+        ) {
+          await sleepFn(pollInterval, signal)
+          continue
+        }
         const { error } = classifyError(null, res.status, detail)
-        throw new ChannelError(error)
+        throw new ChannelError({
+          kind: 'execution',
+          detail: 'accepted',
+          message: `任务 ${taskId}：${error.kind === 'http' ? `HTTP ${error.status}${error.body ? ` ${error.body}` : ''}` : errorTextOf(error)}`,
+        })
       }
       const payload = (await res.json<TaskPayload>().catch(() => ({}))) as TaskPayload
       if (isTerminalStatus(payload.status)) return payload
@@ -263,7 +301,11 @@ export function createAsyncTaskAdapter(
       const reason =
         final.error?.message ??
         (final.status === 'cancelled' || final.status === 'canceled' ? '任务已取消' : '任务失败')
-      throw new ChannelError({ kind: 'http', status: 502, body: reason })
+      throw new ChannelError({
+        kind: 'execution',
+        detail: 'accepted',
+        message: `任务 ${taskId}：${reason}`,
+      })
     }
     const urls = resultUrlsOf(final)
     if (urls.length === 0) {
