@@ -892,7 +892,7 @@ function handlePanelEvent(
       store.openFaceLightbox(node.id)
       break
     case 'cancel':
-      exec.cancel()
+      exec.cancel(node.id)
       break
     case 'close':
       store.setSelection([])

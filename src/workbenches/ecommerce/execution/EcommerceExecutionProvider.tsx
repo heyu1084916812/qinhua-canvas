@@ -38,6 +38,7 @@ import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createGenerationClient } from '../../../platform/generation'
 import { createId } from '../../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../../shared/result'
+import { registerEcommerceChannelGuard } from './ecommerceChannelGuard'
 
 export interface EcommerceRunOutcome {
   summary: RunSummary
@@ -243,12 +244,24 @@ export function EcommerceExecutionProvider({
         resultTaskIdsRef.current.set(task.resultId, task.id)
       }
       queuesRef.current.set(plan.id, Promise.resolve([]))
+      let channelInterrupted = false
+      const unregisterChannelGuard = registerEcommerceChannelGuard(
+        plan,
+        execution,
+        () => {
+          channelInterrupted = true
+        },
+      )
       try {
         const summary = await execution.startRun(plan)
         const warnings = await (queuesRef.current.get(plan.id) ?? Promise.resolve([]))
+        if (channelInterrupted) {
+          warnings.push('渠道已删除，电商生成计划已停止；请重新选择平台后再生成')
+        }
         for (const task of plan.tasks) resultTaskIdsRef.current.delete(task.resultId)
         return { summary, warnings }
       } finally {
+        unregisterChannelGuard()
         adaptersRef.current.delete(plan.id)
         queuesRef.current.delete(plan.id)
       }

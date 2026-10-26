@@ -10,9 +10,11 @@
   `workbench / subjectId / scopeId / operationId`；所有付费调用（含提示词工具、Agent、电商文字、
   漫剧直连）必须统一留痕。不能靠 `projectId / nodeId` 猜工作台或业务主体。
 - **已有 P0/P1 风险必须补故障注入**：电商素材字节落库失败仍可能写成功记录并最终显示 `done`；
-  运行中删渠道没有注册电商计划；画布并发计划取消只读单槽 `planIdRef`，可能取消最后启动的计划；
   显式渠道在主分组缺 Key、备用分组有 Key 时仍可能先报 `channel_no_token`；HTTP 408 仍会重试
   付费生成。测试全绿不代表这些路径被覆盖。
+- **P0-3 画布 / 电商部分已修**：画布取消走“节点 → 活跃计划”索引，落位后的承载节点也会登记；
+  电商在 `startRun` 前注册应用级渠道删除守卫，删渠道按 `planId` abort，不再继续使用旧 Key。
+  漫剧仍借 `StoryboardCanvasHost`，需在 R3 的 `StoryboardExecutionProvider` 补自己的登记。
 - **漫剧执行仍是画布借壳**：当前没有 `StoryboardRunPlanner / StoryboardRunScheduler /
   StoryboardPlacement`；图片、视频等经画布节点执行后镜像回 `storyboardStore`，`runEngine`
   生成的记录也没有工作台作用域。迁移时先做 R1 契约 / R2 Planner / R3 Scheduler，再按

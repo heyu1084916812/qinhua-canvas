@@ -73,6 +73,7 @@ import {
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
 import { buildGroupRunPlan } from '../../../features/canvas/execution/groupRunPlan'
+import { createNodeScopedRunCancellation } from '../../../features/canvas/execution/nodeScopedRunCancellation'
 
 /**
  * 画布执行宿主（架构 §4.7 / §5.5）：把 `useExecution` 接到画布 store + 渠道解析器。
@@ -95,7 +96,8 @@ export interface CanvasExecutionApi {
   runNode(nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }): Promise<void>
   /** 把一个分组的成员作为一个子图规划并运行；不会逐节点绕过上游依赖。 */
   runGroup(memberIds: readonly string[]): Promise<void>
-  cancel(): void
+  /** Cancel only the active plan(s) attached to this node. */
+  cancel(nodeId: string): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
   /**
    * 全部节点状态（按项目维度）。
@@ -221,7 +223,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const adapterMapsRef = useRef<Map<string, Map<string, ChannelAdapter>>>(new Map())
   /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
   const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
-  const planIdRef = useRef<string | null>(null)
+  const nodeScopedRunCancellationRef = useRef(createNodeScopedRunCancellation())
   /** 被渠道删除中止的计划：收口时必须保留明确原因，不能被通用的“已取消”覆盖。 */
   const channelInterruptedPlansRef = useRef<Set<string>>(new Set())
   /**
@@ -362,6 +364,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         if (m && m.has(taskId)) {
           const from = m.get(taskId)!
           m.set(taskId, targetId)
+          nodeScopedRunCancellationRef.current.addTarget(planId, targetId)
           /**
            * 状态一律**只挂在真正收产物的节点**上。
            *
@@ -620,6 +623,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         plan.tasks.map((task) => [task.id, task.request.channelId]),
       )
       taskToNodeMapsRef.current.set(plan.id, taskToNode)
+      nodeScopedRunCancellationRef.current.trackPlan(plan.id, [
+        ...(originNodeId ? [originNodeId] : []),
+        ...plan.tasks.map((task) => task.nodeId),
+      ])
       const projectId = store.getSnapshot().projectId
       registerGuardedChannelRun(plan.id, {
         taskChannels,
@@ -642,8 +649,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           store.notify('渠道已删除，相关生成已停止；请重新选择平台后再生成', 'error')
         },
       })
-      planIdRef.current = plan.id
-
       /**
        * 启动时的 `queued`：只给**落点可能仍是自己**的任务。
        *
@@ -727,9 +732,9 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       })
       } finally {
         unregisterGuardedChannelRun(plan.id)
+        nodeScopedRunCancellationRef.current.release(plan.id)
         adapterMapsRef.current.delete(plan.id)
         taskToNodeMapsRef.current.delete(plan.id)
-        if (planIdRef.current === plan.id) planIdRef.current = null
       }
     },
     [store, channels, repo, platform, generation, startRun, cancelRun],
@@ -1389,9 +1394,12 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [launch, store],
   )
 
-  const cancel = useCallback(() => {
-    if (planIdRef.current) cancelRun(planIdRef.current)
-  }, [cancelRun])
+  const cancel = useCallback(
+    (nodeId: string) => {
+      nodeScopedRunCancellationRef.current.cancelForNode(nodeId, cancelRun)
+    },
+    [cancelRun],
+  )
 
   const api: CanvasExecutionApi = useMemo(
     () => ({

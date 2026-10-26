@@ -263,7 +263,7 @@ function NodeActions({
   const assetMode = hasAsset
 
   const onRun = () => {
-    if (busy) exec.cancel()
+    if (busy) exec.cancel(node.id)
     else if (node.disabled) {
       store.notify('节点已禁用 —— 先启用再生成；它的内容（含已生成的图）不会作为上游输入', 'error')
     } else void exec.runNode(node.id)

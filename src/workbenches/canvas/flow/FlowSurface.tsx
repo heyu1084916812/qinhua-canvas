@@ -623,7 +623,7 @@ function FlowSurfaceInner({
         return
       }
       if (event.type === 'requestRunCancel') {
-        exec.cancel()
+        exec.cancel(nodeId)
         return
       }
       emitNodeEvent(nodeId, event)
