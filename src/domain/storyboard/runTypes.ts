@@ -32,6 +32,7 @@ interface StoryboardRunSubjectBase {
 export type StoryboardRunSubject =
   | (StoryboardRunSubjectBase & {
       kind: "asset";
+      assetId: string;
       assetType: "char" | "scene";
     })
   | (StoryboardRunSubjectBase & {
@@ -172,9 +173,14 @@ export function assertStoryboardRunTask(
       if (subject.assetType !== "char" && subject.assetType !== "scene") {
         throw new Error("Storyboard asset subject is missing assetType");
       }
+      const assetId = requireNonEmptyString(
+        subject.assetId,
+        "subject assetId",
+      );
       if (task.action === "asset-turnaround" && subject.assetType !== "char") {
         throw new Error("asset-turnaround only supports char assets");
       }
+      requireParam(params, "assetId", assetId);
       requireParam(params, "assetType", subject.assetType);
       break;
     }

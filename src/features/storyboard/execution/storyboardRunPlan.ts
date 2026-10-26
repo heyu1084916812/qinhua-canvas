@@ -204,6 +204,7 @@ function assetPlan(input: StoryboardAssetRunPlannerInput): StoryboardRunPlan {
           ? `${kind}:${asset.id}:base`
           : `${kind}:${asset.id}:turnaround`,
       scopeId: `project:${input.doc.projectId}`,
+      assetId: asset.id,
       assetType: kind,
     }
     const prompt =

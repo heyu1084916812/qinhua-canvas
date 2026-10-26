@@ -1,4 +1,6 @@
 import type { AssetPort, AssetPayload, AssetUrlSource, StoragePort } from './ports'
+import { fingerprintBytes } from '../domain/shared/hash'
+import type { GeneratedAsset } from './channels/types'
 
 /**
  * 素材读回（M6-12）：`assets` 表 → 字节。
@@ -52,5 +54,56 @@ export function createStorageAssetPort(
     thumbUrl: options.thumbUrl,
     previewUrl: options.previewUrl,
     sourceUrl: options.sourceUrl,
+  }
+}
+
+/**
+ * 判断一个素材 hash 是否真有可消费的内容。
+ *
+ * 本地素材必须能读回字节，且重新计算的内容 hash 与引用一致；只有合法
+ * http(s) 视频允许以远端 URL 作为唯一内容来源。这张表的主键存在本身不算通过。
+ */
+export async function assetHashIsReadable(
+  assets: AssetPort,
+  hash: string,
+): Promise<boolean> {
+  const payload = await assets.read(hash).catch(() => null)
+  if (payload && payload.bytes.length > 0) {
+    const actual = await fingerprintBytes(payload.bytes).catch(() => '')
+    return actual.toLowerCase() === hash.toLowerCase()
+  }
+  const remote = await assets.readUrl(hash).catch(() => null)
+  return Boolean(
+    remote?.url &&
+      /^https?:\/\//i.test(remote.url) &&
+      remote.mime.trim().toLowerCase().startsWith('video/'),
+  )
+}
+
+/** 按内容寻址写入生成素材；每一条写完都立即读回校验。 */
+export async function putGeneratedAssets(
+  storage: StoragePort,
+  assetsPort: AssetPort,
+  projectId: string,
+  generated: readonly GeneratedAsset[],
+  at = Date.now(),
+): Promise<void> {
+  for (const asset of generated) {
+    await storage.put('assets', {
+      id: asset.hash,
+      hash: asset.hash,
+      mime: asset.mime,
+      bytes: asset.bytes,
+      ...(asset.width ? { width: asset.width } : {}),
+      ...(asset.height ? { height: asset.height } : {}),
+      ...(asset.url ? { url: asset.url } : {}),
+      ...(asset.requestedWidth ? { requestedWidth: asset.requestedWidth } : {}),
+      ...(asset.requestedHeight ? { requestedHeight: asset.requestedHeight } : {}),
+      createdAt: at,
+      projectId,
+    } as never)
+    if (!(await assetHashIsReadable(assetsPort, asset.hash))) {
+      throw new Error(`素材 ${asset.hash} 写入后仍不可读或内容校验失败`)
+    }
   }
 }

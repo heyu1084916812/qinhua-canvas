@@ -11,6 +11,7 @@ import {
   StoryboardCanvasHost,
   useStoryboardCanvasRuntime,
 } from '../../app/workbenchHosts/StoryboardCanvasHost'
+import { StoryboardExecutionHost } from '../../app/workbenchHosts/StoryboardExecutionHost'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { resolveSpeechTarget } from '../../domain/shared/chatTarget'
@@ -119,18 +120,20 @@ const SAVE_DEBOUNCE_MS = 400
  */
 export function StoryboardProject({ projectId }: { projectId: string }) {
   return (
-    <StoryboardCanvasHost
-      projectId={projectId}
-      renderLoading={(error) => (
-        <div className={styles.emptyWrap} data-storyboard-hydrating>
-          <p className={styles.emptyText}>
-            {error ? `项目读取失败：${error}` : '正在读取这个漫剧项目…'}
-          </p>
-        </div>
-      )}
-    >
-      <StoryboardEditor projectId={projectId} />
-    </StoryboardCanvasHost>
+    <StoryboardExecutionHost projectId={projectId}>
+      <StoryboardCanvasHost
+        projectId={projectId}
+        renderLoading={(error) => (
+          <div className={styles.emptyWrap} data-storyboard-hydrating>
+            <p className={styles.emptyText}>
+              {error ? `项目读取失败：${error}` : '正在读取这个漫剧项目…'}
+            </p>
+          </div>
+        )}
+      >
+        <StoryboardEditor projectId={projectId} />
+      </StoryboardCanvasHost>
+    </StoryboardExecutionHost>
   )
 }
 

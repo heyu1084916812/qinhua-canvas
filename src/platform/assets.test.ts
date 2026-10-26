@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createStorageAssetPort } from './assets'
+import {
+  assetHashIsReadable,
+  createStorageAssetPort,
+  putGeneratedAssets,
+} from './assets'
 import { createMemoryStorage } from './memory'
 import type { StoragePort } from './ports'
+import { fingerprintBytes } from '../domain/shared/hash'
 
 describe('素材读回端口（M6-12）', () => {
   it('按 hash 读回字节与 mime', async () => {
@@ -96,5 +101,25 @@ describe('素材读回端口（M6-12）', () => {
     })
     expect(port.sourceUrl?.('h1')).toBe('http://127.0.0.1:18765/asset/h1')
     expect(port.previewUrl?.('h1')).toBe('http://127.0.0.1:18765/preview/h1')
+  })
+
+  it('素材写入后按实际字节校验 hash，表里有主键但内容不对不算可读', async () => {
+    const storage = createMemoryStorage()
+    const port = createStorageAssetPort(storage)
+    const bytes = new Uint8Array([7, 8, 9])
+    const hash = await fingerprintBytes(bytes)
+
+    await putGeneratedAssets(storage, port, 'project-1', [
+      { hash, mime: 'image/png', bytes },
+    ])
+
+    expect(await assetHashIsReadable(port, hash)).toBe(true)
+    await storage.put('assets', {
+      id: 'foreign-hash',
+      hash: 'foreign-hash',
+      mime: 'image/png',
+      bytes,
+    })
+    expect(await assetHashIsReadable(port, 'foreign-hash')).toBe(false)
   })
 })

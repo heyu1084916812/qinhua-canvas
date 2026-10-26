@@ -100,7 +100,7 @@ describe('StoryboardPlacement', () => {
       {
         kind: 'storyboard.projection.sync',
         planId: 'plan-1',
-        taskId: input.id,
+        taskIds: [input.id],
         projectId: 'project-1',
       },
     ])

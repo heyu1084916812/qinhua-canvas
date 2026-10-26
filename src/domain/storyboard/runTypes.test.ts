@@ -44,6 +44,7 @@ function subjectFor(action: StoryboardRunAction): StoryboardRunSubject {
       kind: "asset",
       id: `char:char-1:${suffix}`,
       scopeId: "project:project-1",
+      assetId: "char-1",
       assetType: "char",
     };
   }
@@ -205,6 +206,7 @@ describe("storyboard run contracts", () => {
         kind: "asset",
         id: "char:char-1:base",
         scopeId: "project:project-1",
+        assetId: "char-1",
       },
     ],
     [

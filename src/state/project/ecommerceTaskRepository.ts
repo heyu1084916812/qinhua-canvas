@@ -1,7 +1,10 @@
 import type { AssetPort, StoragePort } from '../../platform/ports'
-import { createStorageAssetPort } from '../../platform/assets'
+import {
+  assetHashIsReadable,
+  createStorageAssetPort,
+  putGeneratedAssets,
+} from '../../platform/assets'
 import type { GeneratedAsset } from '../../platform/channels/types'
-import { fingerprintBytes } from '../../domain/shared/hash'
 import { createId } from '../../shared/id'
 import {
   statusOfResult,
@@ -211,23 +214,6 @@ function queuedSaveOf(row: Record<string, unknown>): QueuedAssetSave {
   }
 }
 
-async function storedAssetIsReadable(
-  assets: AssetPort,
-  hash: string,
-): Promise<boolean> {
-  const payload = await assets.read(hash).catch(() => null)
-  if (payload && payload.bytes.length > 0) {
-    const actual = await fingerprintBytes(payload.bytes).catch(() => '')
-    return actual.toLowerCase() === hash.toLowerCase()
-  }
-  const remote = await assets.readUrl(hash).catch(() => null)
-  return Boolean(
-    remote?.url &&
-      /^https?:\/\//i.test(remote.url) &&
-      remote.mime.trim().toLowerCase().startsWith('video/'),
-  )
-}
-
 export function createEcommerceTaskRepository(
   storage: StoragePort,
   assets: AssetPort = createStorageAssetPort(storage),
@@ -237,27 +223,7 @@ export function createEcommerceTaskRepository(
     queuedAssets: readonly GeneratedAsset[],
     at: number,
   ) => {
-    for (const asset of queuedAssets) {
-      await storage.put(
-        'assets',
-        {
-          id: asset.hash,
-          hash: asset.hash,
-          mime: asset.mime,
-          bytes: asset.bytes,
-          ...(asset.width ? { width: asset.width } : {}),
-          ...(asset.height ? { height: asset.height } : {}),
-          ...(asset.url ? { url: asset.url } : {}),
-          ...(asset.requestedWidth ? { requestedWidth: asset.requestedWidth } : {}),
-          ...(asset.requestedHeight ? { requestedHeight: asset.requestedHeight } : {}),
-          createdAt: at,
-          projectId,
-        } as never,
-      )
-      if (!(await storedAssetIsReadable(assets, asset.hash))) {
-        throw new Error(`素材 ${asset.hash} 写入后仍不可读或内容校验失败`)
-      }
-    }
+    await putGeneratedAssets(storage, assets, projectId, queuedAssets, at)
   }
 
   const resultsOf = async (taskId: string) =>
@@ -868,7 +834,7 @@ export function createEcommerceTaskRepository(
       }
       const readableHashes = new Set<string>()
       for (const hash of outputHashesToVerify) {
-        if (await storedAssetIsReadable(assets, hash)) readableHashes.add(hash)
+        if (await assetHashIsReadable(assets, hash)) readableHashes.add(hash)
       }
       const changed: EcommerceResultRecord[] = []
       const nextResults = results.map((row) => {

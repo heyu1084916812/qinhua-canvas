@@ -37,6 +37,6 @@ export type StoryboardExecutionCommand =
   | {
       kind: 'storyboard.projection.sync'
       planId: string
-      taskId: string
+      taskIds: readonly string[]
       projectId: string
     }

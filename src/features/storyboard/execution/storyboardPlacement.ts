@@ -48,13 +48,12 @@ export function createStoryboardPlacement(
     },
 
     finalize(plan: RunPlan<StoryboardRunTask>) {
-      const first = plan.tasks[0]
-      return first
+      return plan.tasks.length > 0
         ? [
             {
               kind: 'storyboard.projection.sync',
               planId: plan.id,
-              taskId: first.id,
+              taskIds: plan.tasks.map((task) => task.id),
               projectId,
             },
           ]
