@@ -38,7 +38,15 @@ import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createGenerationClient } from '../../../platform/generation'
 import { createId } from '../../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../../shared/result'
+import {
+  ecommerceAdapterKey,
+  resolveEcommerceAdapter,
+} from './ecommerceAdapterRouting'
 import { registerEcommerceChannelGuard } from './ecommerceChannelGuard'
+import {
+  createEcommercePreflightBoundary,
+  ECOMMERCE_CHANNEL_REMOVED_MESSAGE,
+} from './ecommercePreflightBoundary'
 
 export interface EcommerceRunOutcome {
   summary: RunSummary
@@ -56,10 +64,6 @@ export interface EcommerceExecutionApi {
 type EcommerceExecutionHost = ExecutionHost<EcommerceRunTask, EcommerceExecutionCommand>
 
 const EcommerceExecutionContext = createContext<EcommerceExecutionApi | null>(null)
-
-function adapterKey(channelId: string, credentialGroupId: string | undefined, kind: string) {
-  return `${channelId}\u0000${credentialGroupId ?? ''}\u0000${kind}`
-}
 
 async function markPlanPreflightFailed(args: {
   projectId: string
@@ -206,20 +210,11 @@ export function EcommerceExecutionProvider({
         }
       },
       channelResolver: (request, runPlanId) => {
-        const ids = request.credentialGroupIds ?? []
-        const groupId =
-          ids.length > 0
-            ? ids[Math.min(request.routingAttempt ?? 0, ids.length - 1)]
-            : request.credentialGroupId
-        const adapter = adaptersRef.current
-          .get(runPlanId)
-          ?.get(adapterKey(request.channelId, groupId, request.kind))
-        if (!adapter) {
-          throw new Error(
-            `[ecommerce] 计划 ${runPlanId} 的渠道适配器还没准备好（${request.channelId} / ${request.model}）`,
-          )
-        }
-        return adapter
+        return resolveEcommerceAdapter(
+          adaptersRef.current.get(runPlanId),
+          runPlanId,
+          request,
+        )
       },
       onTaskUpdate: (planId, taskId, state) => {
         if (!state) return
@@ -244,6 +239,12 @@ export function EcommerceExecutionProvider({
       if (!channel) throw new Error('电商执行渠道不存在')
       const operationId = createId('op')
       operationIdsRef.current.set(plan.id, operationId)
+      const preflightBoundary = createEcommercePreflightBoundary()
+      const unregisterChannelGuard = registerEcommerceChannelGuard(
+        plan,
+        execution,
+        preflightBoundary.interrupt,
+      )
 
       const candidateGroupIds = first.request.credentialGroupIds?.length
         ? [...first.request.credentialGroupIds]
@@ -254,68 +255,85 @@ export function EcommerceExecutionProvider({
       const usableGroupIds: string[] = []
       let firstPreflightError: unknown
       try {
-        for (const groupId of candidateGroupIds) {
-          try {
-            const target = await generation.resolve({
-              channel,
-              request: first.request,
-              kind: first.request.kind,
-              hints: {
-                modelIsUpstream: true,
-                ...(groupId ? { credentialGroupId: groupId } : {}),
-              },
-            })
-            adapters.set(
-              adapterKey(first.request.channelId, groupId, first.request.kind),
-              target.adapter,
-            )
-            if (groupId) usableGroupIds.push(groupId)
-          } catch (error) {
-            firstPreflightError ??= error
+        try {
+          for (const groupId of candidateGroupIds) {
+            try {
+              const target = await preflightBoundary.run(() =>
+                generation.resolve({
+                  channel,
+                  request: first.request,
+                  kind: first.request.kind,
+                  hints: {
+                    modelIsUpstream: true,
+                    ...(groupId ? { credentialGroupId: groupId } : {}),
+                  },
+                }),
+              )
+              adapters.set(
+                ecommerceAdapterKey(
+                  first.request.channelId,
+                  groupId,
+                  first.request.kind,
+                ),
+                target.adapter,
+              )
+              if (groupId) usableGroupIds.push(groupId)
+            } catch (error) {
+              if (preflightBoundary.isInterrupted()) throw error
+              firstPreflightError ??= error
+            }
           }
+          preflightBoundary.assertActive()
+          if (adapters.size === 0) {
+            throw firstPreflightError ?? new Error('电商渠道没有可用的 Key 分组')
+          }
+        } catch (error) {
+          await markPlanPreflightFailed({
+            projectId,
+            plan,
+            error,
+            operationId,
+            storage: platform.storage,
+            taskRepo,
+            canvasRepo,
+          })
+          throw error
         }
-        if (adapters.size === 0) {
-          throw firstPreflightError ?? new Error('电商渠道没有可用的 Key 分组')
-        }
-      } catch (error) {
-        await markPlanPreflightFailed({
-          projectId,
-          plan,
-          error,
-          operationId,
-          storage: platform.storage,
-          taskRepo,
-          canvasRepo,
-        })
-        operationIdsRef.current.delete(plan.id)
-        throw error
-      }
 
-      adaptersRef.current.set(plan.id, adapters)
-      for (const task of plan.tasks) {
-        const groups = usableGroupIds.length > 0 ? usableGroupIds : undefined
-        if (groups) {
-          task.request.credentialGroupIds = groups
-          if (!task.request.credentialGroupId || !groups.includes(task.request.credentialGroupId)) {
-            task.request.credentialGroupId = groups[0]
+        adaptersRef.current.set(plan.id, adapters)
+        for (const task of plan.tasks) {
+          const groups = usableGroupIds.length > 0 ? usableGroupIds : undefined
+          if (groups) {
+            task.request.credentialGroupIds = groups
+            if (
+              !task.request.credentialGroupId ||
+              !groups.includes(task.request.credentialGroupId)
+            ) {
+              task.request.credentialGroupId = groups[0]
+            }
           }
+          resultTaskIdsRef.current.set(task.resultId, task.id)
         }
-        resultTaskIdsRef.current.set(task.resultId, task.id)
-      }
-      queuesRef.current.set(plan.id, Promise.resolve([]))
-      let channelInterrupted = false
-      const unregisterChannelGuard = registerEcommerceChannelGuard(
-        plan,
-        execution,
-        () => {
-          channelInterrupted = true
-        },
-      )
-      try {
-        const summary = await execution.startRun(plan)
+        queuesRef.current.set(plan.id, Promise.resolve([]))
+
+        if (
+          !channels
+            .getState()
+            .channels.some((item) => item.id === first.request.channelId)
+        ) {
+          preflightBoundary.interrupt()
+        }
+        preflightBoundary.assertActive()
+
+        let summary: RunSummary
+        try {
+          summary = await execution.startRun(plan)
+        } finally {
+          unregisterChannelGuard()
+        }
         const warnings = await (queuesRef.current.get(plan.id) ?? Promise.resolve([]))
-        if (channelInterrupted) {
-          warnings.push('渠道已删除，电商生成计划已停止；请重新选择平台后再生成')
+        if (preflightBoundary.isInterrupted()) {
+          warnings.push(ECOMMERCE_CHANNEL_REMOVED_MESSAGE)
         }
         for (const task of plan.tasks) resultTaskIdsRef.current.delete(task.resultId)
         return { summary, warnings }
