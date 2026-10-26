@@ -7,6 +7,7 @@ import {
   type BackupProgress,
 } from '../../state/project/backupIo'
 import styles from './BackupPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 /**
  * 「备份与恢复」面板（用户 2026-10-09，对账 #378 A2/A5）。
@@ -105,21 +106,23 @@ export function BackupPanel() {
     <div className={styles.panel} data-backup-panel data-settings-panel>
       {profileBackup ? (
         <section className={styles.block}>
-          <div className={styles.row} data-profile-backup>
-            <span className={styles.label}>
-              共享权威库
-              <span className={styles.sub}>
-                {profileBackup.dir} · 调试壳 / release 壳 / 浏览器共用 · 实时写入
-              </span>
-            </span>
-            <button
-              type="button"
-              className={styles.btn}
-              data-profile-backup-open
-              onClick={() => void platform.storageAdmin?.openDir(profileBackup.dir)}
-            >
-              打开共享库目录
-            </button>
+          <h3 className={styles.title}>共享权威库</h3>
+          <p className={styles.caption}>调试壳、release 壳与浏览器共用，实时写入。</p>
+          <div data-profile-backup>
+            <SettingsRow
+              label="数据目录"
+              description={profileBackup.dir}
+              control={
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-profile-backup-open
+                  onClick={() => void platform.storageAdmin?.openDir(profileBackup.dir)}
+                >
+                  打开共享库目录
+                </button>
+              }
+            />
           </div>
         </section>
       ) : null}
@@ -128,68 +131,89 @@ export function BackupPanel() {
         <h3 className={styles.title}>全量备份</h3>
         <p className={styles.caption}>包含项目、素材、技能、协议与预设。</p>
 
-        <div className={styles.row}>
-          <span className={styles.label}>包含自定义字体</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={includeFonts}
-            className={includeFonts ? `${styles.toggle} ${styles.toggleOn}` : styles.toggle}
-            data-backup-include-fonts
-            onClick={() => setIncludeFonts((v) => !v)}
-          >
-            <span className={styles.knob} />
-          </button>
-        </div>
-        <p className={styles.note}>不包含字体时，换机后需重新导入。</p>
+        <SettingsRow
+          label="包含自定义字体"
+          description="不包含字体时，换机后需重新导入。"
+          control={
+            <button
+              type="button"
+              role="switch"
+              aria-label="备份中包含自定义字体"
+              aria-checked={includeFonts}
+              className={includeFonts ? `${styles.toggle} ${styles.toggleOn}` : styles.toggle}
+              data-backup-include-fonts
+              onClick={() => setIncludeFonts((v) => !v)}
+            >
+              <span className={styles.knob} />
+            </button>
+          }
+        />
 
-        <div className={styles.row}>
-          <span className={styles.label}>
-            令牌不进备份
-            <span className={styles.sub}>
-              令牌使用本机密钥加密，不进入备份。
-            </span>
-          </span>
-        </div>
-
-        <button type="button" className={styles.primary} data-backup-export disabled={busy} onClick={() => void runExport()}>
-          {busy && progress?.label !== '写入' ? '正在导出…' : '导出全量备份'}
-        </button>
+        <SettingsRow
+          label="导出全量备份"
+          description="令牌使用本机密钥加密，不进入备份。"
+          control={
+            <button
+              type="button"
+              className={styles.primary}
+              data-backup-export
+              disabled={busy}
+              onClick={() => void runExport()}
+            >
+              {busy && progress?.label !== '写入' ? '正在导出…' : '选择位置并导出'}
+            </button>
+          }
+        />
       </section>
 
       <section className={styles.block}>
         <h3 className={styles.title}>从备份恢复</h3>
         <p className={styles.caption}>合并导入，不覆盖现有数据。</p>
 
-        <div className={styles.row}>
-          <span className={styles.label}>遇到同一条数据时</span>
-          <div className={styles.seg} role="radiogroup" aria-label="导入策略">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={strategy === 'merge'}
-              className={strategy === 'merge' ? `${styles.segItem} ${styles.segOn}` : styles.segItem}
-              data-backup-strategy="merge"
-              onClick={() => setStrategy('merge')}
-            >
-              用备份覆盖
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={strategy === 'skip'}
-              className={strategy === 'skip' ? `${styles.segItem} ${styles.segOn}` : styles.segItem}
-              data-backup-strategy="skip"
-              onClick={() => setStrategy('skip')}
-            >
-              保留本机的
-            </button>
-          </div>
-        </div>
+        <SettingsRow
+          label="遇到同一条数据时"
+          description="同一 id 的数据可按备份覆盖，或保留本机版本。"
+          control={
+            <div className={styles.seg} role="radiogroup" aria-label="导入策略">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={strategy === 'merge'}
+                className={strategy === 'merge' ? `${styles.segItem} ${styles.segOn}` : styles.segItem}
+                data-backup-strategy="merge"
+                onClick={() => setStrategy('merge')}
+              >
+                用备份覆盖
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={strategy === 'skip'}
+                className={strategy === 'skip' ? `${styles.segItem} ${styles.segOn}` : styles.segItem}
+                data-backup-strategy="skip"
+                onClick={() => setStrategy('skip')}
+              >
+                保留本机的
+              </button>
+            </div>
+          }
+        />
 
-        <button type="button" className={styles.btn} data-backup-import disabled={busy} onClick={() => void runImport()}>
-          选择备份文件导入…
-        </button>
+        <SettingsRow
+          label="选择备份文件"
+          description="仅合并导入，不覆盖当前已有项目。"
+          control={
+            <button
+              type="button"
+              className={styles.btn}
+              data-backup-import
+              disabled={busy}
+              onClick={() => void runImport()}
+            >
+              选择备份文件导入…
+            </button>
+          }
+        />
       </section>
 
       {progress && (

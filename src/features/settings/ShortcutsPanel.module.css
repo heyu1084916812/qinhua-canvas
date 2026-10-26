@@ -1,4 +1,4 @@
-﻿.panel {
+.panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -12,7 +12,7 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
 }
@@ -45,7 +45,7 @@
 .keys {
   color: var(--text-1);
   font-size: var(--fs-label);
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

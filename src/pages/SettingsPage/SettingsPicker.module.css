@@ -146,14 +146,14 @@
 }
 
 .rowHint {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: 400;
   color: var(--text-2);
 }
 
 .check {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1;
 }
 
@@ -186,7 +186,7 @@
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
 }
 
 .comboInput:focus {

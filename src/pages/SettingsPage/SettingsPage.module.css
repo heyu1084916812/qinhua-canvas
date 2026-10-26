@@ -20,7 +20,7 @@
   background: var(--bg-canvas);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
 }
 
 /*
@@ -139,7 +139,7 @@
   border-radius: 4px;
   background: var(--bg-hover);
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.4;
 }
 
@@ -195,7 +195,7 @@
   border-radius: 4px;
   background: var(--bg-hover);
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
 }
 
 .docLink {
@@ -418,7 +418,7 @@
 
 .dragHint {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -487,7 +487,7 @@
 .channelGroupLabel {
   padding: var(--space-1) var(--space-2) 2px;
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: var(--fw-title);
   line-height: 1.4;
   list-style: none;
@@ -684,7 +684,7 @@
    * 2026-10-08 又因「左边太大、缩小一点」回到 **14**（`--fs-nav`）——
    * 再小就掉到 12px 那一档了，列表的可读性不值当为省两像素牺牲掉。
    */
-  font-size: var(--fs-nav);
+  font-size: var(--fs-label);
   font-weight: var(--fw-title);
   /**
    * 两列布局之后名称只剩一半宽度：超长一律省略号。
@@ -892,7 +892,7 @@
   margin: 0;
   padding: var(--space-2);
   color: var(--text-2);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.5;
 }
 
@@ -924,14 +924,14 @@
  * 与 `ui-ux-pro-max` 的 `Compact Label Overflow` 那条一致。
  */
 .itemCount {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .itemProto {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   color: var(--text-3);
 }
@@ -941,12 +941,12 @@
   gap: var(--space-2);
 }
 .itemOn {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   color: var(--success);
 }
 .itemModels {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -977,7 +977,7 @@
   margin-top: var(--space-1);
 }
 .capChip {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   color: var(--text-2);
   background: var(--bg-hover);
@@ -1048,7 +1048,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-1);
-  font-size: 20px;
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -1127,7 +1127,7 @@
 
 .profileDrawerHead h2 {
   margin: 0;
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
 }
 
@@ -1218,7 +1218,7 @@
   background: var(--bg-app);
   color: var(--text-1);
   font: inherit;
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
 }
 
 .profileInput:focus {
@@ -1336,7 +1336,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   padding: var(--space-2) var(--space-3);
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
   font-family: var(--font-sans);
 }
 .input:focus {
@@ -1355,7 +1355,7 @@
 }
 
 .saved {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--success);
 }
 
@@ -1489,7 +1489,7 @@
 }
 .protoHint {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-3);
 }
@@ -1518,7 +1518,7 @@
 }
 .protoError {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--danger);
 }
@@ -1534,7 +1534,7 @@
   gap: var(--space-2);
 }
 .protoMineName {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-1);
 }
 /*
@@ -1545,7 +1545,7 @@
 .protoPendingWhy {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.6;
   color: var(--text-3);
   text-align: right;
@@ -1582,7 +1582,7 @@
   padding: var(--space-3);
 }
 .confirmText {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.6;
   color: var(--text-2);
 }
@@ -1651,7 +1651,7 @@
   margin: 0;
   padding-left: var(--space-3);
   border-left: 2px solid var(--stroke-focus);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-3);
 }
@@ -1668,13 +1668,13 @@
   gap: 2px;
 }
 .modelsSub {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
 .modelsEmpty {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-3);
 }
@@ -1693,8 +1693,8 @@
   flex: none;
   width: 68px;
   padding-top: 3px;
-  font-size: var(--fs-chip);
-  font-weight: var(--fw-chip);
+  font-size: var(--fs-label);
+  font-weight: 500;
   color: var(--text-3);
 }
 .chips {
@@ -1710,14 +1710,14 @@
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
   padding: 2px var(--space-2);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-1);
 }
 .chipX {
   border: none;
   background: none;
   padding: 0 2px;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1;
   color: var(--text-3);
   cursor: pointer;
@@ -1760,7 +1760,7 @@
   background: transparent;
   color: var(--text-2);
   padding: 3px var(--space-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 .tab:hover {
@@ -1806,7 +1806,7 @@
   white-space: nowrap;
 }
 .optionCat {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -1815,7 +1815,7 @@
 }
 .optionEmpty {
   padding: var(--space-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -1865,7 +1865,7 @@
   background: var(--bg-surface);
   color: var(--text-2);
   font: inherit;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 
@@ -1931,7 +1931,7 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--text-2);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.4;
   white-space: nowrap;
   cursor: pointer;
@@ -1953,7 +1953,7 @@
   background: var(--bg-app);
   color: var(--text-2);
   font: inherit;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out);
 }
@@ -2002,7 +2002,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--success);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2021,7 +2021,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   font: inherit;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 
@@ -2038,7 +2038,7 @@
   grid-column: 2 / -1;
   min-height: 18px;
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -2151,7 +2151,7 @@
   padding: 0 var(--space-1);
   border: var(--border);
   border-radius: var(--radius-pill);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-2);
 }
 .presetHint {
@@ -2185,7 +2185,7 @@
 }
 .presetCounter {
   flex: 1;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 

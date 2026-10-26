@@ -11,6 +11,7 @@ import {
 import { UI_SCALES, uiScaleLabel } from '../../domain/ui/appearance'
 import { NODE_BODY_SIZES, NODE_TITLE_SIZES } from '../../domain/project/canvasStyle'
 import styles from './FontManagerPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 /**
  * 「外观与体验 → 字体」面板（用户 2026-10-09：「我能加入字体吗？可以的话给我加一个」）。
@@ -112,17 +113,21 @@ export function FontManagerPanel() {
         </p>
 
         <div className={styles.list} role="radiogroup" aria-label="界面字体">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={selectedId === null}
+          <div
             className={selectedId === null ? `${styles.item} ${styles.itemOn}` : styles.item}
             data-font-option="system"
-            onClick={() => fonts.chooseFont({ kind: 'system' })}
           >
-            <span className={styles.itemName}>系统默认</span>
-            <span className={styles.itemHint}>Segoe UI / 微软雅黑</span>
-          </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selectedId === null}
+              className={styles.chooseArea}
+              onClick={() => fonts.chooseFont({ kind: 'system' })}
+            >
+              <span className={styles.itemName}>系统默认</span>
+              <span className={styles.itemHint}>Segoe UI / 微软雅黑</span>
+            </button>
+          </div>
 
           {groups.map((group) => (
             <div
@@ -184,7 +189,7 @@ export function FontManagerPanel() {
                       pick({ kind: 'bold', family: group.family, name: group.regular.name })
                     }
                   >
-                    加粗体…
+                    补粗体
                   </button>
                 )}
                 <button
@@ -208,7 +213,7 @@ export function FontManagerPanel() {
           ))}
         </div>
 
-        <div className={styles.importRow}>
+        <div className={styles.importPanel}>
           <input
             ref={inputRef}
             type="file"
@@ -217,26 +222,35 @@ export function FontManagerPanel() {
             data-font-file
             onChange={(e) => void onFile(e.target.files?.[0])}
           />
-          <button
-            type="button"
-            className={styles.btn}
-            data-font-import
-            disabled={busy || atLimit}
-            onClick={() => pick({ kind: 'new' })}
-          >
-            {busy ? '正在导入…' : '导入字体文件'}
-          </button>
-          <span className={styles.hint}>
-            {atLimit
-              ? `已达上限（${FONT_COUNT_MAX} 个），先删掉不用的再导入`
-              : `支持 ${FONT_FORMATS.join(' / ')}，单个不超过 ${FONT_SIZE_MAX / 1024 / 1024}MB`}
-          </span>
+          <SettingsRow
+            className={styles.importRow}
+            label="导入字体"
+            description={
+              atLimit
+                ? `已达上限（${FONT_COUNT_MAX} 个），先删掉不用的再导入。`
+                : (
+                    <>
+                      支持 {FONT_FORMATS.join(' / ')}，单文件不超过{' '}
+                      {FONT_SIZE_MAX / 1024 / 1024}MB。
+                      <span data-font-weight-note>
+                        同字族补一份粗体文件可获得真粗体；可变字体无需补。
+                      </span>
+                    </>
+                  )
+            }
+            control={
+              <button
+                type="button"
+                className={styles.btn}
+                data-font-import
+                disabled={busy || atLimit}
+                onClick={() => pick({ kind: 'new' })}
+              >
+                {busy ? '正在导入…' : '导入字体文件'}
+              </button>
+            }
+          />
         </div>
-
-        {/* 用户 2026-10-09 的第三个问题：「他只有一份字体怎么控制粗细呢？」 */}
-        <p className={styles.hint} data-font-weight-note>
-          同字族补一份粗体文件可获得真粗体；可变字体无需补。
-        </p>
 
         {status && (
           <p className={styles.status} role="status" data-font-status>
@@ -248,107 +262,118 @@ export function FontManagerPanel() {
       <section className={styles.block}>
         <h3 className={styles.title}>界面字号</h3>
         <p className={styles.caption}>只缩放界面文字，不改变画布。</p>
-        <div className={styles.segRow}>
-          <div className={styles.seg} role="radiogroup" aria-label="界面字号">
-            {UI_SCALES.map((scale) => (
+        <SettingsRow
+          label="界面字号"
+          control={
+            <div className={styles.inlineControls}>
+              <div className={styles.seg} role="radiogroup" aria-label="界面字号">
+                {UI_SCALES.map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    role="radio"
+                    aria-checked={fonts.appearance.scale === scale}
+                    className={
+                      fonts.appearance.scale === scale ? `${styles.segItem} ${styles.segOn}` : styles.segItem
+                    }
+                    data-ui-scale={scale}
+                    onClick={() => fonts.setScale(scale)}
+                  >
+                    {uiScaleLabel(scale)}
+                  </button>
+                ))}
+              </div>
               <button
-                key={scale}
                 type="button"
-                role="radio"
-                aria-checked={fonts.appearance.scale === scale}
-                className={
-                  fonts.appearance.scale === scale ? `${styles.segItem} ${styles.segOn}` : styles.segItem
-                }
-                data-ui-scale={scale}
-                onClick={() => fonts.setScale(scale)}
+                className={styles.resetBtn}
+                data-font-reset
+                onClick={() => fonts.reset()}
               >
-                {uiScaleLabel(scale)}
+                恢复默认
               </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className={styles.btn}
-            data-font-reset
-            onClick={() => fonts.reset()}
-          >
-            恢复默认
-          </button>
-        </div>
+            </div>
+          }
+        />
 
-        <div className={styles.segRow}>
-          <span className={styles.rowLabel}>字距</span>
-          <div className={styles.seg} role="radiogroup" aria-label="字距">
-            {(['normal', 'wide'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={fonts.appearance.letterSpacing === value}
-                className={
-                  fonts.appearance.letterSpacing === value
-                    ? `${styles.segItem} ${styles.segOn}`
-                    : styles.segItem
-                }
-                data-letter-spacing={value}
-                onClick={() => fonts.setLetterSpacing(value)}
-              >
-                {value === 'normal' ? '标准' : '宽松'}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="字距"
+          control={
+            <div className={styles.seg} role="radiogroup" aria-label="字距">
+              {(['normal', 'wide'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={fonts.appearance.letterSpacing === value}
+                  className={
+                    fonts.appearance.letterSpacing === value
+                      ? `${styles.segItem} ${styles.segOn}`
+                      : styles.segItem
+                  }
+                  data-letter-spacing={value}
+                  onClick={() => fonts.setLetterSpacing(value)}
+                >
+                  {value === 'normal' ? '标准' : '宽松'}
+                </button>
+              ))}
+            </div>
+          }
+        />
       </section>
 
       <section className={styles.block}>
         <h3 className={styles.title}>节点文字</h3>
         <p className={styles.caption}>随当前项目保存，只影响画布节点的标题与提示词正文。</p>
-        <div className={styles.segRow}>
-          <span className={styles.rowLabel}>节点标题字号</span>
-          <div className={styles.seg} role="radiogroup" aria-label="节点标题字号">
-            {NODE_TITLE_SIZES.map((size) => (
-              <button
-                key={size}
-                type="button"
-                role="radio"
-                aria-checked={canvas.style.titleSize === size}
-                className={
-                  canvas.style.titleSize === size
-                    ? `${styles.segItem} ${styles.segOn}`
-                    : styles.segItem
-                }
-                data-node-title-size={size}
-                disabled={!canvas.projectId}
-                onClick={() => canvas.update({ titleSize: size })}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={styles.segRow}>
-          <span className={styles.rowLabel}>提示词正文字号</span>
-          <div className={styles.seg} role="radiogroup" aria-label="提示词正文字号">
-            {NODE_BODY_SIZES.map((size) => (
-              <button
-                key={size}
-                type="button"
-                role="radio"
-                aria-checked={canvas.style.bodySize === size}
-                className={
-                  canvas.style.bodySize === size
-                    ? `${styles.segItem} ${styles.segOn}`
-                    : styles.segItem
-                }
-                data-node-body-size={size}
-                disabled={!canvas.projectId}
-                onClick={() => canvas.update({ bodySize: size })}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="节点标题字号"
+          control={
+            <div className={styles.seg} role="radiogroup" aria-label="节点标题字号">
+              {NODE_TITLE_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  role="radio"
+                  aria-checked={canvas.style.titleSize === size}
+                  className={
+                    canvas.style.titleSize === size
+                      ? `${styles.segItem} ${styles.segOn}`
+                      : styles.segItem
+                  }
+                  data-node-title-size={size}
+                  disabled={!canvas.projectId}
+                  onClick={() => canvas.update({ titleSize: size })}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <SettingsRow
+          label="提示词正文字号"
+          control={
+            <div className={styles.seg} role="radiogroup" aria-label="提示词正文字号">
+              {NODE_BODY_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  role="radio"
+                  aria-checked={canvas.style.bodySize === size}
+                  className={
+                    canvas.style.bodySize === size
+                      ? `${styles.segItem} ${styles.segOn}`
+                      : styles.segItem
+                  }
+                  data-node-body-size={size}
+                  disabled={!canvas.projectId}
+                  onClick={() => canvas.update({ bodySize: size })}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          }
+        />
         {!canvas.projectId ? <p className={styles.hint}>打开项目后可调整。</p> : null}
       </section>
     </div>

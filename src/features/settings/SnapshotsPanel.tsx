@@ -7,6 +7,7 @@ import {
   type ProjectSnapshot,
 } from '../../domain/project/snapshot'
 import styles from './SnapshotsPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 /**
  * 「数据 → 快照」面板。
@@ -74,24 +75,21 @@ export function SnapshotsPanel() {
       <section className={styles.block}>
         <h3 className={styles.title}>自动快照</h3>
         <p className={styles.caption}>每天保存项目结构快照，默认保留 7 份。</p>
-        <div className={styles.row}>
-          <span className={styles.label}>
-            已有的快照
-            <span className={styles.sub}>
-              {snapshots.length > 0 ? `${snapshots.length} 份` : '还没有（打开应用后会自动拍）'} ·
-              保留 {SNAPSHOT_KEEP_CHOICES[1]} 份
-            </span>
-          </span>
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.primary}`}
-            data-snapshot-capture
-            disabled={busy}
-            onClick={() => void captureNow()}
-          >
-            现在拍一张
-          </button>
-        </div>
+        <SettingsRow
+          label="已有快照"
+          description={`${snapshots.length > 0 ? `${snapshots.length} 份` : '还没有（打开应用后会自动拍）'} · 保留 ${SNAPSHOT_KEEP_CHOICES[1]} 份`}
+          control={
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.primary}`}
+              data-snapshot-capture
+              disabled={busy}
+              onClick={() => void captureNow()}
+            >
+              现在拍一张
+            </button>
+          }
+        />
         {snapshots.length > 0 ? (
           <ul className={styles.snapList}>
             {snapshots.slice(0, 20).map((snapshot) => (

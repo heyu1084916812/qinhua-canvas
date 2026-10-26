@@ -248,6 +248,9 @@
   --settings-label-weight: 600;
   --settings-body-size: 13px;
   --settings-body-weight: 400;
+  --settings-body-line: 1.6;
+  --settings-label-line: 1.45;
+  --settings-label-gap: 10px;
   --settings-card-padding: 16px;
   --settings-panel-gap: 12px;
   --settings-control-height: 32px;
@@ -280,7 +283,7 @@
   color: var(--text-3);
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
-  line-height: 1.55;
+  line-height: var(--settings-body-line);
 }
 
 .sectionBody {
@@ -325,10 +328,10 @@
 }
 
 .sectionBody [data-settings-panel] > section > p {
-  margin: var(--space-1) 0 0;
+  margin: var(--settings-label-gap) 0 0;
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
-  line-height: 1.5;
+  line-height: var(--settings-body-line);
 }
 
 .sectionBody [data-settings-panel] > section > p + * {
@@ -351,6 +354,7 @@
 .sectionBody :is(p, small) {
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
+  line-height: var(--settings-body-line);
 }
 
 .sectionBody :is(button, [role='button']) {
@@ -366,6 +370,7 @@
 .sectionBody :is(input, select, textarea) {
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
+  line-height: var(--settings-body-line);
 }
 
 .sectionBody [data-choice-picker] > button {
@@ -388,18 +393,30 @@
 ) {
   font-size: var(--settings-body-size);
   font-weight: var(--settings-body-weight);
+  line-height: var(--settings-body-line);
 }
 
 .sectionBody :is(
-  dd,
-  [class*="_cardTitle_"],
   [class*="_fieldLabel_"],
   [class*="_itemName_"],
   [class*="_label_"],
   [class*="_rowLabel_"]
 ) {
+  font-size: var(--settings-body-size);
+  font-weight: 500;
+  line-height: var(--settings-label-line);
+}
+
+.sectionBody dd {
+  font-size: var(--settings-body-size);
+  font-weight: var(--settings-body-weight);
+  line-height: var(--settings-body-line);
+}
+
+.sectionBody [class*="_cardTitle_"] {
   font-size: var(--settings-label-size);
   font-weight: var(--settings-label-weight);
+  line-height: var(--settings-label-line);
 }
 
 .sectionBody strong,

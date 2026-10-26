@@ -21,10 +21,10 @@
 }
 
 .caption {
-  margin: var(--space-1) 0 0;
+  margin: var(--settings-label-gap, 10px) 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
-  line-height: 1.5;
+  line-height: var(--settings-body-line, 1.6);
 }
 
 .rows {
@@ -55,7 +55,7 @@
 .rowText {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--settings-label-gap, 10px);
   min-width: 0;
   flex: 1 1 240px;
 }
@@ -69,7 +69,7 @@
 .hint {
   font-size: var(--fs-label);
   color: var(--text-2);
-  line-height: 1.5;
+  line-height: var(--settings-body-line, 1.6);
 }
 
 .switchBox {

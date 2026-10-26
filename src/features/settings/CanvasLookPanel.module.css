@@ -50,25 +50,10 @@
 }
 
 .caption {
-  margin: var(--space-1) 0 0;
+  margin: var(--settings-label-gap, 10px) 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
-  line-height: 1.5;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-height: 32px;
-  margin-top: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.rowLabel {
-  font-size: var(--fs-body);
-  color: var(--text-1);
+  line-height: var(--settings-body-line, 1.6);
 }
 
 .segments {
@@ -97,7 +82,7 @@
 .segOn {
   background: var(--bg-subtle);
   color: var(--text-1);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .seg:disabled,
@@ -159,16 +144,8 @@
   border-top: var(--border);
 }
 
-.customColorMeta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.customColorHint {
-  color: var(--text-3);
-  font-size: var(--fs-chip);
+.colorHeading {
+  margin-bottom: var(--space-3);
 }
 
 .colorReset {
@@ -178,7 +155,7 @@
   background: transparent;
   color: var(--text-2);
   font: inherit;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   cursor: pointer;
 }
 
@@ -291,7 +268,7 @@
   color: var(--accent-text);
   font: inherit;
   font-size: var(--fs-label);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -306,7 +283,7 @@
 .colorError {
   display: block;
   margin-top: var(--space-2);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
 }
 
 .colorStatus {
@@ -319,7 +296,7 @@
 
 .hint {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 

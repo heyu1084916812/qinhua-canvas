@@ -1,4 +1,4 @@
-﻿.panel {
+.panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -12,35 +12,16 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
 }
 
 .caption {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--settings-label-gap, 10px) 0 var(--space-4);
   font-size: var(--fs-label);
   color: var(--text-2);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--fs-body);
-  color: var(--text-1);
-}
-
-.sub {
-  color: var(--text-3);
-  font-size: var(--fs-chip);
+  line-height: var(--settings-body-line, 1.6);
 }
 
 .btn {
@@ -105,10 +86,12 @@
   min-width: 0;
   color: var(--text-2);
   font-size: var(--fs-label);
+  line-height: var(--settings-body-line, 1.6);
 }
 
 .status {
   margin: var(--space-3) 0 0;
   color: var(--text-2);
   font-size: var(--fs-label);
+  line-height: var(--settings-body-line, 1.6);
 }

@@ -13,15 +13,15 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
 }
 
 .caption {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--settings-label-gap, 10px) 0 var(--space-4);
   font-size: var(--fs-label);
-  line-height: 1.7;
+  line-height: var(--settings-body-line, 1.6);
   color: var(--text-2);
 }
 
@@ -85,7 +85,7 @@
 
 .hint {
   margin: 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -108,19 +108,6 @@
   margin: 0 0 var(--space-2);
   font-size: var(--fs-label);
   line-height: 1.7;
-  color: var(--text-1);
-}
-
-.segRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.rowLabel {
-  font-size: var(--fs-label);
   color: var(--text-1);
 }
 
@@ -149,7 +136,7 @@
 .segOn {
   background: var(--bg-surface);
   color: var(--text-1);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .status {
@@ -178,12 +165,12 @@
 }
 
 .itemName {
-  font-size: var(--fs-body);
+  font-size: var(--fs-label);
   color: var(--text-1);
 }
 
 .itemMeta {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 

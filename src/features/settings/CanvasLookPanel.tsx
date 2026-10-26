@@ -11,6 +11,7 @@ import {
   normalizeHexColor,
 } from '../../domain/project/canvasStyle'
 import styles from './CanvasLookPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 interface ColorControlProps {
   scope: 'canvas' | 'node'
@@ -60,22 +61,25 @@ function ColorControl({
 
   return (
     <div className={separated ? styles.customColorRowSeparated : styles.customColorRow}>
-      <div className={styles.customColorMeta}>
-        <span className={styles.rowLabel}>{label}</span>
-        <span className={styles.customColorHint}>{hint}</span>
-        {value ? (
-          <button
-            type="button"
-            className={styles.colorReset}
-            data-canvas-color-reset={scope === 'canvas' ? true : undefined}
-            data-node-color-reset={scope === 'node' ? true : undefined}
-            disabled={disabled}
-            onClick={onReset}
-          >
-            恢复主题默认
-          </button>
-        ) : null}
-      </div>
+      <SettingsRow
+        className={styles.colorHeading}
+        label={label}
+        description={hint}
+        control={
+          value ? (
+            <button
+              type="button"
+              className={styles.colorReset}
+              data-canvas-color-reset={scope === 'canvas' ? true : undefined}
+              data-node-color-reset={scope === 'node' ? true : undefined}
+              disabled={disabled}
+              onClick={onReset}
+            >
+              恢复主题默认
+            </button>
+          ) : null
+        }
+      />
       <div className={styles.customColorControls}>
         <label
           className={value ? `${styles.colorWell} ${styles.colorWellOn}` : styles.colorWell}
@@ -199,49 +203,53 @@ export function CanvasLookPanel() {
         </div>
         <p className={styles.caption}>随项目保存，只影响画布背景。</p>
 
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>背景样式</span>
-          <div className={styles.segments} role="radiogroup" aria-label="画布背景样式">
-            {CANVAS_BACKGROUNDS.map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                role="radio"
-                aria-checked={current.background === kind}
-                className={current.background === kind ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                data-canvas-background={kind}
-                disabled={disabled}
-                onClick={() => update({ background: kind })}
-              >
-                {canvasBackgroundLabel(kind)}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="背景样式"
+          control={
+            <div className={styles.segments} role="radiogroup" aria-label="画布背景样式">
+              {CANVAS_BACKGROUNDS.map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={current.background === kind}
+                  className={current.background === kind ? `${styles.seg} ${styles.segOn}` : styles.seg}
+                  data-canvas-background={kind}
+                  disabled={disabled}
+                  onClick={() => update({ background: kind })}
+                >
+                  {canvasBackgroundLabel(kind)}
+                </button>
+              ))}
+            </div>
+          }
+        />
 
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>背景色调</span>
-          <div className={styles.swatches} role="radiogroup" aria-label="画布背景色调">
-            {CANVAS_TONES.map((tone) => (
-              <button
-                key={tone}
-                type="button"
-                role="radio"
-                aria-checked={!current.customColor && current.tone === tone}
-                aria-label={canvasToneLabel(tone)}
-                title={canvasToneLabel(tone)}
-                className={
-                  !current.customColor && current.tone === tone
-                    ? `${styles.swatch} ${styles.swatchOn}`
-                    : styles.swatch
-                }
-                data-canvas-tone={tone}
-                disabled={disabled}
-                onClick={() => update({ tone, customColor: null })}
-              />
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="背景色调"
+          control={
+            <div className={styles.swatches} role="radiogroup" aria-label="画布背景色调">
+              {CANVAS_TONES.map((tone) => (
+                <button
+                  key={tone}
+                  type="button"
+                  role="radio"
+                  aria-checked={!current.customColor && current.tone === tone}
+                  aria-label={canvasToneLabel(tone)}
+                  title={canvasToneLabel(tone)}
+                  className={
+                    !current.customColor && current.tone === tone
+                      ? `${styles.swatch} ${styles.swatchOn}`
+                      : styles.swatch
+                  }
+                  data-canvas-tone={tone}
+                  disabled={disabled}
+                  onClick={() => update({ tone, customColor: null })}
+                />
+              ))}
+            </div>
+          }
+        />
 
         <ColorControl
           scope="canvas"
@@ -271,27 +279,30 @@ export function CanvasLookPanel() {
           onReset={() => update({ nodeColor: null })}
         />
 
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>新节点默认尺寸</span>
-          <div className={styles.segments} role="radiogroup" aria-label="新节点默认尺寸">
-            {NODE_DENSITIES.map((density) => (
-              <button
-                key={density}
-                type="button"
-                role="radio"
-                aria-checked={current.density === density}
-                className={
-                  current.density === density ? `${styles.seg} ${styles.segOn}` : styles.seg
-                }
-                data-node-density={density}
-                disabled={disabled}
-                onClick={() => update({ density })}
-              >
-                {nodeDensityLabel(density)}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="新节点默认尺寸"
+          description="只影响之后新建的节点。"
+          control={
+            <div className={styles.segments} role="radiogroup" aria-label="新节点默认尺寸">
+              {NODE_DENSITIES.map((density) => (
+                <button
+                  key={density}
+                  type="button"
+                  role="radio"
+                  aria-checked={current.density === density}
+                  className={
+                    current.density === density ? `${styles.seg} ${styles.segOn}` : styles.seg
+                  }
+                  data-node-density={density}
+                  disabled={disabled}
+                  onClick={() => update({ density })}
+                >
+                  {nodeDensityLabel(density)}
+                </button>
+              ))}
+            </div>
+          }
+        />
       </section>
 
       {disabled ? (

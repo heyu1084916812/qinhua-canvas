@@ -1,4 +1,4 @@
-﻿/* 素材传输设置页（用户 2026-10-03）：单卡片、居中、只用主题令牌 */
+/* 素材传输设置页（用户 2026-10-03）：单卡片、居中、只用主题令牌 */
 .page {
   /* 浮层内边界由 GlobalSettingsOverlay 的 sectionBody 统一承担 */
   padding: 0;
@@ -6,7 +6,7 @@
 
 .title {
   margin: 0 0 8px;
-  font-size: 20px;
+  font-size: var(--fs-title);
   font-weight: 650;
   color: var(--text-1);
 }
@@ -112,7 +112,7 @@
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--bg-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-2);
   word-break: break-all;
 }
@@ -135,7 +135,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-weight: 600;
   color: var(--text-1);
 }
@@ -146,7 +146,7 @@
   border-radius: var(--radius-pill);
   background: var(--bg-hover);
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 500;
 }
 
@@ -167,7 +167,7 @@
 }
 
 .fieldHint {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
@@ -177,7 +177,7 @@
   padding: 8px 12px;
   border-radius: 6px;
   background: var(--bg-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-2);
 }
 
@@ -190,7 +190,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-weight: 600;
   cursor: pointer;
 }
@@ -209,7 +209,7 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.6;
 }
 

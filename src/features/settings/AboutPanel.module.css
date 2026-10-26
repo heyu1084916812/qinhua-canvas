@@ -13,14 +13,14 @@
 
 .title {
   margin: 0;
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
 }
 
 .blockTitle {
-  margin: 0 0 var(--space-2);
-  font-size: var(--fs-body);
+  margin: 0 0 var(--settings-label-gap, 10px);
+  font-size: var(--fs-label);
   font-weight: 600;
   color: var(--text-1);
 }
@@ -35,7 +35,7 @@
 .body {
   margin: 0 0 var(--space-2);
   font-size: var(--fs-label);
-  line-height: 1.8;
+  line-height: var(--settings-body-line, 1.6);
   color: var(--text-2);
 }
 

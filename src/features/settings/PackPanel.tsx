@@ -9,6 +9,7 @@ import {
 } from '../../state/project/packStore'
 import { packSummary, parsePack, type ExtensionPack } from '../../domain/pack/pack'
 import styles from './PackPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 /**
  * 「生成 → 扩展包」面板（对账 #386 阶段一）。
@@ -121,17 +122,20 @@ export function PackPanel() {
           data-pack-file
           onChange={(e) => void onFile(e.target.files?.[0])}
         />
-        <div className={styles.row}>
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.primary}`}
-            data-pack-import
-            onClick={() => fileRef.current?.click()}
-          >
-            导入扩展包…
-          </button>
-          <span className={styles.hint}>当前版本 {APP_VERSION}</span>
-        </div>
+        <SettingsRow
+          label="导入扩展包"
+          description={`当前版本 ${APP_VERSION}`}
+          control={
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.primary}`}
+              data-pack-import
+              onClick={() => fileRef.current?.click()}
+            >
+              选择扩展包…
+            </button>
+          }
+        />
 
         {errors.length > 0 ? (
           <ul className={styles.errors} data-pack-errors>
@@ -146,25 +150,28 @@ export function PackPanel() {
             <p className={styles.summary} data-pack-summary>
               {packSummary(pack)}
             </p>
-            <div className={styles.segRow}>
-              <span className={styles.rowLabel}>冲突时</span>
-              <div className={styles.segments} role="radiogroup" aria-label="冲突策略">
-                {STRATEGIES.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={strategy === s.id}
-                    title={s.hint}
-                    className={strategy === s.id ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                    data-pack-strategy={s.id}
-                    onClick={() => setStrategy(s.id)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <SettingsRow
+              label="冲突时"
+              description={STRATEGIES.find((item) => item.id === strategy)?.hint}
+              control={
+                <div className={styles.segments} role="radiogroup" aria-label="冲突策略">
+                  {STRATEGIES.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={strategy === s.id}
+                      title={s.hint}
+                      className={strategy === s.id ? `${styles.seg} ${styles.segOn}` : styles.seg}
+                      data-pack-strategy={s.id}
+                      onClick={() => setStrategy(s.id)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
             {preview ? (
               <p className={styles.hint} data-pack-preview>
                 装完会新增 {preview.adds.length} 个

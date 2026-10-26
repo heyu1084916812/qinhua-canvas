@@ -28887,9 +28887,100 @@ async function g121(browser) {
     '★★ 文案节奏统一：分区标题 14/600 → 说明 13/400 → 内容',
     copyRhythm?.heading.join('/') === '14px/600' &&
       copyRhythm?.body.join('/') === '13px/400' &&
-      copyRhythm.headingToDescription === 4 &&
+      copyRhythm.headingToDescription === 10 &&
       copyRhythm.descriptionToContent === 16,
     JSON.stringify(copyRhythm),
+  )
+
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await sleep(260)
+  const rowRhythm = await page.locator('[data-theme-panel] [data-settings-row]').evaluateAll((rows) =>
+    rows
+      .map((row) => {
+        const label = row.querySelector('[data-settings-row-label]')
+        const description = row.querySelector('[data-settings-row-description]')
+        const control = row.querySelector('[data-settings-row-control]')
+        if (!label || !description) return null
+        const ls = getComputedStyle(label)
+        const ds = getComputedStyle(description)
+        const labelBox = label.getBoundingClientRect()
+        const descriptionBox = description.getBoundingClientRect()
+        const controlBox = control?.getBoundingClientRect()
+        return {
+          label: [ls.fontSize, ls.fontWeight],
+          body: [ds.fontSize, ds.fontWeight, ds.lineHeight],
+          labelToBody: Math.round(descriptionBox.top - labelBox.bottom),
+          bodyLineExtra:
+            Math.round((Number.parseFloat(ds.lineHeight) - Number.parseFloat(ds.fontSize)) * 10) / 10,
+          controlRightGap: controlBox ? Math.round(row.getBoundingClientRect().right - controlBox.right) : null,
+        }
+      })
+      .filter(Boolean),
+  )
+  rec(
+    g,
+    '★★ 标签与正文固定 10px：三种右侧控件不再改变左侧文字栈',
+    rowRhythm.length >= 2 &&
+      rowRhythm.every(
+        (row) =>
+          row.label.join('/') === '13px/500' &&
+          row.body.slice(0, 2).join('/') === '13px/400' &&
+          row.labelToBody === 10 &&
+          row.labelToBody > row.bodyLineExtra &&
+          row.controlRightGap === 0,
+      ),
+    JSON.stringify(rowRhythm),
+  )
+
+  await page.locator('[data-global-settings-tab="typography"]').click()
+  await sleep(260)
+  const settingsRowsAligned = await page
+    .locator('[data-font-panel] [data-settings-row]')
+    .evaluateAll((rows) =>
+      rows.map((row) => {
+        const label = row.querySelector('[data-settings-row-label]')?.getBoundingClientRect()
+        const control = row.querySelector('[data-settings-row-control]')?.getBoundingClientRect()
+        return {
+          labelLeft: label ? Math.round(label.left) : null,
+          controlRight: control ? Math.round(control.right) : null,
+        }
+      }),
+    )
+  const fontLabelEdges = [...new Set(settingsRowsAligned.map((row) => row.labelLeft))]
+  const fontControlEdges = [...new Set(settingsRowsAligned.map((row) => row.controlRight))]
+  rec(
+    g,
+    '★★ 字体与文字页所有设置行共用同一左基线与右控件边界',
+    settingsRowsAligned.length >= 5 &&
+      fontLabelEdges.length === 1 &&
+      fontControlEdges.length === 1,
+    JSON.stringify({ fontLabelEdges, fontControlEdges }),
+  )
+
+  await page.locator('[data-global-settings-tab="help"]').click()
+  await sleep(260)
+  const faqRhythm = await page.locator('[data-help-panel] li').first().evaluate((qa) => {
+    const question = qa.firstElementChild
+    const answer = qa.lastElementChild
+    if (!question || !answer || question === answer) return null
+    const qs = getComputedStyle(question)
+    const as = getComputedStyle(answer)
+    return {
+      question: [qs.fontSize, qs.fontWeight],
+      answer: [as.fontSize, as.fontWeight, as.lineHeight],
+      gap: Math.round(answer.getBoundingClientRect().top - question.getBoundingClientRect().bottom),
+      lineExtra:
+        Math.round((Number.parseFloat(as.lineHeight) - Number.parseFloat(as.fontSize)) * 10) / 10,
+    }
+  })
+  rec(
+    g,
+    '★★ FAQ 问答间距大于答案换行间距，问题和答案不再粘成一段',
+    faqRhythm?.question.join('/') === '13px/600' &&
+      faqRhythm?.answer.slice(0, 2).join('/') === '13px/400' &&
+      faqRhythm.gap === 10 &&
+      faqRhythm.gap > faqRhythm.lineExtra,
+    JSON.stringify(faqRhythm),
   )
 
   const controlSizes = {}

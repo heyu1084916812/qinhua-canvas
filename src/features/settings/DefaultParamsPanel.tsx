@@ -4,6 +4,7 @@ import { capabilityOfLogical, panelModelOptions } from '../../domain/project/mod
 import { RATIO_CHOICES } from '../../domain/canvas/layout/ratioChoices'
 import { ChoicePicker } from '../shared/choicePicker/ChoicePicker'
 import styles from './DefaultParamsPanel.module.css'
+import { SettingsRow } from './SettingsRow'
 
 /**
  * 「生成 → 默认参数」面板（对账 #386 的 E4）。
@@ -136,33 +137,36 @@ export function DefaultParamsPanel() {
         <h3 className={styles.title}>默认参数</h3>
         <p className={styles.caption}>仅影响之后新建的节点。</p>
 
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>类别</span>
-          <div className={styles.segments} role="radiogroup" aria-label="默认参数类别">
-            {(Object.keys(DEFAULT_CATEGORY_LABELS) as DefaultCategory[]).map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={category === id}
-                className={category === id ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                data-defaults-category={id}
-                onClick={() => setCategory(id)}
-              >
-                {DEFAULT_CATEGORY_LABELS[id]}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SettingsRow
+          label="类别"
+          description={
+            <span data-defaults-current>
+              当前默认：{channelName} · {model || '（还没有可用模型）'}
+              {category !== 'chat' && model
+                ? ` · ${ratio || '未设比例'} · ${quality || '未设画质'} · ${count} 张`
+                : ''}
+            </span>
+          }
+          control={
+            <div className={styles.segments} role="radiogroup" aria-label="默认参数类别">
+              {(Object.keys(DEFAULT_CATEGORY_LABELS) as DefaultCategory[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={category === id}
+                  className={category === id ? `${styles.seg} ${styles.segOn}` : styles.seg}
+                  data-defaults-category={id}
+                  onClick={() => setCategory(id)}
+                >
+                  {DEFAULT_CATEGORY_LABELS[id]}
+                </button>
+              ))}
+            </div>
+          }
+        />
 
-        <p className={styles.current} data-defaults-current>
-          当前默认：{channelName} · {model || '（还没有可用模型）'}
-          {category !== 'chat' && model
-            ? ` · ${ratio || '未设比例'} · ${quality || '未设画质'} · ${count} 张`
-            : ''}
-        </p>
-
-        <div className={styles.grid}>
+        <div className={styles.grid} data-settings-fields>
           <label className={styles.field}>
             <span className={styles.fieldLabel}>默认模型</span>
             <ChoicePicker
@@ -258,21 +262,23 @@ export function DefaultParamsPanel() {
       </section>
 
       <section className={styles.block}>
-        <h4 className={styles.blockTitle}>记住上次参数</h4>
-        <p className={styles.caption}>开启后，画布上的参数改动会成为新节点默认值。</p>
-        <label className={styles.switchRow}>
-          <span className={styles.rowLabel}>记住上次参数</span>
-          <span className={styles.switchBox}>
-            <input
-              type="checkbox"
-              className={styles.switchInput}
-              checked={recipeMemory}
-              data-defaults-memory
-              onChange={(e) => void channels.setRecipeMemory(e.target.checked)}
-            />
-            <span className={styles.track} aria-hidden="true" />
-          </span>
-        </label>
+        <SettingsRow
+          label={<h4 className={styles.blockTitle}>记住上次参数</h4>}
+          description="开启后，画布上的参数改动会成为新节点默认值。"
+          control={
+            <span className={styles.switchBox}>
+              <input
+                type="checkbox"
+                className={styles.switchInput}
+                aria-label="记住上次参数"
+                checked={recipeMemory}
+                data-defaults-memory
+                onChange={(e) => void channels.setRecipeMemory(e.target.checked)}
+              />
+              <span className={styles.track} aria-hidden="true" />
+            </span>
+          }
+        />
       </section>
     </div>
   )
