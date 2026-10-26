@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
-import { flushOnPageHide } from '../../app/session'
 import { useStoryboardExecution } from '../../features/storyboard/execution/StoryboardExecutionProvider'
-import { createProjectRepository } from '../../state/project/repository'
-import { createStoryboardStore } from '../../state/project/storyboardStore'
+import { useStoryboardCanvasMirror } from '../../features/storyboard/useStoryboardCanvasMirror'
+import { useStoryboardDocument } from '../../features/storyboard/useStoryboardDocument'
+import { useStoryboardTargets } from '../../features/storyboard/useStoryboardTargets'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import {
   StoryboardCanvasHost,
@@ -14,11 +14,7 @@ import {
 } from '../../app/workbenchHosts/StoryboardCanvasHost'
 import { StoryboardExecutionHost } from '../../app/workbenchHosts/StoryboardExecutionHost'
 import { projectRoute } from '../../domain/shared/workbench'
-import { resolveSpeechTarget } from '../../domain/shared/chatTarget'
-import {
-  BREAKDOWN_SKILL_ID,
-  resolveChatTarget,
-} from '../../domain/storyboard/breakdown'
+import { BREAKDOWN_SKILL_ID } from '../../domain/storyboard/breakdown'
 import {
   episodeSourceText,
 } from '../../domain/storyboard/episodes'
@@ -40,10 +36,6 @@ import { createStoryboardDigitalHumanExecutionController } from '../../workbench
 import { createStoryboardShotController } from '../../workbenches/storyboard/useStoryboardShotController'
 import {
   createStoryboardVideoExecutionController,
-  type VideoEraseTarget,
-  type VideoEditTarget,
-  type VideoExtendTarget,
-  type VideoUpscaleTarget,
 } from '../../workbenches/storyboard/useStoryboardVideoExecutionController'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
@@ -57,8 +49,6 @@ import {
   addScene,
   addShot,
   addShotLine,
-  attachShotImages,
-  attachShotVideos,
   bindShotScene,
   moveEpisode,
   moveShot,
@@ -68,8 +58,6 @@ import {
   removeScene,
   removeShot,
   removeShotLine,
-  setAssetBaseHash,
-  setAssetTurnaroundHash,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -81,33 +69,9 @@ import {
   updateShot,
   updateShotLine,
   updateSourceText,
-  type StoryboardDoc,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
-import {
-  VIDEO_UPSCALE_MODEL_IDS,
-  videoUpscaleOptionsOf,
-} from '../../domain/storyboard/videoUpscale'
-import { VIDEO_ERASE_MODEL_IDS } from '../../domain/storyboard/videoErase'
-import {
-  VIDEO_EDIT_MODEL_IDS,
-  videoEditRequiresReferenceImage,
-  videoEditResolutionsOf,
-} from '../../domain/storyboard/videoEdit'
-import {
-  VIDEO_EXTEND_MODEL_IDS,
-  videoExtendDurationsOf,
-  videoExtendResolutionsOf,
-} from '../../domain/storyboard/videoExtend'
 import styles from './StoryboardPage.module.css'
-
-const DIGITAL_HUMAN_MODEL_IDS = [
-  'Kling V2 数字人口播 Std',
-  'Kling V2 数字人口播 Pro',
-] as const
-
-/** 防抖窗口：连打一串字只落一次库（与外观偏好同一条口径） */
-const SAVE_DEBOUNCE_MS = 400
 
 /**
  * 漫剧项目页（**装配层**，对账 #415）：把「这一镜」与画布上的**生成节点**接起来。
@@ -141,11 +105,6 @@ export function StoryboardProject({ projectId }: { projectId: string }) {
 function StoryboardEditor({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
-  const channelState = useSyncExternalStore(
-    channels.subscribe,
-    channels.getState,
-    channels.getState,
-  )
   const directTrace = useCallback(
     (args: {
       subjectId: string
@@ -186,124 +145,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }),
     [projectId],
   )
-  const digitalHumanTarget = useMemo(() => {
-    for (const modelId of DIGITAL_HUMAN_MODEL_IDS) {
-      const channel = channelState.channels.find(
-        (item) =>
-          item.enabled &&
-          item.models.some(
-            (model) => model.id === modelId && model.category === 'video',
-          ),
-      )
-      if (channel) {
-        return {
-          channelId: channel.id,
-          channelName: channel.name,
-          model: modelId,
-        }
-      }
-    }
-    return null
-  }, [channelState.channels])
-  const videoUpscaleTargets = useMemo(() => {
-    const out: VideoUpscaleTarget[] = []
-    for (const channel of channelState.channels) {
-      if (!channel.enabled) continue
-      for (const model of VIDEO_UPSCALE_MODEL_IDS) {
-        const capability = channel.models.find(
-          (item) =>
-            item.id === model &&
-            item.category === 'video' &&
-            item.inputTypes.includes('video'),
-        )
-        const options = videoUpscaleOptionsOf(model)
-        if (!capability || !options) continue
-        out.push({
-          channelId: channel.id,
-          channelName: channel.name,
-          model,
-          label: `${model} · ${channel.name}`,
-          resolutions: options.resolutions,
-          frameRates: options.frameRates,
-        })
-      }
-    }
-    return out
-  }, [channelState.channels])
-  const videoEditTargets = useMemo(() => {
-    const out: VideoEditTarget[] = []
-    for (const channel of channelState.channels) {
-      if (!channel.enabled) continue
-      for (const model of VIDEO_EDIT_MODEL_IDS) {
-        const capability = channel.models.find(
-          (item) =>
-            item.id === model &&
-            item.category === 'video' &&
-            item.inputTypes.includes('video'),
-        )
-        const resolutions = videoEditResolutionsOf(model)
-        if (!capability) continue
-        out.push({
-          channelId: channel.id,
-          channelName: channel.name,
-          model,
-          label: `${model} · ${channel.name}`,
-          resolutions,
-          supportsReferenceImage: capability.inputTypes.includes('image'),
-          requiresReferenceImage: videoEditRequiresReferenceImage(model),
-        })
-      }
-    }
-    return out
-  }, [channelState.channels])
-  const videoEraseTargets = useMemo(() => {
-    const out: VideoEraseTarget[] = []
-    for (const channel of channelState.channels) {
-      if (!channel.enabled) continue
-      for (const model of VIDEO_ERASE_MODEL_IDS) {
-        const capability = channel.models.find(
-          (item) =>
-            item.id === model &&
-            item.category === 'video' &&
-            item.inputTypes.includes('video'),
-        )
-        if (!capability) continue
-        out.push({
-          channelId: channel.id,
-          channelName: channel.name,
-          model,
-          label: `${model} · ${channel.name}`,
-        })
-      }
-    }
-    return out
-  }, [channelState.channels])
-  const videoExtendTargets = useMemo(() => {
-    const out: VideoExtendTarget[] = []
-    for (const channel of channelState.channels) {
-      if (!channel.enabled) continue
-      for (const model of VIDEO_EXTEND_MODEL_IDS) {
-        const capability = channel.models.find(
-          (item) =>
-            item.id === model &&
-            item.category === 'video' &&
-            item.inputTypes.includes('video'),
-        )
-        const resolutions = videoExtendResolutionsOf(model)
-        const durations = videoExtendDurationsOf(model)
-        if (!capability) continue
-        out.push({
-          channelId: channel.id,
-          channelName: channel.name,
-          model,
-          label: `${model} · ${channel.name}`,
-          resolutions,
-          durations,
-        })
-      }
-    }
-    return out
-  }, [channelState.channels])
+  const {
+    digitalHumanTarget,
+    videoUpscaleTargets,
+    videoEditTargets,
+    videoEraseTargets,
+    videoExtendTargets,
+    chatTarget,
+    speechTarget,
+  } = useStoryboardTargets(channels)
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
@@ -312,11 +162,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     graph,
   } = useStoryboardCanvasRuntime()
   const storyboardExecution = useStoryboardExecution()
-  const store = useMemo(() => createStoryboardStore(platform.storage), [platform])
-  const [doc, setDoc] = useState<StoryboardDoc | null>(null)
-  const [projectName, setProjectName] = useState('')
+  const {
+    doc,
+    documents: store,
+    projectName,
+    status,
+    setStatus,
+    docRef,
+    updateDoc: apply,
+    replaceDoc,
+    flush,
+  } = useStoryboardDocument(projectId, platform)
   const [selectedId, setSelectedId] = useState('')
-  const [status, setStatus] = useState('')
+  const selectionHydrated = useRef(false)
   /** 二次确认：'' | `ep:<id>` | `shot:<id>`（删除是不可撤销的，第一下只改文案） */
   const [confirming, setConfirming] = useState('')
   /**
@@ -335,22 +193,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     text: '',
   })
   const [mergeConfirmId, setMergeConfirmId] = useState('')
-  const timer = useRef<number | null>(null)
-  const pending = useRef<StoryboardDoc | null>(null)
-  /**
-   * 拆解（#414）：`chatTarget` = 现在会用谁去拆（没配对话模型就是 null）。
-   *
-   * 用 `useSyncExternalStore` 订渠道表，而不是"挂载时读一次"：用户在设置里刚配好渠道、
-   * 切回这一页时，提示语与按钮状态必须立刻跟上 —— 读一次会停在"没有可用的对话模型"上，
-   * 看起来就像功能坏了。
-   */
-  const channelList = useSyncExternalStore(
-    channels.subscribe,
-    () => channels.getState().channels,
-    () => channels.getState().channels,
-  )
-  const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
-  const speechTarget = useMemo(() => resolveSpeechTarget(channelList), [channelList])
   const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
   const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
   const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
@@ -392,9 +234,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   })
   const [splitConfirm, setSplitConfirm] = useState(false)
   const splitAbort = useRef<AbortController | null>(null)
-  /** 异步回来的那一拍要拿**最新的**文档打底（跑的过程中用户可能又改了字） */
-  const docRef = useRef<StoryboardDoc | null>(null)
-  docRef.current = doc
   useEffect(
     () => () => {
       breakAbort.current?.abort()
@@ -415,147 +254,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   }, [selectedId])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      await platform.storage.open()
-      const [loaded, project] = await Promise.all([
-        store.load(projectId),
-        createProjectRepository(platform.storage).get(projectId),
-      ])
-      if (cancelled) return
-      setDoc(loaded)
-      setProjectName(project?.name ?? '')
-      setSelectedId(loaded.episodes[0]?.id ?? '')
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [platform, projectId, store])
+    if (!doc || selectionHydrated.current) return
+    selectionHydrated.current = true
+    setSelectedId(doc.episodes[0]?.id ?? '')
+  }, [doc])
 
-  /** 把还没到防抖时间的写入立刻落库（导出前、离开页面前各冲一次） */
-  const flush = useCallback(async () => {
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current)
-      timer.current = null
-    }
-    const next = pending.current
-    pending.current = null
-    if (!next) return
-    await store.save(next)
-  }, [store])
-
-  useEffect(
-    () => () => {
-      void flush()
-    },
-    [flush],
-  )
-
-  /**
-   * **关窗口 / 切到后台**也要把这份分镜文档冲一次（对账 #454）。
-   *
-   * 上面那条 cleanup 只在**路由离开**时跑；用户改完分镜**直接关窗口**时它不执行 ——
-   * 而这里的保存是 **400ms 防抖**，最后那一次编辑就没了（画布页/电商页早有这道保险）。
-   */
-  useEffect(() => flushOnPageHide(() => void flush()), [flush])
-
-  const apply = (next: StoryboardDoc) => {
-    const stamped = { ...next, updatedAt: Date.now() }
-    setDoc(stamped)
-    pending.current = stamped
-    setStatus('正在保存…')
-    if (timer.current !== null) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      timer.current = null
-      const toSave = pending.current
-      pending.current = null
-      if (!toSave) return
-      void store.save(toSave).then(
-        () => setStatus('已保存'),
-        () => setStatus('保存失败'),
-      )
-    }, SAVE_DEBOUNCE_MS)
-  }
-
-  /**
-   * **出图结果镜像回文档**（对账 #415）。
-   *
-   * 引擎把产物写回的是**画布节点**（真相在那儿），分镜这边要的是"这一镜出图了没有 / 是哪张"。
-   * 所以在图变化时扫一遍：节点上有 hash、而文档里还没记（或记的不是这一个）⇒ 镜像过来。
-   *
-   * 三条边界：
-   * - **只在变化时写**（`hash !== shot.imageHash`）：不然每次拖动节点都会触发一次无意义的落库；
-   * - 依赖是 `graph.nodes` + `doc`：**必须用 state 里的文档、不能用 ref** ——
-   *    「建节点 + 立刻跑」是一次点击里做完的（定妆图 #419 就是），ref 在那一拍还停在旧文档上
-   *    （角色上还没有 nodeId），镜像会整个漏掉；而这次漏掉的 Graph 变化之后不会再来了。
-   *    放进依赖不会循环：第一次写完文档，第二次跑时所有 hash 都已对上 ⇒ 没有变化 ⇒ 不再写。
-   * - 用户**重出**这一镜时 hash 会变，这条判据照样把新图镜像过来（不是"有值就跳过"）。
-   */
-  const applyRef = useRef(apply)
-  applyRef.current = apply
-  useEffect(() => {
-    if (!doc) return
-    let next = doc
-    const updates: { shotId: string; hash: string }[] = []
-    for (const shot of doc.shots) {
-      if (!shot.nodeId) continue
-      const node = graph.nodes.find((n) => n.id === shot.nodeId)
-      const hash =
-        node &&
-        typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
-          ? (node.data as { assetHash: string }).assetHash
-          : undefined
-      if (hash && hash !== shot.imageHash) updates.push({ shotId: shot.id, hash })
-    }
-    if (updates.length > 0) next = attachShotImages(next, updates, 0)
-    /**
-     * 视频那一侧（对账 #429）：同一条镜像纪律，只是走 `videoNodeId`。
-     * 重出视频时 hash 会换，所以判据同样要"变了才写"（不是"有值就跳过"）。
-     */
-    const videoUpdates: { shotId: string; hash: string }[] = []
-    for (const shot of doc.shots) {
-      if (!shot.videoNodeId) continue
-      const node = graph.nodes.find((n) => n.id === shot.videoNodeId)
-      const hash =
-        node &&
-        typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
-          ? (node.data as { assetHash: string }).assetHash
-          : undefined
-      if (hash && hash !== shot.videoHash) videoUpdates.push({ shotId: shot.id, hash })
-    }
-    if (videoUpdates.length > 0) next = attachShotVideos(next, videoUpdates, 0)
-    /**
-     * 资产那一侧也一样（对账 #419）：定妆图 / 基准图跑完，把节点上的 hash 镜像回资产。
-     * 逐条判断、有变化才写（`setAssetBaseHash` 自己会判同值），避免拖动节点时反复落库。
-     */
-    for (const kind of ['char', 'scene'] as const) {
-      const list = kind === 'char' ? next.characters : next.scenes
-      for (const asset of list) {
-        if (!asset.nodeId) continue
-        const node = graph.nodes.find((n) => n.id === asset.nodeId)
-        const hash =
-          node &&
-          typeof (node.data as { assetHash?: unknown }).assetHash === 'string'
-            ? (node.data as { assetHash: string }).assetHash
-            : undefined
-        /* 与镜头同一条判据：**变了才写**（重出定妆图时 hash 会换，也要镜像过来） */
-        if (hash && hash !== asset.baseHash) next = setAssetBaseHash(next, kind, asset.id, hash, 0)
-        if (kind === 'char' && asset.turnaroundNodeId) {
-          const turnaroundNode = graph.nodes.find((n) => n.id === asset.turnaroundNodeId)
-          const turnaroundHash =
-            turnaroundNode &&
-            typeof (turnaroundNode.data as { assetHash?: unknown }).assetHash ===
-              'string'
-              ? (turnaroundNode.data as { assetHash: string }).assetHash
-              : undefined
-          if (turnaroundHash && turnaroundHash !== asset.turnaroundHash) {
-            next = setAssetTurnaroundHash(next, 'char', asset.id, turnaroundHash, 0)
-          }
-        }
-      }
-    }
-    if (next !== doc) applyRef.current(next)
-  }, [graph.nodes, doc])
+  useStoryboardCanvasMirror({
+    doc,
+    nodes: graph.nodes,
+    replaceDoc,
+  })
 
   if (!doc) {
     return (
@@ -614,8 +322,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   }
 
   const addOneEpisode = () => {
-    const next = addEpisode(doc, 0)
-    apply(next)
+    const next = apply((current) => addEpisode(current, 0))
     setSelectedId(next.episodes[next.episodes.length - 1]?.id ?? '')
     setConfirming('')
   }
@@ -626,8 +333,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       return
     }
     const at = episodes.findIndex((e) => e.id === id)
-    const next = removeEpisode(doc, id, 0)
-    apply(next)
+    const next = apply((current) => removeEpisode(current, id, 0))
     setConfirming('')
     if (selected?.id === id) {
       const fallback = next.episodes[Math.min(Math.max(at, 0), next.episodes.length - 1)]
@@ -637,7 +343,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
 
   const addOneShot = () => {
     if (!selected) return
-    apply(addShot(doc, selected.id, 0))
+    apply((current) => addShot(current, selected.id, 0))
     setConfirming('')
   }
 
@@ -654,7 +360,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setConfirming(key)
       return
     }
-    apply(kind === 'char' ? removeCharacter(doc, id, 0) : removeScene(doc, id, 0))
+    apply((current) =>
+      kind === 'char'
+        ? removeCharacter(current, id, 0)
+        : removeScene(current, id, 0),
+    )
     setConfirming('')
   }
 
@@ -678,7 +388,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setConfirming(`shot:${id}`)
       return
     }
-    apply(removeShot(doc, id, 0))
+    apply((current) => removeShot(current, id, 0))
     setConfirming('')
   }
 
@@ -687,7 +397,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     id: string,
     patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId' | 'lines'>>,
   ) => {
-    apply(updateShot(doc, id, patch))
+    apply((current) => updateShot(current, id, patch))
   }
 
   const {
@@ -709,7 +419,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       documents: store,
       projectId,
       flush,
-      replaceDoc: apply,
+      replaceDoc,
       setLay,
       videoUpscaleBusy,
       setVideoUpscaleBusy,
@@ -733,7 +443,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       documents: store,
       projectId,
       flush,
-      replaceDoc: apply,
+      replaceDoc,
       setLay,
     })
 
@@ -749,7 +459,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     documents: store,
     projectId,
     flush,
-    replaceDoc: apply,
+    replaceDoc,
     setLay,
     setDigitalHumanBusy,
   })
@@ -763,7 +473,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       graphNodes: graph.nodes,
       liveNodeIds,
       canvas,
-      apply,
+      apply: replaceDoc,
       setLay,
     })
 
@@ -787,7 +497,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     channels,
     projectId,
     directTrace,
-    apply,
+    apply: replaceDoc,
     split,
     setSplit,
     splitConfirm,
@@ -817,7 +527,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       documents: store,
       projectId,
       flush,
-      apply,
+      apply: replaceDoc,
       setStatus,
       setVoiceBusy,
     })
@@ -897,7 +607,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
               data-storyboard-source-text
               onChange={(e) => {
                 setSplitConfirm(false)
-                apply(updateSourceText(doc, e.target.value, 0))
+                apply((current) => updateSourceText(current, e.target.value, 0))
               }}
             />
             <p className={styles.hint} data-storyboard-split-hint>
@@ -924,7 +634,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 className={styles.input}
                 value={doc.script.title}
                 data-storyboard-script-title
-                onChange={(e) => apply(updateScript(doc, { title: e.target.value }))}
+                onChange={(e) =>
+                  apply((current) => updateScript(current, { title: e.target.value }))
+                }
               />
             </label>
             <label className={styles.field}>
@@ -934,7 +646,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 value={doc.script.logline}
                 placeholder="一句话说清这个故事"
                 data-storyboard-script-logline
-                onChange={(e) => apply(updateScript(doc, { logline: e.target.value }))}
+                onChange={(e) =>
+                  apply((current) => updateScript(current, { logline: e.target.value }))
+                }
               />
             </label>
             <label className={styles.field}>
@@ -945,7 +659,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 value={doc.script.body}
                 placeholder="把故事写下来；分集与分镜从这一段拆"
                 data-storyboard-script-body
-                onChange={(e) => apply(updateScript(doc, { body: e.target.value }))}
+                onChange={(e) =>
+                  apply((current) => updateScript(current, { body: e.target.value }))
+                }
               />
             </label>
           </div>
@@ -988,7 +704,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           data-storyboard-episode-name={episode.id}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) =>
-                            apply(updateEpisode(doc, episode.id, { title: e.target.value }))
+                            apply((current) =>
+                              updateEpisode(current, episode.id, {
+                                title: e.target.value,
+                              }),
+                            )
                           }
                         />
                         {episode.sourceRange ? (
@@ -1025,7 +745,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           data-storyboard-episode-up={episode.id}
                           onClick={(e) => {
                             e.stopPropagation()
-                            apply(moveEpisode(doc, episode.id, -1, 0))
+                            apply((current) => moveEpisode(current, episode.id, -1, 0))
                           }}
                         >
                           <IconUp />
@@ -1039,7 +759,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           data-storyboard-episode-down={episode.id}
                           onClick={(e) => {
                             e.stopPropagation()
-                            apply(moveEpisode(doc, episode.id, 1, 0))
+                            apply((current) => moveEpisode(current, episode.id, 1, 0))
                           }}
                         >
                           <IconDown />
@@ -1081,7 +801,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                   type="button"
                   className={styles.ghost}
                   data-storyboard-add-character
-                  onClick={() => apply(addCharacter(doc, 0))}
+                  onClick={() => apply((current) => addCharacter(current, 0))}
                 >
                   新增角色
                 </button>
@@ -1089,7 +809,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                   type="button"
                   className={styles.ghost}
                   data-storyboard-add-scene
-                  onClick={() => apply(addScene(doc, 0))}
+                  onClick={() => apply((current) => addScene(current, 0))}
                 >
                   新增场景
                 </button>
@@ -1119,7 +839,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                   c.turnaroundNodeId ? canvas.nodeStateOf(c.turnaroundNodeId) : undefined
                 }
                 voices={speechTarget?.voices ?? []}
-                onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
+                onPatch={(patch) =>
+                  apply((current) => updateCharacter(current, c.id, patch, 0))
+                }
                 onRemove={() => removeOneAsset('char', c.id)}
                 onMake={() => void makeAssetBase('char', c.id)}
                 onTurnaround={() => void makeAssetTurnaround(c.id)}
@@ -1132,7 +854,10 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 onMergePick={(keepId) => setMerge({ dropId: c.id, keepId })}
                 onMergeConfirm={() => {
                   if (!merge?.keepId) return
-                  apply(mergeAsset(doc, 'char', merge.keepId, merge.dropId, 0))
+                  const keepId = merge.keepId
+                  apply((current) =>
+                    mergeAsset(current, 'char', keepId, merge.dropId, 0),
+                  )
                   setMerge(null)
                 }}
                 onMergeCancel={() => setMerge(null)}
@@ -1147,7 +872,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 confirming={confirming === `scene:${s.id}`}
                 hasNode={Boolean(s.nodeId && liveNodeIds.has(s.nodeId))}
                 state={s.nodeId ? canvas.nodeStateOf(s.nodeId) : undefined}
-                onPatch={(patch) => apply(updateScene(doc, s.id, patch, 0))}
+                onPatch={(patch) =>
+                  apply((current) => updateScene(current, s.id, patch, 0))
+                }
                 onRemove={() => removeOneAsset('scene', s.id)}
                 onMake={() => void makeAssetBase('scene', s.id)}
                 merge={merge?.dropId === s.id ? { keepId: merge.keepId } : null}
@@ -1159,7 +886,10 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 onMergePick={(keepId) => setMerge({ dropId: s.id, keepId })}
                 onMergeConfirm={() => {
                   if (!merge?.keepId) return
-                  apply(mergeAsset(doc, 'scene', merge.keepId, merge.dropId, 0))
+                  const keepId = merge.keepId
+                  apply((current) =>
+                    mergeAsset(current, 'scene', keepId, merge.dropId, 0),
+                  )
                   setMerge(null)
                 }}
                 onMergeCancel={() => setMerge(null)}
@@ -1271,7 +1001,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     value={selected.title}
                     data-storyboard-episode-title={selected.id}
                     onChange={(e) =>
-                      apply(updateEpisode(doc, selected.id, { title: e.target.value }))
+                      apply((current) =>
+                        updateEpisode(current, selected.id, {
+                          title: e.target.value,
+                        }),
+                      )
                     }
                   />
                 </label>
@@ -1284,7 +1018,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     placeholder="这一集的起止与转折"
                     data-storyboard-episode-summary={selected.id}
                     onChange={(e) =>
-                      apply(updateEpisode(doc, selected.id, { summary: e.target.value }))
+                      apply((current) =>
+                        updateEpisode(current, selected.id, {
+                          summary: e.target.value,
+                        }),
+                      )
                     }
                   />
                 </label>
@@ -1297,7 +1035,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       placeholder="开场抓人的那一句"
                       data-storyboard-episode-hook-open={selected.id}
                       onChange={(e) =>
-                        apply(updateEpisode(doc, selected.id, { hookOpen: e.target.value }))
+                        apply((current) =>
+                          updateEpisode(current, selected.id, {
+                            hookOpen: e.target.value,
+                          }),
+                        )
                       }
                     />
                   </label>
@@ -1309,7 +1051,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       placeholder="结尾留的那一钩"
                       data-storyboard-episode-hook-end={selected.id}
                       onChange={(e) =>
-                        apply(updateEpisode(doc, selected.id, { hookEnd: e.target.value }))
+                        apply((current) =>
+                          updateEpisode(current, selected.id, {
+                            hookEnd: e.target.value,
+                          }),
+                        )
                       }
                     />
                   </label>
@@ -1319,8 +1065,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                   onPick={() => void onPickBgm()}
                   onRemove={onRemoveBgm}
                   onVolume={(volume) =>
-                    apply(
-                      updateEpisode(doc, selected.id, { bgmVolume: volume }, Date.now()),
+                    apply((current) =>
+                      updateEpisode(current, selected.id, { bgmVolume: volume }, Date.now()),
                     )
                   }
                 />
@@ -1530,11 +1276,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         characters={doc.characters}
                         scenes={doc.scenes}
                         onPatch={patchShot}
-                        onAddLine={() => apply(addShotLine(doc, shot.id, {}, 0))}
-                        onLinePatch={(lineId, patch) =>
-                          apply(updateShotLine(doc, shot.id, lineId, patch, 0))
+                        onAddLine={() =>
+                          apply((current) => addShotLine(current, shot.id, {}, 0))
                         }
-                        onLineRemove={(lineId) => apply(removeShotLine(doc, shot.id, lineId, 0))}
+                        onLinePatch={(lineId, patch) =>
+                          apply((current) =>
+                            updateShotLine(current, shot.id, lineId, patch, 0),
+                          )
+                        }
+                        onLineRemove={(lineId) =>
+                          apply((current) =>
+                            removeShotLine(current, shot.id, lineId, 0),
+                          )
+                        }
                         speechTarget={speechTarget}
                         voiceBusy={voiceBusy}
                         onVoice={(lineId) => void voiceLine(shot, lineId)}
@@ -1543,7 +1297,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         }
                         digitalHumanBusyShotId={digitalHumanBusy}
                         digitalHumanModel={digitalHumanTarget?.model}
-                        onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
+                        onMove={(id, delta) =>
+                          apply((current) => moveShot(current, id, delta, 0))
+                        }
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
                         onShowSource={selectedSourceText ? openSelectedSource : undefined}
@@ -1636,9 +1392,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
-                        onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
+                        onBindScene={(sceneId) =>
+                          apply((current) =>
+                            bindShotScene(current, shot.id, sceneId, 0),
+                          )
+                        }
                         onToggleCharacter={(characterId) =>
-                          apply(toggleShotCharacter(doc, shot.id, characterId, 0))
+                          apply((current) =>
+                            toggleShotCharacter(current, shot.id, characterId, 0),
+                          )
                         }
                       />
                     ))}

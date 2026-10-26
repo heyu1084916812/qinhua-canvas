@@ -5,6 +5,7 @@ import { createChannelRepository } from '../../state/project/channelRepository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import { createGenerationClient } from '../../platform/generation'
 import { StoryboardExecutionProvider } from '../../features/storyboard/execution/StoryboardExecutionProvider'
+import { StoryboardDocumentStoreProvider } from '../../features/storyboard/StoryboardDocumentStoreContext'
 
 /**
  * 漫剧执行宿主：只接线平台、渠道和漫剧文档，不挂画布 Store。
@@ -39,15 +40,17 @@ export function StoryboardExecutionHost({
   )
 
   return (
-    <StoryboardExecutionProvider
-      projectId={projectId}
-      storage={platform.storage}
-      assets={platform.assets}
-      documents={documents}
-      generation={generation}
-      channels={() => channels.getState().channels}
-    >
-      {children}
-    </StoryboardExecutionProvider>
+    <StoryboardDocumentStoreProvider documents={documents}>
+      <StoryboardExecutionProvider
+        projectId={projectId}
+        storage={platform.storage}
+        assets={platform.assets}
+        documents={documents}
+        generation={generation}
+        channels={() => channels.getState().channels}
+      >
+        {children}
+      </StoryboardExecutionProvider>
+    </StoryboardDocumentStoreProvider>
   )
 }
