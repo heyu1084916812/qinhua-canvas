@@ -12,6 +12,7 @@ import {
   type StoryboardVideoPostprocessAction,
 } from '../../features/storyboard/execution/storyboardRunPlan'
 import type { StoryboardRunTarget } from '../../features/storyboard/execution/storyboardRunPlan'
+import type { StoryboardRunPlan } from '../../domain/storyboard/runTypes'
 import type {
   StoryboardDoc,
   StoryboardShot,
@@ -99,6 +100,20 @@ export interface StoryboardVideoExecutionControllerArgs {
   setVideoExtendBusy: Dispatch<SetStateAction<string | null>>
 }
 
+interface PreparedShotVideo {
+  shot: StoryboardShot
+  channelId: string
+  model: string
+  params: Record<string, unknown>
+  videoMode?: string
+  endFrameNodeId: string
+  endFrameShot?: StoryboardShot
+  nextFrameAvailable: boolean
+  imageNode?: StoryboardCanvasNode
+  imageMime: string
+  endFrameMime: string
+}
+
 function humanError(error: unknown): string {
   const appError = asAppError(error)
   return appError
@@ -180,50 +195,34 @@ export function createStoryboardVideoExecutionController(
       )[0]?.id as string | undefined
   }
 
-  const makeShotVideo = async (
+  const prepareShotVideo = async (
     shot: StoryboardShot,
-    options: { quiet?: boolean } = {},
-  ): Promise<boolean> => {
-    const report = (kind: 'running' | 'done' | 'error', text: string) => {
-      if (!options.quiet) setLay({ kind, text })
-    }
+    document: StoryboardDoc,
+  ): Promise<PreparedShotVideo> => {
     if (!shot.nodeId || !liveNodeIds.has(shot.nodeId)) {
-      report('error', '这一镜还没铺到画布 —— 先铺一次，出了图再出视频')
-      return false
+      throw new Error('这一镜还没铺到画布 —— 先铺一次，出了图再出视频')
     }
     if (!shot.imageHash) {
-      report('error', '这一镜还没有图 —— 图生视频要先有画面，先点「出图」')
-      return false
+      throw new Error('这一镜还没有图 —— 图生视频要先有画面，先点「出图」')
     }
-    const document = currentDoc()
-    if (!document) {
-      report('error', '漫剧文档还没有加载完成')
-      return false
+    const imageNode = graphNodes.find((node) => node.id === shot.nodeId)
+    if (!imageNode) {
+      throw new Error('这一镜的画面节点已经不在画布上')
     }
     const existingVideoNode =
       shot.videoNodeId && liveNodeIds.has(shot.videoNodeId)
         ? graphNodes.find((node) => node.id === shot.videoNodeId)
         : undefined
-    let recipe:
-      | Awaited<ReturnType<ChannelStore['defaultForNewNode']>>
-      | null = null
-    try {
-      recipe = await channels.defaultForNewNode(
-        existingVideoNode?.data as
-          | { channelId?: string; model?: string }
-          | undefined ?? {},
-        'video',
-      )
-    } catch (error) {
-      report('error', humanError(error))
-      return false
-    }
+    const recipe = await channels.defaultForNewNode(
+      existingVideoNode?.data as
+        | { channelId?: string; model?: string }
+        | undefined ?? {},
+      'video',
+    )
     if (!recipe?.channelId || !recipe.model) {
-      report(
-        'error',
+      throw new Error(
         '还没有可用的视频模型服务 —— 先去「全局设置 → 模型服务」添加一条并勾上视频模型',
       )
-      return false
     }
     const liveChannel = channels
       .getState()
@@ -235,14 +234,17 @@ export function createStoryboardVideoExecutionController(
     const videoSpec = videoParamsFor(logicalModel)
     const episodeShots = shotsOf(document, shot.episodeId)
     const shotIndex = episodeShots.findIndex((item) => item.id === shot.id)
-    const nextShot =
-      shotIndex >= 0 ? episodeShots[shotIndex + 1] : undefined
-    const nextFrameNodeId =
+    if (shotIndex < 0) {
+      throw new Error('这一镜已经从分集中删除')
+    }
+    const nextShot = episodeShots[shotIndex + 1]
+    const nextImageNode =
       nextShot?.nodeId &&
       nextShot.imageHash &&
       liveNodeIds.has(nextShot.nodeId)
-        ? nextShot.nodeId
-        : ''
+        ? graphNodes.find((node) => node.id === nextShot.nodeId)
+        : undefined
+    const nextFrameNodeId = nextImageNode?.id ?? ''
     const supportsFirstLastFrame =
       !!nextFrameNodeId &&
       (videoSpec
@@ -254,58 +256,287 @@ export function createStoryboardVideoExecutionController(
       : videoSpec?.modes.includes('all-purpose')
         ? 'all-purpose'
         : undefined
-    const videoMode = endFrameNodeId
-      ? 'first-last-frame'
-      : singleImageMode
-    const imageNode = graphNodes.find((node) => node.id === shot.nodeId)
-    const nextImageNode = nextFrameNodeId
-      ? graphNodes.find((node) => node.id === nextFrameNodeId)
-      : undefined
-    const imageMime =
-      (imageNode?.data as { assetMime?: string } | undefined)?.assetMime ??
-      'image/png'
-    const nextImageMime =
-      (nextImageNode?.data as { assetMime?: string } | undefined)?.assetMime ??
-      'image/png'
-    const plan = buildStoryboardRunPlan({
+    return {
+      shot,
+      channelId: recipe.channelId,
+      model: recipe.model,
+      params: recipe.params,
+      ...((endFrameNodeId ? 'first-last-frame' : singleImageMode)
+        ? {
+            videoMode: endFrameNodeId
+              ? 'first-last-frame'
+              : singleImageMode,
+          }
+        : {}),
+      endFrameNodeId,
+      ...(endFrameNodeId && nextShot ? { endFrameShot: nextShot } : {}),
+      nextFrameAvailable: !!nextFrameNodeId,
+      imageNode,
+      imageMime:
+        (imageNode.data as { assetMime?: string }).assetMime ?? 'image/png',
+      endFrameMime:
+        (nextImageNode?.data as { assetMime?: string } | undefined)
+          ?.assetMime ?? 'image/png',
+    }
+  }
+
+  const buildShotVideoPlan = (
+    document: StoryboardDoc,
+    prepared: readonly PreparedShotVideo[],
+  ): StoryboardRunPlan => {
+    const first = prepared[0]
+    if (!first) throw new Error('漫剧执行计划没有匹配的镜头')
+    if (prepared.some((item) => item.shot.episodeId !== first.shot.episodeId)) {
+      throw new Error('同一个视频执行计划不能跨分集')
+    }
+    const byShotId = new Map(
+      prepared.map((item) => [item.shot.id, item] as const),
+    )
+    return buildStoryboardRunPlan({
       doc: document,
       planId: createId('plan'),
       operationId: createId('op'),
-      target: {
-        channelId: recipe.channelId,
-        model: recipe.model,
-        modelIsUpstream: false,
-        params: {
-          ...recipe.params,
-          count: 1,
-          ...(videoMode ? { videoMode } : {}),
-        },
+      target: ({ action, subject }) => {
+        if (action !== 'shot-video' || subject.kind !== 'shot-video') {
+          throw new Error('视频执行计划收到了错误的业务主体')
+        }
+        const item = byShotId.get(subject.shotId)
+        if (!item) throw new Error(`镜头缺少执行模型：${subject.shotId}`)
+        return {
+          channelId: item.channelId,
+          model: item.model,
+          modelIsUpstream: false,
+          params: {
+            ...item.params,
+            count: 1,
+            ...(item.videoMode ? { videoMode: item.videoMode } : {}),
+          },
+        }
       },
       action: 'shot-video',
-      episodeId: shot.episodeId,
-      shotIds: [shot.id],
-      includeNextShotEndFrame: !!endFrameNodeId,
-      imageMime,
-      nextImageMime,
+      episodeId: first.shot.episodeId,
+      shotIds: prepared.map((item) => item.shot.id),
+      shotVideoInputs: (shot, nextShot) => {
+        const item = byShotId.get(shot.id)
+        return {
+          includeEndFrame:
+            !!item?.endFrameNodeId &&
+            !!nextShot &&
+            item.endFrameShot?.id === nextShot.id,
+          ...(item ? { imageMime: item.imageMime } : {}),
+          ...(item ? { endFrameMime: item.endFrameMime } : {}),
+        }
+      },
     })
+  }
 
-    report(
-      'running',
-      endFrameNodeId
-        ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
-        : nextFrameNodeId
-          ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
-          : '这一镜的视频在跑…',
-    )
+  const executePlan = async (plan: StoryboardRunPlan) => {
     const timer = globalThis.setTimeout(
       () => execution.cancel(plan.id),
       20 * 60 * 1000,
     )
     try {
       await flush()
-      const outcome = await execution.run(plan)
-      const businessFailure = outcome.failures[0]
-      if (businessFailure) throw new Error(businessFailure.errorText)
+      return await execution.run(plan)
+    } finally {
+      globalThis.clearTimeout(timer)
+    }
+  }
+
+  const loadMergedDocument = async () => {
+    const latest = await documents.load(projectId)
+    return mergeStoryboardRunResults(
+      currentDoc() ?? latest,
+      latest,
+      Date.now(),
+    )
+  }
+
+  const projectVideoResults = async (
+    document: StoryboardDoc,
+    plan: StoryboardRunPlan,
+    outcome: Awaited<ReturnType<StoryboardExecutionApi['run']>>,
+    prepared: readonly PreparedShotVideo[],
+  ): Promise<StoryboardDoc> => {
+    type PendingProjection = {
+      taskId: string
+      shot: StoryboardShot
+      prepared: PreparedShotVideo
+      data: Record<string, unknown>
+      hash: string
+    }
+    const taskByShotId = new Map(
+      plan.tasks.flatMap((task) =>
+        task.subject.kind === 'shot-video'
+          ? [[task.subject.shotId, task] as const]
+          : [],
+      ),
+    )
+    const businessFailures = new Set(
+      outcome.failures.map((failure) => failure.taskId),
+    )
+    const pending: PendingProjection[] = []
+    for (const preparedItem of prepared) {
+      const task = taskByShotId.get(preparedItem.shot.id)
+      if (!task) continue
+      if (businessFailures.has(task.id)) continue
+      const state = outcome.summary.taskResults.find(
+        (item) => item.taskId === task.id,
+      )?.state
+      if (state?.kind !== 'succeeded') continue
+      const asset = state.result.find((item) =>
+        item.mime.toLowerCase().startsWith('video/'),
+      )
+      if (!asset) continue
+      const shot = document.shots.find(
+        (item) => item.id === preparedItem.shot.id,
+      )
+      if (!shot || shot.videoHash !== asset.hash) continue
+      const prompt = shotVideoPrompt(
+        document,
+        shot,
+        preparedItem.endFrameNodeId
+          ? preparedItem.endFrameShot
+          : undefined,
+      )
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: preparedItem.channelId,
+        model: preparedItem.model,
+        prompt,
+        count: 1,
+        durationSec: shot.durationSec,
+        ...(preparedItem.videoMode
+          ? { videoMode: preparedItem.videoMode }
+          : {}),
+        assetHash: asset.hash,
+        assetMime: asset.mime,
+      })
+      pending.push({
+        taskId: task.id,
+        shot,
+        prepared: preparedItem,
+        data,
+        hash: asset.hash,
+      })
+    }
+    if (pending.length === 0) return document
+
+    const nodeIdByTask = new Map<string, string>()
+    canvas.beginPlan(
+      plan.tasks.length > 1
+        ? 'storyboard:episode-video'
+        : 'storyboard:shot-video',
+      plan.tasks.length > 1 ? '这一集出视频' : '这一镜出视频',
+    )
+    try {
+      for (const item of pending) {
+        let videoNodeId =
+          item.shot.videoNodeId && liveNodeIds.has(item.shot.videoNodeId)
+            ? item.shot.videoNodeId
+            : ''
+        if (videoNodeId) {
+          canvas.updateNodeData(videoNodeId, item.data)
+        } else {
+          videoNodeId =
+            canvas.createGenerationNode({
+              at: {
+                x: (item.prepared.imageNode?.x ?? 40) + 280,
+                y: item.prepared.imageNode?.y ?? 40,
+              },
+              data: item.data,
+            }) ?? ''
+        }
+        if (!videoNodeId) {
+          throw new Error('视频节点没能建出来（模型服务或模型没配全）')
+        }
+        const connected = new Set(
+          graphEdges
+            .filter((edge) => edge.target === videoNodeId)
+            .map((edge) => edge.source),
+        )
+        if (
+          item.shot.videoEndNodeId &&
+          item.shot.videoEndNodeId !== item.prepared.endFrameNodeId &&
+          connected.has(item.shot.videoEndNodeId)
+        ) {
+          const old = graphEdges.find(
+            (edge) =>
+              edge.source === item.shot.videoEndNodeId &&
+              edge.target === videoNodeId,
+          )
+          if (old) {
+            canvas.removeEdge(old.id)
+            connected.delete(item.shot.videoEndNodeId)
+          }
+        }
+        if (
+          item.shot.nodeId &&
+          !connected.has(item.shot.nodeId)
+        ) {
+          canvas.connectEdge(item.shot.nodeId, videoNodeId)
+        }
+        if (
+          item.prepared.endFrameNodeId &&
+          !connected.has(item.prepared.endFrameNodeId)
+        ) {
+          canvas.connectEdge(item.prepared.endFrameNodeId, videoNodeId)
+        }
+        nodeIdByTask.set(item.taskId, videoNodeId)
+      }
+    } finally {
+      canvas.endPlan()
+    }
+
+    let projected = document
+    for (const item of pending) {
+      const videoNodeId = nodeIdByTask.get(item.taskId)
+      if (!videoNodeId) continue
+      projected = setShotVideoNode(
+        projected,
+        item.shot.id,
+        videoNodeId,
+        0,
+        item.prepared.endFrameNodeId,
+      )
+    }
+    return attachShotVideos(
+      projected,
+      pending.map((item) => ({ shotId: item.shot.id, hash: item.hash })),
+      0,
+    )
+  }
+
+  const makeShotVideo = async (
+    shot: StoryboardShot,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> => {
+    const report = (kind: 'running' | 'done' | 'error', text: string) => {
+      if (!options.quiet) setLay({ kind, text })
+    }
+    const document = currentDoc()
+    if (!document) {
+      report('error', '漫剧文档还没有加载完成')
+      return false
+    }
+    let prepared: PreparedShotVideo
+    try {
+      prepared = await prepareShotVideo(shot, document)
+    } catch (error) {
+      report('error', humanError(error))
+      return false
+    }
+    const plan = buildShotVideoPlan(document, [prepared])
+    report(
+      'running',
+      prepared.endFrameNodeId
+        ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
+        : prepared.nextFrameAvailable
+          ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
+          : '这一镜的视频在跑…',
+    )
+    try {
+      const outcome = await executePlan(plan)
       const task = plan.tasks[0]!
       const result = outcome.summary.taskResults.find(
         (item) => item.taskId === task.id,
@@ -314,104 +545,27 @@ export function createStoryboardVideoExecutionController(
         throw new Error(
           result?.kind === 'failed'
             ? describeError(result.error)
-            : '视频生成没有返回可用结果',
+            : result?.kind === 'canceled'
+              ? '视频生成已取消'
+              : '视频生成没有返回可用结果',
         )
       }
-      const output = result.result[0]
-      if (!output || !output.mime.toLowerCase().startsWith('video/')) {
-        throw new Error('视频生成没有返回视频产物')
-      }
-      const latest = await documents.load(projectId)
-      const merged = mergeStoryboardRunResults(
-        currentDoc() ?? latest,
-        latest,
-        Date.now(),
+      const businessFailure = outcome.failures.find(
+        (failure) => failure.taskId === task.id,
       )
-      const prompt = shotVideoPrompt(
-        document,
-        shot,
-        endFrameNodeId ? nextShot : undefined,
-      )
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: recipe.channelId,
-        model: recipe.model,
-        prompt,
-        count: 1,
-        durationSec: shot.durationSec,
-        ...(videoMode ? { videoMode } : {}),
-        assetHash: output.hash,
-        assetMime: output.mime,
-      })
-      let videoNodeId =
-        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId)
-          ? shot.videoNodeId
-          : ''
-      canvas.beginPlan('storyboard:shot-video', '这一镜出视频')
-      try {
-        if (videoNodeId) {
-          canvas.updateNodeData(videoNodeId, data)
-        } else {
-          videoNodeId =
-            canvas.createGenerationNode({
-              at: {
-                x: (imageNode?.x ?? 40) + 280,
-                y: imageNode?.y ?? 40,
-              },
-              data,
-            }) ?? ''
-        }
-        if (videoNodeId) {
-          const connected = new Set(
-            graphEdges
-              .filter((edge) => edge.target === videoNodeId)
-              .map((edge) => edge.source),
-          )
-          if (
-            shot.videoEndNodeId &&
-            shot.videoEndNodeId !== endFrameNodeId &&
-            connected.has(shot.videoEndNodeId)
-          ) {
-            const old = graphEdges.find(
-              (edge) =>
-                edge.source === shot.videoEndNodeId &&
-                edge.target === videoNodeId,
-            )
-            if (old) {
-              canvas.removeEdge(old.id)
-              connected.delete(shot.videoEndNodeId)
-            }
-          }
-          if (!connected.has(shot.nodeId)) {
-            canvas.connectEdge(shot.nodeId, videoNodeId)
-          }
-          if (endFrameNodeId && !connected.has(endFrameNodeId)) {
-            canvas.connectEdge(endFrameNodeId, videoNodeId)
-          }
-        }
-      } finally {
-        canvas.endPlan()
-      }
-      if (!videoNodeId) {
-        throw new Error('视频节点没能建出来（模型服务或模型没配全）')
-      }
-      const withNode = setShotVideoNode(
+      if (businessFailure) throw new Error(businessFailure.errorText)
+      const merged = await loadMergedDocument()
+      const projected = await projectVideoResults(
         merged,
-        shot.id,
-        videoNodeId,
-        0,
-        endFrameNodeId,
+        plan,
+        outcome,
+        [prepared],
       )
-      replaceDoc(
-        attachShotVideos(
-          withNode,
-          [{ shotId: shot.id, hash: output.hash }],
-          0,
-        ),
-      )
+      replaceDoc(projected)
+      await flush()
       report(
         'done',
-        endFrameNodeId
+        prepared.endFrameNodeId
           ? '这一镜的视频已出（用了这一镜与下一镜的首尾帧）'
           : '这一镜的视频已出（画布里就挂在这一镜的图右边）',
       )
@@ -425,8 +579,6 @@ export function createStoryboardVideoExecutionController(
           : `这一镜的视频生成失败：${message}`,
       )
       return false
-    } finally {
-      globalThis.clearTimeout(timer)
     }
   }
 
@@ -449,26 +601,67 @@ export function createStoryboardVideoExecutionController(
       })
       return
     }
-    let ok = 0
-    let failed = 0
-    for (let index = 0; index < targets.length; index += 1) {
-      setLay({
-        kind: 'running',
-        text: `这一集出视频 ${index + 1}/${targets.length}：第 ${
-          shots.indexOf(targets[index]!) + 1
-        } 镜…`,
-      })
-      const success = await makeShotVideo(targets[index]!, { quiet: true })
-      if (success) ok += 1
-      else failed += 1
+    const document = currentDoc()
+    if (!document) {
+      setLay({ kind: 'error', text: '漫剧文档还没有加载完成' })
+      return
     }
+    let prepared: PreparedShotVideo[]
+    try {
+      prepared = []
+      for (const shot of targets) {
+        prepared.push(await prepareShotVideo(shot, document))
+      }
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+      return
+    }
+    const plan = buildShotVideoPlan(document, prepared)
     setLay({
-      kind: failed > 0 ? 'error' : 'done',
-      text:
-        failed > 0
-          ? `这一集视频跑完：成功 ${ok} 镜，失败 ${failed} 镜（失败原因见各自状态）`
-          : `这一集 ${ok} 镜视频已出`,
+      kind: 'running',
+      text: `这一集出视频：${prepared.length} 镜已同时开始…`,
     })
+    try {
+      const outcome = await executePlan(plan)
+      const merged = await loadMergedDocument()
+      const projected = await projectVideoResults(
+        merged,
+        plan,
+        outcome,
+        prepared,
+      )
+      replaceDoc(projected)
+      await flush()
+      const businessFailures = new Set(
+        outcome.failures.map((failure) => failure.taskId),
+      )
+      let ok = 0
+      let failed = 0
+      let canceled = 0
+      for (const task of plan.tasks) {
+        const state = outcome.summary.taskResults.find(
+          (item) => item.taskId === task.id,
+        )?.state
+        if (state?.kind === 'succeeded' && !businessFailures.has(task.id)) {
+          ok += 1
+        } else if (state?.kind === 'canceled') {
+          canceled += 1
+        } else {
+          failed += 1
+        }
+      }
+      setLay({
+        kind: failed > 0 || canceled > 0 ? 'error' : 'done',
+        text:
+          canceled > 0
+            ? `这一集视频结束：成功 ${ok} 镜，取消 ${canceled} 镜，失败 ${failed} 镜`
+            : failed > 0
+              ? `这一集视频跑完：成功 ${ok} 镜，失败 ${failed} 镜（失败原因见各自状态）`
+              : `这一集 ${ok} 镜视频已出`,
+      })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    }
   }
 
   const runPostprocess = async (input: {

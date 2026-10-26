@@ -65,6 +65,20 @@ export interface StoryboardShotRunPlannerInput extends StoryboardPlannerBase {
   includeNextShotEndFrame?: boolean
   imageMime?: string
   nextImageMime?: string
+  /**
+   * 按镜头解析视频输入策略。整集并发时，每镜可能使用不同模型，因而是否支持
+   * 首尾帧、输入 MIME 也可能不同；这里只返回中性输入事实，不接触画布节点。
+   */
+  shotVideoInputs?: (
+    shot: StoryboardShot,
+    nextShot: StoryboardShot | undefined,
+  ) => StoryboardShotVideoInputPolicy
+}
+
+export interface StoryboardShotVideoInputPolicy {
+  includeEndFrame?: boolean
+  imageMime?: string
+  endFrameMime?: string
 }
 
 export type StoryboardVideoPostprocessAction =
@@ -375,16 +389,22 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
       (item) => item.episodeId === shot.episodeId,
     )
     const currentIndex = sameEpisode.findIndex((item) => item.id === shot.id)
+    const nextCandidate = sameEpisode[currentIndex + 1]
+    const videoInputPolicy = input.shotVideoInputs?.(
+      shot,
+      nextCandidate,
+    )
     const nextShot =
-      input.includeNextShotEndFrame === true
-        ? sameEpisode[currentIndex + 1]
+      (videoInputPolicy?.includeEndFrame ??
+        input.includeNextShotEndFrame === true)
+        ? nextCandidate
         : undefined
     const inputs: NodeInput[] = [
       {
         kind: 'asset',
         nodeId: `shot:${shot.id}`,
         assetHash: shot.imageHash,
-        mime: input.imageMime ?? 'image/png',
+        mime: videoInputPolicy?.imageMime ?? input.imageMime ?? 'image/png',
       },
     ]
     if (nextShot?.imageHash) {
@@ -392,7 +412,10 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
         kind: 'asset',
         nodeId: `shot:${nextShot.id}`,
         assetHash: nextShot.imageHash,
-        mime: input.nextImageMime ?? 'image/png',
+        mime:
+          videoInputPolicy?.endFrameMime ??
+          input.nextImageMime ??
+          'image/png',
       })
     }
     const prompt = shotVideoPrompt(input.doc, shot, nextShot)

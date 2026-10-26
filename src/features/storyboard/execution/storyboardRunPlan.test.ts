@@ -133,6 +133,65 @@ describe('buildStoryboardRunPlan', () => {
     ).toThrow('还没有画面')
   })
 
+  it('整集视频用一个零依赖计划承载每镜独立模型和首尾帧 MIME', () => {
+    const base = fixture()
+    const doc: StoryboardDoc = {
+      ...base,
+      shots: base.shots.map((shot, index) => ({
+        ...shot,
+        imageHash: `image-${index + 1}`,
+      })),
+    }
+    const [firstShot, secondShot] = doc.shots
+    const plan = buildStoryboardRunPlan({
+      doc,
+      planId: 'plan-episode-videos',
+      operationId: 'op-episode-videos',
+      target: ({ subject }) => ({
+        channelId:
+          subject.kind === 'shot-video' && subject.shotId === firstShot!.id
+            ? 'channel-first-last'
+            : 'channel-image-only',
+        model: 'video-model',
+      }),
+      action: 'shot-video',
+      episodeId: doc.episodes[0]!.id,
+      shotIds: [firstShot!.id, secondShot!.id],
+      shotVideoInputs: (shot) => ({
+        includeEndFrame: shot.id === firstShot!.id,
+        imageMime: shot.id === firstShot!.id ? 'image/webp' : 'image/jpeg',
+        endFrameMime: 'image/png',
+      }),
+    })
+
+    expect(plan.tasks).toHaveLength(2)
+    expect(plan.tasks.map((task) => task.dependsOn)).toEqual([[], []])
+    expect(plan.tasks.every((task) => task.parentRunId === undefined)).toBe(
+      true,
+    )
+    expect(plan.tasks[0]).toMatchObject({
+      action: 'shot-video',
+      subject: {
+        kind: 'shot-video',
+        episodeId: doc.episodes[0]!.id,
+        shotId: firstShot!.id,
+      },
+      request: {
+        channelId: 'channel-first-last',
+        inputs: [
+          { assetHash: 'image-1', mime: 'image/webp' },
+          { assetHash: 'image-2', mime: 'image/png' },
+        ],
+      },
+    })
+    expect(plan.tasks[1]).toMatchObject({
+      request: {
+        channelId: 'channel-image-only',
+        inputs: [{ assetHash: 'image-2', mime: 'image/jpeg' }],
+      },
+    })
+  })
+
   it('要求资产基准图时，缺图在规划阶段失败', () => {
     let doc = fixture()
     doc = {
