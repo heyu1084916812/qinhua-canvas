@@ -16,7 +16,6 @@ import {
   planShotRefEdges,
   setShotVideoNode,
   shotPromptWithAssets,
-  shotRefNodeIds,
   shotVideoPrompt,
   shotsOf,
 } from '../../domain/storyboard/storyboard'
@@ -191,47 +190,6 @@ export function createStoryboardShotController(
     } catch (e) {
       setLay({ kind: 'error', text: humanError(e) })
     }
-  }
-
-  /**
-   * 出图：产物**写回这一镜自己的节点**（`inPlace`，对账 #413 那条能力在这里第二次被用上）。
-   *
-   * 为什么不铺新节点：分镜要的是"这一镜的图"，不是"这一镜的十张候选"。
-   * 想留旧图比稿的用户可以先用单镜重出（每次覆盖），或到画布上用 Alt+R —— 两条路都在。
-   *
-   * 出图前先 `syncShotRefs`：**定妆图是后补的**（先铺了分镜、之后才给角色出定妆图）
-   * 也得吃进这一趟请求 —— 只在铺的时候接一次，后补的那张就永远喂不进去。
-   */
-  const runShot = (shot: StoryboardShot) => {
-    if (!shot.nodeId) return
-    canvas.updateNodeData(
-      shot.nodeId,
-      withStoryboardRunScope({}, {
-        subjectKind: 'shot-image',
-        subjectId: `shot:${shot.id}`,
-        scopeId: `episode:${shot.episodeId}`,
-      }),
-      true,
-    )
-    syncShotRefs(shot, shot.nodeId)
-    const refs = shotRefNodeIds(doc, shot, new Set(graph.nodes.map((n) => n.id))).length
-    if (refs > 0) setLay({ kind: 'running', text: `这一镜在跑（带 ${refs} 张参考图）…` })
-    void canvas.runNode(shot.nodeId, { inPlace: true }).then(
-      () => {
-        /**
-         * 「跑完」不等于「出成」：失败是**记在状态里**的（`nodeStates`），不抛异常。
-         * 只看 then 就把失败报成"已出"，正是 #188 那个坑。
-         */
-        if (refs === 0) return
-        const state = canvas.nodeStateOf(shot.nodeId!)
-        if (state?.kind === 'failed') {
-          setLay({ kind: 'error', text: `这一镜出图失败：${describeError(state.error)}` })
-          return
-        }
-        setLay({ kind: 'done', text: `这一镜的图已出（带了 ${refs} 张参考图）` })
-      },
-      (e: unknown) => setLay({ kind: 'error', text: humanError(e) }),
-    )
   }
 
   /**
@@ -645,30 +603,11 @@ export function createStoryboardShotController(
     setLay({ kind: 'done', text: `已按当前资产刷新 ${targets.length} 个节点的提示词` })
   }
 
-  /** 这一集出图：逐镜串行（顺着分镜顺序），**已出过的跳过**；重出用单镜那把 */
-  const runEpisode = async () => {
-    const targets = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId) && !s.imageHash)
-    if (targets.length === 0) {
-      setLay({ kind: 'done', text: '这一集没有待出图的镜头（要重出请用单镜那把）' })
-      return
-    }
-    setLay({ kind: 'idle', text: '' })
-    for (const shot of targets) {
-      /* 整集出图与单镜出图同一条纪律：跑之前先把参考图接上（对账 #430） */
-      syncShotRefs(shot, shot.nodeId!)
-      await canvas.runNode(shot.nodeId!, { inPlace: true })
-    }
-    setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
-  }
-
-
   return {
     layOut,
-    runShot,
     makeShotVideo,
     makeDigitalHuman,
     runEpisodeVideos,
     syncPrompts,
-    runEpisode,
   }
 }

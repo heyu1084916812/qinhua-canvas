@@ -24,6 +24,10 @@ import {
 export interface StoryboardRunTarget {
   channelId: string
   model: string
+  /** true 表示调用方已把前端模型名映射成上游 ID；默认 false，由执行网关映射。 */
+  modelIsUpstream?: boolean
+  /** 模型配方里与本次媒体请求有关的参数。 */
+  params?: Record<string, unknown>
   credentialGroupId?: string
   credentialGroupIds?: readonly string[]
 }
@@ -32,7 +36,12 @@ interface StoryboardPlannerBase {
   doc: StoryboardDoc
   planId: string
   operationId: string
-  target: StoryboardRunTarget
+  target:
+    | StoryboardRunTarget
+    | ((task: {
+        action: StoryboardRunAction
+        subject: StoryboardRunSubject
+      }) => StoryboardRunTarget)
   dependsOn?: (task: {
     action: StoryboardRunAction
     subject: StoryboardRunSubject
@@ -65,25 +74,38 @@ function assertTarget(target: StoryboardRunTarget): void {
 
 function requestOf(
   kind: 'image' | 'video',
-  input: StoryboardRunPlannerInput,
+  target: StoryboardRunTarget,
   prompt: string,
   inputs: readonly NodeInput[],
   params: Record<string, unknown>,
 ): RunRequest {
   return {
     kind,
-    channelId: input.target.channelId,
-    model: input.target.model,
+    channelId: target.channelId,
+    model: target.model,
     prompt,
     inputs: [...inputs],
     params,
-    ...(input.target.credentialGroupId
-      ? { credentialGroupId: input.target.credentialGroupId }
+    ...(target.credentialGroupId
+      ? { credentialGroupId: target.credentialGroupId }
       : {}),
-    ...(input.target.credentialGroupIds?.length
-      ? { credentialGroupIds: [...input.target.credentialGroupIds] }
+    ...(target.credentialGroupIds?.length
+      ? { credentialGroupIds: [...target.credentialGroupIds] }
       : {}),
   }
+}
+
+function targetOf(
+  input: StoryboardRunPlannerInput,
+  action: StoryboardRunAction,
+  subject: StoryboardRunSubject,
+): StoryboardRunTarget {
+  const target =
+    typeof input.target === 'function'
+      ? input.target({ action, subject })
+      : input.target
+  assertTarget(target)
+  return target
 }
 
 function taskOf(input: {
@@ -207,6 +229,7 @@ function assetPlan(input: StoryboardAssetRunPlannerInput): StoryboardRunPlan {
       assetId: asset.id,
       assetType: kind,
     }
+    const resolvedTarget = targetOf(input, action, subject)
     const prompt =
       action === 'asset-base'
         ? assetBasePrompt(asset, kind)
@@ -216,16 +239,19 @@ function assetPlan(input: StoryboardAssetRunPlannerInput): StoryboardRunPlan {
         ? assetReferenceInput(kind, asset, input.requireBaseReference === true)
         : []
     const params = {
+      ...(resolvedTarget.params ?? {}),
+      count: 1,
       action,
       assetType: kind,
       assetId: asset.id,
+      modelIsUpstream: resolvedTarget.modelIsUpstream === true,
     }
     return taskOf({
       planId: input.planId,
       operationId: input.operationId,
       action,
       subject,
-      request: requestOf('image', input, prompt, inputs, params),
+      request: requestOf('image', resolvedTarget, prompt, inputs, params),
       params,
       dependsOn: dependenciesOf(input, action, subject),
     })
@@ -250,6 +276,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
       episodeId: shot.episodeId,
       shotId: shot.id,
     }
+    const resolvedTarget = targetOf(input, action, subject)
     if (action === 'shot-image') {
       const prompt = shotPromptWithAssets(input.doc, shot)
       const inputs = shotAssetInputs(
@@ -258,16 +285,19 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
         input.requireAssetBases === true,
       )
       const params = {
+        ...(resolvedTarget.params ?? {}),
+        count: 1,
         action,
         episodeId: shot.episodeId,
         shotId: shot.id,
+        modelIsUpstream: resolvedTarget.modelIsUpstream === true,
       }
       return taskOf({
         planId: input.planId,
         operationId: input.operationId,
         action,
         subject,
-        request: requestOf('image', input, prompt, inputs, params),
+        request: requestOf('image', resolvedTarget, prompt, inputs, params),
         params,
         dependsOn: dependenciesOf(input, action, subject),
       })
@@ -302,10 +332,12 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
     }
     const prompt = shotVideoPrompt(input.doc, shot, nextShot)
     const params = {
+      ...(resolvedTarget.params ?? {}),
       action,
       episodeId: shot.episodeId,
       shotId: shot.id,
       durationSec: shot.durationSec,
+      modelIsUpstream: resolvedTarget.modelIsUpstream === true,
       ...(nextShot?.imageHash ? { endFrameHash: nextShot.imageHash } : {}),
     }
     return taskOf({
@@ -313,7 +345,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
       operationId: input.operationId,
       action,
       subject,
-      request: requestOf('video', input, prompt, inputs, params),
+      request: requestOf('video', resolvedTarget, prompt, inputs, params),
       params,
       dependsOn: dependenciesOf(input, action, subject),
     })
@@ -340,7 +372,6 @@ export function buildStoryboardRunPlan(
 ): StoryboardRunPlan {
   if (!input.planId.trim()) throw new Error('漫剧执行计划缺少 planId')
   if (!input.operationId.trim()) throw new Error('漫剧执行计划缺少 operationId')
-  assertTarget(input.target)
   let plan: StoryboardRunPlan
   if (input.action === 'asset-base' || input.action === 'asset-turnaround') {
     plan = assetPlan(input as StoryboardAssetRunPlannerInput)

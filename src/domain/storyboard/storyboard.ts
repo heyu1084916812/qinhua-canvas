@@ -1558,6 +1558,103 @@ export function attachShotVideos(
   return changed ? { ...doc, shots, updatedAt: now } : doc
 }
 
+/**
+ * 把执行器落库后的业务产物合并回页面当前文档。
+ *
+ * 长任务期间用户可能继续改名称、描述或台词；执行结果只能覆盖真实产物字段，
+ * 不能拿执行开始时或落库时的整份文档覆盖页面上的新编辑。
+ */
+export function mergeStoryboardRunResults(
+  current: StoryboardDoc,
+  produced: StoryboardDoc,
+  now = 0,
+): StoryboardDoc {
+  const producedAssets = new Map(
+    [...produced.characters, ...produced.scenes].map((asset) => [
+      asset.id,
+      asset,
+    ]),
+  )
+  const mergeAssets = (assets: DramaAsset[]): DramaAsset[] => {
+    let changed = false
+    const next = assets.map((asset) => {
+      const source = producedAssets.get(asset.id)
+      if (!source) return asset
+      const merged: DramaAsset = {
+        ...asset,
+        ...(source.baseHash ? { baseHash: source.baseHash } : {}),
+        ...(source.turnaroundHash ? { turnaroundHash: source.turnaroundHash } : {}),
+      }
+      if (
+        merged.baseHash === asset.baseHash &&
+        merged.turnaroundHash === asset.turnaroundHash
+      ) {
+        return asset
+      }
+      changed = true
+      return merged
+    })
+    return changed ? next : assets
+  }
+
+  const producedShots = new Map(produced.shots.map((shot) => [shot.id, shot]))
+  let shotsChanged = false
+  const shots = current.shots.map((shot) => {
+    const source = producedShots.get(shot.id)
+    if (!source) return shot
+    const producedLines = new Map(source.lines.map((line) => [line.id, line]))
+    let linesChanged = false
+    const lines = shot.lines.map((line) => {
+      const producedLine = producedLines.get(line.id)
+      if (!producedLine) return line
+      const next: StoryboardLine = {
+        ...line,
+        ...(producedLine.audioHash ? { audioHash: producedLine.audioHash } : {}),
+        ...(producedLine.audioName ? { audioName: producedLine.audioName } : {}),
+      }
+      if (
+        next.audioHash === line.audioHash &&
+        next.audioName === line.audioName
+      ) {
+        return line
+      }
+      linesChanged = true
+      return next
+    })
+    const next: StoryboardShot = {
+      ...shot,
+      ...(source.imageHash ? { imageHash: source.imageHash } : {}),
+      ...(source.videoHash ? { videoHash: source.videoHash } : {}),
+      ...(linesChanged ? { lines } : {}),
+    }
+    if (
+      next.imageHash === shot.imageHash &&
+      next.videoHash === shot.videoHash &&
+      !linesChanged
+    ) {
+      return shot
+    }
+    shotsChanged = true
+    return next
+  })
+
+  const characters = mergeAssets(current.characters) as DramaCharacter[]
+  const scenes = mergeAssets(current.scenes)
+  const changed =
+    characters !== current.characters ||
+    scenes !== current.scenes ||
+    shotsChanged
+  return changed
+    ? {
+        ...current,
+        characters,
+        scenes,
+        shots,
+        updatedAt: now,
+      }
+    : current
+}
+
 export interface StoryboardStats {
   episodes: number
   shots: number

@@ -185,12 +185,16 @@ export function StoryboardExecutionProvider({
             channels: channels(),
             resolve: async ({ taskId, channel, credentialGroupId }) => {
               const task = plan.tasks.find((item) => item.id === taskId)!
+              const taskParams =
+                task.params && typeof task.params === 'object'
+                  ? (task.params as Record<string, unknown>)
+                  : {}
               const target = await generation.resolve({
                 channel,
                 request: task.request,
                 kind: task.request.kind,
                 hints: {
-                  modelIsUpstream: true,
+                  modelIsUpstream: taskParams.modelIsUpstream === true,
                   ...(credentialGroupId ? { credentialGroupId } : {}),
                 },
               })

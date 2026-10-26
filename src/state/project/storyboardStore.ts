@@ -23,9 +23,16 @@ export interface StoryboardStore {
   save(doc: StoryboardDoc): Promise<void>
 }
 
+const writeQueues = new WeakMap<
+  StoragePort,
+  Map<string, Promise<void>>
+>()
+
 export function createStoryboardStore(storage: StoragePort): StoryboardStore {
   return {
     async load(projectId) {
+      const pending = writeQueues.get(storage)?.get(projectId)
+      if (pending) await pending.catch(() => {})
       const rows = await storage.query('storyboards', { id: projectId })
       const row = rows[0] as { doc?: unknown } | undefined
       if (!row) return emptyStoryboard(projectId, Date.now())
@@ -33,12 +40,27 @@ export function createStoryboardStore(storage: StoragePort): StoryboardStore {
     },
 
     async save(doc) {
-      await storage.put('storyboards', {
-        id: doc.projectId,
-        projectId: doc.projectId,
-        updatedAt: doc.updatedAt,
-        doc,
-      } as never)
+      let queues = writeQueues.get(storage)
+      if (!queues) {
+        queues = new Map()
+        writeQueues.set(storage, queues)
+      }
+      const projectId = doc.projectId
+      const previous = queues.get(projectId) ?? Promise.resolve()
+      const next = previous.catch(() => {}).then(async () => {
+        await storage.put('storyboards', {
+          id: projectId,
+          projectId,
+          updatedAt: doc.updatedAt,
+          doc,
+        } as never)
+      })
+      queues.set(projectId, next)
+      try {
+        await next
+      } finally {
+        if (queues.get(projectId) === next) queues.delete(projectId)
+      }
     },
   }
 }

@@ -4,6 +4,7 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
 import { flushOnPageHide } from '../../app/session'
+import { useStoryboardExecution } from '../../features/storyboard/execution/StoryboardExecutionProvider'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
@@ -35,7 +36,7 @@ import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { createStoryboardExportController } from '../../workbenches/storyboard/useStoryboardExportController'
 import { createStoryboardAudioController } from '../../workbenches/storyboard/useStoryboardAudioController'
 import { createStoryboardAuthoringController } from '../../workbenches/storyboard/useStoryboardAuthoringController'
-import { createStoryboardAssetController } from '../../workbenches/storyboard/useStoryboardAssetController'
+import { createStoryboardImageExecutionController } from '../../workbenches/storyboard/useStoryboardImageExecutionController'
 import { createStoryboardShotController } from '../../workbenches/storyboard/useStoryboardShotController'
 import {
   createStoryboardVideoController,
@@ -310,6 +311,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     canvas,
     graph,
   } = useStoryboardCanvasRuntime()
+  const storyboardExecution = useStoryboardExecution()
   const store = useMemo(() => createStoryboardStore(platform.storage), [platform])
   const [doc, setDoc] = useState<StoryboardDoc | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -691,24 +693,28 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setVideoExtendBusy,
     })
 
-  const { makeAssetBase, makeAssetTurnaround } =
-    createStoryboardAssetController({
+  const { makeAssetBase, makeAssetTurnaround, runShot, runEpisode } =
+    createStoryboardImageExecutionController({
       doc,
       currentDoc: () => docRef.current,
+      selectedEpisodeId: selected?.id,
       liveNodeIds,
+      channels,
       canvas,
-      apply,
+      execution: storyboardExecution,
+      documents: store,
+      projectId,
+      flush,
+      replaceDoc: apply,
       setLay,
     })
 
   const {
     layOut,
-    runShot,
     makeShotVideo,
     makeDigitalHuman,
     runEpisodeVideos,
     syncPrompts,
-    runEpisode,
   } = createStoryboardShotController({
     doc,
     currentDoc: () => docRef.current,

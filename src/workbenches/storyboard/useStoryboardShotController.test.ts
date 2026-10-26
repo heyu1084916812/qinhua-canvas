@@ -105,20 +105,6 @@ describe('Storyboard shot controller', () => {
     })
   })
 
-  it('整集出图跳过已出过的镜头，只串行运行待出图节点', async () => {
-    const doc = shotDoc()
-    const test = harness(doc)
-
-    await test.controller.runEpisode()
-
-    expect(test.runNode).toHaveBeenCalledTimes(1)
-    expect(test.runNode).toHaveBeenCalledWith('n2', { inPlace: true })
-    expect(test.setLay).toHaveBeenLastCalledWith({
-      kind: 'done',
-      text: '已跑完这一集 1 镜（失败的镜头各自标了原因）',
-    })
-  })
-
   it('出视频前先检查画面，缺图直接报错且不解析渠道', async () => {
     const doc = shotDoc()
     const test = harness(doc)

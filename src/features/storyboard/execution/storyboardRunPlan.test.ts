@@ -82,6 +82,41 @@ describe('buildStoryboardRunPlan', () => {
     })
   })
 
+  it('同一计划可按镜头解析不同渠道 / 模型，并带上各自配方参数', () => {
+    const doc = fixture()
+    const plan = buildStoryboardRunPlan({
+      doc,
+      planId: 'plan-mixed-targets',
+      operationId: 'op-mixed',
+      action: 'shot-image',
+      episodeId: doc.episodes[0]!.id,
+      target: ({ subject }) => ({
+        channelId:
+          subject.kind === 'shot-image' && subject.shotId === doc.shots[0]!.id
+            ? 'channel-1'
+            : 'channel-2',
+        model: 'image-model',
+        params: {
+          ratio: subject.id.endsWith(doc.shots[0]!.id) ? '16:9' : '9:16',
+          quality: 'high',
+        },
+      }),
+    })
+
+    expect(plan.tasks.map((task) => task.request.channelId)).toEqual([
+      'channel-1',
+      'channel-2',
+    ])
+    expect(plan.tasks[0]!.request.params).toMatchObject({
+      ratio: '16:9',
+      quality: 'high',
+    })
+    expect(plan.tasks[1]!.request.params).toMatchObject({
+      ratio: '9:16',
+      quality: 'high',
+    })
+  })
+
   it('镜头视频必须有画面，缺少时在发请求前失败', () => {
     const doc = fixture()
     expect(() =>
