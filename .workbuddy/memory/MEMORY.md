@@ -17,6 +17,10 @@
 - 日志采用“各自视图 + 一份记录”：画布、电商、漫剧各看自己的业务范围，公共执行记录只写一份；
   总日志读取同一份记录做聚合，不得复制三套日志数据库。公共记录应补
   `workbench / projectId / subjectId / scopeId / parentRunId` 等中性作用域。
+- **素材库不是画布私有层**：`assets` 是内容库，`assetLibrary` 是收藏 / 标签关系，素材页是全局
+  UI；`useAsset` 只是当前实现位置误落画布目录。**技能库**是跨工作台全局内容资产，由统一
+  Registry 管理，工作台只决定“是否用、用哪个”，`GenerationClient` 不负责技能 CRUD。
+  **灵感库**是外部案例索引与缓存，不能和本地素材表合并。
 - 电商结果真源是 `ecommerceTasks` / `ecommerceResults`，`EcommerceCanvasItem` 只能做
   可重建投影；漫剧业务真源是 `storyboardStore`，“铺到画布”只能是显式投影。
 - `.dependency-cruiser.cjs` 仍在引用已删除的 comic；新规则必须清理旧项并覆盖
