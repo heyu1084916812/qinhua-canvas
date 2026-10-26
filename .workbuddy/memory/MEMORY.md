@@ -8,6 +8,13 @@
   架构重构的副作用。
 - 真实 Tauri WebView 默认是 `1440×900 / DPR1`，侧栏从 y=33 开始且桌面端多“检查更新”；
   UI 门禁至少跑 1440×900，页面拆分另跑 1024×700、1178×762 和明暗主题。
+- A7 使用 `npm run check:ui-freeze`；默认只附加已运行的桌面壳，`--launch` 才临时启动调试版。
+  启动参数只通过 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 注入，不改 `tauri.conf`。连接使用
+  `/json/list` 的页面级 WebSocket；不要用 Playwright `connectOverCDP`，WebView2 的 shared
+  worker 目标曾触发其内部断言。
+- 2026-10-26 真机门禁通过：`1440×900 / DPR1`，项目树 `bottom=769 < settings.top=776`，
+  真实滚动区 `client/scroll=295/295`、内容可完整访问、横向溢出 0；1024×700 / 1178×762
+  模拟辅助也通过。截图与 `report.json` 在系统临时目录，脚本退出后会关闭自己拉起的桌面壳。
 - 批次二顺序：A7 UI 门禁 / A1 删渠道 / A2 请求阶段并行；A3 retry-save、A4 素材可读；
   A5 漫剧业务主体、A6 共享日志；A1/A2 未闭合前不进入 StoryboardRunPlanner。
 
@@ -23,6 +30,8 @@
   几何是项目树约 258px、设置区从 680px 开始且无横向溢出。
 - `scripts/check-shell-geometry.mjs` 现在会检查短视口规则存在；真机截图仍需同时看
   1024×700、1178×762、1440×900，并用 `tree.bottom <= settings.top` 验无重叠。
+- `scripts/check-tauri-ui-freeze.mjs --launch` 现在提供可复现的 A7 真机几何与三视口截图；
+  脚本会先报旧实例单实例冲突，不会再把“新进程退出 code=0”误判成 CDP 超时。
 
 ### P0 执行安全批次一（2026-10-26 → 对账 #766）
 
