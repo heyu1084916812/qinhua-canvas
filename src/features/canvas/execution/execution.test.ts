@@ -762,6 +762,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
 
     const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
     expect(plan.tasks).toHaveLength(4)
+    // 同一节点的多次调用是兄弟任务：数组顺序只用于结算，不能伪装成依赖。
+    expect(plan.tasks.every((task) => task.dependsOn.length === 0)).toBe(true)
     // 每一次都铺新节点 —— 不能有一张是 reuse 源节点自己
     for (const t of plan.tasks) expect(t.slot.kind).toBe('new')
 

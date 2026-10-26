@@ -258,7 +258,6 @@ export function buildRunPlan(
   // 4. 冻结请求、指纹与参数。
   //    批量上游（集合卡）在这里展开：一个节点可能产出 N 个 task（§6.12「各生成一次」）。
   const tasks: CanvasRunTask[] = []
-  let previousId: string | null = null
   let slotCursor = 0
   ordered.forEach((node) => {
     const spec = getSpec(node.type)!
@@ -425,7 +424,15 @@ export function buildRunPlan(
           nodeId: node.id,
           // 指纹仍按**真实收集到的输入**计算，避免刚生成完就把自己标陈旧
           request: { ...singleRequest, inputs: withSourceImage },
-          dependsOn: previousId ? [previousId] : [],
+          /**
+           * 画布请求在规划期已经把输入物化进 `request.inputs`，任务数组的拓扑顺序
+           * 只用于稳定结算。这里不能把“上一项”写成运行时依赖，否则一次节点生成
+           * N 张图会被拆成 N 个串行波次，破坏既有并发。
+           *
+           * 真正需要“上游产出后才能发下游请求”的工作台，必须由自己的 Scheduler
+           * 显式写入可直接消费的前置 task id。
+           */
+          dependsOn: [],
           slot,
           // 指纹包含完整集合（未展开）：集合内容变了才算输入变了，
           // 逐项 task 共用同一指纹，陈旧判定与「一次生成」语义一致。
@@ -458,7 +465,6 @@ export function buildRunPlan(
           seq: seq * callsPerRunOf(node) + c,
         }
         tasks.push(task)
-        previousId = task.id
         slotCursor += 1
       }
     })

@@ -1,4 +1,8 @@
-import type { RunPlan, RunTask } from '../../../domain/shared/execution/plan'
+import {
+  runPlanWaves,
+  type RunPlan,
+  type RunTask,
+} from '../../../domain/shared/execution/plan'
 import type { RunRequest } from '../../../domain/shared/execution/types'
 import {
   createRunRecord,
@@ -269,152 +273,193 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     collected.set(nodeId, list)
   }
 
-  /**
-   * 阶段一：**先把所有落位建出来**（用户 2026-09-17）。
-   *
-   * 此前整个循环是串行的：第 2 张要等第 1 张跑完才开始，而承载节点是在
-   * `placement.begin` 时才建的 —— 于是画布上表现为「出完一张，才冒出下一个节点」。
-   * 选 2张 / 4张 时用户看到的是一条条排队冒出来，而不是同时开工。
-   *
-   * 现在先同步跑完所有 task 的 `begin`（建节点 + 连线 + 改绑 + 排队态），
-   * 这一阶段是纯命令派发、不 await 网络，因此 N 个承载节点会**同时出现并同时转圈**；
-   * 随后再并发发起渠道调用（见阶段二）。
-   */
-  const started: {
-    task: TTask
-    targetId: string
-    startedAt: number
-    scope: RunRecordScope
-  }[] = []
-  for (const task of plan.tasks) {
-    if (deps.signal.aborted) {
-      // 未启动即取消：跳过，不留 RunRecord（没有产生任何一次调用）
-      update(task.id, { kind: 'canceled' })
-      taskResults.push({ taskId: task.id, nodeId: task.nodeId, state: { kind: 'canceled' } })
-      continue
+  const waves = runPlanWaves(plan.tasks)
+  const stateByTaskId = new Map<string, RunTaskState>()
+  let startedCount = 0
+
+  for (const wave of waves) {
+    const runnable: TTask[] = []
+    for (const task of wave) {
+      const dependencyStates = task.dependsOn.map(
+        (dependency) => stateByTaskId.get(dependency)!,
+      )
+      const failedDependency = task.dependsOn.find(
+        (dependency) => stateByTaskId.get(dependency)?.kind === 'failed',
+      )
+      const canceledDependency =
+        failedDependency === undefined &&
+        task.dependsOn.find(
+          (dependency) => stateByTaskId.get(dependency)?.kind === 'canceled',
+        )
+
+      if (failedDependency || canceledDependency) {
+        const state: RunTaskState = failedDependency
+          ? {
+              kind: 'failed',
+              error: {
+                kind: 'validation',
+                field: 'dependsOn',
+                reason: `依赖任务未成功：${failedDependency}`,
+              },
+              attempts: 0,
+            }
+          : { kind: 'canceled' }
+        update(task.id, state)
+        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
+        stateByTaskId.set(task.id, state)
+        continue
+      }
+      if (
+        dependencyStates.some((state) => state?.kind !== 'succeeded')
+      ) {
+        const invalid: RunTaskState = {
+          kind: 'failed',
+          error: {
+            kind: 'validation',
+            field: 'dependsOn',
+            reason: '依赖任务未完成',
+          },
+          attempts: 0,
+        }
+        update(task.id, invalid)
+        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state: invalid })
+        stateByTaskId.set(task.id, invalid)
+        continue
+      }
+      runnable.push(task)
     }
 
+    const started: {
+      task: TTask
+      targetId: string
+      startedAt: number
+      scope: RunRecordScope
+    }[] = []
+
     /**
-     * `queued` **刻意不在落点确定前广播**（2026-09-17 修）。
-     *
-     * 此前这行在 `placement.begin` 之前，而宿主此刻的 taskId→nodeId 映射还指向
-     * **源节点**：源节点已有素材时会另建承载节点，于是源节点（这次只是被当参考图
-     * 用）先平白转一圈，随后状态才被搬到新节点上（MutationObserver 实测到源节点
-     * 约 17ms 的 running，真实渠道下这个窗口更长）。
-     *
-     * 落点确定（可能是新建的承载节点）后再广播，状态就一定挂在真正收产物的节点上。
+     * 同一拓扑波次先同步完成全部落位，再并发调用渠道。这样独立任务仍保持
+     * “占位同时出现、请求同时开始”；依赖任务必须等上一波完整成功后才落位。
      */
+    for (const task of runnable) {
+      if (deps.signal.aborted) {
+        const state: RunTaskState = { kind: 'canceled' }
+        update(task.id, state)
+        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
+        stateByTaskId.set(task.id, state)
+        continue
+      }
 
-    // 落位交给适配器：canvas 会按槽位决定「复用已有节点」还是「新建承载节点」；
-    // 批量展开（同一主体多次调用）时，只有第一次复用原主体，其余另起承载，
-    // 否则后来的结果会不断覆盖前一次。
-    const isRepeat = (callCounts.get(task.nodeId) ?? 1) > 1 && (task.seq ?? 0) > 0
-    /**
-     * 槽位序号与总数：多个新建承载节点要按 §6.9 的格位规则排布
-     * （N=4 为 2×2、5–8 每排最多 4 个）。逐个 `begin` 时没有这两个数，
-     * 落位就会把 N 个节点算成同一坐标而全部重叠。
-     */
-    const slotIndex = started.length
-    const slotCount = plan.tasks.length
-    const began = placement.begin(task, { isRepeat, slotIndex, slotCount })
-    const targetId = began.targetId
-    const scope = deps.recordScope(plan, task, targetId)
-    if (began.commands.length > 0) write(began.commands)
-    // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
-    deps.onTaskTarget?.(plan.id, task.id, targetId)
-    update(task.id, { kind: 'queued' })
+      const isRepeat =
+        (callCounts.get(task.nodeId) ?? 1) > 1 && (task.seq ?? 0) > 0
+      const began = placement.begin(task, {
+        isRepeat,
+        slotIndex: startedCount,
+        slotCount: plan.tasks.length,
+      })
+      const targetId = began.targetId
+      const scope = deps.recordScope(plan, task, targetId)
+      if (began.commands.length > 0) write(began.commands)
+      deps.onTaskTarget?.(plan.id, task.id, targetId)
+      update(task.id, { kind: 'queued' })
 
-    const taskStartedAt = now()
-    update(task.id, { kind: 'running', startedAt: taskStartedAt })
-    started.push({ task, targetId, startedAt: taskStartedAt, scope })
-  }
+      const taskStartedAt = now()
+      update(task.id, { kind: 'running', startedAt: taskStartedAt })
+      started.push({ task, targetId, startedAt: taskStartedAt, scope })
+      startedCount += 1
+    }
 
-  /**
-   * 阶段二：**并发**发起渠道调用（用户 2026-09-17）。
-   *
-   * N 张同时请求渠道，谁先返回谁先落盘；结果按 `started` 的顺序结算，
-   * 因此 summary / RunRecord 的次序仍与计划一致，不因完成先后而变。
-   */
-  const settled = await Promise.all(
-    started.map(async ({ task, targetId, startedAt, scope }) => {
-      let attempt = 0
-      let state: RunTaskState = { kind: 'failed', error: { kind: 'parse', raw: 'unreachable' }, attempts: 1 }
-      let assets: GeneratedAsset[] = []
+    const settled = await Promise.all(
+      started.map(async ({ task, targetId, startedAt, scope }) => {
+        let attempt = 0
+        let state: RunTaskState = {
+          kind: 'failed',
+          error: { kind: 'parse', raw: 'unreachable' },
+          attempts: 1,
+        }
+        let assets: GeneratedAsset[] = []
 
-      for (;;) {
-        try {
-          const adapter = deps.channelResolver({
-            ...task.request,
-            routingAttempt: attempt,
-          })
-          // 批量展开出的后续调用套上「第 n 项」序号：渠道多以 prompt 为素材种子，
-          // 不加序号时同一素材跑多次会产出同一个 hash，结果互相覆盖（§6.12）。
-          const callRequest = applyCallOrdinal(task)
-          assets = await callChannel(adapter, callRequest, deps.signal)
-          state = { kind: 'succeeded', result: assets, duration: now() - startedAt }
-          break
-        } catch (e) {
-          const error = normalizeError(e)
-          if (deps.signal.aborted) {
-            state = { kind: 'canceled' }
+        for (;;) {
+          try {
+            const adapter = deps.channelResolver({
+              ...task.request,
+              routingAttempt: attempt,
+            })
+            const callRequest = applyCallOrdinal(task)
+            assets = await callChannel(adapter, callRequest, deps.signal)
+            state = {
+              kind: 'succeeded',
+              result: assets,
+              duration: now() - startedAt,
+            }
+            break
+          } catch (e) {
+            const error = normalizeError(e)
+            if (deps.signal.aborted) {
+              state = { kind: 'canceled' }
+              break
+            }
+            const hasNextCredentialGroup =
+              attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
+            const shouldRetry =
+              (isRetryable(error, policy) && attempt < policy.maxRetries) ||
+              (hasNextCredentialGroup && isGroupSwitchable(error))
+            if (shouldRetry) {
+              attempt += 1
+              await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
+              continue
+            }
+            state = { kind: 'failed', error, attempts: attempt + 1 }
             break
           }
-          const hasNextCredentialGroup =
-            attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
-          const shouldRetry =
-            (isRetryable(error, policy) && attempt < policy.maxRetries) ||
-            (hasNextCredentialGroup && isGroupSwitchable(error))
-          if (shouldRetry) {
-            attempt += 1
-            await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
-            continue
-          }
-          state = { kind: 'failed', error, attempts: attempt + 1 }
-          break
+        }
+        return {
+          task,
+          targetId,
+          startedAt,
+          scope,
+          state,
+          assets,
+          finishedAt: now(),
+        }
+      }),
+    )
+
+    for (const { task, targetId, startedAt } of started) {
+      const done = settled.find((entry) => entry.task.id === task.id)!
+      const { state, assets, finishedAt } = done
+      const status: RunRecord['status'] =
+        state.kind === 'succeeded'
+          ? 'succeeded'
+          : state.kind === 'canceled'
+            ? 'canceled'
+            : 'failed'
+
+      if (state.kind === 'succeeded') {
+        const cmds = placement.commit(task, targetId, assets)
+        if (cmds.length > 0) write(cmds)
+        if (placement.shouldCollect(task, assets)) {
+          collect(task.nodeId, task, assets)
         }
       }
-      return { task, targetId, startedAt, scope, state, assets, finishedAt: now() }
-    }),
-  )
+      const record = makeRecord(
+        task,
+        targetId,
+        done.scope,
+        deps,
+        startedAt,
+        status,
+        state.kind === 'succeeded' ? assets : [],
+        finishedAt - startedAt,
+        state.kind === 'failed' ? describeError(state.error) : undefined,
+      )
+      const recordCommand = placement.record(task, targetId, record)
+      if (recordCommand !== null) write([recordCommand])
 
-  // 阶段三：按计划顺序结算（写回 + 聚合 + 留痕 + 状态广播）
-  for (const { task, targetId, startedAt } of started) {
-    const done = settled.find((s) => s.task.id === task.id)!
-    const { state, assets, finishedAt } = done
-    const status: RunRecord['status'] =
-      state.kind === 'succeeded' ? 'succeeded' : state.kind === 'canceled' ? 'canceled' : 'failed'
-
-    if (state.kind === 'succeeded') {
-      // 成功写回：① 适配器把产物挂到目标（canvas：assetHash + 缩略图顺序）；
-      // ② 若适配器要求聚合（canvas 生图），攒进 collected，plan 末尾统一 finalize
-      const cmds = placement.commit(task, targetId, assets)
-      if (cmds.length > 0) write(cmds)
-      if (placement.shouldCollect(task, assets)) collect(task.nodeId, task, assets)
+      update(task.id, state)
+      taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
+      stateByTaskId.set(task.id, state)
+      records.push(record)
     }
-    // RunRecord 与结果写回同一批：版本历史「从不删除」，失败与取消也要留痕
-    // （适配器返回 null = 该工作台暂不落留痕，引擎跳过）
-    const record = makeRecord(
-      task,
-      targetId,
-      done.scope,
-      deps,
-      startedAt,
-      status,
-      state.kind === 'succeeded' ? assets : [],
-      finishedAt - startedAt,
-      /**
-       * 失败原因**当场翻成人话**再落库（对账 #469）：`describeError` 是纯函数、
-       * 没有副作用；把原始 `AppError` 直接塞进留痕会让日志面板与存储都背上内部结构。
-       * 取消**不算**失败原因（用户自己按的取消，不需要"为什么"）。
-       */
-      state.kind === 'failed' ? describeError(state.error) : undefined,
-    )
-    const recordCommand = placement.record(task, targetId, record)
-    if (recordCommand !== null) write([recordCommand])
-
-    update(task.id, state)
-    taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
-    records.push(record)
   }
 
   // 计划收尾：把聚合到的产物落成工作台自己的形态（canvas：结果组 + 逐张子节点 + 素材本体）

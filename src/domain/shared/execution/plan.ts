@@ -36,6 +36,12 @@ export interface RunTask {
 
 export interface RunPlan<TTask extends RunTask = RunTask> {
   id: string
+  /**
+   * 计划内任务的稳定顺序。
+   *
+   * 数组顺序只决定落位、写回和留痕的结算顺序，不隐式表示执行依赖。
+   * 只有 `task.dependsOn` 里的 id 才是真正的前置条件；同波次任务可以并发。
+   */
   tasks: TTask[]
   scope: RunScope
   mode: ExecutionMode
@@ -44,4 +50,56 @@ export interface RunPlan<TTask extends RunTask = RunTask> {
    * 这是画布工作台的入口修饰语义（§5.5 修订）；其它工作台可不设（缺省视为 false）。
    */
   newDownstream?: boolean
+}
+
+/**
+ * 把任务按依赖深度分成可并发执行的波次。
+ *
+ * 同层任务可并发；下一层必须等上一层完整收口。未知依赖、自依赖、重复 id
+ * 和环都在调用渠道前失败，不能靠“碰巧数组顺序对”冒充拓扑。
+ */
+export function runPlanWaves<TTask extends RunTask>(
+  tasks: readonly TTask[],
+): TTask[][] {
+  const byId = new Map<string, TTask>()
+  for (const task of tasks) {
+    if (byId.has(task.id)) throw new Error(`RunPlan 任务 id 重复：${task.id}`)
+    byId.set(task.id, task)
+  }
+  for (const task of tasks) {
+    for (const dependency of task.dependsOn) {
+      if (dependency === task.id) {
+        throw new Error(`RunPlan 任务不能依赖自己：${task.id}`)
+      }
+      if (!byId.has(dependency)) {
+        throw new Error(`RunPlan 任务 ${task.id} 依赖不存在：${dependency}`)
+      }
+    }
+  }
+
+  const levelCache = new Map<string, number>()
+  const visiting = new Set<string>()
+  const levelOf = (task: TTask): number => {
+    const cached = levelCache.get(task.id)
+    if (cached !== undefined) return cached
+    if (visiting.has(task.id)) {
+      throw new Error(`RunPlan 依赖成环：${task.id}`)
+    }
+    visiting.add(task.id)
+    let level = 0
+    for (const dependency of task.dependsOn) {
+      level = Math.max(level, levelOf(byId.get(dependency)!) + 1)
+    }
+    visiting.delete(task.id)
+    levelCache.set(task.id, level)
+    return level
+  }
+
+  const waves: TTask[][] = []
+  for (const task of tasks) {
+    const level = levelOf(task)
+    const wave = waves[level] ?? (waves[level] = [])
+    wave.push(task)
+  }
+  return waves.filter((wave) => wave && wave.length > 0)
 }

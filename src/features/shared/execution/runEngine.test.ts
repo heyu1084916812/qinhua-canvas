@@ -13,8 +13,14 @@
 import { describe, it, expect } from 'vitest'
 import { runEngine, type RunTaskState } from './runEngine'
 import type { RunTask, RunPlan } from '../../../domain/shared/execution/plan'
-import type { NodeInput } from '../../../domain/shared/execution/types'
-import type { RunRecordScope } from '../../../domain/shared/execution/runRecord'
+import type {
+  NodeInput,
+  RunRequest,
+} from '../../../domain/shared/execution/types'
+import type {
+  RunRecord,
+  RunRecordScope,
+} from '../../../domain/shared/execution/runRecord'
 
 /** 最小可用的落位适配器：把 task 的落点改到 targetId（模拟「另建承载节点」） */
 const CARRIER = 'carrier-node'
@@ -562,5 +568,156 @@ describe('runEngine / 回调参数契约', () => {
 
     expect(calls).toBe(1)
     expect(summary.failed).toBe(1)
+  })
+})
+
+describe('runEngine / 拓扑依赖', () => {
+  function dependencyTask(id: string, dependsOn: string[] = []): RunTask {
+    return {
+      id,
+      nodeId: `subject-${id}`,
+      request: {
+        kind: 'image',
+        channelId: 'c',
+        model: 'm',
+        prompt: id,
+        inputs: [],
+        params: {},
+      },
+      dependsOn,
+      fingerprint: `fp-${id}`,
+      params: {},
+    }
+  }
+
+  const placement = {
+    begin: (task: RunTask) => ({ targetId: task.nodeId, commands: [] }),
+    commit: () => [],
+    shouldCollect: () => false,
+    record: (_task: RunTask, _targetId: string, record: RunRecord) =>
+      record as never,
+    finalize: () => [],
+  }
+
+  it('依赖任务必须在前置任务成功后启动，即使数组顺序相反', async () => {
+    const calls: string[] = []
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-deps',
+      scope: 'node',
+      mode: 'single',
+      tasks: [
+        dependencyTask('child', ['parent']),
+        dependencyTask('parent'),
+      ],
+    }
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            calls.push(request.prompt)
+            return [
+              {
+                hash: request.prompt,
+                mime: 'image/png',
+                bytes: new Uint8Array([1]),
+              },
+            ]
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      now: () => 0,
+    })
+
+    expect(calls).toEqual(['parent', 'child'])
+    expect(summary.succeeded).toBe(2)
+    expect(summary.taskResults.map((item) => item.taskId)).toEqual([
+      'parent',
+      'child',
+    ])
+  })
+
+  it('零依赖任务在同一波次并发启动，数组顺序不隐式串行', async () => {
+    let active = 0
+    let maxActive = 0
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-independent',
+      scope: 'node',
+      mode: 'single',
+      tasks: [dependencyTask('a'), dependencyTask('b')],
+    }
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            active -= 1
+            return [
+              {
+                hash: request.prompt,
+                mime: 'image/png',
+                bytes: new Uint8Array([1]),
+              },
+            ]
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      now: () => 0,
+    })
+
+    expect(maxActive).toBe(2)
+    expect(summary.succeeded).toBe(2)
+  })
+
+  it('前置失败时后续任务不触网，并以依赖失败收口', async () => {
+    const calls: string[] = []
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-deps-fail',
+      scope: 'node',
+      mode: 'single',
+      tasks: [
+        dependencyTask('parent'),
+        dependencyTask('child', ['parent']),
+      ],
+    }
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            calls.push(request.prompt)
+            throw { kind: 'http', status: 500, body: '上游失败' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      policy: { maxRetries: 0 },
+      now: () => 0,
+    })
+
+    expect(calls).toEqual(['parent'])
+    expect(summary.failed).toBe(2)
+    expect(summary.taskResults[1]?.state).toMatchObject({
+      kind: 'failed',
+      error: {
+        kind: 'validation',
+        field: 'dependsOn',
+      },
+    })
+    expect(summary.records).toHaveLength(1)
   })
 })
