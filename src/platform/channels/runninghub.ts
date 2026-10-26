@@ -5,7 +5,7 @@ import {
   videoInputsOf,
 } from '../../domain/shared/execution/inputs'
 import type { ModelCapability } from '../../domain/shared/capability'
-import { asAppError, describeError } from '../../shared/result'
+import { asAppError, describeError, errorTextOf } from '../../shared/result'
 import { bytesToBase64 } from './base64'
 import { prepareModelImageInput } from './chatImageInput'
 import type { NetworkResponse, SafeChannelConfig } from '../ports'
@@ -217,6 +217,22 @@ function upstreamError(status: number | null, message: string): ChannelError {
   return new ChannelError({ kind: 'http', status: code, body: message })
 }
 
+function acceptedAfterSubmit(message: string): ChannelError {
+  return new ChannelError({
+    kind: 'execution',
+    detail: 'accepted',
+    message,
+  })
+}
+
+function submitOutcomeUnknown(error: unknown): boolean {
+  const app = asAppError(error)
+  if (app?.kind === 'http') {
+    return app.status === 408 || app.status === 429 || app.status >= 500
+  }
+  return true
+}
+
 /** 429 / 5xx 之外的服务端错误码 → 给用户看得懂的话（含充值 / 取 Key 的去处） */
 function describeRhError(res: RhResponse, fallback: string): string {
   const message = res.errorMessage || res.msg || res.message || fallback
@@ -276,8 +292,13 @@ export function createRunningHubAdapter(
   const sleepFn = options.sleep ?? defaultSleep
   const now = options.now ?? (() => Date.now())
 
-  const json = (url: string, body: unknown, signal: AbortSignal, timeout: number) =>
-    deps.network.request(
+  const json = async (
+    url: string,
+    body: unknown,
+    signal: AbortSignal,
+    timeout: number,
+  ): Promise<NetworkResponse> => {
+    const res = await deps.network.request(
       {
         url,
         method: 'POST',
@@ -287,6 +308,12 @@ export function createRunningHubAdapter(
       },
       signal,
     )
+    if (res.status < 200 || res.status >= 300) {
+      const detail = await res.text().catch(() => '')
+      throw new ChannelError({ kind: 'http', status: res.status, body: detail })
+    }
+    return res
+  }
 
   const readJson = async (res: NetworkResponse): Promise<RhResponse> => {
     const text = await res.text()
@@ -300,15 +327,44 @@ export function createRunningHubAdapter(
   /** 提交 + 轮询到出结果（两条路共用：`query` 是同一个） */
   const waitForTask = async (taskId: string, signal: AbortSignal): Promise<RhResponse> => {
     const started = now()
+    let lastFailure = ''
     for (;;) {
       if (signal.aborted) throw new ChannelError({ kind: 'network', detail: 'aborted' })
-      const res = await readJson(await json(`${host}${QUERY_PATH}`, { taskId }, signal, VERIFY_TIMEOUT_MS))
-      if (res.status === 'SUCCESS') return res
-      if (res.status === 'FAILED') {
-        throw upstreamError(null, describeRhError(res, '任务失败'))
+      try {
+        const res = await readJson(
+          await json(`${host}${QUERY_PATH}`, { taskId }, signal, VERIFY_TIMEOUT_MS),
+        )
+        if (res.status === 'SUCCESS') return res
+        if (res.status === 'FAILED') {
+          throw acceptedAfterSubmit(
+            `RunningHub 任务 ${taskId} 已提交但失败：${describeRhError(res, '任务失败')}`,
+          )
+        }
+        if (typeof res.code === 'number' && res.code !== 0) {
+          throw acceptedAfterSubmit(
+            `RunningHub 任务 ${taskId} 已提交，后续查询失败：${describeRhError(res, '查询失败')}`,
+          )
+        }
+      } catch (e) {
+        if (signal.aborted) throw e
+        if (e instanceof ChannelError && e.appError.kind === 'execution') throw e
+        if (
+          e instanceof ChannelError &&
+          e.appError.kind === 'http' &&
+          e.appError.status !== 408 &&
+          e.appError.status !== 429 &&
+          e.appError.status < 500
+        ) {
+          throw acceptedAfterSubmit(
+            `RunningHub 任务 ${taskId} 已提交，后续查询失败：${errorTextOf(e)}`,
+          )
+        }
+        lastFailure = errorTextOf(e)
       }
       if (now() - started + pollInterval >= pollTimeout) {
-        throw new ChannelError({ kind: 'network', detail: 'timeout' })
+        throw acceptedAfterSubmit(
+          `RunningHub 任务 ${taskId} 已提交，但轮询超时或结果未知：${lastFailure || '无响应'}`,
+        )
       }
       await sleepFn(pollInterval, signal)
     }
@@ -586,15 +642,28 @@ export function createRunningHubAdapter(
     const videos = hasVideoSlot ? await resolveVideos(request, signal) : []
     const audios = spec.audio ? await resolveAudio(request, signal) : []
     const payload = buildPayload(spec, request, images, videos, audios)
-    const submitted = await readJson(
-      await json(`${host}${STD_PATH}/${spec.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
-    )
+    let submitted: RhResponse
+    try {
+      submitted = await readJson(
+        await json(`${host}${STD_PATH}/${spec.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
+      )
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (!submitOutcomeUnknown(e)) throw e
+      throw acceptedAfterSubmit(`RunningHub 任务提交结果未知：${errorTextOf(e)}`)
+    }
     if (submitted.code !== 0) {
-      throw upstreamError(null, describeRhError(submitted, '提交失败'))
+      throw new ChannelError({
+        kind: 'http',
+        status: 400,
+        body: describeRhError(submitted, '提交失败'),
+      })
     }
     const taskId = submitted.taskId || submitted.data?.taskId
     if (!taskId) {
-      throw upstreamError(null, describeRhError(submitted, '提交成功但没有 taskId'))
+      throw acceptedAfterSubmit(
+        `RunningHub 任务已提交，但响应里没有 taskId：${describeRhError(submitted, '无 taskId')}`,
+      )
     }
     return assetsFrom(
       await waitForTask(String(taskId), signal),
@@ -672,17 +741,26 @@ export function createRunningHubAdapter(
       if (target) target.fieldValue = fileName
     }
 
-    const submitted = await readJson(
-      await json(
-        `${host}${APP_RUN_PATH}`,
-        { apiKey: key, webappId: Number(webappId), nodeInfoList: nodes2 },
-        signal,
-        SUBMIT_TIMEOUT_MS,
-      ),
-    )
+    let submitted: RhResponse
+    try {
+      submitted = await readJson(
+        await json(
+          `${host}${APP_RUN_PATH}`,
+          { apiKey: key, webappId: Number(webappId), nodeInfoList: nodes2 },
+          signal,
+          SUBMIT_TIMEOUT_MS,
+        ),
+      )
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (!submitOutcomeUnknown(e)) throw e
+      throw acceptedAfterSubmit(`RunningHub AI 应用提交结果未知：${errorTextOf(e)}`)
+    }
     const taskId = submitted.code === 0 ? submitted.data?.taskId : null
     if (!taskId) {
-      throw upstreamError(null, describeRhError(submitted, '提交 AI 应用失败'))
+      throw acceptedAfterSubmit(
+        `RunningHub AI 应用已提交但未拿到 taskId：${describeRhError(submitted, '提交失败')}`,
+      )
     }
     return assetsFrom(
       await waitForTask(String(taskId), signal),

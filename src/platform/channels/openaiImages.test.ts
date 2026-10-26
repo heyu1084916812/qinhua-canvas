@@ -267,7 +267,9 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
-  it('CORS on SoonStudio submission sends exactly one POST and never tries another create endpoint', async () => {
+  it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
+    'SoonStudio submission %s sends one POST and ends as accepted',
+    async (detail) => {
     let submitPosts = 0
     const soonCfg: ResolvedChannelConfig = {
       ...cfg,
@@ -279,7 +281,7 @@ describe('openaiImages adapter / 基础契约', () => {
         handler: async (req) => {
           if (req.method === 'POST') {
             submitPosts += 1
-            throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+            throw { kind: 'network', detail, sendPhase: 'unknown' }
           }
           return resp(404, {})
         },
@@ -290,24 +292,81 @@ describe('openaiImages adapter / 基础契约', () => {
     await expect(
       a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal),
     ).rejects.toMatchObject({
-      appError: { kind: 'http', status: 504 },
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('SoonStudio submission 503 sends one POST and ends as accepted', async () => {
+    let submitPosts = 0
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.method === 'POST') {
+            submitPosts += 1
+            throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    await expect(
+      a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
     })
     expect(submitPosts).toBe(1)
   })
 
-  it('★★ SoonStudio 单次轮询超时不会终止任务，下一次成功仍返回图片', async () => {
+  it('normal image submission 503 sends one POST and ends as accepted', async () => {
+    let submitPosts = 0
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'service temporarily unavailable' }
+        }
+        return resp(404, {})
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+
+    await expect(
+      a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+  })
+
+  it.each(['cors', 'timeout'] as const)(
+    '★★ SoonStudio 轮询遇到 %s 时继续查询，下一次成功仍返回图片',
+    async (detail) => {
     const tiny = solidPng(4, 3, [0x11, 0x22, 0x33])
     const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
     let polls = 0
+    let submitPosts = 0
     const a = createOpenAiImagesAdapter(soonCfg, {
       network: createMemoryNetwork({
         handler: async (req) => {
           if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            submitPosts += 1
             return resp(200, { task_id: 'task_retry_456' })
           }
           if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_retry_456') {
             polls += 1
-            if (polls === 1) throw { kind: 'network', detail: 'timeout' }
+            if (polls === 1) throw { kind: 'network', detail, sendPhase: 'unknown' }
             return resp(200, {
               data: {
                 status: 'SUCCESS',
@@ -339,8 +398,89 @@ describe('openaiImages adapter / 基础契约', () => {
 
     const assets = await a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal)
     expect(polls).toBe(2)
+    expect(submitPosts).toBe(1)
     expect(assets).toHaveLength(1)
     expect(assets[0]!.bytes).toEqual(tiny)
+    },
+  )
+
+  it('★★ SoonStudio 轮询遇到 503 时继续查询，下一次成功仍返回图片且只提交一次', async () => {
+    const tiny = solidPng(4, 3, [0x11, 0x22, 0x33])
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    let polls = 0
+    let submitPosts = 0
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            submitPosts += 1
+            return resp(200, { task_id: 'task_poll_503' })
+          }
+          if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_poll_503') {
+            polls += 1
+            if (polls === 1) {
+              throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+            }
+            return resp(200, {
+              data: {
+                status: 'SUCCESS',
+                data: { url: [`data:image/png;base64,${bytesToB64(tiny)}`] },
+              },
+            })
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const assets = await a.generateImage(
+      request([], 1, { ratio: '16:9', resolution: '4K' }),
+      signal,
+    )
+    expect(polls).toBe(2)
+    expect(submitPosts).toBe(1)
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
+  it('SoonStudio 轮询超时结束为 accepted，且不再提交第二次 POST', async () => {
+    let submitPosts = 0
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(
+      soonCfg,
+      {
+        network: createMemoryNetwork({
+          handler: async (req) => {
+            if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+              submitPosts += 1
+              return resp(200, { task_id: 'task_timeout' })
+            }
+            return resp(200, { data: { status: 'IN_PROGRESS' } })
+          },
+        }),
+        assets: platformWithAssets([]).assets,
+      },
+      {
+        soonStudioPollIntervalMs: 0,
+        soonStudioPollTimeoutMs: 0,
+        sleep: async () => {},
+      },
+    )
+
+    await expect(
+      a.generateImage(request([], 1, { ratio: '16:9', resolution: '4K' }), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
   })
 
   it('★★ SoonStudio 结果 URL 下载卡住时，优先用同一任务里的 Base64 备用产物', async () => {
@@ -401,12 +541,15 @@ describe('openaiImages adapter / 基础契约', () => {
       assets: platformWithAssets([]).assets,
     })
     const failure = await a.generateImage(request([], 1), signal).catch((e: unknown) => e)
-    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
-    expect(body).toContain('图片已生成，但产物下载失败')
-    expect(body).toContain('https://cdn.example/unreachable.png')
+    const appError = (
+      failure as { appError?: { kind?: string; detail?: string; message?: string } }
+    ).appError
+    expect(appError).toMatchObject({ kind: 'execution', detail: 'accepted' })
+    expect(appError?.message).toContain('图片已生成，但产物下载失败')
+    expect(appError?.message).toContain('https://cdn.example/unreachable.png')
   })
 
-  it('★★ SoonStudio 任务 FAILURE 时直接返回服务端原始响应', async () => {
+  it('★★ SoonStudio 任务 FAILURE 时保留服务端原因且不再允许重提', async () => {
     const soonCfg: ResolvedChannelConfig = { ...cfg, protocol: 'soonstudio', baseUrl: 'https://soonstudio.ai' }
     const a = createOpenAiImagesAdapter(soonCfg, {
       network: createMemoryNetwork({
@@ -426,15 +569,11 @@ describe('openaiImages adapter / 基础契约', () => {
     })
 
     const failure = await a.generateImage(request([], 1), signal).catch((e: unknown) => e)
-    const body = String((failure as { appError?: { body?: string } }).appError?.body ?? '')
-    expect(body).toBe(
-      JSON.stringify({
-        data: {
-          status: 'FAILURE',
-          fail_reason: 'upstream account pool exhausted',
-        },
-      }),
-    )
+    const appError = (
+      failure as { appError?: { kind?: string; detail?: string; message?: string } }
+    ).appError
+    expect(appError).toMatchObject({ kind: 'execution', detail: 'accepted' })
+    expect(appError?.message).toContain('upstream account pool exhausted')
   })
 
   it('★★ SoonStudio 图生图表单同样请求 URL 产物', async () => {
@@ -1169,11 +1308,68 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(assets[0]!.mime).toBe('image/jpeg')
   })
 
+  it('Gemini generic 503 sends one POST and ends as accepted', async () => {
+    let submitPosts = 0
+    const calls: string[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push(req.url)
+        if (req.url.includes('/v1beta/')) {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'service temporarily unavailable' }
+        }
+        return resp(200, {
+          choices: [{ message: { content: '![image](https://files.example/a.jpg)' } }],
+        })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+
+    await expect(
+      a.generateImage(
+        { ...request([], 1), model: 'gemini-3-pro-image', prompt: '一只猫' },
+        signal,
+      ),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+    expect(calls.some((url) => url.endsWith('/chat/completions'))).toBe(false)
+  })
+
+  it('Gemini explicit unsupported fallback may send chat once, whose 503 cannot trigger more POSTs', async () => {
+    let submitPosts = 0
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        if (req.url.includes('/v1beta/')) {
+          submitPosts += 1
+          return resp(503, { error: { message: '不支持此 API 路径' } })
+        }
+        if (req.url.endsWith('/chat/completions')) {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'service temporarily unavailable' }
+        }
+        return resp(404, {})
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+
+    await expect(
+      a.generateImage(
+        { ...request([], 1), model: 'gemini-3-pro-image', prompt: '一只猫' },
+        signal,
+      ),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(2)
+  })
+
   it('★ chat 回复里没有图片地址 → 如实报错（不把整段正文当地址）', async () => {
     const net = createMemoryNetwork({
       handler: async (req) =>
         req.url.includes('/v1beta/')
-          ? resp(503, {})
+          ? resp(503, { error: { message: '不支持此 API 路径' } })
           : resp(200, { choices: [{ message: { content: '我不会画图' } }] }),
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })

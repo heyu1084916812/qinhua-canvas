@@ -923,7 +923,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     expect(image.startsWith('data:image/png;base64,')).toBe(true)
   })
 
-  it('任务终态 FAILED → 带上服务端原话（含 812 的充值 / 币路指引）', async () => {
+  it('任务终态 FAILED → 保留服务端原话并结束为 accepted', async () => {
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
         if (req.url.endsWith('/openapi/v2/query')) {
@@ -942,11 +942,11 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err).toBeInstanceOf(ChannelError)
-    expect(err!.appError).toMatchObject({ kind: 'http' })
-    const body = 'body' in err!.appError ? String(err!.appError.body) : ''
-    expect(body).toContain('企业版余额不足')
-    expect(body).toContain('充值')
-    expect(body).toContain('app:')
+    expect(err!.appError).toMatchObject({ kind: 'execution', detail: 'accepted' })
+    const message = 'message' in err!.appError ? String(err!.appError.message) : ''
+    expect(message).toContain('企业版余额不足')
+    expect(message).toContain('充值')
+    expect(message).toContain('app:')
   })
 
   it('服务端的参数校验错误（1007）翻成人话：问题在参数上，不是网络也不是 Key', async () => {
@@ -971,6 +971,145 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     expect(body).toContain('参数没通过服务端校验')
     /** 服务端原话照留：它才是唯一说得出"差在哪儿"的那句 */
     expect(body).toContain('minimum length 5')
+  })
+
+  it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
+    '任务提交遇到 %s 时只发一次 POST 并结束为 accepted',
+    async (detail) => {
+      let submitPosts = 0
+      const platform = createMemoryPlatform({
+        handler: async (req: NetworkRequest) => {
+          if (req.url.endsWith('/openapi/v2/rhart-image-g-2/text-to-image')) {
+            submitPosts += 1
+            throw { kind: 'network', detail, sendPhase: 'unknown' }
+          }
+          return json(200, {})
+        },
+      })
+      const adapter = createRunningHubAdapter(config, platform, FAST)
+
+      await expect(
+        adapter.generateImage(imageRequest('GPT Image 2'), signal),
+      ).rejects.toMatchObject({
+        appError: { kind: 'execution', detail: 'accepted' },
+      })
+      expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('任务提交 503 时只发一次 POST 并结束为 accepted', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/rhart-image-g-2/text-to-image')) {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+
+    await expect(
+      adapter.generateImage(imageRequest('GPT Image 2'), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+  })
+
+  it.each(['cors', 'timeout'] as const)(
+    '任务创建后查询遇到 %s 会继续查询，且不重复提交生成 POST',
+    async (detail) => {
+      let submitPosts = 0
+      let polls = 0
+      const platform = createMemoryPlatform({
+        handler: async (req: NetworkRequest) => {
+          if (req.url.endsWith('/openapi/v2/rhart-image-g-2/text-to-image')) {
+            submitPosts += 1
+            return json(200, { code: 0, taskId: 'task-poll-error' })
+          }
+          if (req.url.endsWith('/openapi/v2/query')) {
+            polls += 1
+            if (polls === 1) {
+              throw { kind: 'network', detail, sendPhase: 'unknown' }
+            }
+            return json(200, {
+              status: 'SUCCESS',
+              results: [{ url: 'https://files.runninghub.cn/poll-error.png' }],
+            })
+          }
+          if (req.url.endsWith('/poll-error.png')) return bytes(200, PNG_BYTES)
+          return json(200, {})
+        },
+      })
+      const adapter = createRunningHubAdapter(config, platform, FAST)
+
+      const assets = await adapter.generateImage(imageRequest('GPT Image 2'), signal)
+      expect(assets).toHaveLength(1)
+      expect(polls).toBe(2)
+      expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('任务创建后查询遇到 503 会继续查询，且不重复提交生成 POST', async () => {
+    let submitPosts = 0
+    let polls = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/rhart-image-g-2/text-to-image')) {
+          submitPosts += 1
+          return json(200, { code: 0, taskId: 'task-poll-503' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          polls += 1
+          if (polls === 1) {
+            throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+          }
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/poll-503.png' }],
+          })
+        }
+        if (req.url.endsWith('/poll-503.png')) return bytes(200, PNG_BYTES)
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+
+    const assets = await adapter.generateImage(imageRequest('GPT Image 2'), signal)
+    expect(assets).toHaveLength(1)
+    expect(polls).toBe(2)
+    expect(submitPosts).toBe(1)
+  })
+
+  it('任务创建后轮询超时结束为 accepted，且不重复提交生成 POST', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/rhart-image-g-2/text-to-image')) {
+          submitPosts += 1
+          return json(200, { code: 0, taskId: 'task-timeout' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'RUNNING' })
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, {
+      sleep: async () => {},
+      pollIntervalMs: 0,
+      pollTimeoutMs: 0,
+      now: () => 0,
+    })
+
+    await expect(
+      adapter.generateImage(imageRequest('GPT Image 2'), signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
   })
 
   it('不认识模型 → channel/missingModel；没填 Key → channel/missingKey', async () => {

@@ -7,7 +7,6 @@ import {
   s65535ResultUrlsOf,
   s65535TaskIdOf,
 } from './s65535'
-import { ChannelError } from './types'
 
 const PNG_BYTES = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -171,7 +170,7 @@ describe('65535 原生异步任务适配器', () => {
     expect(assets[0]!.width).toBe(2)
   })
 
-  it('任务失败时带服务端原因抛出，不返回空数组', async () => {
+  it('任务失败时保留服务端原因并结束为 accepted，不返回空数组', async () => {
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
         if (req.method === 'POST') return json(202, { id: 'img_bad' })
@@ -186,9 +185,164 @@ describe('65535 原生异步任务适配器', () => {
       pollIntervalMs: 0,
       sleep: async () => {},
     })
+    const failure = await adapter
+      .generateImage(imageRequest, new AbortController().signal)
+      .catch((e: unknown) => e)
+    expect(failure).toMatchObject({ appError: { kind: 'execution', detail: 'accepted' } })
+    expect((failure as { appError?: { message?: string } }).appError?.message).toContain(
+      'INSUFFICIENT_BALANCE',
+    )
+  })
+
+  it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
+    '提交遇到 %s 时只发一次 POST 并结束为 accepted',
+    async (detail) => {
+      let submitPosts = 0
+      const platform = createMemoryPlatform({
+        handler: async (req: NetworkRequest) => {
+          if (req.method === 'POST') {
+            submitPosts += 1
+            throw { kind: 'network', detail, sendPhase: 'unknown' }
+          }
+          return json(404, {})
+        },
+      })
+      const adapter = createS65535TaskAdapter(config as never, platform, {
+        pollIntervalMs: 0,
+        sleep: async () => {},
+      })
+
+      await expect(
+        adapter.generateImage(imageRequest, new AbortController().signal),
+      ).rejects.toMatchObject({
+        appError: { kind: 'execution', detail: 'accepted' },
+      })
+      expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('提交 503 时只发一次 POST 并结束为 accepted', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+        }
+        return json(404, {})
+      },
+    })
+    const adapter = createS65535TaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    })
+
     await expect(
       adapter.generateImage(imageRequest, new AbortController().signal),
-    ).rejects.toThrow(ChannelError)
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+  })
+
+  it.each(['cors', 'timeout'] as const)(
+    '任务创建后轮询遇到 %s 继续查询，且只提交一次',
+    async (detail) => {
+      let submitPosts = 0
+      let polls = 0
+      const platform = createMemoryPlatform({
+        handler: async (req: NetworkRequest) => {
+          if (req.method === 'POST') {
+            submitPosts += 1
+            return json(202, { id: 'img_poll_error' })
+          }
+          if (req.url.includes('/tasks/')) {
+            polls += 1
+            if (polls === 1) {
+              throw { kind: 'network', detail, sendPhase: 'unknown' }
+            }
+            return json(200, {
+              id: 'img_poll_error',
+              status: 'done',
+              result_urls: ['https://cdn.example/poll-error.png'],
+            })
+          }
+          return json(200, {})
+        },
+      })
+      const adapter = createS65535TaskAdapter(config as never, platform, {
+        pollIntervalMs: 0,
+        sleep: async () => {},
+      })
+
+      const assets = await adapter.generateImage(
+        imageRequest,
+        new AbortController().signal,
+      )
+      expect(assets).toHaveLength(1)
+      expect(polls).toBe(2)
+      expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('任务创建后轮询 503 继续查询，且只提交一次', async () => {
+    let submitPosts = 0
+    let polls = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          return json(202, { id: 'img_poll_503' })
+        }
+        if (req.url.includes('/tasks/')) {
+          polls += 1
+          if (polls === 1) {
+            throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+          }
+          return json(200, {
+            id: 'img_poll_503',
+            status: 'done',
+            result_urls: ['https://cdn.example/poll-503.png'],
+          })
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createS65535TaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    })
+
+    const assets = await adapter.generateImage(imageRequest, new AbortController().signal)
+    expect(assets).toHaveLength(1)
+    expect(polls).toBe(2)
+    expect(submitPosts).toBe(1)
+  })
+
+  it('任务创建后轮询超时结束为 accepted，且只提交一次', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          return json(202, { id: 'img_timeout' })
+        }
+        return json(200, { id: 'img_timeout', status: 'running' })
+      },
+    })
+    const adapter = createS65535TaskAdapter(config as never, platform, {
+      pollIntervalMs: 0,
+      pollTimeoutMs: 0,
+      sleep: async () => {},
+      now: () => 0,
+    })
+
+    await expect(
+      adapter.generateImage(imageRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
   })
 
   it('参考图随原生 input 以 data URI 发出（无图床时）', async () => {

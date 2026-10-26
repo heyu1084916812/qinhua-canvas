@@ -9,6 +9,7 @@ import {
   type VideoParamSpec,
 } from '../../domain/canvas/layout/videoParams'
 import type { SafeChannelConfig } from '../ports'
+import { asAppError, errorTextOf } from '../../shared/result'
 import {
   ChannelError,
   type ChannelAdapter,
@@ -29,6 +30,22 @@ import {
 } from './openaiCommon'
 import { bytesToBase64 } from './base64'
 import { prepareModelImageInput } from './chatImageInput'
+
+function acceptedAfterSubmit(message: string): ChannelError {
+  return new ChannelError({
+    kind: 'execution',
+    detail: 'accepted',
+    message,
+  })
+}
+
+function submitOutcomeUnknown(error: unknown): boolean {
+  const app = asAppError(error)
+  if (app?.kind === 'http') {
+    return app.status === 408 || app.status === 429 || app.status >= 500
+  }
+  return true
+}
 
 /**
  * OpenAI 兼容族的**视频**分支。
@@ -445,11 +462,10 @@ export function createOpenAiVideoAdapter(
       videoId ? `${submitUrl}/${encodeURIComponent(videoId)}` : null,
     ].filter((u): u is string => !!u)
     const startedAt = now()
-    /** 本轮是否吃到限流（429）：限流**不是任务失败**，退避后再来 */
     let backoffSteps = 0
+    let lastFailure = ''
     for (;;) {
       let payload: unknown = null
-      let lastError: unknown = null
       let rateLimited = false
       for (const url of candidates) {
         try {
@@ -458,46 +474,29 @@ export function createOpenAiVideoAdapter(
             signal,
           )
           if (res.status < 200 || res.status >= 300) {
-            /**
-             * 「这条路走不通」有两种形态：这一环没有 `/agnesapi` 时是 **404**，
-             * 有它但不认这个键时是 **400 `task_not_exist`**。两种都交给下一个候选；
-             * 其余状态（401 / 429 / 5xx）是真失败，原样抛出——继续轮询只会把
-             * 「令牌失效」拖成一个 10 分钟的超时。
-             */
             const detail = await res.text().catch(() => '')
             if (res.status === 404 || (res.status === 400 && /task_not_exist/i.test(detail))) continue
-            /**
-             * ⚠️ **429 = 「查询过于频繁」，是限流，不是任务失败**。
-             *
-             * 用户 2026-10-03 实测（Agnes Video 2.0 手建节点）：任务明明已经
-             * `status:"completed"` + `progress:100` + **url 有值**，但我们中间吃到一个
-             * `429 {"code":429,"message":"查询过于频繁，请稍后重试"}` 就直接把整条运行
-             * 判成失败 —— 画布上于是「什么都没有」，日志写「失败 · 输出 0 个」。
-             *
-             * 现在：限流只记一笔、退避后再轮询，绝不因此终止任务。
-             */
-            if (res.status === 429) {
-              rateLimited = true
-              backoffSteps = Math.min(backoffSteps + 1, 3)
-              lastError = new ChannelError(classifyError(null, res.status, detail).error)
+            lastFailure = `HTTP ${res.status} ${detail}`.trim()
+            if (res.status === 408 || res.status === 429 || res.status >= 500) {
+              if (res.status === 429) {
+                rateLimited = true
+                backoffSteps = Math.min(backoffSteps + 1, 3)
+              }
               continue
             }
-            const { error } = classifyError(null, res.status, detail)
-            throw new ChannelError(error)
+            throw acceptedAfterSubmit(
+              `视频任务 ${taskId} 已提交，后续查询失败：${lastFailure}`,
+            )
           }
           const body = await res.json<unknown>().catch(() => null)
-          /**
-           * 200 不等于「这条路能查」：SPA / 网关对未知路径回 200 空体很常见。
-           * 只有真带状态或产物地址的响应才算数，否则继续试下一个候选
-           * ——否则会拿一个空对象当「任务还在排队」，一路空转到超时。
-           */
           if (body && (videoTaskStatus(body) || collectVideoUrls(body).length > 0)) {
             payload = body
             break
           }
         } catch (e) {
-          if (e instanceof ChannelError) throw e
-          lastError = e
+          if (signal.aborted) throw e
+          if (e instanceof ChannelError && e.appError.kind === 'execution') throw e
+          lastFailure = errorTextOf(e)
         }
       }
       if (payload) {
@@ -505,21 +504,16 @@ export function createOpenAiVideoAdapter(
         const status = videoTaskStatus(payload)
         if (SUCCESS_STATUS.has(status) || urls.length > 0) return payload
         if (FAILURE_STATUS.has(status)) {
-          // 带上服务端原话：`channel` 的 detail 是封闭枚举，故走 http + body
-          throw new ChannelError({
-            kind: 'http',
-            status: 502,
-            body: failureReasonOf(payload) || '视频任务失败',
-          })
+          throw acceptedAfterSubmit(
+            `视频任务 ${taskId} 已提交但失败：${failureReasonOf(payload) || '视频任务失败'}`,
+          )
         }
-      } else if (lastError) {
-        /** 只有「非限流」的错误才终止；限流退避后继续（见上面 429 那段） */
-        if (!rateLimited) throw lastError
       }
       if (now() - startedAt >= pollTimeout) {
-        throw new ChannelError({ kind: 'network', detail: 'timeout' })
+        throw acceptedAfterSubmit(
+          `视频任务 ${taskId} 已提交，但轮询超时或结果未知：${lastFailure || '无响应'}`,
+        )
       }
-      /** 吃到限流就翻倍等待（4s → 8s → 16s → 24s 封顶），把请求频率压下来 */
       await sleepFn(pollInterval * (rateLimited ? 2 ** backoffSteps : 1), signal)
       if (!rateLimited) backoffSteps = 0
     }
@@ -724,13 +718,29 @@ export function createOpenAiVideoAdapter(
         : spec?.dialect === 'openai-videos'
           ? [openAiVideosBody, tierBody]
           : [tierBody, pixelBody]
-    let res = await submit(bodies[0]!, signal)
+    let res: Awaited<ReturnType<typeof submit>>
+    try {
+      res = await submit(bodies[0]!, signal)
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (!submitOutcomeUnknown(e)) throw e
+      throw acceptedAfterSubmit(`视频提交结果未知：${errorTextOf(e)}`)
+    }
     if (res.status === 400 && bodies[1]) {
       // 这一套被拒才换另一套；这不是静默降级——两条都失败时抛的是第二条的真实错误
-      res = await submit(bodies[1], signal)
+      try {
+        res = await submit(bodies[1], signal)
+      } catch (e) {
+        if (signal.aborted) throw e
+        if (!submitOutcomeUnknown(e)) throw e
+        throw acceptedAfterSubmit(`视频提交结果未知：${errorTextOf(e)}`)
+      }
     }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        throw acceptedAfterSubmit(`视频提交结果未知：HTTP ${res.status} ${detail}`)
+      }
       const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
@@ -740,7 +750,7 @@ export function createOpenAiVideoAdapter(
       // 轮询键是 task_id（次选 id）；video_id 只给另一套部署的 /agnesapi 用
       const taskId = submitted?.task_id ?? submitted?.id
       if (typeof taskId !== 'string' || !taskId) {
-        throw new ChannelError({ kind: 'parse', raw: '提交响应里没有 task_id' })
+        throw acceptedAfterSubmit('视频任务已提交，但响应里没有 task_id')
       }
       const videoId = typeof submitted?.video_id === 'string' ? submitted.video_id : null
       return poll(taskId, videoId, request.model, signal)
@@ -748,7 +758,7 @@ export function createOpenAiVideoAdapter(
 
     const urls = collectVideoUrls(final)
     if (urls.length === 0) {
-      throw new ChannelError({ kind: 'parse', raw: '视频任务已完成，但结果里没有产物地址' })
+      throw acceptedAfterSubmit('视频任务已提交并完成，但结果里没有产物地址')
     }
     const assets: GeneratedAsset[] = []
     /**

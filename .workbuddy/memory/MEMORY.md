@@ -70,8 +70,11 @@
   缺失或 `unknown` 都按“可能已到达上游”处理。CORS / DNS / TLS / 超时 / 响应丢失不得
   整任务重提或换组；`fetchNetwork` 只在 fetch 调用前已取消时标 `not-sent`。运输层只有 GET
   可切原生 HTTP，POST/PUT/DELETE 不得回落。异步任务提交后轮询失败和总超时必须结束为
-  不可重试的 `execution/accepted`。剩余 `openaiImages` SoonStudio、`openaiVideo`、
-  `s65535`、`runninghub` 的提交后轮询仍要逐族迁移，不能因单测全绿就宣称全适配器闭合。
+  不可重试的 `execution/accepted`。`openaiImages` SoonStudio / 普通同步 / Gemini / chat、
+  `openaiVideo`、`s65535`、`runninghub` 均已按此收口；测试必须同时统计 `submitPOST`。
+  仍不能形式化证明的只有服务端明确拒绝后的双 POST：Gemini 明确“不支持此 API 路径”后改走
+  chat、openaiVideo 明确 400 后改发第二套 body。RunningHub AI 应用在 run POST 前的节点 GET /
+  素材上传 5xx 仍可能重跑适配器，但尚未提交付费生成 POST。
 - **批次一最终复核只认 P0-4 完成**。下一批五个硬边界：删渠道先让内存失效再清凭据；CORS / DNS
   不能在无法证明“请求未发出”时整任务重试；retry-save 必须有可恢复句柄和独立按钮；reconcile
   要校验素材字节可读；漫剧画布执行必须写镜头 / 资产 / 台词业务主体。日志共享查询层也还没落地。

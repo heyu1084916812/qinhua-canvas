@@ -2,6 +2,7 @@ import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { imageParamsFor, type ImageParamSpec } from '../../domain/canvas/layout/imageParams'
+import { asAppError, errorTextOf } from '../../shared/result'
 import { bytesToBase64 } from './base64'
 import { prepareModelImageInput } from './chatImageInput'
 import { mjFlags } from '../../domain/canvas/layout/mjParams'
@@ -44,6 +45,14 @@ export { normalizeBaseUrl }
 export interface OpenAiAdapterConfig extends SafeChannelConfig {
   /** 调用前由凭据层注入的明文令牌；为 null 时按匿名请求（多数中继会 401） */
   apiKey: string | null
+}
+
+export interface OpenAiImagesOptions {
+  soonStudioPollIntervalMs?: number
+  soonStudioPollTimeoutMs?: number
+  soonStudioMaxPolls?: number
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+  now?: () => number
 }
 
 /**
@@ -362,6 +371,14 @@ function transportTextOf(error: unknown): string {
   }
 }
 
+function acceptedAfterSubmit(message: string): ChannelError {
+  return new ChannelError({
+    kind: 'execution',
+    detail: 'accepted',
+    message,
+  })
+}
+
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
     return Promise.reject(new ChannelError({ kind: 'network', detail: 'aborted' }))
@@ -382,6 +399,7 @@ function waitFor(ms: number, signal: AbortSignal): Promise<void> {
 export function createOpenAiImagesAdapter(
   config: OpenAiAdapterConfig,
   deps: ChannelDeps,
+  options: OpenAiImagesOptions = {},
 ): ChannelAdapter {
   // 版本段由协议声明（`/v1` 或 Ark 的 `/api/v3`），基址已含版本段，端点直接续写
   const base = openAiBaseUrl(config)
@@ -401,6 +419,32 @@ export function createOpenAiImagesAdapter(
    * 2026-10-03 真机实测：chat 路径下 `gemini-3-pro-image` 与 `gemini-3.1-flash-image` 都出图。
    */
   const chatUrl = `${base}/chat/completions`
+  const pollInterval = options.soonStudioPollIntervalMs ?? 2_000
+  const pollTimeout = options.soonStudioPollTimeoutMs ?? 8 * 60_000
+  const maxPolls = options.soonStudioMaxPolls ?? 180
+  const sleepFn = options.sleep ?? waitFor
+  const now = options.now ?? (() => Date.now())
+  const submitNetwork = async (
+    label: string,
+    signal: AbortSignal,
+    call: () => Promise<NetworkResponse>,
+  ): Promise<NetworkResponse> => {
+    try {
+      return await call()
+    } catch (e) {
+      if (signal.aborted) throw e
+      const app = asAppError(e)
+      if (
+        app?.kind === 'http' &&
+        app.status !== 408 &&
+        app.status !== 429 &&
+        app.status < 500
+      ) {
+        throw e
+      }
+      throw acceptedAfterSubmit(`${label}结果未知：${errorTextOf(e)}`)
+    }
+  }
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {
@@ -502,12 +546,9 @@ export function createOpenAiImagesAdapter(
       }
     }
     if (assets.length === 0 && failures.length > 0) {
-      throw new ChannelError({
-        kind: 'http',
-        status: 504,
-        body: `图片已生成，但产物下载失败：${failures.slice(0, 3).join('；')}`,
-        verbatim: true,
-      })
+      throw acceptedAfterSubmit(
+        `图片已生成，但产物下载失败：${failures.slice(0, 3).join('；')}`,
+      )
     }
     return assets
   }
@@ -667,15 +708,13 @@ export function createOpenAiImagesAdapter(
       )
     } catch (e) {
       if (signal.aborted) throw e
-      throw new ChannelError({
-        kind: 'http',
-        status: 504,
-        body: transportTextOf(e),
-        verbatim: true,
-      })
+      throw acceptedAfterSubmit(`生图提交结果未知：${errorTextOf(e)}`)
     }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        throw acceptedAfterSubmit(`生图提交结果未知：HTTP ${res.status} ${detail}`)
+      }
       throw new ChannelError({
         kind: 'http',
         status: res.status,
@@ -688,32 +727,22 @@ export function createOpenAiImagesAdapter(
     try {
       created = JSON.parse(createdRaw) as unknown
     } catch {
-      throw new ChannelError({
-        kind: 'http',
-        status: res.status,
-        body: createdRaw,
-        verbatim: true,
-      })
+      throw acceptedAfterSubmit(`生图任务已提交，但响应无法解析：${createdRaw.slice(0, 300)}`)
     }
     const immediate = imageItemsIn(created)
     if (immediate.length > 0) return assetsFromItems(immediate, requested, signal)
 
     const taskId = soonStudioTaskIdIn(created)
     if (!taskId) {
-      throw new ChannelError({
-        kind: 'http',
-        status: res.status,
-        body: createdRaw,
-        verbatim: true,
-      })
+      throw acceptedAfterSubmit(`生图任务已提交，但响应里没有 task_id：${createdRaw.slice(0, 300)}`)
     }
 
     const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
     let lastResponse = ''
     let lastTransport = ''
-    const deadline = Date.now() + 8 * 60_000
-    for (let attempt = 0; attempt < 180 && Date.now() < deadline; attempt += 1) {
-      if (attempt > 0) await waitFor(2_000, signal)
+    const startedAt = now()
+    for (let attempt = 0; attempt < maxPolls && now() - startedAt < pollTimeout; attempt += 1) {
+      if (attempt > 0) await sleepFn(pollInterval, signal)
       let poll: NetworkResponse
       try {
         poll = await deps.network.request(
@@ -734,39 +763,28 @@ export function createOpenAiImagesAdapter(
         const detail = await poll.text().catch(() => '')
         lastResponse = detail || lastResponse
         if (poll.status === 408 || poll.status === 429 || poll.status >= 500) continue
-        throw new ChannelError({ kind: 'http', status: poll.status, body: detail, verbatim: true })
+        throw acceptedAfterSubmit(
+          `生图任务 ${taskId} 已提交，后续查询失败：HTTP ${poll.status} ${detail}`,
+        )
       }
       const raw = await poll.text()
       let body: unknown
       try {
         body = JSON.parse(raw) as unknown
       } catch {
-        throw new ChannelError({
-          kind: 'http',
-          status: poll.status,
-          body: raw,
-          verbatim: true,
-        })
+        throw acceptedAfterSubmit(`生图任务 ${taskId} 已提交，但查询响应无法解析：${raw.slice(0, 300)}`)
       }
       lastResponse = raw
       const failure = soonStudioFailureIn(body)
       if (failure) {
-        throw new ChannelError({
-          kind: 'http',
-          status: 502,
-          body: raw,
-          verbatim: true,
-        })
+        throw acceptedAfterSubmit(`生图任务 ${taskId} 已提交但失败：${failure}`)
       }
       const items = imageItemsIn(body)
       if (items.length > 0) return assetsFromItems(items, requested, signal)
     }
-    throw new ChannelError({
-      kind: 'http',
-      status: 504,
-      body: lastResponse || lastTransport,
-      verbatim: true,
-    })
+    throw acceptedAfterSubmit(
+      `生图任务 ${taskId} 已提交，但轮询超时或结果未知：${lastResponse || lastTransport || '无响应'}`,
+    )
   }
 
   /** 参考素材 → Data URI（Agnes 图片接口文档明写 `image` 收 Data URI Base64） */
@@ -887,47 +905,59 @@ export function createOpenAiImagesAdapter(
       const root = base.replace(/\/v1$/, '')
       /** 连进来的参考图 —— 少了这一段，模型就只能凭提示词凭空画（见 `toInlineImages`） */
       const inlineImages = await toInlineImages(request)
-      const res = await deps.network.request(
-        {
-          url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
-          body: {
-            contents: [
-              {
-                parts: [
-                  { text: request.prompt },
-                  ...inlineImages.map((image) => ({ inlineData: image })),
-                ],
+      const res = await submitNetwork('Gemini 生图提交', signal, () =>
+        deps.network.request(
+          {
+            url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+            body: {
+              contents: [
+                {
+                  parts: [
+                    { text: request.prompt },
+                    ...inlineImages.map((image) => ({ inlineData: image })),
+                  ],
+                },
+              ],
+              generationConfig: {
+                responseModalities: ['IMAGE'],
+                ...(sendRatio || imageSize
+                  ? {
+                      imageConfig: {
+                        ...(sendRatio ? { aspectRatio: sendRatio } : {}),
+                        ...(imageSize ? { imageSize } : {}),
+                      },
+                    }
+                  : {}),
               },
-            ],
-            generationConfig: {
-              responseModalities: ['IMAGE'],
-              ...(sendRatio || imageSize
-                ? {
-                    imageConfig: {
-                      ...(sendRatio ? { aspectRatio: sendRatio } : {}),
-                      ...(imageSize ? { imageSize } : {}),
-                    },
-                  }
-                : {}),
             },
+            timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
           },
-          timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
-        },
-        signal,
+          signal,
+        ),
       )
       /**
        * `404 / 503` = 这台网关**没有** `/v1beta`（不是参数错），落到下面的 chat 分支
        * 兜底：chat 路径出图没问题，只是官方那两个尺寸参数会被吃掉。
        * 其余非 2xx 才当真正的失败抛出去。
        */
-      if (res.status !== 404 && res.status !== 503 && (res.status < 200 || res.status >= 300)) {
-        const detail = await res.text().catch(() => '')
+      const detail =
+        res.status < 200 || res.status >= 300
+          ? await res.text().catch(() => '')
+          : ''
+      const unsupportedPath =
+        res.status === 404 ||
+        (res.status === 503 &&
+          /unsupported|not\s+support|不支持.*(?:API|接口|路径)|api\s+path/i.test(detail))
+      if (!unsupportedPath && (res.status < 200 || res.status >= 300)) {
+        if (res.status === 408 || res.status === 429 || res.status >= 500) {
+          throw acceptedAfterSubmit(`Gemini 生图提交结果未知：HTTP ${res.status} ${detail}`)
+        }
         const { error } = classifyError(null, res.status, detail)
         throw new ChannelError(error)
       }
-      if (res.status !== 404 && res.status !== 503) {
+      if (!unsupportedPath) {
         const inline = findInlineImage(await res.json<unknown>())
         if (!inline) {
           throw new ChannelError({ kind: 'parse', raw: 'Gemini 响应里没有内联图片' })
@@ -956,21 +986,26 @@ export function createOpenAiImagesAdapter(
               ...dataUris.map((url) => ({ type: 'image_url', image_url: { url } })),
             ]
           : request.prompt
-      const res = await deps.network.request(
-        {
-          url: chatUrl,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
-          body: {
-            model: request.model,
-            messages: [{ role: 'user', content }],
+      const res = await submitNetwork('chat 生图提交', signal, () =>
+        deps.network.request(
+          {
+            url: chatUrl,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+            body: {
+              model: request.model,
+              messages: [{ role: 'user', content }],
+            },
+            timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
           },
-          timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
-        },
-        signal,
+          signal,
+        ),
       )
       if (res.status < 200 || res.status >= 300) {
         const detail = await res.text().catch(() => '')
+        if (res.status === 408 || res.status === 429 || res.status >= 500) {
+          throw acceptedAfterSubmit(`生图提交结果未知：HTTP ${res.status} ${detail}`)
+        }
         const { error } = classifyError(null, res.status, detail)
         throw new ChannelError(error)
       }
@@ -1067,11 +1102,19 @@ export function createOpenAiImagesAdapter(
     if (config.protocol === 'soonstudio' && files.length === 0) {
       return generateSoonStudioImage(outbound, count, sizeForBody, quality, background, signal)
     }
-    const res = !openAiStyle && size
-      ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
-      : files.length > 0
-        ? await postEdits(outbound, count, sizeForBody, quality, background, files, signal)
-        : await postGenerations(outbound, count, sizeForBody, quality, background, signal)
+    const res = await submitNetwork('生图提交', signal, async () =>
+      !openAiStyle && size
+        ? postSpecGenerations(
+            request,
+            size,
+            spec as ImageParamSpec,
+            await toDataUris(request),
+            signal,
+          )
+        : files.length > 0
+          ? postEdits(outbound, count, sizeForBody, quality, background, files, signal)
+          : postGenerations(outbound, count, sizeForBody, quality, background, signal),
+    )
 
     if (res.status < 200 || res.status >= 300) {
       /**
@@ -1079,6 +1122,9 @@ export function createOpenAiImagesAdapter(
        * （模型没开通 / 额度不足 / 渠道限制），而原因就在 body 里。
        */
       const detail = await res.text().catch(() => '')
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        throw acceptedAfterSubmit(`生图提交结果未知：HTTP ${res.status} ${detail}`)
+      }
       const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }

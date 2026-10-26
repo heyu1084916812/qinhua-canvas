@@ -304,13 +304,15 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(assets).toHaveLength(1)
   })
 
-  it('CORS on video submission sends exactly one POST and does not try the fallback body', async () => {
+  it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
+    'video submission %s sends one POST and ends as accepted',
+    async (detail) => {
     let submitPosts = 0
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
         if (req.method === 'POST') {
           submitPosts += 1
-          throw { kind: 'network', detail: 'cors', sendPhase: 'unknown' }
+          throw { kind: 'network', detail, sendPhase: 'unknown' }
         }
         return json(404, {})
       },
@@ -323,9 +325,32 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     await expect(
       adapter.generateVideo(videoRequest, new AbortController().signal),
     ).rejects.toMatchObject({
-      kind: 'network',
-      detail: 'cors',
-      sendPhase: 'unknown',
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('video submission 503 sends one POST and ends as accepted', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+        }
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, {
+      sleep: async () => {},
+      now: () => 0,
+    })
+
+    await expect(
+      adapter.generateVideo(videoRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
     })
     expect(submitPosts).toBe(1)
   })
@@ -516,7 +541,7 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(sent!.image).toEqual([`data:image/png;base64,${bytesToBase64(new Uint8Array([7]))}`])
   })
 
-  it('★ 失败态把服务端原话带出来（只报「失败」等于没说）', async () => {
+  it('★ 失败态保留服务端原话且结束为 accepted', async () => {
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
         if (req.method === 'POST') return json(200, { task_id: 't', video_id: 'v' })
@@ -527,19 +552,25 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
       },
     })
     const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
-    await expect(
-      adapter.generateVideo(videoRequest, new AbortController().signal),
-    ).rejects.toMatchObject({ appError: { kind: 'http', status: 502, body: '内容安全策略拦截' } })
+    const failure = await adapter
+      .generateVideo(videoRequest, new AbortController().signal)
+      .catch((e: unknown) => e)
+    expect(failure).toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect((failure as { appError?: { message?: string } }).appError?.message).toContain(
+      '内容安全策略拦截',
+    )
   })
 
-  it('★ 提交响应没有 task_id → 明确报解析失败，不空转到超时', async () => {
+  it('★ 提交响应没有 task_id → 结束为 accepted，不空转到超时', async () => {
     const platform = createMemoryPlatform({
       handler: async () => json(200, { status: 'queued' }),
     })
     const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
     await expect(
       adapter.generateVideo(videoRequest, new AbortController().signal),
-    ).rejects.toMatchObject({ appError: { kind: 'parse', raw: '提交响应里没有 task_id' } })
+    ).rejects.toMatchObject({ appError: { kind: 'execution', detail: 'accepted' } })
   })
 })
 
@@ -571,6 +602,101 @@ describe('视频轮询 · 限流不该把任务判死（用户 2026-10-03 实测
     const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
     expect(assets.length).toBe(1)
     expect(polls).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each(['cors', 'timeout'] as const)(
+    '提交后的 %s 轮询异常继续查询，且只提交一次',
+    async (detail) => {
+      let polls = 0
+      let submitPosts = 0
+      const platform = createMemoryPlatform({
+        handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+          if (req.method === 'POST') {
+            submitPosts += 1
+            return json(200, { task_id: 'task_poll_error', video_id: 'video_poll_error' })
+          }
+          if (req.url.includes('/agnesapi')) {
+            polls += 1
+            if (polls === 1) {
+              throw { kind: 'network', detail, sendPhase: 'unknown' }
+            }
+            return json(200, { status: 'completed', url: 'https://x/poll-error.mp4' })
+          }
+          if (req.url.includes('poll-error.mp4')) return json(200, {})
+          return json(404, {})
+        },
+      })
+      const adapter = createOpenAiVideoAdapter(config, platform, {
+        sleep: async () => {},
+        now: () => 0,
+        pollIntervalMs: 0,
+        pollTimeoutMs: 60_000,
+      })
+
+      const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
+      expect(assets).toHaveLength(1)
+      expect(polls).toBe(2)
+      expect(submitPosts).toBe(1)
+    },
+  )
+
+  it('提交后的轮询 503 继续查询，且只提交一次', async () => {
+    let polls = 0
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          return json(200, { task_id: 'task_poll_503', video_id: 'video_poll_503' })
+        }
+        if (req.url.includes('/agnesapi')) {
+          polls += 1
+          if (polls === 1) {
+            throw { kind: 'http', status: 503, body: 'temporarily unavailable' }
+          }
+          return json(200, { status: 'completed', url: 'https://x/poll-503.mp4' })
+        }
+        if (req.url.includes('poll-503.mp4')) return json(200, {})
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, {
+      sleep: async () => {},
+      now: () => 0,
+      pollIntervalMs: 0,
+      pollTimeoutMs: 60_000,
+    })
+
+    const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
+    expect(assets).toHaveLength(1)
+    expect(polls).toBe(2)
+    expect(submitPosts).toBe(1)
+  })
+
+  it('轮询超时结束为 accepted，且不再提交第二次 POST', async () => {
+    let submitPosts = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+        if (req.method === 'POST') {
+          submitPosts += 1
+          return json(200, { task_id: 'task_timeout' })
+        }
+        return json(200, { status: 'processing' })
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, {
+      sleep: async () => {},
+      now: () => 0,
+      pollIntervalMs: 0,
+      pollTimeoutMs: 0,
+    })
+
+    await expect(
+      adapter.generateVideo(videoRequest, new AbortController().signal),
+    ).rejects.toMatchObject({
+      appError: { kind: 'execution', detail: 'accepted' },
+    })
+    expect(submitPosts).toBe(1)
   })
 })
 

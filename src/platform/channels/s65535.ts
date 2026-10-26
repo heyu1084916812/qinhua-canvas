@@ -22,6 +22,7 @@ import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import type { SafeChannelConfig } from '../ports'
+import { asAppError, errorTextOf } from '../../shared/result'
 import { bytesToBase64 } from './base64'
 import { prepareModelImageInput } from './chatImageInput'
 import {
@@ -69,6 +70,22 @@ export const S65535_POLL_TIMEOUT_MS = 8 * 60_000
 export const S65535_POLL_INTERVAL_MS = 2_000
 
 const TERMINAL_FAILURE = new Set(['failed', 'cancelled', 'canceled', 'error'])
+
+function acceptedAfterSubmit(message: string): ChannelError {
+  return new ChannelError({
+    kind: 'execution',
+    detail: 'accepted',
+    message,
+  })
+}
+
+function submitOutcomeUnknown(error: unknown): boolean {
+  const app = asAppError(error)
+  if (app?.kind === 'http') {
+    return app.status === 408 || app.status === 429 || app.status >= 500
+  }
+  return true
+}
 
 export function s65535TaskIdOf(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null
@@ -238,24 +255,34 @@ export function createS65535TaskAdapter(
     payload: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<string> => {
-    const res = await deps.network.request(
-      {
-        url: tasksUrl,
-        method: 'POST',
-        headers: headers(),
-        body: { kind, ...payload },
-      },
-      signal,
-    )
+    let res: Awaited<ReturnType<ChannelDeps['network']['request']>>
+    try {
+      res = await deps.network.request(
+        {
+          url: tasksUrl,
+          method: 'POST',
+          headers: headers(),
+          body: { kind, ...payload },
+        },
+        signal,
+      )
+    } catch (e) {
+      if (signal.aborted) throw e
+      if (!submitOutcomeUnknown(e)) throw e
+      throw acceptedAfterSubmit(`65535 任务提交结果未知：${errorTextOf(e)}`)
+    }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
+      if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        throw acceptedAfterSubmit(`65535 任务提交结果未知：HTTP ${res.status} ${detail}`)
+      }
       const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
     const body = await res.json<unknown>().catch(() => null)
     const taskId = s65535TaskIdOf(body)
     if (!taskId) {
-      throw new ChannelError({ kind: 'parse', raw: '提交响应里没有任务 id' })
+      throw acceptedAfterSubmit('65535 任务已提交，但响应里没有任务 id')
     }
     return taskId
   }
@@ -263,28 +290,58 @@ export function createS65535TaskAdapter(
   const poll = async (taskId: string, signal: AbortSignal): Promise<S65535TaskPayload> => {
     const startedAt = now()
     const taskUrl = `${tasksUrl}/${encodeURIComponent(taskId)}`
+    let lastFailure = ''
     for (;;) {
-      const res = await deps.network.request(
-        {
-          url: taskUrl,
-          method: 'GET',
-          headers: authHeader(config.apiKey),
-          timeoutMs: VERIFY_TIMEOUT_MS,
-        },
-        signal,
-      )
+      let res: Awaited<ReturnType<ChannelDeps['network']['request']>>
+      try {
+        res = await deps.network.request(
+          {
+            url: taskUrl,
+            method: 'GET',
+            headers: authHeader(config.apiKey),
+            timeoutMs: VERIFY_TIMEOUT_MS,
+          },
+          signal,
+        )
+      } catch (e) {
+        if (signal.aborted) throw e
+        lastFailure = errorTextOf(e)
+        if (now() - startedAt >= pollTimeout) {
+          throw acceptedAfterSubmit(
+            `65535 任务 ${taskId} 已提交，但轮询超时或结果未知：${lastFailure}`,
+          )
+        }
+        await sleepFn(pollInterval, signal)
+        continue
+      }
       if (res.status < 200 || res.status >= 300) {
         const detail = await res.text().catch(() => '')
+        lastFailure = `HTTP ${res.status} ${detail}`.trim()
+        if (res.status === 408 || res.status === 429 || res.status >= 500) {
+          if (now() - startedAt >= pollTimeout) {
+            throw acceptedAfterSubmit(
+              `65535 任务 ${taskId} 已提交，但轮询超时或结果未知：${lastFailure}`,
+            )
+          }
+          await sleepFn(pollInterval, signal)
+          continue
+        }
         const { error } = classifyError(null, res.status, detail)
-        throw new ChannelError(error)
+        throw acceptedAfterSubmit(
+          `65535 任务 ${taskId} 已提交，后续查询失败：${errorTextOf(error)}`,
+        )
       }
       const payload = (await res.json<S65535TaskPayload>().catch(() => ({}))) as S65535TaskPayload
       if (payload.status === 'done') return payload
       if (payload.status && TERMINAL_FAILURE.has(payload.status)) {
-        throw new ChannelError({ kind: 'http', status: 502, body: failureReasonOf(payload) })
+        throw acceptedAfterSubmit(
+          `65535 任务 ${taskId} 已提交但失败：${failureReasonOf(payload)}`,
+        )
       }
       if (now() - startedAt >= pollTimeout) {
-        throw new ChannelError({ kind: 'network', detail: 'timeout' })
+        throw acceptedAfterSubmit(
+          `65535 任务 ${taskId} 已提交，但轮询超时或结果未知：${lastFailure || '无响应'}`,
+        )
       }
       await sleepFn(pollInterval, signal)
     }
@@ -317,10 +374,7 @@ export function createS65535TaskAdapter(
       }
     }
     if (assets.length === 0) {
-      throw new ChannelError({
-        kind: 'parse',
-        raw: '任务已完成，但结果里没有可读取的产物（URL 下载与 Base64 均失败）',
-      })
+      throw acceptedAfterSubmit('65535 任务已完成，但结果里没有可读取的产物')
     }
     return assets
   }

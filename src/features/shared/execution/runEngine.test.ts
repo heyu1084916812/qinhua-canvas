@@ -531,4 +531,36 @@ describe('runEngine / 回调参数契约', () => {
     expect(calls).toBe(2)
     expect(summary.succeeded).toBe(1)
   })
+
+  it('execution accepted is terminal and never resubmits the paid request', async () => {
+    const plan = makePlan()
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            throw { kind: 'execution', detail: 'accepted', message: 'task may exist upstream' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
+  })
 })
