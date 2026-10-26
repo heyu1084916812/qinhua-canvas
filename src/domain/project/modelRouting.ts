@@ -263,20 +263,40 @@ export function routeCandidatesFor(
         modelIds.includes(name) ||
         Boolean((c.modelMap ?? {})[name]?.trim()) ||
         upstreamAliasesOf(name).some((alias) => modelIds.includes(alias))
+      const mapped = (c.modelMap ?? {})[name]?.trim()
+      const mappedAliases = mapped ? upstreamAliasesOf(mapped) : []
+      /**
+       * 分组是否提供这个模型，必须看**该分组自己的模型目录**。
+       *
+       * `c.modelMap` 是渠道级“逻辑名 → 上游 ID”的翻译表，不是“所有分组都支持”的证明。
+       * 先前把映射当成分组能力，导致一个没有任何模型的备用 Key 分组也被塞进
+       * `credentialGroupIds`；执行器为每个 fallback 分组预建适配器时，备用分组没 Key，
+       * 整条请求就被误判为 missingKey，即使主分组完全可用。
+       */
+      const supportsGroup = (modelIds: readonly string[]) =>
+        modelIds.includes(name) ||
+        Boolean(mapped && modelIds.includes(mapped)) ||
+        upstreamAliasesOf(name).some((alias) => modelIds.includes(alias)) ||
+        mappedAliases.some((alias) => modelIds.includes(alias))
       const groups = [...(c.credentialGroups ?? [])]
-        .filter((group) => supports(group.modelIds))
+        .filter((group) => supportsGroup(group.modelIds))
         .sort((a, b) => b.priority - a.priority)
 
       if (groups.length > 0) {
-        const group = groups[0]!
-        const mapped = (c.modelMap ?? {})[name]?.trim()
+        /**
+         * 降级链里只保留**确实有令牌**的分组；一个空备用分组不该拖垮主分组。
+         * 若所有分组都还没有令牌，仍保留原列表，让选路如实报告缺 Key。
+         */
+        const usableGroups = groups.filter((group) => group.hasToken)
+        const groupChoices = usableGroups.length > 0 ? usableGroups : groups
+        const group = groupChoices[0]!
         const direct = group.modelIds.includes(name) ? name : undefined
         const alias = upstreamAliasesOf(name).find((item) => group.modelIds.includes(item))
         return [
           {
             channelId: c.id,
             credentialGroupId: group.id,
-            credentialGroupIds: groups.map((item) => item.id),
+            credentialGroupIds: groupChoices.map((item) => item.id),
             groupPriority: group.priority,
             enabled: c.enabled,
             hasToken: group.hasToken,

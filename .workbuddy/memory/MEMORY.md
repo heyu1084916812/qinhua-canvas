@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### SoonStudio missingKey（2026-10-26 → 对账 #767）
+
+- 内置 SoonStudio 只有一条渠道，但旧数据可能带一个 UI 不展示的空“备用 Key”分组。
+- 渠道级 `modelMap` 只负责逻辑名翻译，**不能证明每个 Key 分组都支持该模型**。分组候选必须用
+  `group.modelIds` 判断；降级链只放实际有 Key 的分组。否则执行器预建 fallback 适配器时会被
+  空分组拖成 `missingKey`，即使主分组的 Key 完全可用。
+- 回归测试覆盖：空备用分组不进入 `credentialGroupIds`；主分组缺 Key 时从有 Key 的
+  低优先级分组开始。真实节点验证以请求头出现 `Authorization` 为准，不以设置页“已保存”代替。
+
 ### 工作台解耦方案审阅（2026-10-26 → 对账 #766）
 
 - 当前 `WorkbenchId` 有三类，但生产路径的 `runEngine` 仍只经画布

@@ -443,6 +443,76 @@ describe('routeCandidatesFor', () => {
       ),
     ).toEqual([])
   })
+
+  it('★★ 渠道级映射不会让空备用分组冒充模型分组，缺 Key 的备用分组也不进降级链', () => {
+    const out = routeCandidatesFor(
+      [
+        ch({
+          id: 'soon',
+          modelIds: ['gpt-image-2'],
+          modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          credentialGroups: [
+            {
+              id: 'primary',
+              hasToken: true,
+              priority: 0,
+              modelIds: ['gpt-image-2'],
+            },
+            {
+              id: 'empty-alt',
+              hasToken: false,
+              priority: -1,
+              modelIds: [],
+            },
+          ],
+        }),
+      ],
+      'GPT Image 2',
+      resolveUpstreamModel,
+    )
+
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      channelId: 'soon',
+      credentialGroupId: 'primary',
+      credentialGroupIds: ['primary'],
+      hasToken: true,
+      upstreamModel: 'gpt-image-2',
+    })
+  })
+
+  it('★★ 主分组缺 Key、低优先级分组有 Key 时，从真正可用的分组开始', () => {
+    const out = routeCandidatesFor(
+      [
+        ch({
+          id: 'soon',
+          modelIds: ['gpt-image-2'],
+          credentialGroups: [
+            {
+              id: 'missing-primary',
+              hasToken: false,
+              priority: 10,
+              modelIds: ['gpt-image-2'],
+            },
+            {
+              id: 'usable-fallback',
+              hasToken: true,
+              priority: 0,
+              modelIds: ['gpt-image-2'],
+            },
+          ],
+        }),
+      ],
+      'gpt-image-2',
+      resolveUpstreamModel,
+    )
+
+    expect(out[0]).toMatchObject({
+      credentialGroupId: 'usable-fallback',
+      credentialGroupIds: ['usable-fallback'],
+      hasToken: true,
+    })
+  })
 })
 
 describe('resolveRouteFor', () => {
