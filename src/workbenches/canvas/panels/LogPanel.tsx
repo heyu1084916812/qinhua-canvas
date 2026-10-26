@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useCanvasStore } from '../storeContext'
@@ -10,6 +10,7 @@ import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
+import { createRunLogRepository } from '../../../state/shared/runLogRepository'
 import styles from './LogPanel.module.css'
 
 /** 只有点在遮罩本身才收起；点在面板内部（事件已冒泡）不能误关。 */
@@ -31,15 +32,22 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
   const channels = useChannels()
   const store = useCanvasStore()
   const projectId = store.getSnapshot().projectId
+  const runLogs = useMemo(
+    () => createRunLogRepository(platform.storage),
+    [platform],
+  )
 
   const [records, setRecords] = useState<RunRecord[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    const rows = await platform.storage.query('runRecords', { projectId })
-    const list = (rows as unknown as RunRecord[]).slice().sort((a, b) => b.createdAt - a.createdAt)
-    setRecords(list)
-  }, [platform, projectId])
+    const page = await runLogs.query({
+      projectId,
+      workbench: 'canvas',
+      limit: Number.MAX_SAFE_INTEGER,
+    })
+    setRecords(page.entries.map((entry) => entry.record as RunRecord))
+  }, [projectId, runLogs])
 
   useEffect(() => {
     void reload()

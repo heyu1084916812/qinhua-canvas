@@ -145,6 +145,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const directTrace = useCallback(
     (args: {
       subjectId: string
+      scopeId?: string
       kind: 'text' | 'video' | 'speech'
       channelId: string
       model: string
@@ -156,7 +157,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       scopeVersion: 1,
       workbench: 'storyboard',
       subjectId: args.subjectId,
-      scopeId: projectId,
+      scopeId: args.scopeId ?? projectId,
       operationId: createId('op'),
       inputs: args.inputs ?? [],
       params: {

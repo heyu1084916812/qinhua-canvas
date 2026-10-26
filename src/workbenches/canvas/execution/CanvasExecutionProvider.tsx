@@ -48,7 +48,12 @@ import { createChannelRepository } from '../../../state/project/channelRepositor
 import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
 import type { NodeInput } from '../../../domain/shared/execution/types'
+import type { RunRecordScope } from '../../../domain/shared/execution/runRecord'
 import type { WorkbenchId } from '../../../domain/shared/workbench'
+import {
+  resolveCanvasRecordScope,
+  type CanvasRecordScopeOverrideArgs,
+} from './canvasRecordScope'
 import {
   LOCAL_RUN_CHANNEL_ID,
   createRunRecord,
@@ -196,9 +201,13 @@ function subscribeRunStates(projectId: string, listener: () => void): () => void
 export function CanvasExecutionProvider({
   children,
   workbench = 'canvas',
+  recordScopeOverride,
 }: {
   children: ReactNode
   workbench?: WorkbenchId
+  recordScopeOverride?: (
+    args: CanvasRecordScopeOverrideArgs,
+  ) => RunRecordScope | null
 }) {
   const store = useCanvasStore()
   const channels = useChannels()
@@ -336,13 +345,16 @@ export function CanvasExecutionProvider({
         plan: ReturnType<typeof buildRunPlan>,
         _task: CanvasRunTask,
         targetId: string,
-      ) => ({
-        scopeVersion: 1 as const,
-        workbench,
-        subjectId: targetId,
-        scopeId: `plan:${plan.id}`,
-        operationId: plan.id,
-      }),
+      ) => {
+        const node = store.getSnapshot().nodes.find((item) => item.id === targetId)
+        return resolveCanvasRecordScope({
+          workbench,
+          targetId,
+          planId: plan.id,
+          nodeData: node?.data as Readonly<Record<string, unknown>> | undefined,
+          override: recordScopeOverride,
+        })
+      },
       onTaskUpdate: (planId: string, taskId: string, state: RunTaskState) => {
         /**
          * 按 **planId 精确定位**本计划那份映射表。
@@ -434,7 +446,7 @@ export function CanvasExecutionProvider({
       // 引擎为每个 task 各调一次（写回发生在两次调用之间），同步递增即得连续版本号
       nextVersion: bumpVersion,
     }),
-    [bumpVersion, store, workbench],
+    [bumpVersion, recordScopeOverride, store, workbench],
   )
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)

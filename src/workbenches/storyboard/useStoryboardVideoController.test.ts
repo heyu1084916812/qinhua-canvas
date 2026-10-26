@@ -10,6 +10,7 @@ import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { ChannelStore } from '../../state/channel/channelStore'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import { STORYBOARD_RUN_SCOPE_FIELDS } from '../../features/storyboard/runScope'
 import {
   createStoryboardVideoController,
   type VideoEditTarget,
@@ -20,6 +21,7 @@ import {
 
 const trace = (args: {
   subjectId: string
+  scopeId?: string
   kind: 'text' | 'video' | 'speech'
   channelId: string
   model: string
@@ -30,7 +32,7 @@ const trace = (args: {
   projectId: 'p1',
   scopeVersion: 1,
   workbench: 'storyboard',
-  scopeId: 'episode:1',
+  scopeId: args.scopeId ?? 'episode:1',
   operationId: `${args.kind}:${args.subjectId}`,
   ...args,
   fingerprint: args.subjectId,
@@ -190,6 +192,10 @@ describe('Storyboard video controller', () => {
           }),
         ],
         params: { resolution: '4k', fps: '60' },
+        trace: expect.objectContaining({
+          subjectId: `shot:${shot.id}:video-upscale`,
+          scopeId: `episode:${shot.episodeId}`,
+        }),
       }),
     )
     expect(test.createGenerationNode).toHaveBeenCalledWith(
@@ -199,6 +205,10 @@ describe('Storyboard video controller', () => {
           mode: 'video',
           assetHash: 'new-video',
           assetMime: 'video/mp4',
+          [STORYBOARD_RUN_SCOPE_FIELDS.version]: 1,
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectKind]: 'video-postprocess',
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectId]: `shot:${shot.id}`,
+          [STORYBOARD_RUN_SCOPE_FIELDS.scopeId]: `episode:${shot.episodeId}`,
         }),
       }),
     )
@@ -241,6 +251,15 @@ describe('Storyboard video controller', () => {
       }),
     )
     expect(test.applied.at(-1)?.shots[0]?.videoHash).toBe('new-video')
+    expect(test.createGenerationNode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectKind]: 'video-postprocess',
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectId]: `shot:${shot.id}`,
+          [STORYBOARD_RUN_SCOPE_FIELDS.scopeId]: `episode:${shot.episodeId}`,
+        }),
+      }),
+    )
   })
 
   it('视频编辑同时连接源视频与当前画面参考图', async () => {
@@ -334,6 +353,15 @@ describe('Storyboard video controller', () => {
       }),
     )
     expect(test.applied.at(-1)?.shots[0]?.videoHash).toBe('new-video')
+    expect(test.createGenerationNode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectKind]: 'video-postprocess',
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectId]: `shot:${shot.id}`,
+          [STORYBOARD_RUN_SCOPE_FIELDS.scopeId]: `episode:${shot.episodeId}`,
+        }),
+      }),
+    )
     expect(test.setLay).toHaveBeenLastCalledWith(
       expect.objectContaining({
         kind: 'done',

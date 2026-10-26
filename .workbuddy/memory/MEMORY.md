@@ -17,6 +17,15 @@
   模拟辅助也通过。截图与 `report.json` 在系统临时目录，脚本退出后会关闭自己拉起的桌面壳。
 - 批次二顺序：A7 UI 门禁 / A1 删渠道 / A2 请求阶段并行；A3 retry-save、A4 素材可读；
   A5 漫剧业务主体、A6 共享日志；A1/A2 未闭合前不进入 StoryboardRunPlanner。
+- A5 用节点隐藏运行字段作过渡桥：`withStoryboardRunScope()` 写资产 / 镜头 / 分集主体，
+  `resolveCanvasRecordScope()` 在发请求前选业务作用域；字段不参与渲染。新节点创建时一次写入，
+  复用旧节点时先补齐再 `runNode`，不能因补字段失败跳过实际生成。最终业务真相仍须在 R4/R8
+  回到 `storyboardStore`，不能把隐藏字段当终态。
+- A6 的共享日志仓库只读同一份 `runRecords`。私有工作台查询会包含可证明的 legacy 记录，
+  `unclassified` 不进入私有视图；总日志才聚合全部。画布 / 电商日志已接该仓库，现有 DOM 不变；
+  漫剧日志视图、总日志 UI 和关键页面截图基线仍欠。
+- UI 门禁 `--launch` 必须等 `[data-project-tree-item]` 出现后再测量；等待超时仍失败。否则
+  启动时的骨架行会让真实数据门禁误报 `project rows=0`。
 
 ### 短视口侧栏项目树（2026-10-26 → 对账 #768）
 

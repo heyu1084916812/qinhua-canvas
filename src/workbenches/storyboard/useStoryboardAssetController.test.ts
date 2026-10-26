@@ -5,6 +5,7 @@ import {
   type StoryboardDoc,
 } from '../../domain/storyboard/storyboard'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
+import { STORYBOARD_RUN_SCOPE_FIELDS } from '../../features/storyboard/runScope'
 import { createStoryboardAssetController } from './useStoryboardAssetController'
 
 function docWithCharacter(patch: { nodeId?: string } = {}) {
@@ -21,6 +22,7 @@ function docWithCharacter(patch: { nodeId?: string } = {}) {
 
 function harness(doc: StoryboardDoc, liveIds: string[] = []) {
   const applied: StoryboardDoc[] = []
+  const updateNodeData = vi.fn()
   const createGenerationNode = vi.fn(() => 'asset-node')
   const resolveGenerationData = vi.fn(
     async (extraData: Record<string, unknown>) => extraData,
@@ -35,6 +37,7 @@ function harness(doc: StoryboardDoc, liveIds: string[] = []) {
     currentDoc: () => doc,
     liveNodeIds: new Set(liveIds),
     canvas: {
+      updateNodeData,
       getSnapshot: () => ({ nodes: [{}, {}], edges: [] }),
       resolveGenerationData,
       createGenerationNode,
@@ -49,6 +52,7 @@ function harness(doc: StoryboardDoc, liveIds: string[] = []) {
   return {
     controller,
     applied,
+    updateNodeData,
     createGenerationNode,
     connectEdge,
     runNode,
@@ -71,9 +75,14 @@ describe('Storyboard asset controller', () => {
         data: expect.objectContaining({
           mode: 'image',
           prompt: expect.stringContaining('正面半身'),
+          [STORYBOARD_RUN_SCOPE_FIELDS.version]: 1,
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectKind]: 'asset',
+          [STORYBOARD_RUN_SCOPE_FIELDS.subjectId]: `char:${doc.characters[0]!.id}:base`,
+          [STORYBOARD_RUN_SCOPE_FIELDS.scopeId]: 'project:p1',
         }),
       }),
     )
+    expect(test.updateNodeData).not.toHaveBeenCalled()
     expect(test.runNode).toHaveBeenCalledWith('asset-node', { inPlace: true })
     expect(test.applied[0]?.characters[0]?.nodeId).toBe('asset-node')
     expect(test.beginPlan).toHaveBeenCalledWith('storyboard:asset-base', '定妆图 ×1')
@@ -96,5 +105,25 @@ describe('Storyboard asset controller', () => {
     expect(test.connectEdge).toHaveBeenCalledWith('base-node', 'asset-node')
     expect(test.createGenerationNode).toHaveBeenCalledTimes(1)
     expect(test.applied[0]?.characters[0]?.turnaroundNodeId).toBe('asset-node')
+  })
+
+  it('复用已有资产节点时先补齐业务主体，再原地运行', async () => {
+    const doc = docWithCharacter({ nodeId: 'base-node' })
+    const test = harness(doc, ['base-node'])
+
+    await test.controller.makeAssetBase('char', doc.characters[0]!.id)
+
+    expect(test.createGenerationNode).not.toHaveBeenCalled()
+    expect(test.updateNodeData).toHaveBeenCalledWith(
+      'base-node',
+      expect.objectContaining({
+        [STORYBOARD_RUN_SCOPE_FIELDS.version]: 1,
+        [STORYBOARD_RUN_SCOPE_FIELDS.subjectKind]: 'asset',
+        [STORYBOARD_RUN_SCOPE_FIELDS.subjectId]: `char:${doc.characters[0]!.id}:base`,
+        [STORYBOARD_RUN_SCOPE_FIELDS.scopeId]: 'project:p1',
+      }),
+      true,
+    )
+    expect(test.runNode).toHaveBeenCalledWith('base-node', { inPlace: true })
   })
 })

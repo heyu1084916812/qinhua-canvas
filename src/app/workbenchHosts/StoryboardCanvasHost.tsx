@@ -27,6 +27,7 @@ import {
   applyDefaults,
   resolveDefaults,
 } from '../../features/canvas/createNodeWithDefaults'
+import { storyboardRunRecordScopeOf } from '../../features/storyboard/runScope'
 
 type CanvasRuntime = {
   canvas: StoryboardCanvasPort
@@ -181,7 +182,12 @@ export function StoryboardCanvasHost({
 
   return (
     <CanvasStoreProvider store={store}>
-      <CanvasExecutionProvider workbench="storyboard">
+      <CanvasExecutionProvider
+        workbench="storyboard"
+        recordScopeOverride={({ nodeData, planId }) =>
+          storyboardRunRecordScopeOf(nodeData, planId)
+        }
+      >
         <RuntimeBridge projectId={projectId}>{children}</RuntimeBridge>
       </CanvasExecutionProvider>
     </CanvasStoreProvider>

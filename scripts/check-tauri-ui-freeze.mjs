@@ -294,6 +294,20 @@ async function waitForShell(session, timeoutMs = 20_000) {
   throw new Error('真实 Tauri 页面已连接，但侧栏 / 项目树 / 设置区在 20 秒内没有就绪')
 }
 
+async function waitForProjectRows(session, timeoutMs = 20_000) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const rows = await session
+      .evaluate(
+        `document.querySelectorAll('[data-sidebar-project-tree] [data-project-tree-item]').length`,
+      )
+      .catch(() => 0)
+    if (rows > 0) return rows
+    await sleep(200)
+  }
+  return 0
+}
+
 async function readGeometry(session) {
   return session.evaluate(`(() => {
     const rectOf = (element) => {
@@ -478,7 +492,7 @@ async function main() {
     await session.send('Page.enable')
     await session.send('Runtime.enable')
     await waitForShell(session)
-    await sleep(500)
+    await waitForProjectRows(session)
 
     const real = await readGeometry(session)
     const screenshots = [await captureScreenshot(session, 'real-tauri-1440x900.png')]

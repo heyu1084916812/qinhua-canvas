@@ -13,13 +13,16 @@ import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import { createStoryboardAudioController } from './useStoryboardAudioController'
 
-function trace(): DirectRunTraceInput {
+function trace(args: {
+  subjectId: string
+  scopeId?: string
+}): DirectRunTraceInput {
   return {
     projectId: 'p1',
     scopeVersion: 1,
     workbench: 'storyboard',
-    subjectId: 'shot:1',
-    scopeId: 'episode:1',
+    subjectId: args.subjectId,
+    scopeId: args.scopeId ?? 'project:p1',
     operationId: 'op-audio-1',
     fingerprint: 'fp',
   }
@@ -73,6 +76,14 @@ describe('Storyboard audio controller', () => {
 
     expect(ok, status).toBe(true)
     expect(generateSpeech).toHaveBeenCalledTimes(1)
+    expect(generateSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trace: expect.objectContaining({
+          subjectId: `shot:${updatedShot.id}:line:${line.id}:speech`,
+          scopeId: `episode:${updatedShot.episodeId}`,
+        }),
+      }),
+    )
     expect(putAsset).toHaveBeenCalledWith(
       expect.objectContaining({ hash: 'audio1', mime: 'audio/mpeg' }),
     )

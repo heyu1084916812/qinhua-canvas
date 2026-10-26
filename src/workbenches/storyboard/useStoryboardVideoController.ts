@@ -16,6 +16,7 @@ import type { VideoEraseModelId } from '../../domain/storyboard/videoErase'
 import type { VideoEditModelId } from '../../domain/storyboard/videoEdit'
 import type { VideoExtendModelId } from '../../domain/storyboard/videoExtend'
 import { asAppError, describeError } from '../../shared/result'
+import { withStoryboardRunScope } from '../../features/storyboard/runScope'
 
 export interface VideoUpscaleTarget {
   channelId: string
@@ -60,6 +61,7 @@ export interface StoryboardVideoControllerArgs {
   canvas: StoryboardCanvasPort
   directTrace: (args: {
     subjectId: string
+    scopeId?: string
     kind: 'text' | 'video' | 'speech'
     channelId: string
     model: string
@@ -153,6 +155,7 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:video-upscale`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'video',
           channelId: target.channelId,
           model: target.model,
@@ -176,17 +179,24 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         ...output,
         mime,
       })
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: target.channelId,
-        model: target.model,
-        prompt,
-        ...(resolution ? { resolution } : {}),
-        ...(frameRate !== null ? { fps: String(frameRate) } : {}),
-        durationSec: shot.durationSec,
-        assetHash: output.hash,
-        assetMime: mime,
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt,
+          ...(resolution ? { resolution } : {}),
+          ...(frameRate !== null ? { fps: String(frameRate) } : {}),
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        }),
+        {
+          subjectKind: 'video-postprocess',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
 
       let upscaleNodeId = ''
       canvas.beginPlan(`storyboard:video-${action}`, `镜头视频${actionLabel}`)
@@ -263,6 +273,7 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:video-erase`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'video',
           channelId: target.channelId,
           model: target.model,
@@ -280,15 +291,22 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         ...output,
         mime,
       })
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: target.channelId,
-        model: target.model,
-        prompt: '视频字幕擦除',
-        durationSec: shot.durationSec,
-        assetHash: output.hash,
-        assetMime: mime,
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt: '视频字幕擦除',
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        }),
+        {
+          subjectKind: 'video-postprocess',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
 
       let eraseNodeId = ''
       canvas.beginPlan('storyboard:video-erase', '镜头视频字幕擦除')
@@ -396,6 +414,7 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:video-edit`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'video',
           channelId: target.channelId,
           model: target.model,
@@ -419,16 +438,23 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         ...output,
         mime,
       })
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: target.channelId,
-        model: target.model,
-        prompt,
-        ...(resolution ? { resolution } : {}),
-        durationSec: shot.durationSec,
-        assetHash: output.hash,
-        assetMime: mime,
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt,
+          ...(resolution ? { resolution } : {}),
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        }),
+        {
+          subjectKind: 'video-postprocess',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
 
       let editNodeId = ''
       canvas.beginPlan('storyboard:video-edit', '镜头视频编辑')
@@ -516,6 +542,7 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:video-extend`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'video',
           channelId: target.channelId,
           model: target.model,
@@ -539,16 +566,23 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         ...output,
         mime,
       })
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: target.channelId,
-        model: target.model,
-        prompt,
-        ...(resolution ? { resolution } : {}),
-        ...(duration !== null ? { durationSec: duration } : {}),
-        assetHash: output.hash,
-        assetMime: mime,
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt,
+          ...(resolution ? { resolution } : {}),
+          ...(duration !== null ? { durationSec: duration } : {}),
+          assetHash: output.hash,
+          assetMime: mime,
+        }),
+        {
+          subjectKind: 'video-postprocess',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
 
       let extendNodeId = ''
       canvas.beginPlan('storyboard:video-extend', '镜头视频续写')

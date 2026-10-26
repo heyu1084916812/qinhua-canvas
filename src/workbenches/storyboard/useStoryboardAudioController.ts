@@ -26,6 +26,7 @@ export interface StoryboardAudioControllerArgs {
   canvas: StoryboardCanvasPort
   directTrace: (args: {
     subjectId: string
+    scopeId?: string
     kind: 'text' | 'video' | 'speech'
     channelId: string
     model: string
@@ -88,6 +89,7 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:line:${lineId}:speech`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'speech',
           channelId: speechTarget.channelId,
           model: speechTarget.model,

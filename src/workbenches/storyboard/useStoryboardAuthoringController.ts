@@ -54,6 +54,7 @@ export interface StoryboardAuthoringControllerArgs {
   projectId: string
   directTrace: (args: {
     subjectId: string
+    scopeId?: string
     kind: 'text' | 'video' | 'speech'
     channelId: string
     model: string
@@ -361,6 +362,7 @@ export function createStoryboardAuthoringController(
         signal: ac.signal,
         trace: directTrace({
           subjectId: `episode:${selected.id}:breakdown`,
+          scopeId: `episode:${selected.id}`,
           kind: 'text',
           channelId: chatTarget.channelId,
           model: chatTarget.model,

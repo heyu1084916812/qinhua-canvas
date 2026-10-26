@@ -25,6 +25,7 @@ import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
 import { fingerprintBytesSync } from '../../domain/shared/hash'
 import { mixAudioSequentially } from '../../platform/web/audioMix'
 import { asAppError, describeError } from '../../shared/result'
+import { withStoryboardRunScope } from '../../features/storyboard/runScope'
 
 export interface StoryboardShotControllerArgs {
   doc: StoryboardDoc
@@ -40,6 +41,7 @@ export interface StoryboardShotControllerArgs {
   platform: PlatformKit
   directTrace: (args: {
     subjectId: string
+    scopeId?: string
     kind: 'text' | 'video' | 'speech'
     channelId: string
     model: string
@@ -148,10 +150,17 @@ export function createStoryboardShotController(
       const base = graph.nodes.length
       const prescribed: { shotId: string; data: Record<string, unknown> }[] = []
       for (const shot of targets) {
-        const data = await canvas.resolveGenerationData({
-          mode: 'image',
-          prompt: shotPromptWithAssets(doc, shot),
-        })
+        const data = withStoryboardRunScope(
+          await canvas.resolveGenerationData({
+            mode: 'image',
+            prompt: shotPromptWithAssets(doc, shot),
+          }),
+          {
+            subjectKind: 'shot-image',
+            subjectId: `shot:${shot.id}`,
+            scopeId: `episode:${shot.episodeId}`,
+          },
+        )
         prescribed.push({ shotId: shot.id, data })
       }
       const pairs: { shotId: string; nodeId: string }[] = []
@@ -195,6 +204,15 @@ export function createStoryboardShotController(
    */
   const runShot = (shot: StoryboardShot) => {
     if (!shot.nodeId) return
+    canvas.updateNodeData(
+      shot.nodeId,
+      withStoryboardRunScope({}, {
+        subjectKind: 'shot-image',
+        subjectId: `shot:${shot.id}`,
+        scopeId: `episode:${shot.episodeId}`,
+      }),
+      true,
+    )
     syncShotRefs(shot, shot.nodeId)
     const refs = shotRefNodeIds(doc, shot, new Set(graph.nodes.map((n) => n.id))).length
     if (refs > 0) setLay({ kind: 'running', text: `这一镜在跑（带 ${refs} 张参考图）…` })
@@ -290,13 +308,20 @@ export function createStoryboardShotController(
         : singleImageMode
       const videoPrompt = shotVideoPrompt(doc, shot, endFrameNodeId ? nextShot : undefined)
       const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        model: recipe.model,
-        prompt: videoPrompt,
-        durationSec: shot.durationSec,
-        ...(videoMode ? { videoMode } : {}),
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          model: recipe.model,
+          prompt: videoPrompt,
+          durationSec: shot.durationSec,
+          ...(videoMode ? { videoMode } : {}),
+        }),
+        {
+          subjectKind: 'shot-video',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
       let nodeId =
         shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
       canvas.beginPlan('storyboard:shot-video', '这一镜出视频')
@@ -461,6 +486,7 @@ export function createStoryboardShotController(
         signal: ac.signal,
         trace: directTrace({
           subjectId: `shot:${shot.id}:digital-human`,
+          scopeId: `episode:${shot.episodeId}`,
           kind: 'video',
           channelId: digitalHumanTarget.channelId,
           model: digitalHumanTarget.model,
@@ -478,15 +504,22 @@ export function createStoryboardShotController(
         ...output,
         mime: output.mime || 'video/mp4',
       })
-      const data = await canvas.resolveGenerationData({
-        mode: 'video',
-        channelId: digitalHumanTarget.channelId,
-        model: digitalHumanTarget.model,
-        prompt: '数字人口播',
-        durationSec: shot.durationSec,
-        assetHash: output.hash,
-        assetMime: output.mime || 'video/mp4',
-      })
+      const data = withStoryboardRunScope(
+        await canvas.resolveGenerationData({
+          mode: 'video',
+          channelId: digitalHumanTarget.channelId,
+          model: digitalHumanTarget.model,
+          prompt: '数字人口播',
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: output.mime || 'video/mp4',
+        }),
+        {
+          subjectKind: 'digital-human',
+          subjectId: `shot:${shot.id}`,
+          scopeId: `episode:${shot.episodeId}`,
+        },
+      )
       const imageNode = graph.nodes.find((node) => node.id === shot.nodeId)
       let videoNodeId =
         shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''

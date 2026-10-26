@@ -8,6 +8,7 @@ import {
   setAssetTurnaroundNode,
 } from '../../domain/storyboard/storyboard'
 import { asAppError, describeError } from '../../shared/result'
+import { withStoryboardRunScope } from '../../features/storyboard/runScope'
 
 export interface StoryboardAssetControllerArgs {
   doc: StoryboardDoc
@@ -54,13 +55,21 @@ export function createStoryboardAssetController(
     const asset = kind === 'char' ? doc.characters.find((c) => c.id === assetId) : doc.scenes.find((s) => s.id === assetId)
     if (!asset) return
     const alive = asset.nodeId && liveNodeIds.has(asset.nodeId) ? asset.nodeId : null
+    const scope = {
+      subjectKind: 'asset' as const,
+      subjectId: `${kind}:${assetId}:base`,
+      scopeId: `project:${doc.projectId}`,
+    }
     try {
       let nodeId = alive
       if (!nodeId) {
-        const data = await canvas.resolveGenerationData({
-          mode: 'image',
-          prompt: assetBasePrompt(asset, kind),
-        })
+        const data = withStoryboardRunScope(
+          await canvas.resolveGenerationData({
+            mode: 'image',
+            prompt: assetBasePrompt(asset, kind),
+          }),
+          scope,
+        )
         const base = canvas.getSnapshot().nodes.length
         canvas.beginPlan('storyboard:asset-base', kind === 'char' ? '定妆图 ×1' : '基准图 ×1')
         try {
@@ -74,6 +83,8 @@ export function createStoryboardAssetController(
         if (!nodeId) return
         const current = currentDoc()
         if (current) apply(setAssetNode(current, kind, assetId, nodeId, 0))
+      } else {
+        canvas.updateNodeData(nodeId, withStoryboardRunScope({}, scope), true)
       }
       await canvas.runNode(nodeId, { inPlace: true })
     } catch (e) {
@@ -94,13 +105,21 @@ export function createStoryboardAssetController(
       asset.turnaroundNodeId && liveNodeIds.has(asset.turnaroundNodeId)
         ? asset.turnaroundNodeId
         : null
+    const scope = {
+      subjectKind: 'asset' as const,
+      subjectId: `char:${assetId}:turnaround`,
+      scopeId: `project:${doc.projectId}`,
+    }
     try {
       let nodeId = alive
       if (!nodeId) {
-        const data = await canvas.resolveGenerationData({
-          mode: 'image',
-          prompt: assetTurnaroundPrompt(asset),
-        })
+        const data = withStoryboardRunScope(
+          await canvas.resolveGenerationData({
+            mode: 'image',
+            prompt: assetTurnaroundPrompt(asset),
+          }),
+          scope,
+        )
         const base = canvas.getSnapshot().nodes.length
         canvas.beginPlan('storyboard:asset-turnaround', '多视角 ×1')
         try {
@@ -120,6 +139,8 @@ export function createStoryboardAssetController(
         if (!nodeId) return
         const current = currentDoc()
         if (current) apply(setAssetTurnaroundNode(current, 'char', assetId, nodeId, 0))
+      } else {
+        canvas.updateNodeData(nodeId, withStoryboardRunScope({}, scope), true)
       }
       await canvas.runNode(nodeId, { inPlace: true })
     } catch (e) {

@@ -92,6 +92,7 @@ import {
 import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { RunRecord } from '../../domain/canvas/model/runRecord'
+import { createRunLogRepository } from '../../state/shared/runLogRepository'
 import {
   EcommerceWorkbench,
   type EcommerceWorkbenchAction,
@@ -249,6 +250,10 @@ function StudioHost({ projectId }: { projectId: string }) {
   }, [platform, projectId])
   const graph = useMemo(() => ({ nodes: legacyNodes }), [legacyNodes])
   const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
+  const runLogs = useMemo(
+    () => createRunLogRepository(platform.storage),
+    [platform],
+  )
   const canvasRepo = useMemo(
     () => createEcommerceCanvasRepository(platform.storage),
     [platform],
@@ -396,14 +401,18 @@ function StudioHost({ projectId }: { projectId: string }) {
       const [items, rows, runs] = await Promise.all([
         canvasRepo.sync(projectId, viewportWidth),
         taskRepo.listResults(projectId),
-        platform.storage.query('runRecords', { projectId }),
+        runLogs.query({
+          projectId,
+          workbench: 'ecommerce',
+          limit: Number.MAX_SAFE_INTEGER,
+        }),
       ])
       canvasItemsRef.current = items
       setCanvasItems(items)
       setWorkbenchResults(rows)
-      setWorkbenchRuns(runs as unknown as RunRecord[])
+      setWorkbenchRuns(runs.entries.map((entry) => entry.record as RunRecord))
     },
-    [canvasRepo, platform, projectId, taskRepo],
+    [canvasRepo, projectId, runLogs, taskRepo],
   )
   const queueWorkbenchRefresh = useCallback(
     (viewportWidth?: number) => {
