@@ -586,6 +586,18 @@ const STABILIZE_EXPRESSION = `(async () => {
     new Promise((resolve) => setTimeout(resolve, 5000)),
   ])
 
+  const updateControl = document.querySelector('[data-update-check]')
+  if (updateControl) {
+    const started = Date.now()
+    while (
+      Date.now() - started < 30_000 &&
+      (updateControl.hasAttribute('data-busy') ||
+        /正在检查|checking/i.test(updateControl.textContent ?? ''))
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
   const imagePromises = Array.from(document.images).map(async (image) => {
     if (image.complete) {
       if (image.naturalWidth > 0) await image.decode?.().catch(() => {})
@@ -734,6 +746,28 @@ const READ_DOM_SNAPSHOT_EXPRESSION = `(() => {
     }))
     .filter((item) => item.label || item.anchor.length > 0)
 
+  const decorativeImages = Array.from(
+    document.querySelectorAll('img[aria-hidden="true"],svg[aria-hidden="true"]'),
+  )
+    .filter(isVisible)
+    .map((element) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        tag: element.tagName.toLowerCase(),
+        src: element.currentSrc || element.getAttribute('src') || '',
+        rect: {
+          x: round(rect.x),
+          y: round(rect.y),
+          width: round(rect.width),
+          height: round(rect.height),
+          top: round(rect.top),
+          right: round(rect.right),
+          bottom: round(rect.bottom),
+          left: round(rect.left),
+        },
+      }
+    })
+
   const root = document.documentElement
   const body = document.body
   return {
@@ -745,6 +779,7 @@ const READ_DOM_SNAPSHOT_EXPRESSION = `(() => {
     },
     visibleText: normalize(body?.innerText ?? ''),
     navigation,
+    decorativeImages,
     regions: regionElements.map((element) => ({
       tag: element.tagName.toLowerCase(),
       anchor: anchorOf(element),
@@ -1090,9 +1125,16 @@ function writeBaseline(baselineDir, captures, options, commit) {
   return manifest
 }
 
-async function comparePngBuffers(session, baselineBuffer, currentBuffer) {
+async function comparePngBuffers(
+  session,
+  baselineBuffer,
+  currentBuffer,
+  ignoredRects = [],
+  viewportWidth,
+) {
   const baselineBase64 = baselineBuffer.toString('base64')
   const currentBase64 = currentBuffer.toString('base64')
+  const ignoredRectsJson = JSON.stringify(ignoredRects)
   return session.evaluate(`(async () => {
     const load = async (dataUrl) => {
       const image = new Image()
@@ -1114,9 +1156,42 @@ async function comparePngBuffers(session, baselineBuffer, currentBuffer) {
     const baselineData = baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height).data
     const currentData = current.getContext('2d').getImageData(0, 0, current.width, current.height).data
     const output = new ImageData(baseline.width, baseline.height)
+    const pixelScale = baseline.width / ${JSON.stringify(viewportWidth)}
+    const ignored = ${ignoredRectsJson}.map((rect) => ({
+      left: Math.max(0, Math.floor(rect.left * pixelScale) - 1),
+      top: Math.max(0, Math.floor(rect.top * pixelScale) - 1),
+      right: Math.min(
+        baseline.width,
+        Math.ceil(rect.right * pixelScale) + 1,
+      ),
+      bottom: Math.min(
+        baseline.height,
+        Math.ceil(rect.bottom * pixelScale) + 1,
+      ),
+    }))
     let differencePixels = 0
+    let ignoredPixels = 0
     let maxChannelDelta = 0
     for (let index = 0; index < baselineData.length; index += 4) {
+      const pixel = index / 4
+      const x = pixel % baseline.width
+      const y = Math.floor(pixel / baseline.width)
+      if (
+        ignored.some(
+          (rect) =>
+            x >= rect.left &&
+            x < rect.right &&
+            y >= rect.top &&
+            y < rect.bottom,
+        )
+      ) {
+        ignoredPixels += 1
+        output.data[index] = 210
+        output.data[index + 1] = 210
+        output.data[index + 2] = 210
+        output.data[index + 3] = 255
+        continue
+      }
       const delta = Math.max(
         Math.abs(baselineData[index] - currentData[index]),
         Math.abs(baselineData[index + 1] - currentData[index + 1]),
@@ -1147,6 +1222,8 @@ async function comparePngBuffers(session, baselineBuffer, currentBuffer) {
       totalPixels,
       differencePixels,
       ratio: differencePixels / totalPixels,
+      ignoredPixels,
+      ignoredRects: ignored.length,
       maxChannelDelta,
       diffDataUrl: diffCanvas.toDataURL('image/png'),
     }
@@ -1171,6 +1248,8 @@ async function compareWithBaseline(session, baseline, captures) {
       session,
       baselineViewport.buffer,
       capture.screenshot.buffer,
+      capture.dom.decorativeImages?.map((image) => image.rect) ?? [],
+      capture.viewport.width,
     )
     const imageGate = evaluateImageDiff(rawDiff)
     let diffPath = null
@@ -1190,6 +1269,8 @@ async function compareWithBaseline(session, baseline, captures) {
       totalPixels: rawDiff.totalPixels ?? null,
       differencePixels: rawDiff.differencePixels ?? null,
       ratio: rawDiff.ratio ?? null,
+      ignoredPixels: rawDiff.ignoredPixels ?? null,
+      ignoredRects: rawDiff.ignoredRects ?? null,
       maxChannelDelta: rawDiff.maxChannelDelta ?? null,
       baselineSha256: baselineViewport.sha256,
       currentSha256: capture.screenshot.sha256,

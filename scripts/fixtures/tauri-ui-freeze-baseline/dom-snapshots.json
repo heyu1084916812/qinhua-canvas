@@ -1,0 +1,3245 @@
+{
+  "real-tauri-1440x900": {
+    "url": "/",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "visibleText": "应用 编辑 新建项目 首页 项目 画布 电商 漫剧 技能库 灵感库 我的素材 所有项目 工作区 0 文件夹为空 画布 1 画布 5 天前 电商 1 电商出图 5 天前 漫剧 0 暂无项目 全局设置 检查更新 ☾ 深色 给图片与视频生成用的无限画布 新建项目 我的项目",
+    "navigation": [
+      {
+        "tag": "button",
+        "role": null,
+        "label": "取消常驻展开（移开鼠标后自动收起）",
+        "anchor": [
+          [
+            "aria-label",
+            "取消常驻展开（移开鼠标后自动收起）"
+          ],
+          [
+            "data-sidebar-toggle",
+            "true"
+          ],
+          [
+            "data-title-sidebar",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "应用",
+        "anchor": [
+          [
+            "data-title-menu",
+            "app"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "编辑",
+        "anchor": [
+          [
+            "data-title-menu",
+            "edit"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最小化",
+        "anchor": [
+          [
+            "aria-label",
+            "最小化"
+          ],
+          [
+            "data-title-minimize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最大化",
+        "anchor": [
+          [
+            "aria-label",
+            "最大化"
+          ],
+          [
+            "data-title-maximize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "关闭",
+        "anchor": [
+          [
+            "aria-label",
+            "关闭"
+          ],
+          [
+            "data-title-close",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "aria-label",
+            "新建项目"
+          ],
+          [
+            "data-sidebar-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "首页",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "项目",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/projects"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "画布",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/canvas"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "电商",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/ecommerce"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "漫剧",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/storyboard"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "技能库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/skills"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "灵感库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/inspiration"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "我的素材",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/assets"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建文件夹",
+        "anchor": [
+          [
+            "aria-label",
+            "新建文件夹"
+          ],
+          [
+            "data-project-tree-new-folder",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "工作区 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商出图",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "漫剧 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "全局设置",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "检查更新",
+        "anchor": [
+          [
+            "aria-label",
+            "检查更新"
+          ],
+          [
+            "data-update-check",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "主题：深色",
+        "anchor": [
+          [
+            "aria-label",
+            "主题：深色"
+          ],
+          [
+            "data-theme-setting",
+            "dark"
+          ],
+          [
+            "data-theme-toggle",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "data-home-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "我的项目",
+        "anchor": [
+          [
+            "data-home-projects",
+            "true"
+          ]
+        ]
+      }
+    ],
+    "decorativeImages": [
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 24,
+          "y": 8.5,
+          "width": 16,
+          "height": 16,
+          "top": 8.5,
+          "right": 40,
+          "bottom": 24.5,
+          "left": 24
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1320,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1330,
+          "bottom": 21.5,
+          "left": 1320
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1366,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1376,
+          "bottom": 21.5,
+          "left": 1366
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1412,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1422,
+          "bottom": 21.5,
+          "left": 1412
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 20,
+          "y": 51,
+          "width": 24,
+          "height": 24,
+          "top": 51,
+          "right": 44,
+          "bottom": 75,
+          "left": 20
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 62,
+          "y": 55,
+          "width": 98.1,
+          "height": 16,
+          "top": 55,
+          "right": 160.1,
+          "bottom": 71,
+          "left": 62
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 23,
+          "y": 102,
+          "width": 18,
+          "height": 18,
+          "top": 102,
+          "right": 41,
+          "bottom": 120,
+          "left": 23
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 149,
+          "width": 20,
+          "height": 20,
+          "top": 149,
+          "right": 42,
+          "bottom": 169,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 186,
+          "width": 20,
+          "height": 20,
+          "top": 186,
+          "right": 42,
+          "bottom": 206,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 223,
+          "width": 20,
+          "height": 20,
+          "top": 223,
+          "right": 42,
+          "bottom": 243,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 260,
+          "width": 20,
+          "height": 20,
+          "top": 260,
+          "right": 42,
+          "bottom": 280,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 297,
+          "width": 20,
+          "height": 20,
+          "top": 297,
+          "right": 42,
+          "bottom": 317,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 334,
+          "width": 20,
+          "height": 20,
+          "top": 334,
+          "right": 42,
+          "bottom": 354,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 371,
+          "width": 20,
+          "height": 20,
+          "top": 371,
+          "right": 42,
+          "bottom": 391,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 408,
+          "width": 20,
+          "height": 20,
+          "top": 408,
+          "right": 42,
+          "bottom": 428,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 206,
+          "y": 453.5,
+          "width": 12,
+          "height": 15,
+          "top": 453.5,
+          "right": 218,
+          "bottom": 468.5,
+          "left": 206
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 480,
+          "width": 16,
+          "height": 16,
+          "top": 480,
+          "right": 32,
+          "bottom": 496,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 481.5,
+          "width": 13,
+          "height": 13,
+          "top": 481.5,
+          "right": 157.8,
+          "bottom": 494.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 482,
+          "width": 12,
+          "height": 14,
+          "top": 482,
+          "right": 190,
+          "bottom": 496,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 481.5,
+          "width": 12,
+          "height": 15,
+          "top": 481.5,
+          "right": 215,
+          "bottom": 496.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 540,
+          "width": 16,
+          "height": 16,
+          "top": 540,
+          "right": 32,
+          "bottom": 556,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 541.5,
+          "width": 13,
+          "height": 13,
+          "top": 541.5,
+          "right": 157.8,
+          "bottom": 554.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 568.5,
+          "width": 15,
+          "height": 15,
+          "top": 568.5,
+          "right": 50,
+          "bottom": 583.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 570,
+          "width": 12,
+          "height": 14,
+          "top": 570,
+          "right": 190,
+          "bottom": 584,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 569.5,
+          "width": 12,
+          "height": 15,
+          "top": 569.5,
+          "right": 215,
+          "bottom": 584.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 602,
+          "width": 16,
+          "height": 16,
+          "top": 602,
+          "right": 32,
+          "bottom": 618,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 603.5,
+          "width": 13,
+          "height": 13,
+          "top": 603.5,
+          "right": 157.8,
+          "bottom": 616.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 630.5,
+          "width": 15,
+          "height": 15,
+          "top": 630.5,
+          "right": 50,
+          "bottom": 645.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 632,
+          "width": 12,
+          "height": 14,
+          "top": 632,
+          "right": 190,
+          "bottom": 646,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 631.5,
+          "width": 12,
+          "height": 15,
+          "top": 631.5,
+          "right": 215,
+          "bottom": 646.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 664,
+          "width": 16,
+          "height": 16,
+          "top": 664,
+          "right": 32,
+          "bottom": 680,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 665.5,
+          "width": 13,
+          "height": 13,
+          "top": 665.5,
+          "right": 157.8,
+          "bottom": 678.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 784,
+          "width": 20,
+          "height": 20,
+          "top": 784,
+          "right": 42,
+          "bottom": 804,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 824,
+          "width": 20,
+          "height": 20,
+          "top": 824,
+          "right": 42,
+          "bottom": 844,
+          "left": 22
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 796.5,
+          "y": 367.4,
+          "width": 72,
+          "height": 72,
+          "top": 367.4,
+          "right": 868.5,
+          "bottom": 439.4,
+          "left": 796.5
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 746.7,
+          "y": 447.4,
+          "width": 171.6,
+          "height": 28,
+          "top": 447.4,
+          "right": 918.3,
+          "bottom": 475.4,
+          "left": 746.7
+        }
+      }
+    ],
+    "regions": [
+      {
+        "tag": "header",
+        "anchor": [
+          [
+            "data-tauri-drag-region",
+            "true"
+          ],
+          [
+            "data-title-bar",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 33,
+          "top": 0,
+          "right": 1440,
+          "bottom": 33,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "aside",
+        "anchor": [
+          [
+            "aria-label",
+            "一级导航"
+          ],
+          [
+            "data-app-sidebar",
+            "true"
+          ],
+          [
+            "data-sidebar-open",
+            "true"
+          ],
+          [
+            "data-sidebar-pinned",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 33,
+          "width": 240,
+          "height": 867,
+          "top": 33,
+          "right": 240,
+          "bottom": 900,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "nav",
+        "anchor": [],
+        "rect": {
+          "x": 12,
+          "y": 141,
+          "width": 216,
+          "height": 295,
+          "top": 141,
+          "right": 228,
+          "bottom": 436,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "section",
+        "anchor": [
+          [
+            "data-sidebar-project-tree",
+            "true"
+          ],
+          [
+            "data-sidebar-text",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 448,
+          "width": 216,
+          "height": 321,
+          "top": 448,
+          "right": 228,
+          "bottom": 769,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "button",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 776,
+          "width": 216,
+          "height": 36,
+          "top": 776,
+          "right": 228,
+          "bottom": 812,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "main",
+        "anchor": [
+          [
+            "data-app-workspace",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 240,
+          "y": 48,
+          "width": 1185,
+          "height": 837,
+          "top": 48,
+          "right": 1425,
+          "bottom": 885,
+          "left": 240
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      }
+    ],
+    "overflow": {
+      "horizontal": 0,
+      "vertical": 0
+    }
+  },
+  "auxiliary-1024x700": {
+    "url": "/",
+    "viewport": {
+      "width": 1024,
+      "height": 700,
+      "dpr": 1
+    },
+    "visibleText": "应用 编辑 新建项目 首页 项目 画布 电商 漫剧 技能库 灵感库 我的素材 所有项目 工作区 0 文件夹为空 画布 1 画布 5 天前 电商 1 电商出图 5 天前 漫剧 0 暂无项目 全局设置 检查更新 ☾ 深色 给图片与视频生成用的无限画布 新建项目 我的项目",
+    "navigation": [
+      {
+        "tag": "button",
+        "role": null,
+        "label": "取消常驻展开（移开鼠标后自动收起）",
+        "anchor": [
+          [
+            "aria-label",
+            "取消常驻展开（移开鼠标后自动收起）"
+          ],
+          [
+            "data-sidebar-toggle",
+            "true"
+          ],
+          [
+            "data-title-sidebar",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "应用",
+        "anchor": [
+          [
+            "data-title-menu",
+            "app"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "编辑",
+        "anchor": [
+          [
+            "data-title-menu",
+            "edit"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最小化",
+        "anchor": [
+          [
+            "aria-label",
+            "最小化"
+          ],
+          [
+            "data-title-minimize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最大化",
+        "anchor": [
+          [
+            "aria-label",
+            "最大化"
+          ],
+          [
+            "data-title-maximize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "关闭",
+        "anchor": [
+          [
+            "aria-label",
+            "关闭"
+          ],
+          [
+            "data-title-close",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "aria-label",
+            "新建项目"
+          ],
+          [
+            "data-sidebar-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "首页",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "项目",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/projects"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "画布",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/canvas"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "电商",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/ecommerce"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "漫剧",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/storyboard"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "技能库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/skills"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "灵感库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/inspiration"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "我的素材",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/assets"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建文件夹",
+        "anchor": [
+          [
+            "aria-label",
+            "新建文件夹"
+          ],
+          [
+            "data-project-tree-new-folder",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "工作区 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商出图",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "漫剧 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "全局设置",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "检查更新",
+        "anchor": [
+          [
+            "aria-label",
+            "检查更新"
+          ],
+          [
+            "data-update-check",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "主题：深色",
+        "anchor": [
+          [
+            "aria-label",
+            "主题：深色"
+          ],
+          [
+            "data-theme-setting",
+            "dark"
+          ],
+          [
+            "data-theme-toggle",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "data-home-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "我的项目",
+        "anchor": [
+          [
+            "data-home-projects",
+            "true"
+          ]
+        ]
+      }
+    ],
+    "decorativeImages": [
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 24,
+          "y": 8.5,
+          "width": 16,
+          "height": 16,
+          "top": 8.5,
+          "right": 40,
+          "bottom": 24.5,
+          "left": 24
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 904,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 914,
+          "bottom": 21.5,
+          "left": 904
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 950,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 960,
+          "bottom": 21.5,
+          "left": 950
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 996,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1006,
+          "bottom": 21.5,
+          "left": 996
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 20,
+          "y": 51,
+          "width": 24,
+          "height": 24,
+          "top": 51,
+          "right": 44,
+          "bottom": 75,
+          "left": 20
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 62,
+          "y": 55,
+          "width": 98.1,
+          "height": 16,
+          "top": 55,
+          "right": 160.1,
+          "bottom": 71,
+          "left": 62
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 23,
+          "y": 102,
+          "width": 18,
+          "height": 18,
+          "top": 102,
+          "right": 41,
+          "bottom": 120,
+          "left": 23
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 149,
+          "width": 20,
+          "height": 20,
+          "top": 149,
+          "right": 42,
+          "bottom": 169,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 186,
+          "width": 20,
+          "height": 20,
+          "top": 186,
+          "right": 42,
+          "bottom": 206,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 223,
+          "width": 20,
+          "height": 20,
+          "top": 223,
+          "right": 42,
+          "bottom": 243,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 260,
+          "width": 20,
+          "height": 20,
+          "top": 260,
+          "right": 42,
+          "bottom": 280,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 297,
+          "width": 20,
+          "height": 20,
+          "top": 297,
+          "right": 42,
+          "bottom": 317,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 334,
+          "width": 20,
+          "height": 20,
+          "top": 334,
+          "right": 42,
+          "bottom": 354,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 371,
+          "width": 20,
+          "height": 20,
+          "top": 371,
+          "right": 42,
+          "bottom": 391,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 408,
+          "width": 20,
+          "height": 20,
+          "top": 408,
+          "right": 42,
+          "bottom": 428,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 206,
+          "y": 453.5,
+          "width": 12,
+          "height": 15,
+          "top": 453.5,
+          "right": 218,
+          "bottom": 468.5,
+          "left": 206
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 480,
+          "width": 16,
+          "height": 16,
+          "top": 480,
+          "right": 32,
+          "bottom": 496,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 481.5,
+          "width": 13,
+          "height": 13,
+          "top": 481.5,
+          "right": 157.8,
+          "bottom": 494.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 482,
+          "width": 12,
+          "height": 14,
+          "top": 482,
+          "right": 190,
+          "bottom": 496,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 481.5,
+          "width": 12,
+          "height": 15,
+          "top": 481.5,
+          "right": 215,
+          "bottom": 496.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 540,
+          "width": 16,
+          "height": 16,
+          "top": 540,
+          "right": 32,
+          "bottom": 556,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 541.5,
+          "width": 13,
+          "height": 13,
+          "top": 541.5,
+          "right": 157.8,
+          "bottom": 554.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 568.5,
+          "width": 15,
+          "height": 15,
+          "top": 568.5,
+          "right": 50,
+          "bottom": 583.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 570,
+          "width": 12,
+          "height": 14,
+          "top": 570,
+          "right": 190,
+          "bottom": 584,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 569.5,
+          "width": 12,
+          "height": 15,
+          "top": 569.5,
+          "right": 215,
+          "bottom": 584.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 602,
+          "width": 16,
+          "height": 16,
+          "top": 602,
+          "right": 32,
+          "bottom": 618,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 603.5,
+          "width": 13,
+          "height": 13,
+          "top": 603.5,
+          "right": 157.8,
+          "bottom": 616.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 630.5,
+          "width": 15,
+          "height": 15,
+          "top": 630.5,
+          "right": 50,
+          "bottom": 645.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 632,
+          "width": 12,
+          "height": 14,
+          "top": 632,
+          "right": 190,
+          "bottom": 646,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 631.5,
+          "width": 12,
+          "height": 15,
+          "top": 631.5,
+          "right": 215,
+          "bottom": 646.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 664,
+          "width": 16,
+          "height": 16,
+          "top": 664,
+          "right": 32,
+          "bottom": 680,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 665.5,
+          "width": 13,
+          "height": 13,
+          "top": 665.5,
+          "right": 157.8,
+          "bottom": 678.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 584,
+          "width": 20,
+          "height": 20,
+          "top": 584,
+          "right": 42,
+          "bottom": 604,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 624,
+          "width": 20,
+          "height": 20,
+          "top": 624,
+          "right": 42,
+          "bottom": 644,
+          "left": 22
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 588.5,
+          "y": 267.4,
+          "width": 72,
+          "height": 72,
+          "top": 267.4,
+          "right": 660.5,
+          "bottom": 339.4,
+          "left": 588.5
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 538.7,
+          "y": 347.4,
+          "width": 171.6,
+          "height": 28,
+          "top": 347.4,
+          "right": 710.3,
+          "bottom": 375.4,
+          "left": 538.7
+        }
+      }
+    ],
+    "regions": [
+      {
+        "tag": "header",
+        "anchor": [
+          [
+            "data-tauri-drag-region",
+            "true"
+          ],
+          [
+            "data-title-bar",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1024,
+          "height": 33,
+          "top": 0,
+          "right": 1024,
+          "bottom": 33,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "aside",
+        "anchor": [
+          [
+            "aria-label",
+            "一级导航"
+          ],
+          [
+            "data-app-sidebar",
+            "true"
+          ],
+          [
+            "data-sidebar-open",
+            "true"
+          ],
+          [
+            "data-sidebar-pinned",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 33,
+          "width": 240,
+          "height": 667,
+          "top": 33,
+          "right": 240,
+          "bottom": 700,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "nav",
+        "anchor": [],
+        "rect": {
+          "x": 12,
+          "y": 141,
+          "width": 216,
+          "height": 295,
+          "top": 141,
+          "right": 228,
+          "bottom": 436,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "section",
+        "anchor": [
+          [
+            "data-sidebar-project-tree",
+            "true"
+          ],
+          [
+            "data-sidebar-text",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 448,
+          "width": 216,
+          "height": 121,
+          "top": 448,
+          "right": 228,
+          "bottom": 569,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "button",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 576,
+          "width": 216,
+          "height": 36,
+          "top": 576,
+          "right": 228,
+          "bottom": 612,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "main",
+        "anchor": [
+          [
+            "data-app-workspace",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 240,
+          "y": 48,
+          "width": 769,
+          "height": 637,
+          "top": 48,
+          "right": 1009,
+          "bottom": 685,
+          "left": 240
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      }
+    ],
+    "overflow": {
+      "horizontal": 0,
+      "vertical": 0
+    }
+  },
+  "auxiliary-1178x762": {
+    "url": "/",
+    "viewport": {
+      "width": 1178,
+      "height": 762,
+      "dpr": 1
+    },
+    "visibleText": "应用 编辑 新建项目 首页 项目 画布 电商 漫剧 技能库 灵感库 我的素材 所有项目 工作区 0 文件夹为空 画布 1 画布 5 天前 电商 1 电商出图 5 天前 漫剧 0 暂无项目 全局设置 检查更新 ☾ 深色 给图片与视频生成用的无限画布 新建项目 我的项目",
+    "navigation": [
+      {
+        "tag": "button",
+        "role": null,
+        "label": "取消常驻展开（移开鼠标后自动收起）",
+        "anchor": [
+          [
+            "aria-label",
+            "取消常驻展开（移开鼠标后自动收起）"
+          ],
+          [
+            "data-sidebar-toggle",
+            "true"
+          ],
+          [
+            "data-title-sidebar",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "应用",
+        "anchor": [
+          [
+            "data-title-menu",
+            "app"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "编辑",
+        "anchor": [
+          [
+            "data-title-menu",
+            "edit"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最小化",
+        "anchor": [
+          [
+            "aria-label",
+            "最小化"
+          ],
+          [
+            "data-title-minimize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "最大化",
+        "anchor": [
+          [
+            "aria-label",
+            "最大化"
+          ],
+          [
+            "data-title-maximize",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "关闭",
+        "anchor": [
+          [
+            "aria-label",
+            "关闭"
+          ],
+          [
+            "data-title-close",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "aria-label",
+            "新建项目"
+          ],
+          [
+            "data-sidebar-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "首页",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "项目",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/projects"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "画布",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/canvas"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "电商",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/ecommerce"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "漫剧",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/storyboard"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "技能库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/skills"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "灵感库",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/inspiration"
+          ]
+        ]
+      },
+      {
+        "tag": "a",
+        "role": null,
+        "label": "我的素材",
+        "anchor": [
+          [
+            "data-discover",
+            "true"
+          ],
+          [
+            "data-sidebar-item",
+            "/assets"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建文件夹",
+        "anchor": [
+          [
+            "aria-label",
+            "新建文件夹"
+          ],
+          [
+            "data-project-tree-new-folder",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "工作区 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "画布",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商 1",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "电商出图",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "置顶",
+        "anchor": [
+          [
+            "aria-label",
+            "置顶"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "更多",
+        "anchor": [
+          [
+            "aria-label",
+            "更多"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "漫剧 0",
+        "anchor": []
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "全局设置",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "检查更新",
+        "anchor": [
+          [
+            "aria-label",
+            "检查更新"
+          ],
+          [
+            "data-update-check",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "主题：深色",
+        "anchor": [
+          [
+            "aria-label",
+            "主题：深色"
+          ],
+          [
+            "data-theme-setting",
+            "dark"
+          ],
+          [
+            "data-theme-toggle",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "新建项目",
+        "anchor": [
+          [
+            "data-home-new",
+            "true"
+          ]
+        ]
+      },
+      {
+        "tag": "button",
+        "role": null,
+        "label": "我的项目",
+        "anchor": [
+          [
+            "data-home-projects",
+            "true"
+          ]
+        ]
+      }
+    ],
+    "decorativeImages": [
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 24,
+          "y": 8.5,
+          "width": 16,
+          "height": 16,
+          "top": 8.5,
+          "right": 40,
+          "bottom": 24.5,
+          "left": 24
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1058,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1068,
+          "bottom": 21.5,
+          "left": 1058
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1104,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1114,
+          "bottom": 21.5,
+          "left": 1104
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 1150,
+          "y": 11.5,
+          "width": 10,
+          "height": 10,
+          "top": 11.5,
+          "right": 1160,
+          "bottom": 21.5,
+          "left": 1150
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 20,
+          "y": 51,
+          "width": 24,
+          "height": 24,
+          "top": 51,
+          "right": 44,
+          "bottom": 75,
+          "left": 20
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 62,
+          "y": 55,
+          "width": 98.1,
+          "height": 16,
+          "top": 55,
+          "right": 160.1,
+          "bottom": 71,
+          "left": 62
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 23,
+          "y": 102,
+          "width": 18,
+          "height": 18,
+          "top": 102,
+          "right": 41,
+          "bottom": 120,
+          "left": 23
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 149,
+          "width": 20,
+          "height": 20,
+          "top": 149,
+          "right": 42,
+          "bottom": 169,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 186,
+          "width": 20,
+          "height": 20,
+          "top": 186,
+          "right": 42,
+          "bottom": 206,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 223,
+          "width": 20,
+          "height": 20,
+          "top": 223,
+          "right": 42,
+          "bottom": 243,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 260,
+          "width": 20,
+          "height": 20,
+          "top": 260,
+          "right": 42,
+          "bottom": 280,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 297,
+          "width": 20,
+          "height": 20,
+          "top": 297,
+          "right": 42,
+          "bottom": 317,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 334,
+          "width": 20,
+          "height": 20,
+          "top": 334,
+          "right": 42,
+          "bottom": 354,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 371,
+          "width": 20,
+          "height": 20,
+          "top": 371,
+          "right": 42,
+          "bottom": 391,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 408,
+          "width": 20,
+          "height": 20,
+          "top": 408,
+          "right": 42,
+          "bottom": 428,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 206,
+          "y": 453.5,
+          "width": 12,
+          "height": 15,
+          "top": 453.5,
+          "right": 218,
+          "bottom": 468.5,
+          "left": 206
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 480,
+          "width": 16,
+          "height": 16,
+          "top": 480,
+          "right": 32,
+          "bottom": 496,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 481.5,
+          "width": 13,
+          "height": 13,
+          "top": 481.5,
+          "right": 157.8,
+          "bottom": 494.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 482,
+          "width": 12,
+          "height": 14,
+          "top": 482,
+          "right": 190,
+          "bottom": 496,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 481.5,
+          "width": 12,
+          "height": 15,
+          "top": 481.5,
+          "right": 215,
+          "bottom": 496.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 540,
+          "width": 16,
+          "height": 16,
+          "top": 540,
+          "right": 32,
+          "bottom": 556,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 541.5,
+          "width": 13,
+          "height": 13,
+          "top": 541.5,
+          "right": 157.8,
+          "bottom": 554.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 568.5,
+          "width": 15,
+          "height": 15,
+          "top": 568.5,
+          "right": 50,
+          "bottom": 583.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 570,
+          "width": 12,
+          "height": 14,
+          "top": 570,
+          "right": 190,
+          "bottom": 584,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 569.5,
+          "width": 12,
+          "height": 15,
+          "top": 569.5,
+          "right": 215,
+          "bottom": 584.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 602,
+          "width": 16,
+          "height": 16,
+          "top": 602,
+          "right": 32,
+          "bottom": 618,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 603.5,
+          "width": 13,
+          "height": 13,
+          "top": 603.5,
+          "right": 157.8,
+          "bottom": 616.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 35,
+          "y": 630.5,
+          "width": 15,
+          "height": 15,
+          "top": 630.5,
+          "right": 50,
+          "bottom": 645.5,
+          "left": 35
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 178,
+          "y": 632,
+          "width": 12,
+          "height": 14,
+          "top": 632,
+          "right": 190,
+          "bottom": 646,
+          "left": 178
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 203,
+          "y": 631.5,
+          "width": 12,
+          "height": 15,
+          "top": 631.5,
+          "right": 215,
+          "bottom": 646.5,
+          "left": 203
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 16,
+          "y": 664,
+          "width": 16,
+          "height": 16,
+          "top": 664,
+          "right": 32,
+          "bottom": 680,
+          "left": 16
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 144.8,
+          "y": 665.5,
+          "width": 13,
+          "height": 13,
+          "top": 665.5,
+          "right": 157.8,
+          "bottom": 678.5,
+          "left": 144.8
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 646,
+          "width": 20,
+          "height": 20,
+          "top": 646,
+          "right": 42,
+          "bottom": 666,
+          "left": 22
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 22,
+          "y": 686,
+          "width": 20,
+          "height": 20,
+          "top": 686,
+          "right": 42,
+          "bottom": 706,
+          "left": 22
+        }
+      },
+      {
+        "tag": "img",
+        "src": "data:image/svg+xml,%3c?xml%20version=%271.0%27%20encoding=%27UTF-8%27?%3e%3csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20800.97%20803.69%27%20role=%27img%27%20aria-labelledby=%27title%20desc%27%3e%3ctitle%20id=%27title%27%3e%E7%8C%AB%E5%92%AA%20Logo%20%E5%BE%AA%E7%8E%AF%E5%8A%A8%E7%94%BB%3c/title%3e%3cdesc%20id=%27desc%27%3e%E9%BB%91%E8%89%B2%E4%B8%8D%E8%A7%84%E5%88%99%E5%9C%86%E8%A7%92%E5%A4%9A%E9%9D%A2%E5%BD%A2%E3%80%81%E9%80%8F%E6%98%8E%E7%8C%AB%E5%BD%A2%E9%95%82%E7%A9%BA%E3%80%81%E7%9C%BC%E7%9D%9B%E5%92%8C%E9%BC%BB%E5%AD%90%E7%9A%84%E5%BE%AA%E7%8E%AF%20Logo%20%E5%8A%A8%E7%94%BB%E3%80%82%3c/desc%3e%3cdefs%3e%3cstyle%3e%20.ink%20{%20fill:%23212121;%20}%20%3c/style%3e%3c/defs%3e%3cg%20id=%27logo%27%20transform-origin=%27400.5px%20401.8px%27%3e%3c!--%20%E7%94%A8%E6%88%B7%E5%8E%9F%E5%A7%8B%E5%A4%96%E8%BD%AE%E5%BB%93%E8%B7%AF%E5%BE%84%EF%BC%9B%E5%86%85%E8%BD%AE%E5%BB%93%E9%80%9A%E8%BF%87%20evenodd%20%E4%BF%9D%E6%8C%81%E7%8C%AB%E8%BA%AB%E4%BD%8D%E4%BA%8E%E9%BB%91%E8%89%B2%E8%8C%83%E5%9B%B4%E5%86%85%E3%80%82%20--%3e%3cpath%20id=%27outer%27%20class=%27ink%27%20fill-rule=%27evenodd%27%20d=%27M799.96,282.27c-19.13-103.96-63.44-118.42-158.09-187.85C559.15,36.2,519.36-3.32,424.87.22c-26.49.49-80.41,19.03-91.69,21.64-44.79,13.9-128.74,38.76-195.14,62.77C55.53,120.46,32.9,181.13,25.17,265.71c-8.71,70.08-16.04,140.32-23.83,210.45-4.08,37.12,1.08,78.61,16.62,112.18,21.68,52.91,78.52,131.39,104.97,175.48,9.46,13.25,20.72,27.25,33.47,36.55,2.44-90.7,10.93-205.7,26.93-298.18,13.92-78.8,24.42-135.1,53.34-208.88,7.64-41.93,17.03-85.3,32.16-125.27,16.83-36.78,37.07,24.1,47.84,41.76,38.61,78.19,12.62,20.64,141.14,41.03,52.94-92.66,58.62-160.97,93.48-4.31q2.42.95,0,0c3.61,16.07,5.52,32.34,8.6,48.3,14.09,35.04,26.65,84.47,34.39,118.86,27.04,118.7,39.66,257.23,42.63,376.91.54,5.3-.88,10.67.75,13.1,9.23-5.67,13.95-8.56,14.16-8.69,44.64-27.31,83.25-71.87,99.87-121.59,13.84-51.68,12.87-86.12,21.86-143.05,8.53-71.93,20.76-148.39,27.36-221.04.19-9.01-.13-18.03-.95-27.05Z%27/%3e%3cg%20id=%27eyes%27%20class=%27ink%27%20transform-box=%27view-box%27%20transform-origin=%27400.5px%20337px%27%3e%3cpath%20id=%27left-eye%27%20d=%27M325.3%20312.54c45.47.78%2045.46%2068.41%200%2069.18-45.47-.78-45.46-68.41%200-69.18Z%27/%3e%3cpath%20id=%27right-eye%27%20d=%27M476.25%20312.47c45.49.78%2045.49%2068.45%200%2069.22-45.49-.78-45.49-68.45%200-69.22Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%271%201;1%201;1%20.08;1%20.08;1%201;1%201%27%20keyTimes=%270;.36;.42;.49;.55;1%27/%3e%3c/g%3e%3cpath%20id=%27nose%27%20class=%27ink%27%20d=%27M401.04%20375.04c4.61.63%2016.43-1.39%2016.79%202.82-5.83%2011.45-11.7%2021.08-15.52%2027.87-.77%201.31-1.34%201.3-2.14.02-4.03-6.68-9.24-15.67-15.65-26.97-1.65-5.15%2012.19-2.99%2016.52-3.74Z%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27rotate%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20values=%270%20400.5%20401.8;-3.5%20400.5%20401.8;3.5%20400.5%20401.8;0%20400.5%20401.8%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.4%200%20.2%201;.4%200%20.2%201;.4%200%20.2%201%27/%3e%3canimateTransform%20attributeName=%27transform%27%20type=%27scale%27%20dur=%274.8s%27%20repeatCount=%27indefinite%27%20additive=%27sum%27%20values=%271%201;1.04%20.97;.97%201.03;1%201%27%20keyTimes=%270;.28;.68;1%27%20calcMode=%27spline%27%20keySplines=%27.3%200%20.2%201;.4%200%20.2%201;.3%200%20.2%201%27/%3e%3c/g%3e%3c/svg%3e",
+        "rect": {
+          "x": 665.5,
+          "y": 298.4,
+          "width": 72,
+          "height": 72,
+          "top": 298.4,
+          "right": 737.5,
+          "bottom": 370.4,
+          "left": 665.5
+        }
+      },
+      {
+        "tag": "svg",
+        "src": "",
+        "rect": {
+          "x": 615.7,
+          "y": 378.4,
+          "width": 171.6,
+          "height": 28,
+          "top": 378.4,
+          "right": 787.3,
+          "bottom": 406.4,
+          "left": 615.7
+        }
+      }
+    ],
+    "regions": [
+      {
+        "tag": "header",
+        "anchor": [
+          [
+            "data-tauri-drag-region",
+            "true"
+          ],
+          [
+            "data-title-bar",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 1178,
+          "height": 33,
+          "top": 0,
+          "right": 1178,
+          "bottom": 33,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "aside",
+        "anchor": [
+          [
+            "aria-label",
+            "一级导航"
+          ],
+          [
+            "data-app-sidebar",
+            "true"
+          ],
+          [
+            "data-sidebar-open",
+            "true"
+          ],
+          [
+            "data-sidebar-pinned",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 0,
+          "y": 33,
+          "width": 240,
+          "height": 729,
+          "top": 33,
+          "right": 240,
+          "bottom": 762,
+          "left": 0
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "nav",
+        "anchor": [],
+        "rect": {
+          "x": 12,
+          "y": 141,
+          "width": 216,
+          "height": 295,
+          "top": 141,
+          "right": 228,
+          "bottom": 436,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "section",
+        "anchor": [
+          [
+            "data-sidebar-project-tree",
+            "true"
+          ],
+          [
+            "data-sidebar-text",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 448,
+          "width": 216,
+          "height": 183,
+          "top": 448,
+          "right": 228,
+          "bottom": 631,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "button",
+        "anchor": [
+          [
+            "data-sidebar-settings",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 12,
+          "y": 638,
+          "width": 216,
+          "height": 36,
+          "top": 638,
+          "right": 228,
+          "bottom": 674,
+          "left": 12
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      },
+      {
+        "tag": "main",
+        "anchor": [
+          [
+            "data-app-workspace",
+            "true"
+          ]
+        ],
+        "rect": {
+          "x": 240,
+          "y": 48,
+          "width": 923,
+          "height": 699,
+          "top": 48,
+          "right": 1163,
+          "bottom": 747,
+          "left": 240
+        },
+        "overflow": {
+          "horizontal": false,
+          "vertical": false
+        }
+      }
+    ],
+    "overflow": {
+      "horizontal": 0,
+      "vertical": 0
+    }
+  }
+}

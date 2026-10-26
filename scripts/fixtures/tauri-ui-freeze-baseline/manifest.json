@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-26T13:57:24.153Z",
+  "baselineRef": "199a6d9",
+  "sourceCommit": "199a6d9cb2867d93751df2be4a0d1df45bc5e4ed",
+  "sourceCommitMatchesBaselineRef": true,
+  "dirtyUiSourcesAllowed": false,
+  "viewports": [
+    {
+      "name": "real-tauri-1440x900",
+      "width": 1440,
+      "height": 900,
+      "dpr": 1,
+      "screenshot": "real-tauri-1440x900.png",
+      "bytes": 40541,
+      "sha256": "844b06e4b758fa71c7a298809841c08731a1b2bd22f4f85cd3d7928d83e96808",
+      "domSha256": "0e0919b1abebcb18f1f40d19c014df673d11b8c04a9adb0d855ed3aa91e8875c"
+    },
+    {
+      "name": "auxiliary-1024x700",
+      "width": 1024,
+      "height": 700,
+      "dpr": 1,
+      "screenshot": "auxiliary-1024x700.png",
+      "bytes": 32413,
+      "sha256": "c3bb4ac08173f4b6bbbd215eb4be5962333b85257f040eb9e6803f646442e450",
+      "domSha256": "edb87f22f52a906f7080c9cadcd74978a28c202bc8fc1f885265b21404424f9c"
+    },
+    {
+      "name": "auxiliary-1178x762",
+      "width": 1178,
+      "height": 762,
+      "dpr": 1,
+      "screenshot": "auxiliary-1178x762.png",
+      "bytes": 35018,
+      "sha256": "0a8a714f9c906d6c16925acd26a8a7fc293aaac2e40d24d4ac0ed81d6e1f6b6a",
+      "domSha256": "9455935ef5d69a681c6822c0c7dd211477b90080dab1866acd8e0c0a07123796"
+    }
+  ],
+  "domSnapshotSha256": "be5196c98d5c89127838b2e1193cdb90b3c684c69db0c2fb13e197825b0dfa93",
+  "note": "Baseline screenshots and DOM snapshots are written only from an explicitly requested and verified capture."
+}
