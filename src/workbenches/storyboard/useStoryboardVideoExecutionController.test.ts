@@ -18,6 +18,7 @@ import {
 import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { createMemoryStorage } from '../../platform/memory'
 import { createStoryboardVideoExecutionController } from './useStoryboardVideoExecutionController'
+import { createStoryboardActionStateStore } from './useStoryboardActionState'
 
 function fixture(): {
   doc: StoryboardDoc
@@ -257,14 +258,7 @@ describe('useStoryboardVideoExecutionController', () => {
         replaced = next
       },
       setLay: vi.fn(),
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
 
     expect(await controller.makeShotVideo(shot)).toBe(true)
@@ -309,7 +303,7 @@ describe('useStoryboardVideoExecutionController', () => {
     let captured: StoryboardRunPlan | undefined
     let replaced: StoryboardDoc | undefined
     let lay = { kind: 'idle', text: '' }
-    const setBusy = vi.fn()
+    const actionState = createStoryboardActionStateStore()
     const run = vi.fn(async (plan: StoryboardRunPlan) => {
       captured = plan
       return outcomeFor(plan, 'edited-video')
@@ -363,14 +357,7 @@ describe('useStoryboardVideoExecutionController', () => {
       setLay: (value) => {
         if (typeof value !== 'function') lay = value
       },
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: setBusy,
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState,
     })
 
     await controller.makeVideoEdit(
@@ -412,8 +399,7 @@ describe('useStoryboardVideoExecutionController', () => {
       videoNodeId: 'video-edited-node',
       videoHash: 'edited-video',
     })
-    expect(setBusy).toHaveBeenNthCalledWith(1, produced.shots[0]!.id)
-    expect(setBusy).toHaveBeenLastCalledWith(null)
+    expect(actionState.getBusy().videoEdit).toEqual({})
     expect(lay).toEqual({
       kind: 'done',
       text: '这一镜的视频已按 720p 编辑完成（已参考当前画面）',
@@ -479,14 +465,7 @@ describe('useStoryboardVideoExecutionController', () => {
       flush: async () => {},
       replaceDoc: () => {},
       setLay: () => {},
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
 
     await controller.makeVideoUpscale(
@@ -651,14 +630,7 @@ describe('useStoryboardVideoExecutionController', () => {
       setLay: (value) => {
         if (typeof value !== 'function') lay = value
       },
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
 
     await controller.runEpisodeVideos(withExistingNode.shots)
@@ -745,14 +717,7 @@ describe('useStoryboardVideoExecutionController', () => {
       setLay: (value) => {
         if (typeof value !== 'function') lay = value
       },
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
 
     await controller.runEpisodeVideos(doc.shots)
@@ -795,14 +760,7 @@ describe('useStoryboardVideoExecutionController', () => {
       flush: async () => {},
       replaceDoc: () => {},
       setLay: vi.fn(),
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
     await noImageController.runEpisodeVideos(noImage.shots)
     expect(noImageRun).not.toHaveBeenCalled()
@@ -828,14 +786,7 @@ describe('useStoryboardVideoExecutionController', () => {
       setLay: (value) => {
         if (typeof value !== 'function') lay = value
       },
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
     await noModelController.runEpisodeVideos(doc.shots)
     expect(noModelRun).not.toHaveBeenCalled()
@@ -917,14 +868,7 @@ describe('useStoryboardVideoExecutionController', () => {
         replaced = next
       },
       setLay: vi.fn(),
-      videoUpscaleBusy: null,
-      setVideoUpscaleBusy: vi.fn(),
-      videoEraseBusy: null,
-      setVideoEraseBusy: vi.fn(),
-      videoEditBusy: null,
-      setVideoEditBusy: vi.fn(),
-      videoExtendBusy: null,
-      setVideoExtendBusy: vi.fn(),
+      actionState: createStoryboardActionStateStore(),
     })
 
     expect(await controller.makeShotVideo(withVideo.shots[0]!)).toBe(true)
@@ -997,14 +941,7 @@ describe('useStoryboardVideoExecutionController', () => {
         flush: async () => {},
         replaceDoc: () => {},
         setLay: vi.fn(),
-        videoUpscaleBusy: null,
-        setVideoUpscaleBusy: vi.fn(),
-        videoEraseBusy: null,
-        setVideoEraseBusy: vi.fn(),
-        videoEditBusy: null,
-        setVideoEditBusy: vi.fn(),
-        videoExtendBusy: null,
-        setVideoExtendBusy: vi.fn(),
+        actionState: createStoryboardActionStateStore(),
       })
 
       const running = controller.runEpisodeVideos(doc.shots)
@@ -1017,5 +954,111 @@ describe('useStoryboardVideoExecutionController', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('same-shot video edit double-click sends once', async () => {
+    const { doc, nodes } = fixture()
+    const withVideo: StoryboardDoc = {
+      ...doc,
+      shots: doc.shots.map((shot) => ({
+        ...shot,
+        videoHash: 'old-video',
+        videoNodeId: 'video-old',
+      })),
+    }
+    const graphNodes = [
+      ...nodes,
+      {
+        id: 'video-old',
+        type: 'generation',
+        x: 300,
+        y: 20,
+        w: 200,
+        h: 200,
+        parentId: null,
+        data: { assetMime: 'video/mp4' },
+      } as StoryboardCanvasNode,
+    ]
+    const actionState = createStoryboardActionStateStore()
+    let plan: StoryboardRunPlan | undefined
+    let resolveRun!: (
+      outcome: Awaited<ReturnType<StoryboardExecutionApi['run']>>,
+    ) => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const pending = new Promise<
+      Awaited<ReturnType<StoryboardExecutionApi['run']>>
+    >((resolve) => {
+      resolveRun = resolve
+    })
+    const run = vi.fn((nextPlan: StoryboardRunPlan) => {
+      plan = nextPlan
+      markStarted()
+      return pending
+    })
+    const produced: StoryboardDoc = {
+      ...withVideo,
+      shots: withVideo.shots.map((shot) => ({
+        ...shot,
+        videoHash: 'edited-video',
+      })),
+    }
+    const controller = createStoryboardVideoExecutionController({
+      currentDoc: () => withVideo,
+      graphNodes,
+      graphEdges: [] as StoryboardCanvasEdge[],
+      liveNodeIds: new Set(['image-node', 'video-old']),
+      channels: {} as ChannelStore,
+      storage: createMemoryStorage(),
+      canvas: {
+        createGenerationNode: vi.fn(() => 'video-edited-node'),
+        updateNodeData: vi.fn(),
+        connectEdge: vi.fn(),
+        removeEdge: vi.fn(),
+        beginPlan: vi.fn(),
+        endPlan: vi.fn(),
+        resolveGenerationData: async (data: Record<string, unknown>) => data,
+      } as unknown as StoryboardCanvasPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents: { load: async () => produced, save: async () => {} },
+      projectId: 'project-1',
+      flush: async () => {},
+      replaceDoc: () => {},
+      setLay: vi.fn(),
+      actionState,
+    })
+    const target = {
+      channelId: 'edit-channel',
+      channelName: '编辑渠道',
+      model: '全能视频X 视频编辑',
+      label: '视频编辑',
+      resolutions: ['720p'],
+      supportsReferenceImage: false,
+      requiresReferenceImage: false,
+    } as const
+
+    const first = controller.makeVideoEdit(
+      produced.shots[0]!,
+      target,
+      '改成夜景',
+      '720p',
+      false,
+    )
+    await started
+    expect(actionState.isBusy('video-edit', withVideo.shots[0]!.id)).toBe(true)
+    await controller.makeVideoEdit(
+      produced.shots[0]!,
+      target,
+      '改成夜景',
+      '720p',
+      false,
+    )
+    expect(run).toHaveBeenCalledTimes(1)
+
+    resolveRun(outcomeFor(plan!, 'edited-video'))
+    await first
+    expect(actionState.isBusy('video-edit', withVideo.shots[0]!.id)).toBe(false)
   })
 })

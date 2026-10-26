@@ -1,6 +1,15 @@
 import { ShotCard } from './ShotCard'
 import type { StoryboardEditorViewProps } from './StoryboardEditor.types'
+import type { StoryboardShotBusySnapshot } from './StoryboardEditor.types'
 import styles from './StoryboardPage.module.css'
+
+function busyShotId(
+  busy: StoryboardShotBusySnapshot,
+  shotId: string,
+): string | null {
+  if (typeof busy === 'string') return busy === shotId ? shotId : null
+  return busy?.[shotId] ? shotId : null
+}
 
 export function StoryboardShotListPanel({
   doc,
@@ -73,7 +82,7 @@ export function StoryboardShotListPanel({
               ? () => void digitalHumanActions.makeDigitalHuman(shot)
               : undefined
           }
-          digitalHumanBusyShotId={digitalHumanBusy}
+          digitalHumanBusyShotId={busyShotId(digitalHumanBusy, shot.id)}
           digitalHumanModel={digitalHumanTarget?.model}
           onMove={actions.moveShot}
           onRemove={actions.removeShot}
@@ -95,7 +104,7 @@ export function StoryboardShotListPanel({
               shots[index + 1]?.imageHash,
           )}
           videoUpscaleTargets={videoUpscaleTargets}
-          videoUpscaleBusyShotId={videoUpscaleBusy}
+          videoUpscaleBusyShotId={busyShotId(videoUpscaleBusy, shot.id)}
           onVideoUpscale={
             shot.videoHash &&
             shot.videoNodeId &&
@@ -111,7 +120,7 @@ export function StoryboardShotListPanel({
               : undefined
           }
           videoEraseTargets={videoEraseTargets}
-          videoEraseBusyShotId={videoEraseBusy}
+          videoEraseBusyShotId={busyShotId(videoEraseBusy, shot.id)}
           onVideoErase={
             shot.videoHash &&
             shot.videoNodeId &&
@@ -121,7 +130,7 @@ export function StoryboardShotListPanel({
               : undefined
           }
           videoEditTargets={videoEditTargets}
-          videoEditBusyShotId={videoEditBusy}
+          videoEditBusyShotId={busyShotId(videoEditBusy, shot.id)}
           onVideoEdit={
             shot.videoHash &&
             shot.videoNodeId &&
@@ -138,7 +147,7 @@ export function StoryboardShotListPanel({
               : undefined
           }
           videoExtendTargets={videoExtendTargets}
-          videoExtendBusyShotId={videoExtendBusy}
+          videoExtendBusyShotId={busyShotId(videoExtendBusy, shot.id)}
           onVideoExtend={
             shot.videoHash &&
             shot.videoNodeId &&

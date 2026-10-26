@@ -35,6 +35,10 @@ import { videoParamsFor } from '../../domain/storyboard/videoParams'
 import type { StoragePort } from '../../platform/ports'
 import { createId } from '../../shared/id'
 import { asAppError, describeError } from '../../shared/result'
+import type {
+  StoryboardActionKind,
+  StoryboardActionStatePort,
+} from './useStoryboardActionState'
 
 export interface VideoUpscaleTarget {
   channelId: string
@@ -90,14 +94,7 @@ export interface StoryboardVideoExecutionControllerArgs {
       text: string
     }>
   >
-  videoUpscaleBusy: string | null
-  setVideoUpscaleBusy: Dispatch<SetStateAction<string | null>>
-  videoEraseBusy: string | null
-  setVideoEraseBusy: Dispatch<SetStateAction<string | null>>
-  videoEditBusy: string | null
-  setVideoEditBusy: Dispatch<SetStateAction<string | null>>
-  videoExtendBusy: string | null
-  setVideoExtendBusy: Dispatch<SetStateAction<string | null>>
+  actionState: Pick<StoryboardActionStatePort, 'tryAcquire'>
 }
 
 interface PreparedShotVideo {
@@ -140,14 +137,7 @@ export function createStoryboardVideoExecutionController(
     flush,
     replaceDoc,
     setLay,
-    videoUpscaleBusy,
-    setVideoUpscaleBusy,
-    videoEraseBusy,
-    setVideoEraseBusy,
-    videoEditBusy,
-    setVideoEditBusy,
-    videoExtendBusy,
-    setVideoExtendBusy,
+    actionState,
   } = args
 
   const sourceNodeOf = (shot: StoryboardShot) =>
@@ -664,7 +654,7 @@ export function createStoryboardVideoExecutionController(
     }
   }
 
-  const runPostprocess = async (input: {
+  const runPostprocessWithLease = async (input: {
     shot: StoryboardShot
     action: StoryboardVideoPostprocessAction
     target: StoryboardRunTarget
@@ -676,7 +666,7 @@ export function createStoryboardVideoExecutionController(
     runningText: string
     successText: string
     transactionLabel: string
-    setBusy: Dispatch<SetStateAction<string | null>>
+    busyKind: StoryboardActionKind
   }) => {
     const document = currentDoc()
     if (!document) {
@@ -712,7 +702,6 @@ export function createStoryboardVideoExecutionController(
       includeReferenceImage: input.includeReferenceImage,
     })
 
-    input.setBusy(input.shot.id)
     setLay({ kind: 'running', text: input.runningText })
     const timer = globalThis.setTimeout(
       () => execution.cancel(plan.id),
@@ -795,7 +784,18 @@ export function createStoryboardVideoExecutionController(
       return false
     } finally {
       globalThis.clearTimeout(timer)
-      input.setBusy(null)
+    }
+  }
+
+  const runPostprocess = async (
+    input: Parameters<typeof runPostprocessWithLease>[0],
+  ) => {
+    const lease = actionState.tryAcquire(input.busyKind, input.shot.id)
+    if (!lease) return false
+    try {
+      return await runPostprocessWithLease(input)
+    } finally {
+      lease.release()
     }
   }
 
@@ -805,7 +805,6 @@ export function createStoryboardVideoExecutionController(
     resolution: string,
     frameRate: number | null,
   ) => {
-    if (videoUpscaleBusy) return
     if (
       !shot.videoHash ||
       !shot.videoNodeId ||
@@ -837,7 +836,7 @@ export function createStoryboardVideoExecutionController(
           ? '这一镜的视频补帧已完成'
           : `这一镜已生成 ${resolution}${frameRate !== null ? ` · ${frameRate}fps` : ''} 超清视频`,
       transactionLabel: `镜头视频${actionLabel}`,
-      setBusy: setVideoUpscaleBusy,
+      busyKind: 'video-upscale',
     })
   }
 
@@ -845,7 +844,6 @@ export function createStoryboardVideoExecutionController(
     shot: StoryboardShot,
     target: VideoEraseTarget,
   ) => {
-    if (videoEraseBusy) return
     if (
       !shot.videoHash ||
       !shot.videoNodeId ||
@@ -869,7 +867,7 @@ export function createStoryboardVideoExecutionController(
       runningText: `正在用 ${target.model} 擦除这一镜的字幕…`,
       successText: '这一镜的字幕已擦除，新视频已保存',
       transactionLabel: '镜头视频字幕擦除',
-      setBusy: setVideoEraseBusy,
+      busyKind: 'video-erase',
     })
   }
 
@@ -880,7 +878,6 @@ export function createStoryboardVideoExecutionController(
     resolution: string,
     useReferenceImage: boolean,
   ) => {
-    if (videoEditBusy) return
     const prompt = instruction.trim()
     if (!prompt) {
       setLay({ kind: 'error', text: '先写清这段视频要改什么' })
@@ -928,7 +925,7 @@ export function createStoryboardVideoExecutionController(
         ? `这一镜的视频已按 ${resolution} 编辑完成${referenceNode ? '（已参考当前画面）' : ''}`
         : `这一镜的视频已编辑完成${referenceNode ? '（已参考当前画面）' : ''}`,
       transactionLabel: '镜头视频编辑',
-      setBusy: setVideoEditBusy,
+      busyKind: 'video-edit',
     })
   }
 
@@ -939,7 +936,6 @@ export function createStoryboardVideoExecutionController(
     resolution: string,
     duration: number | null,
   ) => {
-    if (videoExtendBusy) return
     if (
       !shot.videoHash ||
       !shot.videoNodeId ||
@@ -971,7 +967,7 @@ export function createStoryboardVideoExecutionController(
           ? `这一镜已续写 ${duration} 秒${resolution ? ` · ${resolution}` : ''}`
           : `这一镜已按 ${resolution} 续写完成`,
       transactionLabel: '镜头视频续写',
-      setBusy: setVideoExtendBusy,
+      busyKind: 'video-extend',
     })
   }
 

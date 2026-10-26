@@ -14,6 +14,7 @@ import type { StoryboardDocumentPort } from '../../features/storyboard/execution
 import type { StoryboardRunPlan } from '../../domain/storyboard/runTypes'
 import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { createStoryboardAudioController } from './useStoryboardAudioController'
+import { createStoryboardActionStateStore } from './useStoryboardActionState'
 
 describe('Storyboard audio controller', () => {
   it('生成配音后把 hash 写回台词', async () => {
@@ -101,7 +102,7 @@ describe('Storyboard audio controller', () => {
       setStatus: (text) => {
         status = text
       },
-      setVoiceBusy: () => undefined,
+      actionState: createStoryboardActionStateStore(),
     })
 
     const ok = await controller.voiceLine(updatedShot, line.id)
@@ -158,7 +159,7 @@ describe('Storyboard audio controller', () => {
         applied = next
       },
       setStatus: () => undefined,
-      setVoiceBusy: () => undefined,
+      actionState: createStoryboardActionStateStore(),
     })
 
     controller.onRemoveBgm()
@@ -166,5 +167,160 @@ describe('Storyboard audio controller', () => {
     expect(applied.episodes[0]?.bgmHash).toBeUndefined()
     expect(applied.episodes[0]?.bgmName).toBeUndefined()
     expect(applied.episodes[0]?.bgmVolume).toBeUndefined()
+  })
+
+  it('same voice double-click sends once and releases after failure or cancellation', async () => {
+    const platform = createMemoryPlatform()
+    let doc = addEpisode(emptyStoryboard('p1'))
+    const episode = doc.episodes[0]!
+    doc = addShot(doc, episode.id)
+    doc = addShotLine(doc, doc.shots[0]!.id, { text: '你好' })
+    const shot = doc.shots[0]!
+    const line = shot.lines[0]!
+    const actionState = createStoryboardActionStateStore()
+    let firstPlan: StoryboardRunPlan | undefined
+    let releaseFirst!: () => void
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const firstRun = new Promise<
+      Awaited<ReturnType<StoryboardExecutionApi['run']>>
+    >((resolve) => {
+      releaseFirst = () =>
+        resolve({
+          summary: {
+            runPlanId: firstPlan!.id,
+            mode: firstPlan!.mode,
+            taskResults: firstPlan!.tasks.map((task) => ({
+              taskId: task.id,
+              nodeId: task.nodeId,
+              state: {
+                kind: 'succeeded',
+                result: [
+                  {
+                    hash: 'audio1',
+                    mime: 'audio/mpeg',
+                    bytes: new Uint8Array([1]),
+                  },
+                ],
+                duration: 1,
+              } satisfies RunTaskState,
+            })),
+            succeeded: 1,
+            failed: 0,
+            canceled: 0,
+            startedAt: 1,
+            finishedAt: 2,
+            records: [],
+          },
+          warnings: [],
+          failures: [],
+        })
+    })
+    const outcome = (
+      plan: StoryboardRunPlan,
+      state: RunTaskState,
+      canceledCount: number,
+    ) => ({
+      summary: {
+        runPlanId: plan.id,
+        mode: plan.mode,
+        taskResults: plan.tasks.map((task) => ({
+          taskId: task.id,
+          nodeId: task.nodeId,
+          state,
+        })),
+        succeeded: state.kind === 'succeeded' ? 1 : 0,
+        failed: state.kind === 'failed' ? 1 : 0,
+        canceled: canceledCount,
+        startedAt: 1,
+        finishedAt: 2,
+        records: [],
+      },
+      warnings: [],
+      failures: [],
+    })
+    const run = vi
+      .fn<StoryboardExecutionApi['run']>()
+      .mockImplementationOnce((plan) => {
+        firstPlan = plan
+        markStarted()
+        return firstRun
+      })
+      .mockRejectedValueOnce(new Error('provider failed'))
+      .mockImplementationOnce(async (plan) =>
+        outcome(plan, { kind: 'canceled' }, 1),
+      )
+      .mockImplementationOnce(async (plan) =>
+        outcome(
+          plan,
+          {
+            kind: 'succeeded',
+            result: [
+              {
+                hash: 'audio2',
+                mime: 'audio/mpeg',
+                bytes: new Uint8Array([2]),
+              },
+            ],
+            duration: 1,
+          },
+          0,
+        ),
+      )
+    const produced = {
+      ...doc,
+      shots: doc.shots.map((item) => ({
+        ...item,
+        lines: item.lines.map((itemLine) => ({
+          ...itemLine,
+          audioHash: 'audio2',
+        })),
+      })),
+    }
+    const controller = createStoryboardAudioController({
+      doc,
+      currentDoc: () => doc,
+      selected: episode,
+      shots: doc.shots,
+      speechTarget: {
+        channelId: 'ch1',
+        model: 'tts1',
+        label: '配音',
+        voices: ['nova'],
+      },
+      platform,
+      canvas: {} as StoryboardCanvasPort,
+      execution: { run, cancel: vi.fn() } as unknown as StoryboardExecutionApi,
+      documents: { load: async () => produced, save: async () => {} },
+      projectId: 'p1',
+      flush: async () => {},
+      apply: () => {},
+      setStatus: () => {},
+      actionState,
+    })
+
+    const first = controller.voiceLine(shot, line.id)
+    await started
+    expect(actionState.isBusy('voice', line.id)).toBe(true)
+    await expect(controller.voiceLine(shot, line.id)).resolves.toBe(false)
+    expect(run).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    await expect(first).resolves.toBe(true)
+    expect(actionState.isBusy('voice', line.id)).toBe(false)
+
+    await expect(controller.voiceLine(shot, line.id)).resolves.toBe(false)
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(actionState.isBusy('voice', line.id)).toBe(false)
+
+    await expect(controller.voiceLine(shot, line.id)).resolves.toBe(false)
+    expect(run).toHaveBeenCalledTimes(3)
+    expect(actionState.isBusy('voice', line.id)).toBe(false)
+
+    await expect(controller.voiceLine(shot, line.id)).resolves.toBe(true)
+    expect(run).toHaveBeenCalledTimes(4)
+    expect(actionState.isBusy('voice', line.id)).toBe(false)
   })
 })

@@ -22,6 +22,7 @@ import { putGeneratedAssets } from '../../platform/assets'
 import type { PlatformKit, StoragePort } from '../../platform/ports'
 import { createId } from '../../shared/id'
 import { asAppError, describeError } from '../../shared/result'
+import type { StoryboardActionStatePort } from './useStoryboardActionState'
 
 export interface StoryboardDigitalHumanExecutionControllerArgs {
   currentDoc: () => StoryboardDoc | null
@@ -45,7 +46,7 @@ export interface StoryboardDigitalHumanExecutionControllerArgs {
       text: string
     }>
   >
-  setDigitalHumanBusy: Dispatch<SetStateAction<string | null>>
+  actionState: Pick<StoryboardActionStatePort, 'tryAcquire'>
 }
 
 function humanError(error: unknown): string {
@@ -74,7 +75,7 @@ export function createStoryboardDigitalHumanExecutionController(
     flush,
     replaceDoc,
     setLay,
-    setDigitalHumanBusy,
+    actionState,
   } = args
 
   const parentRunIdOf = async (lineIds: readonly string[]) => {
@@ -129,7 +130,8 @@ export function createStoryboardDigitalHumanExecutionController(
       return
     }
 
-    setDigitalHumanBusy(shot.id)
+    const lease = actionState.tryAcquire('digital-human', shot.id)
+    if (!lease) return
     setLay({
       kind: 'running',
       text:
@@ -274,7 +276,7 @@ export function createStoryboardDigitalHumanExecutionController(
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
       if (timer !== null) globalThis.clearTimeout(timer)
-      setDigitalHumanBusy(null)
+      lease.release()
     }
   }
 

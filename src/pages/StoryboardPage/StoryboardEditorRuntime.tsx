@@ -63,6 +63,7 @@ import { createStoryboardExportController } from '../../workbenches/storyboard/u
 import { createStoryboardImageExecutionController } from '../../workbenches/storyboard/useStoryboardImageExecutionController'
 import { createStoryboardShotController } from '../../workbenches/storyboard/useStoryboardShotController'
 import { createStoryboardVideoExecutionController } from '../../workbenches/storyboard/useStoryboardVideoExecutionController'
+import { useStoryboardActionState } from '../../workbenches/storyboard/useStoryboardActionState'
 import type {
   NoticeState,
   StoryboardEditorActions,
@@ -181,12 +182,7 @@ export function StoryboardEditorRuntime({
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   const storyboardExecution = useStoryboardExecution()
-  const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
-  const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
-  const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
-  const [videoEraseBusy, setVideoEraseBusy] = useState<string | null>(null)
-  const [videoEditBusy, setVideoEditBusy] = useState<string | null>(null)
-  const [videoExtendBusy, setVideoExtendBusy] = useState<string | null>(null)
+  const actionState = useStoryboardActionState()
   const [breaking, setBreaking] = useState<NoticeState['kind']>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -331,14 +327,7 @@ export function StoryboardEditorRuntime({
     flush,
     replaceDoc,
     setLay,
-    videoUpscaleBusy,
-    setVideoUpscaleBusy,
-    videoEraseBusy,
-    setVideoEraseBusy,
-    videoEditBusy,
-    setVideoEditBusy,
-    videoExtendBusy,
-    setVideoExtendBusy,
+    actionState,
   })
   const imageActions = createStoryboardImageExecutionController({
     doc,
@@ -369,7 +358,7 @@ export function StoryboardEditorRuntime({
       flush,
       replaceDoc,
       setLay,
-      setDigitalHumanBusy,
+      actionState,
     })
   const shotActions = createStoryboardShotController({
     doc,
@@ -425,7 +414,7 @@ export function StoryboardEditorRuntime({
     flush,
     apply: replaceDoc,
     setStatus,
-    setVoiceBusy,
+    actionState,
   })
   const exportActions = createStoryboardExportController({
     doc,
@@ -551,12 +540,12 @@ export function StoryboardEditorRuntime({
     preview,
     sourcePreview,
     rendering,
-    voiceBusy,
-    digitalHumanBusy,
-    videoUpscaleBusy,
-    videoEraseBusy,
-    videoEditBusy,
-    videoExtendBusy,
+    voiceBusy: actionState.busy.voice,
+    digitalHumanBusy: actionState.busy.digitalHuman,
+    videoUpscaleBusy: actionState.busy.videoUpscale,
+    videoEraseBusy: actionState.busy.videoErase,
+    videoEditBusy: actionState.busy.videoEdit,
+    videoExtendBusy: actionState.busy.videoExtend,
     chatTarget,
     speechTarget,
     digitalHumanTarget,

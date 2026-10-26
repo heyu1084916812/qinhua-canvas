@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react'
 import type { SpeechTarget } from '../../domain/shared/chatTarget'
 import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardExecutionApi } from '../../features/storyboard/execution/StoryboardExecutionProvider'
@@ -15,6 +14,7 @@ import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import type { PlatformKit } from '../../platform/ports'
 import { asAppError, describeError } from '../../shared/result'
 import { createId } from '../../shared/id'
+import type { StoryboardActionStatePort } from './useStoryboardActionState'
 
 export interface StoryboardAudioControllerArgs {
   doc: StoryboardDoc
@@ -30,7 +30,7 @@ export interface StoryboardAudioControllerArgs {
   flush: () => Promise<void>
   apply: (doc: StoryboardDoc) => void
   setStatus: (text: string) => void
-  setVoiceBusy: Dispatch<SetStateAction<Record<string, boolean>>>
+  actionState: Pick<StoryboardActionStatePort, 'tryAcquire'>
 }
 
 export function createStoryboardAudioController(args: StoryboardAudioControllerArgs) {
@@ -48,7 +48,7 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     flush,
     apply,
     setStatus,
-    setVoiceBusy,
+    actionState,
   } = args
 
   const voiceLine = async (
@@ -68,28 +68,30 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
       report('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
       return false
     }
-    const base = currentDoc()
-    const plan = buildStoryboardRunPlan({
-      doc: base,
-      planId: createId('plan'),
-      operationId: createId('op'),
-      target: {
-        channelId: speechTarget.channelId,
-        model: speechTarget.model,
-        modelIsUpstream: false,
-      },
-      action: 'speech',
-      episodeId: shot.episodeId,
-      shotIds: [shot.id],
-      lineIds: [lineId],
-      defaultVoice: speechTarget.voices[0],
-    })
-    setVoiceBusy((current) => ({ ...current, [lineId]: true }))
-    const timer = globalThis.setTimeout(
-      () => execution.cancel(plan.id),
-      120_000,
-    )
+    const lease = actionState.tryAcquire('voice', lineId)
+    if (!lease) return false
+    let timer: ReturnType<typeof globalThis.setTimeout> | null = null
     try {
+      const base = currentDoc()
+      const plan = buildStoryboardRunPlan({
+        doc: base,
+        planId: createId('plan'),
+        operationId: createId('op'),
+        target: {
+          channelId: speechTarget.channelId,
+          model: speechTarget.model,
+          modelIsUpstream: false,
+        },
+        action: 'speech',
+        episodeId: shot.episodeId,
+        shotIds: [shot.id],
+        lineIds: [lineId],
+        defaultVoice: speechTarget.voices[0],
+      })
+      timer = globalThis.setTimeout(
+        () => execution.cancel(plan.id),
+        120_000,
+      )
       await flush()
       const outcome = await execution.run(plan)
       const failure = outcome.failures[0]
@@ -123,12 +125,8 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
       report(appError ? describeError(appError) : String(error))
       return false
     } finally {
-      globalThis.clearTimeout(timer)
-      setVoiceBusy((current) => {
-        const next = { ...current }
-        delete next[lineId]
-        return next
-      })
+      if (timer !== null) globalThis.clearTimeout(timer)
+      lease.release()
     }
   }
 

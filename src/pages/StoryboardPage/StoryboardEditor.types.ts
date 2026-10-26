@@ -42,6 +42,11 @@ export type StoryboardPreviewState = {
   playing: boolean
 }
 
+export type StoryboardShotBusySnapshot =
+  | string
+  | null
+  | Readonly<Record<string, boolean>>
+
 export type StoryboardEpisodePatch = Partial<
   Pick<
     StoryboardEpisode,
@@ -160,11 +165,11 @@ export interface StoryboardEditorViewProps {
   sourcePreview: StoryboardSourcePreview | null
   rendering: boolean
   voiceBusy: Record<string, boolean>
-  digitalHumanBusy: string | null
-  videoUpscaleBusy: string | null
-  videoEraseBusy: string | null
-  videoEditBusy: string | null
-  videoExtendBusy: string | null
+  digitalHumanBusy: StoryboardShotBusySnapshot
+  videoUpscaleBusy: StoryboardShotBusySnapshot
+  videoEraseBusy: StoryboardShotBusySnapshot
+  videoEditBusy: StoryboardShotBusySnapshot
+  videoExtendBusy: StoryboardShotBusySnapshot
   chatTarget: ChatTarget | null
   speechTarget: SpeechTarget | null
   digitalHumanTarget: StoryboardDigitalHumanTarget | null
