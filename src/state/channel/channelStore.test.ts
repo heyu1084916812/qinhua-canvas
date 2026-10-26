@@ -567,9 +567,11 @@ describe('channelStore', () => {
       signal: new AbortController().signal,
       trace: {
         projectId: 'proj_storyboard',
+        scopeVersion: 1,
         workbench: 'storyboard',
         subjectId: 'shot:1:digital-human',
         scopeId: 'episode:1',
+        operationId: 'op-video-1',
         params: { kind: 'video' },
         fingerprint: 'fp-video-1',
       },

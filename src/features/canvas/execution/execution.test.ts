@@ -84,6 +84,13 @@ function deps(
   return {
     signal: new AbortController().signal,
     projectId: 'p1',
+    recordScope: (plan, _task, targetId) => ({
+      scopeVersion: 1,
+      workbench: 'canvas',
+      subjectId: targetId,
+      scopeId: `plan:${plan.id}`,
+      operationId: plan.id,
+    }),
     channelResolver: () => channel,
     writeBack: host(store),
     placement: createCanvasPlacement(() => 'p1'),

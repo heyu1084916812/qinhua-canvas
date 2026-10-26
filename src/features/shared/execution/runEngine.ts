@@ -1,6 +1,11 @@
 import type { RunPlan, RunTask } from '../../../domain/shared/execution/plan'
 import type { RunRequest } from '../../../domain/shared/execution/types'
-import type { RunRecord } from '../../../domain/shared/execution/runRecord'
+import {
+  createRunRecord,
+  type RunRecord,
+  type RunRecordScope,
+  type ScopedRunRecord,
+} from '../../../domain/shared/execution/runRecord'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import { describeError, type AppError } from '../../../shared/result'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
@@ -43,7 +48,7 @@ export interface RunSummary {
   startedAt: number
   finishedAt: number
   /** 本次执行产出的 RunRecord（成功 / 失败 / 取消各一条），由调用方落库 */
-  records: RunRecord[]
+  records: ScopedRunRecord[]
 }
 
 export interface RunPolicy {
@@ -66,6 +71,14 @@ export interface RunEngineDeps<TTask extends RunTask, TCommand> {
   projectId: string
   /** 落位 / 写回适配器：把产物翻译成工作台自己的命令（架构 §5.5 路径 B） */
   placement: ExecutionPlacement<TTask, TCommand>
+  /**
+   * 生成新 RunRecord 的必填业务作用域。
+   *
+   * 在调用渠道之前解析，记录写入失败或作用域缺失都不能让付费请求先发出去。
+   * `targetId` 是 Placement 决定的真实落点；画布另建承载节点时必须用它，
+   * 不能用触发任务的源节点冒充业务主体。
+   */
+  recordScope: (plan: RunPlan<TTask>, task: TTask, targetId: string) => RunRecordScope
   policy?: Partial<RunPolicy>
   /**
    * 任务状态变化（queued / running / succeeded / failed / canceled）。
@@ -95,7 +108,7 @@ export interface RunEngineDeps<TTask extends RunTask, TCommand> {
 const DEFAULT_POLICY: RunPolicy = {
   maxRetries: 2,
   backoffBase: 1000,
-  retryableStatuses: [408, 429],
+  retryableStatuses: [429],
 }
 
 const MODE_LABEL: Record<RunPlan['mode'], string> = {
@@ -124,6 +137,8 @@ function isRetryable(error: AppError, policy: RunPolicy): boolean {
     return error.detail !== 'aborted' && error.detail !== 'timeout'
   }
   if (error.kind === 'http') {
+    // 408 可能发生在上游已受理之后；即使宿主误配 retryableStatuses，也不能重发付费 POST。
+    if (error.status === 408) return false
     /*
      * 免费账户的速率限制通常是一个较长的冷却窗口。本轮内等 1–2 秒再打只会
      * 继续吃 429，还会把用户仅有的免费额度窗口搅得更久；直接如实返回，
@@ -208,7 +223,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
   const startedAt = now()
   const taskResults: RunSummary['taskResults'] = []
-  const records: RunRecord[] = []
+  const records: ScopedRunRecord[] = []
 
   // 整次 plan 的所有写回合进同一个撤销单元：只有第一次 writeBack 带事务边界
   let firstWrite = true
@@ -257,7 +272,12 @@ export async function runEngine<TTask extends RunTask, TCommand>(
    * 这一阶段是纯命令派发、不 await 网络，因此 N 个承载节点会**同时出现并同时转圈**；
    * 随后再并发发起渠道调用（见阶段二）。
    */
-  const started: { task: TTask; targetId: string; startedAt: number }[] = []
+  const started: {
+    task: TTask
+    targetId: string
+    startedAt: number
+    scope: RunRecordScope
+  }[] = []
   for (const task of plan.tasks) {
     if (deps.signal.aborted) {
       // 未启动即取消：跳过，不留 RunRecord（没有产生任何一次调用）
@@ -297,7 +317,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })
-    started.push({ task, targetId, startedAt: taskStartedAt })
+    const scope = deps.recordScope(plan, task, targetId)
+    started.push({ task, targetId, startedAt: taskStartedAt, scope })
   }
 
   /**
@@ -307,7 +328,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
    * 因此 summary / RunRecord 的次序仍与计划一致，不因完成先后而变。
    */
   const settled = await Promise.all(
-    started.map(async ({ task, startedAt }) => {
+    started.map(async ({ task, targetId, startedAt, scope }) => {
       let attempt = 0
       let state: RunTaskState = { kind: 'failed', error: { kind: 'parse', raw: 'unreachable' }, attempts: 1 }
       let assets: GeneratedAsset[] = []
@@ -344,7 +365,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
           break
         }
       }
-      return { task, startedAt, state, assets, finishedAt: now() }
+      return { task, targetId, startedAt, scope, state, assets, finishedAt: now() }
     }),
   )
 
@@ -366,6 +387,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     // （适配器返回 null = 该工作台暂不落留痕，引擎跳过）
     const record = makeRecord(
       task,
+      targetId,
+      done.scope,
       deps,
       startedAt,
       status,
@@ -414,6 +437,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
 function makeRecord(
   task: RunTask,
+  targetId: string,
+  scope: RunRecordScope,
   deps: { projectId: string; nextVersion?: (nodeId: string) => number },
   startedAt: number,
   status: RunRecord['status'],
@@ -421,12 +446,12 @@ function makeRecord(
   durationMs: number,
   /** 失败时的人话原因（对账 #469：日志里必须能读到"为什么没出图"） */
   errorText?: string,
-): RunRecord {
-  return {
+): ScopedRunRecord {
+  return createRunRecord({
     id: createId('rec'),
-    nodeId: task.nodeId,
+    nodeId: targetId,
     projectId: deps.projectId,
-    version: deps.nextVersion?.(task.nodeId) ?? 1,
+    version: deps.nextVersion?.(targetId) ?? 1,
     createdAt: startedAt,
     status,
     inputs: task.request.inputs,
@@ -446,7 +471,8 @@ function makeRecord(
     durationMs,
     ...(errorText ? { errorText } : {}),
     ...pixelFieldsOf(assets),
-  }
+    scope,
+  })
 }
 
 /**

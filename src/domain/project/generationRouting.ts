@@ -22,6 +22,8 @@ export interface GenerationRoutingRecipe {
 export interface GenerationRoutingTarget {
   channelId: string
   credentialGroupId?: string
+  /** 同渠道内按优先级排好的可用 Key 分组；执行器为每个 attempt 建对应适配器。 */
+  credentialGroupIds?: string[]
   /** 前端逻辑模型名；节点仍保存这一份，渠道适配器负责再映射到上游 ID。 */
   logicalModel: string
   /** 当前渠道最终要发送的模型 ID，供诊断和后续日志使用。 */
@@ -124,6 +126,9 @@ function directTarget(
     ...(candidate.credentialGroupId
       ? { credentialGroupId: candidate.credentialGroupId }
       : {}),
+    ...(candidate.credentialGroupIds?.length
+      ? { credentialGroupIds: [...candidate.credentialGroupIds] }
+      : {}),
     logicalModel,
     upstreamModel: candidate.upstreamModel,
     usedMock: channel.protocol === 'mock',
@@ -190,6 +195,9 @@ export function resolveGenerationTarget(opts: {
           ...(route.credentialGroupId
             ? { credentialGroupId: route.credentialGroupId }
             : {}),
+          ...(route.credentialGroupIds?.length
+            ? { credentialGroupIds: [...route.credentialGroupIds] }
+            : {}),
           logicalModel: requestedModel,
           upstreamModel: route.upstreamModel,
           usedMock: pool.find((channel) => channel.id === route.channelId)?.protocol === 'mock',
@@ -216,6 +224,9 @@ export function resolveGenerationTarget(opts: {
         channelId: routed.channelId,
         ...(routed.credentialGroupId
           ? { credentialGroupId: routed.credentialGroupId }
+          : {}),
+        ...(routed.credentialGroupIds?.length
+          ? { credentialGroupIds: [...routed.credentialGroupIds] }
           : {}),
         logicalModel: recipeModel,
         upstreamModel: routed.upstreamModel,

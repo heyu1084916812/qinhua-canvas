@@ -1,18 +1,15 @@
-import type { RunRecord } from '../../domain/shared/execution/runRecord'
+import type {
+  RunRecord,
+  RunRecordScope,
+} from '../../domain/shared/execution/runRecord'
 import type { NodeInput, RunStatus } from '../../domain/shared/execution/types'
-import type { WorkbenchId } from '../../domain/shared/workbench'
 import type { GeneratedAsset } from '../../platform/channels/types'
 import type { PlatformKit } from '../../platform/ports'
 import { createId } from '../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../shared/result'
 
-export interface DirectRunTraceInput {
+export interface DirectRunTraceInput extends RunRecordScope {
   projectId: string
-  workbench: WorkbenchId
-  subjectId: string
-  scopeId?: string
-  parentRunId?: string
-  operationId?: string
   version?: number
   inputs?: NodeInput[]
   params?: unknown
@@ -84,6 +81,7 @@ export async function runDirectGeneration<T>(args: {
     params: args.trace.params,
     fingerprint: args.trace.fingerprint,
     taskId: createId('task'),
+    scopeVersion: args.trace.scopeVersion,
     workbench: args.trace.workbench,
     subjectId: args.trace.subjectId,
     ...(args.trace.scopeId ? { scopeId: args.trace.scopeId } : {}),

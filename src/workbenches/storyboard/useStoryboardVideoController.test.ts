@@ -28,7 +28,10 @@ const trace = (args: {
   params?: Record<string, unknown>
 }): DirectRunTraceInput => ({
   projectId: 'p1',
+  scopeVersion: 1,
   workbench: 'storyboard',
+  scopeId: 'episode:1',
+  operationId: `${args.kind}:${args.subjectId}`,
   ...args,
   fingerprint: args.subjectId,
 })

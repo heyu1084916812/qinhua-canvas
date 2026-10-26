@@ -6,6 +6,7 @@ import { runDirectGeneration, type DirectRunTraceInput } from './directRun'
 
 const trace: DirectRunTraceInput = {
   projectId: 'p1',
+  scopeVersion: 1,
   workbench: 'storyboard',
   subjectId: 'shot:1:video',
   scopeId: 'episode:1',

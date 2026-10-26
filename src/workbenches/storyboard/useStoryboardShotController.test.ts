@@ -59,8 +59,11 @@ function harness(doc: StoryboardDoc) {
     platform: createMemoryPlatform(),
     directTrace: () => ({
       projectId: 'p1',
+      scopeVersion: 1,
       workbench: 'storyboard',
       subjectId: 'test',
+      scopeId: 'episode:1',
+      operationId: 'op:test',
       fingerprint: 'fp',
     }),
     digitalHumanTarget: null,

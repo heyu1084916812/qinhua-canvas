@@ -25,6 +25,7 @@ import {
   type MergeSuggestion,
 } from '../../domain/storyboard/mergeSuggest'
 import { fingerprintBytesSync } from '../../domain/shared/hash'
+import { createId } from '../../shared/id'
 import {
   episodeTimeline,
   srtOf,
@@ -152,10 +153,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       params?: Record<string, unknown>
     }): DirectRunTraceInput => ({
       projectId,
+      scopeVersion: 1,
       workbench: 'storyboard',
       subjectId: args.subjectId,
       scopeId: projectId,
-      operationId: `${args.kind}:${args.subjectId}`,
+      operationId: createId('op'),
       inputs: args.inputs ?? [],
       params: {
         kind: args.kind,

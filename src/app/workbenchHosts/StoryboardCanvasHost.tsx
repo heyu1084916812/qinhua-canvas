@@ -181,7 +181,7 @@ export function StoryboardCanvasHost({
 
   return (
     <CanvasStoreProvider store={store}>
-      <CanvasExecutionProvider>
+      <CanvasExecutionProvider workbench="storyboard">
         <RuntimeBridge projectId={projectId}>{children}</RuntimeBridge>
       </CanvasExecutionProvider>
     </CanvasStoreProvider>

@@ -2,6 +2,30 @@ import type { NodeInput, RunStatus } from './types'
 import type { WorkbenchId } from '../workbench'
 
 /**
+ * 新执行记录必须携带的业务作用域。
+ *
+ * 旧记录仍允许字段缺失，读取侧做保守兼容；但新写入不能再靠 `projectId / nodeId`
+ * 猜工作台和业务主体。`subjectId` 必须是真正收到产物的业务对象，而不是触发动作的
+ * 临时节点；`operationId` 必须属于一次可区分的用户动作，不能只由稳定的主体 id 组成。
+ */
+export interface RunRecordScope {
+  scopeVersion: 1
+  workbench: WorkbenchId
+  subjectId: string
+  scopeId: string
+  operationId: string
+  parentRunId?: string
+}
+
+export type ScopedRunRecord<TParams = unknown> = RunRecord<TParams> &
+  Required<
+    Pick<
+      RunRecord<TParams>,
+      'scopeVersion' | 'workbench' | 'subjectId' | 'scopeId' | 'operationId'
+    >
+  >
+
+/**
  * RunRecord = 一次完整生成记录（产品文档 §6.21 / 架构 §4.1）。
  * 从不删除。执行主体的当前生效 LiveFingerprint = 该主体 version 最大且 succeeded 那条的 fingerprint。
  *
@@ -64,6 +88,8 @@ export interface RunRecord<TParams = unknown> {
    * 让各自日志只读自己的工作台 / 业务范围，总日志再聚合同一张表。
    */
   workbench?: WorkbenchId
+  /** 新作用域契约版本；旧记录没有这个字段，读取侧按 legacy 处理。 */
+  scopeVersion?: 1
   subjectId?: string
   scopeId?: string
   parentRunId?: string
@@ -100,13 +126,17 @@ export function createRunRecord<TParams>(args: {
   errorText?: string
   outputWidth?: number
   outputHeight?: number
-  workbench?: WorkbenchId
-  subjectId?: string
-  scopeId?: string
-  parentRunId?: string
-  operationId?: string
-}): RunRecord<TParams> {
-  return { ...args }
+  scope: RunRecordScope
+}): ScopedRunRecord<TParams> {
+  return {
+    ...args,
+    scopeVersion: args.scope.scopeVersion,
+    workbench: args.scope.workbench,
+    subjectId: args.scope.subjectId,
+    scopeId: args.scope.scopeId,
+    operationId: args.scope.operationId,
+    ...(args.scope.parentRunId ? { parentRunId: args.scope.parentRunId } : {}),
+  }
 }
 
 /**

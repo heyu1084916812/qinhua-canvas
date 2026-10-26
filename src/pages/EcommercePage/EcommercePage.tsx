@@ -1273,6 +1273,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         ...(target.credentialGroupId
           ? { credentialGroupId: target.credentialGroupId }
           : {}),
+        ...(target.credentialGroupIds?.length
+          ? { credentialGroupIds: target.credentialGroupIds }
+          : {}),
         inputs,
         shots: [
           {
@@ -1487,6 +1490,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         model: target.upstreamModel,
         ...(target.credentialGroupId
           ? { credentialGroupId: target.credentialGroupId }
+          : {}),
+        ...(target.credentialGroupIds?.length
+          ? { credentialGroupIds: target.credentialGroupIds }
           : {}),
         inputs: await visualInputsFor(request),
         shots: createdTask.results.map((row, index) => {

@@ -14,9 +14,24 @@ import { describe, it, expect } from 'vitest'
 import { runEngine, type RunTaskState } from './runEngine'
 import type { RunTask, RunPlan } from '../../../domain/shared/execution/plan'
 import type { NodeInput } from '../../../domain/shared/execution/types'
+import type { RunRecordScope } from '../../../domain/shared/execution/runRecord'
 
 /** 最小可用的落位适配器：把 task 的落点改到 targetId（模拟「另建承载节点」） */
 const CARRIER = 'carrier-node'
+
+function scopeOf(
+  plan: RunPlan<RunTask>,
+  _task: RunTask,
+  targetId: string,
+): RunRecordScope {
+  return {
+    scopeVersion: 1,
+    workbench: 'canvas',
+    subjectId: targetId,
+    scopeId: `plan:${plan.id}`,
+    operationId: plan.id,
+  }
+}
 
 function makePlan(): RunPlan<RunTask> {
   const task: RunTask = {
@@ -37,6 +52,7 @@ describe('runEngine / 回调参数契约', () => {
     const summary = await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -60,6 +76,82 @@ describe('runEngine / 回调参数契约', () => {
     expect(calls).toBe(1)
     expect(summary.failed).toBe(1)
     expect(summary.records[0]?.errorText).toContain('超时')
+    expect(summary.records[0]).toMatchObject({
+      nodeId: CARRIER,
+      workbench: 'canvas',
+      subjectId: CARRIER,
+      scopeId: 'plan:plan_1',
+      operationId: 'plan_1',
+    })
+  })
+
+  it('★★ 作用域在渠道请求前解析，并使用真实落点作为主体', async () => {
+    const plan = makePlan()
+    const order: string[] = []
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: (currentPlan, task, targetId) => {
+        order.push('scope')
+        return scopeOf(currentPlan, task, targetId)
+      },
+      channelResolver: () => {
+        order.push('channel')
+        return {
+          protocol: 'mock',
+          async generateImage() {
+            return [{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array([1]) }]
+          },
+        } as never
+      },
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(order).toEqual(['scope', 'channel'])
+    expect(summary.records[0]).toMatchObject({
+      nodeId: CARRIER,
+      subjectId: CARRIER,
+    })
+  })
+
+  it('★★ HTTP 408 不自动重发付费请求', async () => {
+    const plan = makePlan()
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () => ({
+        protocol: 'mock',
+        async generateImage() {
+          calls += 1
+          throw { kind: 'http', status: 408 }
+        },
+      }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
   })
 
   it('★ 同渠道多 Key 分组遇到 403 按优先级换组；只换到下一组一次', async () => {
@@ -70,6 +162,7 @@ describe('runEngine / 回调参数契约', () => {
     const summary = await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: (request) => {
         attempts.push(request.routingAttempt ?? -1)
         return {
@@ -96,6 +189,13 @@ describe('runEngine / 回调参数契约', () => {
     expect(attempts).toEqual([0, 1])
     expect(calls).toBe(2)
     expect(summary.succeeded).toBe(1)
+    expect(summary.records[0]).toMatchObject({
+      nodeId: CARRIER,
+      workbench: 'canvas',
+      subjectId: CARRIER,
+      scopeId: 'plan:plan_1',
+      operationId: 'plan_1',
+    })
   })
 
   it('★★ 多分组时网络超时仍不换组，避免付费请求重复提交', async () => {
@@ -105,6 +205,7 @@ describe('runEngine / 回调参数契约', () => {
     const summary = await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -135,6 +236,7 @@ describe('runEngine / 回调参数契约', () => {
     await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -178,6 +280,7 @@ describe('runEngine / 回调参数契约', () => {
     await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -224,6 +327,7 @@ describe('runEngine / 回调参数契约', () => {
     await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -260,6 +364,7 @@ describe('runEngine / 回调参数契约', () => {
     await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',
@@ -311,6 +416,7 @@ describe('runEngine / 回调参数契约', () => {
     await runEngine(plan, {
       signal: new AbortController().signal,
       projectId: 'p1',
+      recordScope: scopeOf,
       channelResolver: () =>
         ({
           protocol: 'mock',

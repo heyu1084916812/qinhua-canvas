@@ -23,8 +23,11 @@ const NOVEL = [
 function trace(): DirectRunTraceInput {
   return {
     projectId: 'p1',
+    scopeVersion: 1,
     workbench: 'storyboard',
     subjectId: 'test',
+    scopeId: 'project:p1',
+    operationId: 'op:test',
     fingerprint: 'fp',
   }
 }

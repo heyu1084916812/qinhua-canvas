@@ -16,8 +16,11 @@ import { createStoryboardAudioController } from './useStoryboardAudioController'
 function trace(): DirectRunTraceInput {
   return {
     projectId: 'p1',
+    scopeVersion: 1,
     workbench: 'storyboard',
     subjectId: 'shot:1',
+    scopeId: 'episode:1',
+    operationId: 'op-audio-1',
     fingerprint: 'fp',
   }
 }

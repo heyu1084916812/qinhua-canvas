@@ -54,9 +54,9 @@ export function backoffMs(attempt: number, baseMs: number, jitter: number): numb
   return Math.round(raw * (1 + jitter))
 }
 
-/** 仅网络中断、408、429、5xx 可重试 */
+/** 仅 429 与 5xx 可重试；408 可能已被上游受理，付费请求不得自动重发 */
 export function isRetryableStatus(status: number): boolean {
-  if (status === 408 || status === 429) return true
+  if (status === 429) return true
   return status >= 500 && status <= 599
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type { RunPlan, RunTask } from '../../../domain/shared/execution/plan'
 import type { RunRequest } from '../../../domain/shared/execution/types'
+import type { RunRecordScope } from '../../../domain/shared/execution/runRecord'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import type { ExecutionPlacement } from './placement'
@@ -28,6 +29,8 @@ export interface ExecutionHost<TTask extends RunTask, TCommand> {
   projectId: string
   /** 落位 / 写回适配器（canvas：CanvasPlacement、comic：ComicPlacement） */
   placement: ExecutionPlacement<TTask, TCommand>
+  /** 新 RunRecord 的必填业务作用域；在渠道调用前解析。 */
+  recordScope: (plan: RunPlan<TTask>, task: TTask, targetId: string) => RunRecordScope
   /** 计划结束：落 RunRecord 都在这里做 */
   onFinish?: (summary: RunSummary) => void
   /**
@@ -86,6 +89,7 @@ export function useExecution<TTask extends RunTask, TCommand>(
         channelResolver: (request) => hostRef.current.channelResolver(request, plan.id),
         writeBack: hostRef.current.writeBack,
         placement: hostRef.current.placement,
+        recordScope: hostRef.current.recordScope,
         policy: hostRef.current.policy,
         nextVersion: hostRef.current.nextVersion,
         onTaskUpdate: (planId, taskId, state) => {

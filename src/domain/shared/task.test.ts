@@ -13,8 +13,8 @@ describe('重试与退避', () => {
     expect(backoffMs(9, 1000, 0)).toBe(backoffMs(4, 1000, 0))
   })
 
-  it('只有 408 / 429 / 5xx 可重试', () => {
-    expect(isRetryableStatus(408)).toBe(true)
+  it('仅 429 / 5xx 可重试；408 不自动重发', () => {
+    expect(isRetryableStatus(408)).toBe(false)
     expect(isRetryableStatus(429)).toBe(true)
     expect(isRetryableStatus(500)).toBe(true)
     expect(isRetryableStatus(400)).toBe(false)

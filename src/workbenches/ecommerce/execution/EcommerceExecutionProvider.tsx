@@ -57,10 +57,15 @@ type EcommerceExecutionHost = ExecutionHost<EcommerceRunTask, EcommerceExecution
 
 const EcommerceExecutionContext = createContext<EcommerceExecutionApi | null>(null)
 
+function adapterKey(channelId: string, credentialGroupId: string | undefined, kind: string) {
+  return `${channelId}\u0000${credentialGroupId ?? ''}\u0000${kind}`
+}
+
 async function markPlanPreflightFailed(args: {
   projectId: string
   plan: RunPlan<EcommerceRunTask>
   error: unknown
+  operationId: string
   storage: ReturnType<typeof usePlatform>['storage']
   taskRepo: EcommerceTaskRepository
   canvasRepo: EcommerceCanvasRepository
@@ -86,10 +91,13 @@ async function markPlanPreflightFailed(args: {
       sentChannelId: task.request.channelId,
       sentModel: task.request.model,
       errorText: text,
-      workbench: 'ecommerce',
-      subjectId: task.resultId,
-      scopeId: task.taskId,
-      operationId: task.taskId,
+      scope: {
+        scopeVersion: 1,
+        workbench: 'ecommerce',
+        subjectId: task.resultId,
+        scopeId: `task:${task.taskId}`,
+        operationId: args.operationId,
+      },
     })
     try {
       await args.storage.put('runRecords', record as never)
@@ -155,7 +163,8 @@ export function EcommerceExecutionProvider({
     [channels, platform, repo],
   )
 
-  const adaptersRef = useRef(new Map<string, ChannelAdapter>())
+  const adaptersRef = useRef(new Map<string, Map<string, ChannelAdapter>>())
+  const operationIdsRef = useRef(new Map<string, string>())
   const resultTaskIdsRef = useRef(new Map<string, string>())
   const queuesRef = useRef(new Map<string, Promise<string[]>>())
   const placement = useMemo(() => createEcommercePlacement(projectId), [projectId])
@@ -183,8 +192,28 @@ export function EcommerceExecutionProvider({
       writeBack,
       projectId,
       placement,
+      recordScope: (plan, task) => {
+        const operationId = operationIdsRef.current.get(plan.id)
+        if (!operationId) {
+          throw new Error(`[ecommerce] 计划 ${plan.id} 缺少本次操作 id`)
+        }
+        return {
+          scopeVersion: 1,
+          workbench: 'ecommerce',
+          subjectId: task.resultId,
+          scopeId: `task:${task.taskId}`,
+          operationId,
+        }
+      },
       channelResolver: (request, runPlanId) => {
-        const adapter = adaptersRef.current.get(runPlanId)
+        const ids = request.credentialGroupIds ?? []
+        const groupId =
+          ids.length > 0
+            ? ids[Math.min(request.routingAttempt ?? 0, ids.length - 1)]
+            : request.credentialGroupId
+        const adapter = adaptersRef.current
+          .get(runPlanId)
+          ?.get(adapterKey(request.channelId, groupId, request.kind))
         if (!adapter) {
           throw new Error(
             `[ecommerce] 计划 ${runPlanId} 的渠道适配器还没准备好（${request.channelId} / ${request.model}）`,
@@ -213,34 +242,64 @@ export function EcommerceExecutionProvider({
         .getState()
         .channels.find((item) => item.id === first.request.channelId)
       if (!channel) throw new Error('电商执行渠道不存在')
+      const operationId = createId('op')
+      operationIdsRef.current.set(plan.id, operationId)
 
-      let target
+      const candidateGroupIds = first.request.credentialGroupIds?.length
+        ? [...first.request.credentialGroupIds]
+        : first.request.credentialGroupId
+          ? [first.request.credentialGroupId]
+          : [undefined]
+      const adapters = new Map<string, ChannelAdapter>()
+      const usableGroupIds: string[] = []
+      let firstPreflightError: unknown
       try {
-        target = await generation.resolve({
-          channel,
-          request: first.request,
-          kind: first.request.kind,
-          hints: {
-            modelIsUpstream: true,
-            ...(first.request.credentialGroupId
-              ? { credentialGroupId: first.request.credentialGroupId }
-              : {}),
-          },
-        })
+        for (const groupId of candidateGroupIds) {
+          try {
+            const target = await generation.resolve({
+              channel,
+              request: first.request,
+              kind: first.request.kind,
+              hints: {
+                modelIsUpstream: true,
+                ...(groupId ? { credentialGroupId: groupId } : {}),
+              },
+            })
+            adapters.set(
+              adapterKey(first.request.channelId, groupId, first.request.kind),
+              target.adapter,
+            )
+            if (groupId) usableGroupIds.push(groupId)
+          } catch (error) {
+            firstPreflightError ??= error
+          }
+        }
+        if (adapters.size === 0) {
+          throw firstPreflightError ?? new Error('电商渠道没有可用的 Key 分组')
+        }
       } catch (error) {
         await markPlanPreflightFailed({
           projectId,
           plan,
           error,
+          operationId,
           storage: platform.storage,
           taskRepo,
           canvasRepo,
         })
+        operationIdsRef.current.delete(plan.id)
         throw error
       }
 
-      adaptersRef.current.set(plan.id, target.adapter)
+      adaptersRef.current.set(plan.id, adapters)
       for (const task of plan.tasks) {
+        const groups = usableGroupIds.length > 0 ? usableGroupIds : undefined
+        if (groups) {
+          task.request.credentialGroupIds = groups
+          if (!task.request.credentialGroupId || !groups.includes(task.request.credentialGroupId)) {
+            task.request.credentialGroupId = groups[0]
+          }
+        }
         resultTaskIdsRef.current.set(task.resultId, task.id)
       }
       queuesRef.current.set(plan.id, Promise.resolve([]))
@@ -262,6 +321,7 @@ export function EcommerceExecutionProvider({
         return { summary, warnings }
       } finally {
         unregisterChannelGuard()
+        operationIdsRef.current.delete(plan.id)
         adaptersRef.current.delete(plan.id)
         queuesRef.current.delete(plan.id)
       }

@@ -20,6 +20,7 @@ function channel(over: {
   modelMap?: Record<string, string>
   enabled?: boolean
   hasToken?: boolean
+  credentialGroups?: Channel['credentialGroups']
 }): Channel {
   return {
     ...createChannel({
@@ -33,6 +34,7 @@ function channel(over: {
     priority: over.priority ?? 0,
     models: over.models,
     modelMap: over.modelMap ?? {},
+    ...(over.credentialGroups ? { credentialGroups: over.credentialGroups } : {}),
   }
 }
 
@@ -104,6 +106,53 @@ describe('resolveGenerationTarget', () => {
       channelId: 'smoke',
       logicalModel: 'mock-image-1',
       usedMock: true,
+    })
+  })
+
+  it('显式渠道返回可用的 Key 分组降级链', () => {
+    const target = resolveGenerationTarget({
+      channels: [
+        channel({
+          id: 'multi-key',
+          protocol: 'openai-compatible',
+          models: [image('gpt-image')],
+          hasToken: true,
+          credentialGroups: [
+            {
+              id: 'primary',
+              name: 'primary',
+              credentialRef: '',
+              tokenTail: null,
+              hasToken: false,
+              priority: 2,
+              models: [image('gpt-image')],
+              modelCache: [],
+              createdAt: 0,
+            },
+            {
+              id: 'backup',
+              name: 'backup',
+              credentialRef: 'cred-backup',
+              tokenTail: 'tail',
+              hasToken: true,
+              priority: 1,
+              models: [image('gpt-image')],
+              modelCache: [],
+              createdAt: 1,
+            },
+          ],
+        }),
+      ],
+      category: 'image',
+      catalog: BUILTIN_CATALOG,
+      logicalModel: 'gpt-image',
+      channelId: 'multi-key',
+    })
+
+    expect(target).toMatchObject({
+      channelId: 'multi-key',
+      credentialGroupId: 'backup',
+      credentialGroupIds: ['backup'],
     })
   })
 

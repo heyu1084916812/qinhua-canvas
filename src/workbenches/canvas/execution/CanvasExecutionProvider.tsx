@@ -48,6 +48,7 @@ import { createChannelRepository } from '../../../state/project/channelRepositor
 import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
 import type { NodeInput } from '../../../domain/shared/execution/types'
+import type { WorkbenchId } from '../../../domain/shared/workbench'
 import {
   LOCAL_RUN_CHANNEL_ID,
   createRunRecord,
@@ -187,7 +188,13 @@ function subscribeRunStates(projectId: string, listener: () => void): () => void
   }
 }
 
-export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
+export function CanvasExecutionProvider({
+  children,
+  workbench = 'canvas',
+}: {
+  children: ReactNode
+  workbench?: WorkbenchId
+}) {
   const store = useCanvasStore()
   const channels = useChannels()
   const platform = usePlatform()
@@ -320,6 +327,17 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       projectId: store.getSnapshot().projectId,
       // 画布落位适配器：槽位/结果组等画布专有落位逻辑都在这里（架构 §5.5 路径 B）
       placement: createCanvasPlacement(() => store.getSnapshot().projectId),
+      recordScope: (
+        plan: ReturnType<typeof buildRunPlan>,
+        _task: CanvasRunTask,
+        targetId: string,
+      ) => ({
+        scopeVersion: 1 as const,
+        workbench,
+        subjectId: targetId,
+        scopeId: `plan:${plan.id}`,
+        operationId: plan.id,
+      }),
       onTaskUpdate: (planId: string, taskId: string, state: RunTaskState) => {
         /**
          * 按 **planId 精确定位**本计划那份映射表。
@@ -411,7 +429,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       // 引擎为每个 task 各调一次（写回发生在两次调用之间），同步递增即得连续版本号
       nextVersion: bumpVersion,
     }),
-    [bumpVersion, store],
+    [bumpVersion, store, workbench],
   )
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
@@ -1213,6 +1231,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
          * 与渠道失败的 `errorText` 同一格；平台那格用本地哨兵，不写「未知平台」。
          */
         const startedAt = Date.now()
+        const operationId = createId('op')
         const outcome = await fuseNode({ platform, store }, nodeId)
         const durationMs = Date.now() - startedAt
         /** 提示里**指路**：原因已经落进日志（可复制、可留存），这一点要说出来 */
@@ -1224,12 +1243,13 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
               | { assetHash?: string }
               | undefined)?.assetHash ?? '')
           : ''
+        const subjectNodeId = outcome.ok ? outcome.resultNodeId : nodeId
         await appendRecord(
           createRunRecord({
             id: createId('rec'),
-            nodeId,
+            nodeId: subjectNodeId,
             projectId: graphAfter.projectId,
-            version: bumpVersion(nodeId),
+            version: bumpVersion(subjectNodeId),
             createdAt: startedAt,
             status: outcome.ok ? 'succeeded' : 'failed',
             inputs: fusionSpec.collectInputs({
@@ -1249,6 +1269,13 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             sentChannelId: LOCAL_RUN_CHANNEL_ID,
             sentModel: '本地融合',
             ...(outcome.ok ? {} : { errorText: outcome.reason }),
+            scope: {
+              scopeVersion: 1,
+              workbench,
+              subjectId: subjectNodeId,
+              scopeId: `fusion:${nodeId}:${operationId}`,
+              operationId,
+            },
           }),
         )
         return

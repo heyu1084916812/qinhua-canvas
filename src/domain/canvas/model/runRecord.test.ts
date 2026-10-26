@@ -22,6 +22,14 @@ function rec(overrides: Partial<RunRecord> & { id: string; version: number }): R
     fingerprint: `fp-${overrides.version}`,
     taskId: 't1',
     durationMs: 100,
+    scope: {
+      scopeVersion: 1,
+      workbench: overrides.workbench ?? 'canvas',
+      subjectId: overrides.subjectId ?? overrides.nodeId ?? 'n1',
+      scopeId: overrides.scopeId ?? 'plan:test',
+      operationId: overrides.operationId ?? 'op:test',
+      ...(overrides.parentRunId ? { parentRunId: overrides.parentRunId } : {}),
+    },
     ...overrides,
   })
 }

@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### P0 执行安全批次一（2026-10-26 → 对账 #766）
+
+- `RunRecordScope` 现在带 `scopeVersion:1`，新记录必须显式提供
+  `workbench / subjectId / scopeId / operationId`。`runEngine` 在 `placement.begin()` 后、
+  广播 running 和调用渠道前解析作用域；解析失败不能让付费请求先发出去。
+- 画布记录主体必须用真实 `targetId`，版本号也按 `targetId` 递增。源节点只负责触发，
+  不能继续冒充真正持有产物的业务主体。漫剧借画布宿主时必须显式传
+  `workbench="storyboard"`，不能从画布 Store 猜业务来源。
+- 直连 `runDirectGeneration` 的 trace 已收紧为必填作用域。`operationId` 必须每次用户动作
+  重新生成，不能用稳定的 `kind:subjectId` 代替。
+- 多 Key 电商执行不能只准备第一把 Key：目标携带 `credentialGroupIds`，Provider 按分组建
+  适配器，`channelResolver` 按 `routingAttempt` 选择。显式渠道也必须先看实际分组再判断 Key。
+- 电商素材写入失败不是普通投影失败：结果进入“已生成、待保存”，清空旧 assetHash，
+  不能被成功 RunRecord 兜成 `done`。没有留存可恢复字节时，不能假装“重试保存”已可用。
+- 408 可能发生在上游已受理之后，任何付费 POST 都不得自动重发；默认策略与
+  `isRetryableStatus()` 都已移除 408。后续还要审计异步轮询 429/5xx 和网络层 POST 回落。
+
 ### 工作台拆分复审与剩余目标（2026-10-26 → 对账 #766）
 
 - **完成口径已降级**：`StoryboardPage.tsx` 变短、控制器文件存在、G145 44/44 和 depcruise 0 违规，
