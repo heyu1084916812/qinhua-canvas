@@ -632,3 +632,48 @@
    */
   justify-content: center;
 }
+
+/*
+ * 1178×762（Windows 125% 下的常见桌面视口）必须给项目树留下可滚动空间。
+ *
+ * 40px × 8 个一级导航 + 两个 20px 分组间距在 762px 高时会把项目树压到 171px，
+ * 第三个项目分组被裁成半行。这里只收紧垂直节奏，不改字号和图标尺寸：导航文字仍是
+ * 14/22，点击区仍有 36px；省出的高度全部让给项目树，而不是把内容硬裁掉。
+ */
+@media (max-height: 800px) {
+  .rail {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-3);
+  }
+
+  .head {
+    height: 36px;
+    min-height: 36px;
+    flex-basis: 36px;
+  }
+
+  .newBtn {
+    height: 36px;
+    flex-basis: 36px;
+    margin-top: var(--space-3);
+  }
+
+  .nav {
+    gap: 1px;
+    margin-top: var(--space-3);
+  }
+
+  .item {
+    height: 36px;
+    flex-basis: 36px;
+  }
+
+  .foot {
+    gap: 2px;
+    padding-top: 6px;
+  }
+
+  .footBtn {
+    height: 36px;
+  }
+}

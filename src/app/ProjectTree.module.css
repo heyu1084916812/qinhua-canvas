@@ -531,3 +531,31 @@
     animation: none;
   }
 }
+
+/*
+ * 短视口下把“所有项目”的区域还给列表：标题和行高各收 2–4px，
+ * 但文字字号不变。项目树自己是唯一滚动区，不能靠裁掉第三组来维持布局。
+ */
+@media (max-height: 800px) {
+  .root {
+    margin-top: var(--space-3);
+  }
+
+  .heading {
+    height: 26px;
+  }
+
+  .scroll {
+    padding-bottom: var(--space-2);
+  }
+
+  .groupRow,
+  .projectRow {
+    height: 28px;
+  }
+
+  .groupMain,
+  .projectMain {
+    line-height: 20px;
+  }
+}
