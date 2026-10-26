@@ -4,8 +4,7 @@ import {
   emptyStoryboard,
   type StoryboardDoc,
 } from '../../domain/storyboard/storyboard'
-import type { ChannelStore } from '../../state/channel/channelStore'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import { createStoryboardAssetController } from './useStoryboardAssetController'
 
 function docWithCharacter(patch: { nodeId?: string } = {}) {
@@ -22,20 +21,11 @@ function docWithCharacter(patch: { nodeId?: string } = {}) {
 
 function harness(doc: StoryboardDoc, liveIds: string[] = []) {
   const applied: StoryboardDoc[] = []
-  const dispatch = vi.fn((action: { kind: string }) => {
-    if (action.kind === 'node.create') {
-      return {
-        patches: [
-          {
-            op: 'upsert',
-            table: 'nodes',
-            row: { id: 'asset-node' },
-          },
-        ],
-      }
-    }
-    return { patches: [] }
-  })
+  const createGenerationNode = vi.fn(() => 'asset-node')
+  const resolveGenerationData = vi.fn(
+    async (extraData: Record<string, unknown>) => extraData,
+  )
+  const connectEdge = vi.fn()
   const runNode = vi.fn(async () => undefined)
   const beginPlan = vi.fn()
   const endPlan = vi.fn()
@@ -44,25 +34,23 @@ function harness(doc: StoryboardDoc, liveIds: string[] = []) {
     doc,
     currentDoc: () => doc,
     liveNodeIds: new Set(liveIds),
-    canvasNodeCount: 2,
-    channels: {
-      defaultForNewNode: vi.fn(async () => null),
-      rememberRecipe: vi.fn(async () => undefined),
-    } as unknown as ChannelStore,
-    canvasStore: {
-      dispatch,
+    canvas: {
+      getSnapshot: () => ({ nodes: [{}, {}], edges: [] }),
+      resolveGenerationData,
+      createGenerationNode,
+      connectEdge,
+      runNode,
       beginPlan,
       endPlan,
-    } as unknown as CanvasStore,
-    execution: { runNode },
-    projectId: 'p1',
+    } as unknown as StoryboardCanvasPort,
     apply: (next) => applied.push(next),
     setLay,
   })
   return {
     controller,
     applied,
-    dispatch,
+    createGenerationNode,
+    connectEdge,
     runNode,
     beginPlan,
     endPlan,
@@ -77,9 +65,8 @@ describe('Storyboard asset controller', () => {
 
     await test.controller.makeAssetBase('char', doc.characters[0]!.id)
 
-    expect(test.dispatch).toHaveBeenCalledWith(
+    expect(test.createGenerationNode).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'node.create',
         at: { x: 40, y: 440 },
         data: expect.objectContaining({
           mode: 'image',
@@ -106,14 +93,8 @@ describe('Storyboard asset controller', () => {
 
     await test.controller.makeAssetTurnaround(doc.characters[0]!.id)
 
-    expect(test.dispatch).toHaveBeenCalledWith({
-      kind: 'edge.connect',
-      source: 'base-node',
-      target: 'asset-node',
-    })
-    expect(
-      test.dispatch.mock.calls.filter(([action]) => action.kind === 'node.create'),
-    ).toHaveLength(1)
+    expect(test.connectEdge).toHaveBeenCalledWith('base-node', 'asset-node')
+    expect(test.createGenerationNode).toHaveBeenCalledTimes(1)
     expect(test.applied[0]?.characters[0]?.turnaroundNodeId).toBe('asset-node')
   })
 })

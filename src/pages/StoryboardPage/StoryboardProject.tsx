@@ -4,21 +4,14 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
 import { flushOnPageHide } from '../../app/session'
-import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
-import { createStore } from '../../state/createStore'
-import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
-import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
-import { CanvasStoreProvider, useCanvasStore, useGraph } from '../../workbenches/canvas/storeContext'
 import {
-  CanvasExecutionProvider,
-  useCanvasExecution,
-} from '../../workbenches/canvas/execution/CanvasExecutionProvider'
+  StoryboardCanvasHost,
+  useStoryboardCanvasRuntime,
+} from '../../app/workbenchHosts/StoryboardCanvasHost'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import type { Edge } from '../../domain/canvas/model/edge'
 import { projectRoute } from '../../domain/shared/workbench'
 import { resolveSpeechTarget } from '../../domain/shared/chatTarget'
 import {
@@ -124,77 +117,19 @@ const SAVE_DEBOUNCE_MS = 400
  * 点「在画布里打开」之后看到的就是**同一份内存图**，不会出现两套撤销栈（对账 #411）。
  */
 export function StoryboardProject({ projectId }: { projectId: string }) {
-  const platform = usePlatform()
-  useEffect(() => {
-    rememberActiveWorkbench('storyboard', projectId)
-  }, [projectId])
-  const cached = canvasStoreFor(projectId, () =>
-    createStore({ workbench: 'canvas', platform, projectId }),
-  )
-  const store = cached.store
-  /**
-   * 水合门与电商页同源：工作区一旦可点，用户就可能立刻铺镜头 / 上传资产；
-   * 后台水合若随后补一次 `store.hydrate()`，会把刚写进内存的节点覆盖掉。
-   */
-  const [hydrated, setHydrated] = useState(cached.hydrated)
-  const [hydrateError, setHydrateError] = useState('')
-
-  useEffect(() => () => store.dispose(), [store])
-
-  /**
-   * 与画布页 / 电商页**共用同一份写盘保险**（对账 #453 的同款）：离开前台 / 关窗口前强制把
-   * 画布那一边的写入冲一次，并在改动后广播给别的窗口。
-   * 少了它，「在这一页铺到画布 → 立刻关窗口」那 ≤800ms 的写入没人兜底，
-   * 两个窗口并排时也不会有人在对面收到提示。
-   */
-  useProjectWriteSafety(projectId, store)
-
-  /** 只读一次库（与画布页 / 电商页同一条口径），避免把内存里正在跑的写入盖回去 */
-  useEffect(() => {
-    if (cached.hydrated) return
-    let cancelled = false
-    void (async () => {
-      try {
-        await platform.storage.open()
-        const [nodes, edges] = await Promise.all([
-          platform.storage.query('nodes', { projectId }),
-          platform.storage.query('edges', { projectId }),
-        ])
-        if (cancelled) return
-        cached.hydrated = true
-        store.hydrate({
-          projectId,
-          nodes: nodes as unknown as NodeSnapshot[],
-          edges: edges as unknown as Edge[],
-        })
-        setHydrated(true)
-      } catch (e) {
-        if (!cancelled) {
-          setHydrateError(e instanceof Error ? e.message : String(e))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [cached, platform, projectId, store])
-
-  if (!hydrated) {
-    return (
-      <div className={styles.emptyWrap} data-storyboard-hydrating>
-        <p className={styles.emptyText}>
-          {hydrateError ? `项目读取失败：${hydrateError}` : '正在读取这个漫剧项目…'}
-        </p>
-      </div>
-    )
-  }
-
   return (
-    <CanvasStoreProvider store={store}>
-      <CanvasExecutionProvider>
-        <StoryboardEditor projectId={projectId} />
-      </CanvasExecutionProvider>
-    </CanvasStoreProvider>
+    <StoryboardCanvasHost
+      projectId={projectId}
+      renderLoading={(error) => (
+        <div className={styles.emptyWrap} data-storyboard-hydrating>
+          <p className={styles.emptyText}>
+            {error ? `项目读取失败：${error}` : '正在读取这个漫剧项目…'}
+          </p>
+        </div>
+      )}
+    >
+      <StoryboardEditor projectId={projectId} />
+    </StoryboardCanvasHost>
   )
 }
 
@@ -363,9 +298,10 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
-  const canvasStore = useCanvasStore()
-  const graph = useGraph()
-  const exec = useCanvasExecution()
+  const {
+    canvas,
+    graph,
+  } = useStoryboardCanvasRuntime()
   const store = useMemo(() => createStoryboardStore(platform.storage), [platform])
   const [doc, setDoc] = useState<StoryboardDoc | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -733,8 +669,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       graphNodes: graph.nodes,
       liveNodeIds,
       channels,
-      canvasStore,
-      projectId,
+      canvas,
       directTrace,
       apply,
       setLay,
@@ -753,11 +688,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       doc,
       currentDoc: () => docRef.current,
       liveNodeIds,
-      canvasNodeCount: graph.nodes.length,
-      channels,
-      canvasStore,
-      execution: exec,
-      projectId,
+      canvas,
       apply,
       setLay,
     })
@@ -780,10 +711,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     graphEdges: graph.edges,
     liveNodeIds,
     channels,
-    canvasStore,
-    execution: exec,
+    canvas,
     platform,
-    projectId,
     directTrace,
     digitalHumanTarget,
     apply,
@@ -837,8 +766,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       speechTarget,
       platform,
       channels,
-      canvasStore,
-      projectId,
+      canvas,
       directTrace,
       apply,
       setStatus,
@@ -1134,12 +1062,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 usedBy={doc.shots.filter((s) => s.characterIds?.includes(c.id)).length}
                 confirming={confirming === `char:${c.id}`}
                 hasNode={Boolean(c.nodeId && liveNodeIds.has(c.nodeId))}
-                state={c.nodeId ? exec.nodeStateOf(c.nodeId) : undefined}
+                state={c.nodeId ? canvas.nodeStateOf(c.nodeId) : undefined}
                 hasTurnaroundNode={Boolean(
                   c.turnaroundNodeId && liveNodeIds.has(c.turnaroundNodeId),
                 )}
                 turnaroundState={
-                  c.turnaroundNodeId ? exec.nodeStateOf(c.turnaroundNodeId) : undefined
+                  c.turnaroundNodeId ? canvas.nodeStateOf(c.turnaroundNodeId) : undefined
                 }
                 voices={speechTarget?.voices ?? []}
                 onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
@@ -1169,7 +1097,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 usedBy={doc.shots.filter((x) => x.sceneId === s.id).length}
                 confirming={confirming === `scene:${s.id}`}
                 hasNode={Boolean(s.nodeId && liveNodeIds.has(s.nodeId))}
-                state={s.nodeId ? exec.nodeStateOf(s.nodeId) : undefined}
+                state={s.nodeId ? canvas.nodeStateOf(s.nodeId) : undefined}
                 onPatch={(patch) => apply(updateScene(doc, s.id, patch, 0))}
                 onRemove={() => removeOneAsset('scene', s.id)}
                 onMake={() => void makeAssetBase('scene', s.id)}
@@ -1385,7 +1313,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       type="button"
                       className={styles.ghost}
                       data-storyboard-run-all
-                      disabled={laidCount === 0 || exec.isRunning}
+                      disabled={laidCount === 0 || canvas.isRunning}
                       onClick={() => void runEpisode()}
                     >
                       这一集出图
@@ -1394,7 +1322,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       type="button"
                       className={styles.ghost}
                       data-storyboard-run-all-video
-                      disabled={videoPending === 0 || exec.isRunning}
+                      disabled={videoPending === 0 || canvas.isRunning}
                       title={
                         videoPending > 0
                           ? `逐镜生成这一集还缺视频的 ${videoPending} 个镜头`
@@ -1549,7 +1477,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         total={shots.length}
                         confirming={confirming === `shot:${shot.id}`}
                         laidOut={Boolean(shot.nodeId && liveNodeIds.has(shot.nodeId))}
-                        state={shot.nodeId ? exec.nodeStateOf(shot.nodeId) : undefined}
+                        state={shot.nodeId ? canvas.nodeStateOf(shot.nodeId) : undefined}
                         characters={doc.characters}
                         scenes={doc.scenes}
                         onPatch={patchShot}

@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { ChannelStore } from '../../state/channel/channelStore'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { PlatformKit } from '../../platform/ports'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
 import type { Edge } from '../../domain/canvas/model/edge'
@@ -24,20 +24,7 @@ import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
 import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
 import { fingerprintBytesSync } from '../../domain/shared/hash'
 import { mixAudioSequentially } from '../../platform/web/audioMix'
-import {
-  applyDefaults,
-  resolveDefaults,
-} from '../../features/canvas/createNodeWithDefaults'
-import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { asAppError, describeError } from '../../shared/result'
-
-interface ExecutionApi {
-  runNode(
-    nodeId: string,
-    opts?: { alt?: boolean; inPlace?: boolean },
-  ): Promise<void>
-  nodeStateOf(nodeId: string): RunTaskState | undefined
-}
 
 export interface StoryboardShotControllerArgs {
   doc: StoryboardDoc
@@ -49,10 +36,8 @@ export interface StoryboardShotControllerArgs {
   graphEdges: readonly Edge[]
   liveNodeIds: ReadonlySet<string>
   channels: ChannelStore
-  canvasStore: CanvasStore
-  execution: ExecutionApi
+  canvas: StoryboardCanvasPort
   platform: PlatformKit
-  projectId: string
   directTrace: (args: {
     subjectId: string
     kind: 'text' | 'video' | 'speech'
@@ -89,10 +74,8 @@ export function createStoryboardShotController(
     graphEdges,
     liveNodeIds,
     channels,
-    canvasStore,
-    execution,
+    canvas,
     platform,
-    projectId,
     directTrace,
     digitalHumanTarget,
     apply,
@@ -123,7 +106,7 @@ export function createStoryboardShotController(
    * ③ **只断我们自己接的那些** —— 用户手工连进来的参考图一律不动（见 `planShotRefEdges`）。
    */
   const syncShotRefs = (shot: StoryboardShot, targetNodeId: string) => {
-    const snapshot = canvasStore.getSnapshot()
+    const snapshot = canvas.getSnapshot()
     const live = new Set(snapshot.nodes.map((n) => n.id))
     if (!live.has(targetNodeId)) return
     const incoming = snapshot.edges
@@ -134,12 +117,12 @@ export function createStoryboardShotController(
     for (const source of plan.disconnect) {
       for (const edge of snapshot.edges) {
         if (edge.source === source && edge.target === targetNodeId) {
-          canvasStore.dispatch({ kind: 'edge.remove', id: edge.id })
+          canvas.removeEdge(edge.id)
         }
       }
     }
     for (const source of plan.connect) {
-      canvasStore.dispatch({ kind: 'edge.connect', source, target: targetNodeId })
+      canvas.connectEdge(source, targetNodeId)
     }
   }
 
@@ -165,22 +148,17 @@ export function createStoryboardShotController(
       const base = graph.nodes.length
       const prescribed: { shotId: string; data: Record<string, unknown> }[] = []
       for (const shot of targets) {
-        const data = await resolveDefaults({
-          channels,
-          type: 'generation',
-          extraData: { mode: 'image', prompt: shotPromptWithAssets(doc, shot) },
+        const data = await canvas.resolveGenerationData({
+          mode: 'image',
+          prompt: shotPromptWithAssets(doc, shot),
         })
         prescribed.push({ shotId: shot.id, data })
       }
       const pairs: { shotId: string; nodeId: string }[] = []
-      canvasStore.beginPlan('storyboard:lay-out', `漫剧铺到画布 ×${prescribed.length}`)
+      canvas.beginPlan('storyboard:lay-out', `漫剧铺到画布 ×${prescribed.length}`)
       try {
         prescribed.forEach((item, i) => {
-          const nodeId = applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          const nodeId = canvas.createGenerationNode({
             at: { x: 40, y: 40 + (base + i) * 200 },
             data: item.data,
           })
@@ -196,7 +174,7 @@ export function createStoryboardShotController(
           if (shot) syncShotRefs(shot, pair.nodeId)
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       const current = currentDoc()
       if (current && pairs.length > 0) apply(attachShotNodes(current, pairs, 0))
@@ -220,14 +198,14 @@ export function createStoryboardShotController(
     syncShotRefs(shot, shot.nodeId)
     const refs = shotRefNodeIds(doc, shot, new Set(graph.nodes.map((n) => n.id))).length
     if (refs > 0) setLay({ kind: 'running', text: `这一镜在跑（带 ${refs} 张参考图）…` })
-    void execution.runNode(shot.nodeId, { inPlace: true }).then(
+    void canvas.runNode(shot.nodeId, { inPlace: true }).then(
       () => {
         /**
          * 「跑完」不等于「出成」：失败是**记在状态里**的（`nodeStates`），不抛异常。
          * 只看 then 就把失败报成"已出"，正是 #188 那个坑。
          */
         if (refs === 0) return
-        const state = execution.nodeStateOf(shot.nodeId!)
+        const state = canvas.nodeStateOf(shot.nodeId!)
         if (state?.kind === 'failed') {
           setLay({ kind: 'error', text: `这一镜出图失败：${describeError(state.error)}` })
           return
@@ -312,46 +290,34 @@ export function createStoryboardShotController(
         : singleImageMode
       const videoPrompt = shotVideoPrompt(doc, shot, endFrameNodeId ? nextShot : undefined)
       const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          model: recipe.model,
-          prompt: videoPrompt,
-          durationSec: shot.durationSec,
-          ...(videoMode ? { videoMode } : {}),
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        model: recipe.model,
+        prompt: videoPrompt,
+        durationSec: shot.durationSec,
+        ...(videoMode ? { videoMode } : {}),
       })
       let nodeId =
         shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
-      canvasStore.beginPlan('storyboard:shot-video', '这一镜出视频')
+      canvas.beginPlan('storyboard:shot-video', '这一镜出视频')
       try {
         if (nodeId) {
           /**
            * 重出必须**复用原视频节点**：每次都新建会让画布堆出一排空视频节点，
            * 而分镜文档只认最后一个，前几个就永远没人认领。
            */
-          canvasStore.dispatch({
-            kind: 'node.updateData',
-            id: nodeId,
-            patch: {
-              ...data,
-              mode: 'video',
-              model: recipe.model,
-              prompt: videoPrompt,
-              count: 1,
-              durationSec: shot.durationSec,
-              ...(videoMode ? { videoMode } : {}),
-            },
+          canvas.updateNodeData(nodeId, {
+            ...data,
+            mode: 'video',
+            model: recipe.model,
+            prompt: videoPrompt,
+            count: 1,
+            durationSec: shot.durationSec,
+            ...(videoMode ? { videoMode } : {}),
           })
         } else {
           nodeId =
-            applyDefaults({
-              store: canvasStore,
-              channels,
-              projectId,
-              type: 'generation',
+            canvas.createGenerationNode({
               /* 贴着这一镜的图节点往右放（与模板「图生视频」的摆法一致，一眼看得出谁喂谁） */
               at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
               data,
@@ -371,25 +337,21 @@ export function createStoryboardShotController(
               (edge) => edge.source === shot.videoEndNodeId && edge.target === nodeId,
             )
             if (old) {
-              canvasStore.dispatch({ kind: 'edge.remove', id: old.id })
+              canvas.removeEdge(old.id)
               connected.delete(shot.videoEndNodeId)
             }
           }
           /* 这一步是"图进请求"的全部机制：连线就是 inputs（G141 验过） */
           if (!connected.has(shot.nodeId)) {
-            canvasStore.dispatch({ kind: 'edge.connect', source: shot.nodeId, target: nodeId })
+            canvas.connectEdge(shot.nodeId, nodeId)
             connected.add(shot.nodeId)
           }
           if (endFrameNodeId && !connected.has(endFrameNodeId)) {
-            canvasStore.dispatch({
-              kind: 'edge.connect',
-              source: endFrameNodeId,
-              target: nodeId,
-            })
+            canvas.connectEdge(endFrameNodeId, nodeId)
           }
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!nodeId) {
         report('error', '视频节点没能建出来（模型服务或模型没配全）')
@@ -405,8 +367,8 @@ export function createStoryboardShotController(
             ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
             : '这一镜的视频在跑…',
       )
-      await execution.runNode(nodeId, { inPlace: true })
-      const state = execution.nodeStateOf(nodeId)
+      await canvas.runNode(nodeId, { inPlace: true })
+      const state = canvas.nodeStateOf(nodeId)
       if (state?.kind === 'failed') {
         report('error', `这一镜的视频生成失败：${describeError(state.error)}`)
         return false
@@ -469,15 +431,10 @@ export function createStoryboardShotController(
       const audioHash =
         plan.lines.length > 1 ? fingerprintBytesSync(mixed.bytes) : plan.lines[0]!.audioHash!
       if (plan.lines.length > 1) {
-        canvasStore.dispatch({
-          kind: 'asset.put',
-          asset: {
-            hash: audioHash,
-            mime: mixed.mime,
-            bytes: mixed.bytes,
-            createdAt: Date.now(),
-            projectId,
-          },
+        canvas.putAsset({
+          hash: audioHash,
+          mime: mixed.mime,
+          bytes: mixed.bytes,
         })
       }
       const outputs = await channels.generateVideo({
@@ -517,57 +474,38 @@ export function createStoryboardShotController(
       })
       const output = outputs[0]
       if (!output) throw new Error('数字人口播模型没有返回视频')
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: output.hash,
-          mime: output.mime || 'video/mp4',
-          bytes: output.bytes,
-          ...(output.url ? { url: output.url } : {}),
-          createdAt: Date.now(),
-          projectId,
-        },
+      canvas.putAsset({
+        ...output,
+        mime: output.mime || 'video/mp4',
       })
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          channelId: digitalHumanTarget.channelId,
-          model: digitalHumanTarget.model,
-          prompt: '数字人口播',
-          durationSec: shot.durationSec,
-          assetHash: output.hash,
-          assetMime: output.mime || 'video/mp4',
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: digitalHumanTarget.channelId,
+        model: digitalHumanTarget.model,
+        prompt: '数字人口播',
+        durationSec: shot.durationSec,
+        assetHash: output.hash,
+        assetMime: output.mime || 'video/mp4',
       })
       const imageNode = graph.nodes.find((node) => node.id === shot.nodeId)
       let videoNodeId =
         shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
-      canvasStore.beginPlan('storyboard:digital-human', '单句数字人口播')
+      canvas.beginPlan('storyboard:digital-human', '单句数字人口播')
       try {
         if (videoNodeId) {
-          canvasStore.dispatch({
-            kind: 'node.updateData',
-            id: videoNodeId,
-            patch: {
-              ...data,
-              mode: 'video',
-              channelId: digitalHumanTarget.channelId,
-              model: digitalHumanTarget.model,
-              prompt: '数字人口播',
-              durationSec: shot.durationSec,
-              assetHash: output.hash,
-              assetMime: output.mime || 'video/mp4',
-            },
+          canvas.updateNodeData(videoNodeId, {
+            ...data,
+            mode: 'video',
+            channelId: digitalHumanTarget.channelId,
+            model: digitalHumanTarget.model,
+            prompt: '数字人口播',
+            durationSec: shot.durationSec,
+            assetHash: output.hash,
+            assetMime: output.mime || 'video/mp4',
           })
         } else {
           videoNodeId =
-            applyDefaults({
-              store: canvasStore,
-              channels,
-              projectId,
-              type: 'generation',
+            canvas.createGenerationNode({
               at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
               data,
             }) ?? ''
@@ -577,15 +515,11 @@ export function createStoryboardShotController(
             (edge) => edge.source === shot.nodeId && edge.target === videoNodeId,
           )
           if (!connected) {
-            canvasStore.dispatch({
-              kind: 'edge.connect',
-              source: shot.nodeId,
-              target: videoNodeId,
-            })
+            canvas.connectEdge(shot.nodeId, videoNodeId)
           }
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!videoNodeId) throw new Error('口播视频节点没能建出来')
       const current = currentDoc()
@@ -663,18 +597,17 @@ export function createStoryboardShotController(
       setLay({ kind: 'done', text: '还没有铺到画布的镜头' })
       return
     }
-    canvasStore.beginPlan('storyboard:sync-prompt', `按资产刷新提示词 ×${targets.length}`)
+    canvas.beginPlan('storyboard:sync-prompt', `按资产刷新提示词 ×${targets.length}`)
     try {
       for (const shot of targets) {
-        canvasStore.dispatch({
-          kind: 'node.updateData',
-          id: shot.nodeId!,
-          patch: { prompt: shotPromptWithAssets(doc, shot) },
-          transient: false,
-        })
+        canvas.updateNodeData(
+          shot.nodeId!,
+          { prompt: shotPromptWithAssets(doc, shot) },
+          false,
+        )
       }
     } finally {
-      canvasStore.endPlan()
+      canvas.endPlan()
     }
     setLay({ kind: 'done', text: `已按当前资产刷新 ${targets.length} 个节点的提示词` })
   }
@@ -690,7 +623,7 @@ export function createStoryboardShotController(
     for (const shot of targets) {
       /* 整集出图与单镜出图同一条纪律：跑之前先把参考图接上（对账 #430） */
       syncShotRefs(shot, shot.nodeId!)
-      await execution.runNode(shot.nodeId!, { inPlace: true })
+      await canvas.runNode(shot.nodeId!, { inPlace: true })
     }
     setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
   }

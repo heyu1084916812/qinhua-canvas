@@ -8,9 +8,9 @@ import {
   updateEpisode,
 } from '../../domain/storyboard/storyboard'
 import type { ChannelStore } from '../../state/channel/channelStore'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import { createStoryboardAudioController } from './useStoryboardAudioController'
 
 function trace(): DirectRunTraceInput {
@@ -36,7 +36,7 @@ describe('Storyboard audio controller', () => {
     const line = updatedShot.lines[0]!
     expect(line.text).toBe('你好')
     const applied: typeof doc[] = []
-    const dispatch = vi.fn()
+    const putAsset = vi.fn()
     const generateSpeech = vi.fn(async () => ({
       hash: 'audio1',
       mime: 'audio/mpeg',
@@ -57,8 +57,7 @@ describe('Storyboard audio controller', () => {
       },
       platform,
       channels: { generateSpeech } as unknown as ChannelStore,
-      canvasStore: { dispatch } as unknown as CanvasStore,
-      projectId: 'p1',
+      canvas: { putAsset } as unknown as StoryboardCanvasPort,
       directTrace: trace,
       apply: (next) => applied.push(next),
       setStatus: (text) => {
@@ -71,11 +70,8 @@ describe('Storyboard audio controller', () => {
 
     expect(ok, status).toBe(true)
     expect(generateSpeech).toHaveBeenCalledTimes(1)
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'asset.put',
-        asset: expect.objectContaining({ hash: 'audio1' }),
-      }),
+    expect(putAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ hash: 'audio1', mime: 'audio/mpeg' }),
     )
     expect(applied[0]?.shots[0]?.lines[0]).toMatchObject({
       audioHash: 'audio1',
@@ -100,8 +96,7 @@ describe('Storyboard audio controller', () => {
       speechTarget: null,
       platform: createMemoryPlatform(),
       channels: {} as ChannelStore,
-      canvasStore: {} as CanvasStore,
-      projectId: 'p1',
+      canvas: {} as StoryboardCanvasPort,
       directTrace: trace,
       apply: (next) => {
         applied = next

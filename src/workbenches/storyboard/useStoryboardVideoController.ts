@@ -1,17 +1,13 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { ChannelStore } from '../../state/channel/channelStore'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardDoc, StoryboardShot } from '../../domain/storyboard/storyboard'
 import {
   setShotVideoNode,
   attachShotVideos,
 } from '../../domain/storyboard/storyboard'
-import {
-  applyDefaults,
-  resolveDefaults,
-} from '../../features/canvas/createNodeWithDefaults'
 import {
   videoUpscaleActionOf,
   type VideoUpscaleModelId,
@@ -61,8 +57,7 @@ export interface StoryboardVideoControllerArgs {
   graphNodes: readonly NodeSnapshot[]
   liveNodeIds: ReadonlySet<string>
   channels: ChannelStore
-  canvasStore: CanvasStore
-  projectId: string
+  canvas: StoryboardCanvasPort
   directTrace: (args: {
     subjectId: string
     kind: 'text' | 'video' | 'speech'
@@ -89,8 +84,7 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
     graphNodes,
     liveNodeIds,
     channels,
-    canvasStore,
-    projectId,
+    canvas,
     directTrace,
     apply,
     setLay,
@@ -178,54 +172,35 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         throw new Error(`视频${actionLabel}返回了非视频产物：${mime}`)
       }
 
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: output.hash,
-          mime,
-          bytes: output.bytes,
-          ...(output.url ? { url: output.url } : {}),
-          createdAt: Date.now(),
-          projectId,
-        },
+      canvas.putAsset({
+        ...output,
+        mime,
       })
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          channelId: target.channelId,
-          model: target.model,
-          prompt,
-          ...(resolution ? { resolution } : {}),
-          ...(frameRate !== null ? { fps: String(frameRate) } : {}),
-          durationSec: shot.durationSec,
-          assetHash: output.hash,
-          assetMime: mime,
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt,
+        ...(resolution ? { resolution } : {}),
+        ...(frameRate !== null ? { fps: String(frameRate) } : {}),
+        durationSec: shot.durationSec,
+        assetHash: output.hash,
+        assetMime: mime,
       })
 
       let upscaleNodeId = ''
-      canvasStore.beginPlan(`storyboard:video-${action}`, `镜头视频${actionLabel}`)
+      canvas.beginPlan(`storyboard:video-${action}`, `镜头视频${actionLabel}`)
       try {
         upscaleNodeId =
-          applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          canvas.createGenerationNode({
             at: { x: sourceNode.x + 320, y: sourceNode.y },
             data,
           }) ?? ''
         if (upscaleNodeId) {
-          canvasStore.dispatch({
-            kind: 'edge.connect',
-            source: shot.videoNodeId,
-            target: upscaleNodeId,
-          })
+          canvas.connectEdge(shot.videoNodeId, upscaleNodeId)
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!upscaleNodeId) throw new Error(`视频${actionLabel}节点没能建出来`)
 
@@ -301,52 +276,33 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         throw new Error(`字幕擦除返回了非视频产物：${mime}`)
       }
 
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: output.hash,
-          mime,
-          bytes: output.bytes,
-          ...(output.url ? { url: output.url } : {}),
-          createdAt: Date.now(),
-          projectId,
-        },
+      canvas.putAsset({
+        ...output,
+        mime,
       })
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          channelId: target.channelId,
-          model: target.model,
-          prompt: '视频字幕擦除',
-          durationSec: shot.durationSec,
-          assetHash: output.hash,
-          assetMime: mime,
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt: '视频字幕擦除',
+        durationSec: shot.durationSec,
+        assetHash: output.hash,
+        assetMime: mime,
       })
 
       let eraseNodeId = ''
-      canvasStore.beginPlan('storyboard:video-erase', '镜头视频字幕擦除')
+      canvas.beginPlan('storyboard:video-erase', '镜头视频字幕擦除')
       try {
         eraseNodeId =
-          applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          canvas.createGenerationNode({
             at: { x: sourceNode.x + 320, y: sourceNode.y },
             data,
           }) ?? ''
         if (eraseNodeId) {
-          canvasStore.dispatch({
-            kind: 'edge.connect',
-            source: shot.videoNodeId,
-            target: eraseNodeId,
-          })
+          canvas.connectEdge(shot.videoNodeId, eraseNodeId)
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!eraseNodeId) throw new Error('字幕擦除节点没能建出来')
 
@@ -459,60 +415,37 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         throw new Error(`视频编辑返回了非视频产物：${mime}`)
       }
 
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: output.hash,
-          mime,
-          bytes: output.bytes,
-          ...(output.url ? { url: output.url } : {}),
-          createdAt: Date.now(),
-          projectId,
-        },
+      canvas.putAsset({
+        ...output,
+        mime,
       })
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          channelId: target.channelId,
-          model: target.model,
-          prompt,
-          ...(resolution ? { resolution } : {}),
-          durationSec: shot.durationSec,
-          assetHash: output.hash,
-          assetMime: mime,
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt,
+        ...(resolution ? { resolution } : {}),
+        durationSec: shot.durationSec,
+        assetHash: output.hash,
+        assetMime: mime,
       })
 
       let editNodeId = ''
-      canvasStore.beginPlan('storyboard:video-edit', '镜头视频编辑')
+      canvas.beginPlan('storyboard:video-edit', '镜头视频编辑')
       try {
         editNodeId =
-          applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          canvas.createGenerationNode({
             at: { x: sourceNode.x + 320, y: sourceNode.y },
             data,
           }) ?? ''
         if (editNodeId) {
-          canvasStore.dispatch({
-            kind: 'edge.connect',
-            source: shot.videoNodeId,
-            target: editNodeId,
-          })
+          canvas.connectEdge(shot.videoNodeId, editNodeId)
           if (referenceNode) {
-            canvasStore.dispatch({
-              kind: 'edge.connect',
-              source: referenceNode.id,
-              target: editNodeId,
-            })
+            canvas.connectEdge(referenceNode.id, editNodeId)
           }
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!editNodeId) throw new Error('视频编辑节点没能建出来')
 
@@ -602,53 +535,34 @@ export function createStoryboardVideoController(args: StoryboardVideoControllerA
         throw new Error(`视频续写返回了非视频产物：${mime}`)
       }
 
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: output.hash,
-          mime,
-          bytes: output.bytes,
-          ...(output.url ? { url: output.url } : {}),
-          createdAt: Date.now(),
-          projectId,
-        },
+      canvas.putAsset({
+        ...output,
+        mime,
       })
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: 'video',
-          channelId: target.channelId,
-          model: target.model,
-          prompt,
-          ...(resolution ? { resolution } : {}),
-          ...(duration !== null ? { durationSec: duration } : {}),
-          assetHash: output.hash,
-          assetMime: mime,
-        },
+      const data = await canvas.resolveGenerationData({
+        mode: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt,
+        ...(resolution ? { resolution } : {}),
+        ...(duration !== null ? { durationSec: duration } : {}),
+        assetHash: output.hash,
+        assetMime: mime,
       })
 
       let extendNodeId = ''
-      canvasStore.beginPlan('storyboard:video-extend', '镜头视频续写')
+      canvas.beginPlan('storyboard:video-extend', '镜头视频续写')
       try {
         extendNodeId =
-          applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          canvas.createGenerationNode({
             at: { x: sourceNode.x + 320, y: sourceNode.y },
             data,
           }) ?? ''
         if (extendNodeId) {
-          canvasStore.dispatch({
-            kind: 'edge.connect',
-            source: shot.videoNodeId,
-            target: extendNodeId,
-          })
+          canvas.connectEdge(shot.videoNodeId, extendNodeId)
         }
       } finally {
-        canvasStore.endPlan()
+        canvas.endPlan()
       }
       if (!extendNodeId) throw new Error('视频续写节点没能建出来')
 

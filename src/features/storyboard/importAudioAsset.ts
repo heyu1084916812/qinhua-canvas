@@ -1,7 +1,7 @@
 import { assetMimeOfName } from '../../domain/shared/assetLocation'
 import { fingerprintBytes } from '../../domain/shared/hash'
 import type { PlatformKit } from '../../platform/ports'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
+import type { StoryboardCanvasPort } from './canvasPort'
 
 export const AUDIO_ACCEPT =
   'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac'
@@ -21,8 +21,7 @@ export interface ImportedAudioAsset {
 
 export interface ImportAudioDeps {
   platform: Pick<PlatformKit, 'files'>
-  store: CanvasStore
-  projectId: string
+  canvas: Pick<StoryboardCanvasPort, 'putAsset'>
 }
 
 /**
@@ -48,16 +47,7 @@ export async function importAudioAsset(
   const mime = normalizeAudioMime(picked.mime, picked.name)
   if (!mime) throw new Error('只支持 MP3 / WAV / OGG / M4A / AAC / FLAC 音频')
   const hash = await fingerprintBytes(bytes)
-  deps.store.dispatch({
-    kind: 'asset.put',
-    asset: {
-      hash,
-      mime,
-      bytes,
-      createdAt: Date.now(),
-      projectId: deps.projectId,
-    },
-  })
+  deps.canvas.putAsset({ hash, mime, bytes })
   return { hash, mime, name: picked.name, size: picked.size }
 }
 

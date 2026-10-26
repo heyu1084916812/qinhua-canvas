@@ -34666,6 +34666,25 @@ async function g145(browser) {
   const overlay = page.locator('[data-storyboard-preview-overlay]')
   const counter = page.locator('[data-preview-counter]')
   let storyboardProjectId = ''
+  const choosePicker = async (name, value) => {
+    const picker = page.locator(`[data-choice-picker="${name}"]`)
+    await picker.locator('button').click()
+    await picker.locator(`[data-choice-option="${value}"]`).click()
+  }
+  const choiceOptions = async (name) => {
+    const picker = page.locator(`[data-choice-picker="${name}"]`)
+    await picker.locator('button').click()
+    const options = await picker
+      .locator('[data-choice-option]')
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          value: node.getAttribute('data-choice-option') ?? '',
+          text: node.textContent ?? '',
+        })),
+      )
+    await page.keyboard.press('Escape')
+    return options
+  }
 
   const readDb = async () => {
       const [boards, nodes, assets, edges] = await Promise.all([
@@ -34758,9 +34777,7 @@ async function g145(browser) {
   const characterId =
     (await page.locator('[data-storyboard-character]').first().getAttribute('data-storyboard-character')) ??
     ''
-  await page
-    .locator(`[data-storyboard-character-voice="${characterId}"]`)
-    .selectOption('nova')
+  await choosePicker(`storyboard-character-voice-${characterId}`, 'nova')
   await page.locator(`[data-storyboard-character-speed="${characterId}"]`).fill('1.2')
   const characterVoice = await waitDb(
     (db) =>
@@ -34817,7 +34834,7 @@ async function g145(browser) {
   await page.locator(`[data-storyboard-shot-scene="${ids[0]}"]`).fill('雨里骑车')
   await page.locator(`[data-storyboard-shot-scene="${ids[1]}"]`).fill('把箱子放下')
   await page.locator(`[data-storyboard-shot-scene="${ids[2]}"]`).fill('转身走远')
-  await page.locator(`[data-storyboard-shot-transition="${ids[0]}"]`).selectOption('fade')
+  await choosePicker(`storyboard-shot-transition-${ids[0]}`, 'fade')
   await page.locator(`[data-storyboard-shot-transition-seconds="${ids[0]}"]`).fill('0.5')
   const firstLineInput = await fillShotLine(page, ids[0], '第一镜的台词')
   const currentLineId =
@@ -34825,16 +34842,11 @@ async function g145(browser) {
   const secondLineInput = await fillShotLine(page, ids[1], '第二镜的台词')
   const secondLineId =
     (await secondLineInput.getAttribute('data-storyboard-line-text')) ?? ''
-  await page
-    .locator(`[data-storyboard-line-speaker="${currentLineId}"]`)
-    .selectOption(characterId)
-  await page
-    .locator(`[data-storyboard-line-speaker="${secondLineId}"]`)
-    .selectOption(characterId)
+  await choosePicker(`storyboard-line-speaker-${currentLineId}`, characterId)
+  await choosePicker(`storyboard-line-speaker-${secondLineId}`, characterId)
   await sleep(500)
   const inheritedVoiceLabel = await page
-    .locator(`[data-storyboard-line-voice-style="${currentLineId}"] option`)
-    .first()
+    .locator(`[data-choice-picker="storyboard-line-voice-${currentLineId}"] button`)
     .innerText()
   rec(
     g,
@@ -35215,29 +35227,29 @@ async function g145(browser) {
     .catch(() => false)
   if (upscaleShown) await upscaleButton.click()
   const upscalePanel = page.locator(`[data-storyboard-upscale-panel="${ids[0]}"]`)
-  const upscaleTargetOptions = await page
-    .locator(`[data-storyboard-upscale-target="${ids[0]}"] option`)
-    .allInnerTexts()
-    .catch(() => [])
-  const fpsTargetIndex = upscaleTargetOptions.findIndex((text) =>
-    text.includes('RH 视频补帧'),
+  const upscaleTargetOptions = await choiceOptions(
+    `storyboard-upscale-target-${ids[0]}`,
+  ).catch(() => [])
+  const fpsTargetIndex = upscaleTargetOptions.findIndex((option) =>
+    option.text.includes('RH 视频补帧'),
   )
-  const topazTargetIndex = upscaleTargetOptions.findIndex((text) =>
-    text.includes('Topaz 视频超清'),
+  const topazTargetIndex = upscaleTargetOptions.findIndex((option) =>
+    option.text.includes('Topaz 视频超清'),
   )
   let fpsHasNoSettings = false
   if (fpsTargetIndex >= 0) {
-    await page
-      .locator(`[data-storyboard-upscale-target="${ids[0]}"]`)
-      .selectOption(String(fpsTargetIndex))
+    await choosePicker(
+      `storyboard-upscale-target-${ids[0]}`,
+      upscaleTargetOptions[fpsTargetIndex]?.value ?? '',
+    )
     await page.waitForTimeout(100)
     fpsHasNoSettings =
       (await page
-        .locator(`[data-storyboard-upscale-resolution="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-upscale-resolution-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0 &&
       (await page
-        .locator(`[data-storyboard-upscale-fps="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-upscale-fps-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0
   }
@@ -35246,21 +35258,20 @@ async function g145(browser) {
     '★★ 已有视频时出现真实「视频后处理」入口；补帧模型不伪造清晰度 / 帧率',
     upscaleShown &&
       (await upscalePanel.isVisible().catch(() => false)) &&
-      upscaleTargetOptions.some((text) => text.includes('Topaz 视频超清')) &&
-      upscaleTargetOptions.some((text) => text.includes('RH 视频超分')) &&
+      upscaleTargetOptions.some((option) => option.text.includes('Topaz 视频超清')) &&
+      upscaleTargetOptions.some((option) => option.text.includes('RH 视频超分')) &&
       fpsTargetIndex >= 0 &&
       fpsHasNoSettings,
-    `入口=${upscaleShown} 目标=${upscaleTargetOptions.join(' / ')} 补帧无档位=${fpsHasNoSettings}`,
+    `入口=${upscaleShown} 目标=${upscaleTargetOptions.map((option) => option.text).join(' / ')} 补帧无档位=${fpsHasNoSettings}`,
   )
   if (topazTargetIndex >= 0) {
-    await page
-      .locator(`[data-storyboard-upscale-target="${ids[0]}"]`)
-      .selectOption(String(topazTargetIndex))
+    await choosePicker(
+      `storyboard-upscale-target-${ids[0]}`,
+      upscaleTargetOptions[topazTargetIndex]?.value ?? '',
+    )
   }
-  await page
-    .locator(`[data-storyboard-upscale-resolution="${ids[0]}"]`)
-    .selectOption('4k')
-  await page.locator(`[data-storyboard-upscale-fps="${ids[0]}"]`).selectOption('60')
+  await choosePicker(`storyboard-upscale-resolution-${ids[0]}`, '4k')
+  await choosePicker(`storyboard-upscale-fps-${ids[0]}`, '60')
   await page.locator(`[data-storyboard-upscale-submit="${ids[0]}"]`).click()
   const upscaleDb = await waitDb((db) => {
     const shot = db.shots[0]
@@ -35310,16 +35321,17 @@ async function g145(browser) {
     .then(() => true)
     .catch(() => false)
   if (videoEraseShown) await videoEraseButton.click()
-  const videoEraseTarget = page.locator(`[data-storyboard-video-erase-target="${ids[0]}"]`)
-  const videoEraseTargets = await videoEraseTarget
-    .locator('option')
-    .allInnerTexts()
-    .catch(() => [])
-  const eraseProIndex = videoEraseTargets.findIndex((text) =>
-    text.includes('火山字幕擦除 精细化版'),
+  const videoEraseTargets = await choiceOptions(
+    `storyboard-video-erase-target-${ids[0]}`,
+  ).catch(() => [])
+  const eraseProIndex = videoEraseTargets.findIndex((option) =>
+    option.text.includes('火山字幕擦除 精细化版'),
   )
   if (eraseProIndex >= 0) {
-    await videoEraseTarget.selectOption(String(eraseProIndex))
+    await choosePicker(
+      `storyboard-video-erase-target-${ids[0]}`,
+      videoEraseTargets[eraseProIndex]?.value ?? '',
+    )
   }
   rec(
     g,
@@ -35329,9 +35341,9 @@ async function g145(browser) {
         .locator(`[data-storyboard-video-erase-panel="${ids[0]}"]`)
         .isVisible()
         .catch(() => false)) &&
-      videoEraseTargets.some((text) => text.includes('火山字幕擦除 标准版')) &&
-      videoEraseTargets.some((text) => text.includes('火山字幕擦除 精细化版')),
-    `入口=${videoEraseShown} 模型=${JSON.stringify(videoEraseTargets)}`,
+      videoEraseTargets.some((option) => option.text.includes('火山字幕擦除 标准版')) &&
+      videoEraseTargets.some((option) => option.text.includes('火山字幕擦除 精细化版')),
+    `入口=${videoEraseShown} 模型=${JSON.stringify(videoEraseTargets.map((option) => option.text))}`,
   )
   await page.locator(`[data-storyboard-video-erase-submit="${ids[0]}"]`).click()
   const videoEraseDb = await waitDb((db) => {
@@ -35377,28 +35389,29 @@ async function g145(browser) {
     .catch(() => false)
   if (videoEditShown) await videoEditButton.click()
   const videoEditInstruction = '把白天改成雨夜，保持人物动作和镜头运动不变'
-  const videoEditTarget = page.locator(`[data-storyboard-video-edit-target="${ids[0]}"]`)
-  const videoEditTargets = await videoEditTarget
-    .locator('option')
-    .allInnerTexts()
-    .catch(() => [])
-  const klingTargetIndex = videoEditTargets.findIndex((text) =>
-    text.includes('Kling O3 Pro 视频编辑'),
+  const videoEditTargets = await choiceOptions(
+    `storyboard-video-edit-target-${ids[0]}`,
+  ).catch(() => [])
+  const klingTargetIndex = videoEditTargets.findIndex((option) =>
+    option.text.includes('Kling O3 Pro 视频编辑'),
   )
-  const universalTargetIndex = videoEditTargets.findIndex((text) =>
-    text.includes('全能视频X 视频编辑'),
+  const universalTargetIndex = videoEditTargets.findIndex((option) =>
+    option.text.includes('全能视频X 视频编辑'),
   )
-  const wanEditTargetIndex = videoEditTargets.findIndex((text) =>
-    text.includes('万相2.7 视频编辑'),
+  const wanEditTargetIndex = videoEditTargets.findIndex((option) =>
+    option.text.includes('万相2.7 视频编辑'),
   )
   let klingHasNoResolution = false
   let klingReferenceChecked = false
   if (klingTargetIndex >= 0) {
-    await videoEditTarget.selectOption(String(klingTargetIndex))
+    await choosePicker(
+      `storyboard-video-edit-target-${ids[0]}`,
+      videoEditTargets[klingTargetIndex]?.value ?? '',
+    )
     await page.waitForTimeout(100)
     klingHasNoResolution =
       (await page
-        .locator(`[data-storyboard-video-edit-resolution="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-video-edit-resolution-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0
     const reference = page.locator(
@@ -35416,7 +35429,7 @@ async function g145(browser) {
       wanEditTargetIndex >= 0 &&
       klingHasNoResolution &&
       klingReferenceChecked,
-    `models=${JSON.stringify(videoEditTargets)} kling=${klingTargetIndex} universal=${universalTargetIndex} wan=${wanEditTargetIndex} noResolution=${klingHasNoResolution} reference=${klingReferenceChecked}`,
+    `models=${JSON.stringify(videoEditTargets.map((option) => option.text))} kling=${klingTargetIndex} universal=${universalTargetIndex} wan=${wanEditTargetIndex} noResolution=${klingHasNoResolution} reference=${klingReferenceChecked}`,
   )
   rec(
     g,
@@ -35426,11 +35439,9 @@ async function g145(browser) {
         .locator(`[data-storyboard-video-edit-panel="${ids[0]}"]`)
         .isVisible()
         .catch(() => false)) &&
-      (await page
-        .locator(`[data-storyboard-video-edit-target="${ids[0]}"] option`)
-        .allInnerTexts()
-        .catch(() => [])
-      ).some((text) => text.includes('全能视频X 视频编辑')),
+      videoEditTargets.some((option) =>
+        option.text.includes('全能视频X 视频编辑'),
+      ),
   )
   await page
     .locator(`[data-storyboard-video-edit-instruction="${ids[0]}"]`)
@@ -35487,45 +35498,49 @@ async function g145(browser) {
     .catch(() => false)
   if (videoExtendShown) await videoExtendButton.click()
   const videoExtendInstruction = '人物继续向前走，镜头缓慢跟随，保持雨夜氛围'
-  const videoExtendTarget = page.locator(`[data-storyboard-video-extend-target="${ids[0]}"]`)
-  const videoExtendTargets = await videoExtendTarget
-    .locator('option')
-    .allInnerTexts()
-    .catch(() => [])
-  const wanExtendIndex = videoExtendTargets.findIndex((text) =>
-    text.includes('万相2.7 视频续写'),
+  const videoExtendTargets = await choiceOptions(
+    `storyboard-video-extend-target-${ids[0]}`,
+  ).catch(() => [])
+  const wanExtendIndex = videoExtendTargets.findIndex((option) =>
+    option.text.includes('万相2.7 视频续写'),
   )
-  const rhExtendIndex = videoExtendTargets.findIndex((text) =>
-    text.includes('全能视频X 视频续写'),
+  const rhExtendIndex = videoExtendTargets.findIndex((option) =>
+    option.text.includes('全能视频X 视频续写'),
   )
-  const proExtendIndex = videoExtendTargets.findIndex((text) =>
-    text.includes('全能视频V3.1 Pro 视频扩展'),
+  const proExtendIndex = videoExtendTargets.findIndex((option) =>
+    option.text.includes('全能视频V3.1 Pro 视频扩展'),
   )
   let rhExtendNoResolution = false
   let proExtendNoDuration = false
   if (rhExtendIndex >= 0) {
-    await videoExtendTarget.selectOption(String(rhExtendIndex))
+    await choosePicker(
+      `storyboard-video-extend-target-${ids[0]}`,
+      videoExtendTargets[rhExtendIndex]?.value ?? '',
+    )
     await page.waitForTimeout(100)
     rhExtendNoResolution =
       (await page
-        .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-video-extend-resolution-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0 &&
       (await page
-        .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-video-extend-duration-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 1
   }
   if (proExtendIndex >= 0) {
-    await videoExtendTarget.selectOption(String(proExtendIndex))
+    await choosePicker(
+      `storyboard-video-extend-target-${ids[0]}`,
+      videoExtendTargets[proExtendIndex]?.value ?? '',
+    )
     await page.waitForTimeout(100)
     proExtendNoDuration =
       (await page
-        .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-video-extend-duration-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0 &&
       (await page
-        .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
+        .locator(`[data-choice-picker="storyboard-video-extend-resolution-${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 1
   }
@@ -35537,10 +35552,13 @@ async function g145(browser) {
       proExtendIndex >= 0 &&
       rhExtendNoResolution &&
       proExtendNoDuration,
-    `models=${JSON.stringify(videoExtendTargets)} rhNoResolution=${rhExtendNoResolution} proNoDuration=${proExtendNoDuration}`,
+    `models=${JSON.stringify(videoExtendTargets.map((option) => option.text))} rhNoResolution=${rhExtendNoResolution} proNoDuration=${proExtendNoDuration}`,
   )
   if (wanExtendIndex >= 0) {
-    await videoExtendTarget.selectOption(String(wanExtendIndex))
+    await choosePicker(
+      `storyboard-video-extend-target-${ids[0]}`,
+      videoExtendTargets[wanExtendIndex]?.value ?? '',
+    )
   }
   rec(
     g,
@@ -35550,21 +35568,15 @@ async function g145(browser) {
         .locator(`[data-storyboard-video-extend-panel="${ids[0]}"]`)
         .isVisible()
         .catch(() => false)) &&
-      (await page
-        .locator(`[data-storyboard-video-extend-target="${ids[0]}"] option`)
-        .allInnerTexts()
-        .catch(() => [])
-      ).some((text) => text.includes('万相2.7 视频续写')),
+      videoExtendTargets.some((option) =>
+        option.text.includes('万相2.7 视频续写'),
+      ),
   )
   await page
     .locator(`[data-storyboard-video-extend-instruction="${ids[0]}"]`)
     .fill(videoExtendInstruction)
-  await page
-    .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
-    .selectOption('1080P')
-  await page
-    .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
-    .selectOption('8')
+  await choosePicker(`storyboard-video-extend-resolution-${ids[0]}`, '1080P')
+  await choosePicker(`storyboard-video-extend-duration-${ids[0]}`, '8')
   await page.locator(`[data-storyboard-video-extend-submit="${ids[0]}"]`).click()
   const videoExtendDb = await waitDb((db) => {
     const shot = db.shots[0]
@@ -35620,9 +35632,7 @@ async function g145(browser) {
   const mixedLineInput = lineTextInputs.last()
   const mixedLineId = (await mixedLineInput.getAttribute('data-storyboard-line-text')) ?? ''
   await mixedLineInput.fill('这是同一角色的第二句台词')
-  await page
-    .locator(`[data-storyboard-line-speaker="${mixedLineId}"]`)
-    .selectOption(characterId)
+  await choosePicker(`storyboard-line-speaker-${mixedLineId}`, characterId)
   await page.locator(`[data-storyboard-line-voice="${mixedLineId}"]`).click()
   const withSecondAudio = await waitDb(
     (db) =>

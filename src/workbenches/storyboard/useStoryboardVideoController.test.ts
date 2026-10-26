@@ -8,8 +8,8 @@ import {
 } from '../../domain/storyboard/storyboard'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { ChannelStore } from '../../state/channel/channelStore'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import {
   createStoryboardVideoController,
   type VideoEditTarget,
@@ -90,20 +90,13 @@ function shotDoc(options: { image?: boolean } = {}): {
 
 function harness(doc: StoryboardDoc, nodes: NodeSnapshot[]) {
   const applied: StoryboardDoc[] = []
-  const dispatch = vi.fn((action: { kind: string }) => {
-    if (action.kind === 'node.create') {
-      return {
-        patches: [
-          {
-            op: 'upsert',
-            table: 'nodes',
-            row: { id: 'result-node' },
-          },
-        ],
-      }
-    }
-    return { patches: [] }
-  })
+  const putAsset = vi.fn()
+  const createGenerationNode = vi.fn(() => 'result-node')
+  const resolveGenerationData = vi.fn(
+    async (extraData: Record<string, unknown>) => extraData,
+  )
+  const connectEdge = vi.fn()
+  const removeEdge = vi.fn()
   const generateVideo = vi.fn(async () => [
     {
       hash: 'new-video',
@@ -127,12 +120,15 @@ function harness(doc: StoryboardDoc, nodes: NodeSnapshot[]) {
       defaultForNewNode,
       rememberRecipe,
     } as unknown as ChannelStore,
-    canvasStore: {
-      dispatch,
+    canvas: {
+      putAsset,
+      createGenerationNode,
+      resolveGenerationData,
+      connectEdge,
+      removeEdge,
       beginPlan,
       endPlan,
-    } as unknown as CanvasStore,
-    projectId: 'p1',
+    } as unknown as StoryboardCanvasPort,
     directTrace: trace,
     apply: (next) => applied.push(next),
     setLay,
@@ -149,7 +145,10 @@ function harness(doc: StoryboardDoc, nodes: NodeSnapshot[]) {
   return {
     controller,
     applied,
-    dispatch,
+    putAsset,
+    createGenerationNode,
+    connectEdge,
+    removeEdge,
     generateVideo,
     beginPlan,
     endPlan,
@@ -190,9 +189,8 @@ describe('Storyboard video controller', () => {
         params: { resolution: '4k', fps: '60' },
       }),
     )
-    expect(test.dispatch).toHaveBeenCalledWith(
+    expect(test.createGenerationNode).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'node.create',
         at: { x: 420, y: 120 },
         data: expect.objectContaining({
           mode: 'video',
@@ -201,14 +199,8 @@ describe('Storyboard video controller', () => {
         }),
       }),
     )
-    expect(test.dispatch).toHaveBeenCalledWith({
-      kind: 'edge.connect',
-      source: 'v1',
-      target: 'result-node',
-    })
-    expect(test.dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'node.delete' }),
-    )
+    expect(test.connectEdge).toHaveBeenCalledWith('v1', 'result-node')
+    expect(test.removeEdge).not.toHaveBeenCalled()
     expect(test.applied.at(-1)?.shots[0]).toMatchObject({
       videoNodeId: 'result-node',
       videoHash: 'new-video',
@@ -276,16 +268,8 @@ describe('Storyboard video controller', () => {
         ],
       }),
     )
-    expect(test.dispatch).toHaveBeenCalledWith({
-      kind: 'edge.connect',
-      source: 'v1',
-      target: 'result-node',
-    })
-    expect(test.dispatch).toHaveBeenCalledWith({
-      kind: 'edge.connect',
-      source: 'i1',
-      target: 'result-node',
-    })
+    expect(test.connectEdge).toHaveBeenCalledWith('v1', 'result-node')
+    expect(test.connectEdge).toHaveBeenCalledWith('i1', 'result-node')
     expect(test.setLay).toHaveBeenLastCalledWith(
       expect.objectContaining({
         kind: 'done',
@@ -313,7 +297,7 @@ describe('Storyboard video controller', () => {
     await test.controller.makeVideoEdit(shot, target, '换背景', '1080P', false)
 
     expect(test.generateVideo).not.toHaveBeenCalled()
-    expect(test.dispatch).not.toHaveBeenCalled()
+    expect(test.connectEdge).not.toHaveBeenCalled()
     expect(test.setLay).toHaveBeenCalledWith({
       kind: 'error',
       text: '这个模型必须参考当前镜头画面',

@@ -1,6 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
-import type { ChannelStore } from '../../state/channel/channelStore'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import type { StoryboardDoc } from '../../domain/storyboard/storyboard'
 import {
   assetBasePrompt,
@@ -8,28 +7,13 @@ import {
   setAssetNode,
   setAssetTurnaroundNode,
 } from '../../domain/storyboard/storyboard'
-import {
-  applyDefaults,
-  resolveDefaults,
-} from '../../features/canvas/createNodeWithDefaults'
 import { asAppError, describeError } from '../../shared/result'
-
-interface ExecutionApi {
-  runNode(
-    nodeId: string,
-    opts?: { alt?: boolean; inPlace?: boolean },
-  ): Promise<void>
-}
 
 export interface StoryboardAssetControllerArgs {
   doc: StoryboardDoc
   currentDoc: () => StoryboardDoc | null
   liveNodeIds: ReadonlySet<string>
-  canvasNodeCount: number
-  channels: ChannelStore
-  canvasStore: CanvasStore
-  execution: ExecutionApi
-  projectId: string
+  canvas: StoryboardCanvasPort
   apply: (doc: StoryboardDoc) => void
   setLay: Dispatch<
     SetStateAction<{
@@ -46,11 +30,7 @@ export function createStoryboardAssetController(
     doc,
     currentDoc,
     liveNodeIds,
-    canvasNodeCount,
-    channels,
-    canvasStore,
-    execution,
-    projectId,
+    canvas,
     apply,
     setLay,
   } = args
@@ -77,30 +57,25 @@ export function createStoryboardAssetController(
     try {
       let nodeId = alive
       if (!nodeId) {
-        const data = await resolveDefaults({
-          channels,
-          type: 'generation',
-          extraData: { mode: 'image', prompt: assetBasePrompt(asset, kind) },
+        const data = await canvas.resolveGenerationData({
+          mode: 'image',
+          prompt: assetBasePrompt(asset, kind),
         })
-        const base = canvasNodeCount
-        canvasStore.beginPlan('storyboard:asset-base', kind === 'char' ? '定妆图 ×1' : '基准图 ×1')
+        const base = canvas.getSnapshot().nodes.length
+        canvas.beginPlan('storyboard:asset-base', kind === 'char' ? '定妆图 ×1' : '基准图 ×1')
         try {
-          nodeId = applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          nodeId = canvas.createGenerationNode({
             at: { x: 40, y: 40 + base * 200 },
             data,
           })
         } finally {
-          canvasStore.endPlan()
+          canvas.endPlan()
         }
         if (!nodeId) return
         const current = currentDoc()
         if (current) apply(setAssetNode(current, kind, assetId, nodeId, 0))
       }
-      await execution.runNode(nodeId, { inPlace: true })
+      await canvas.runNode(nodeId, { inPlace: true })
     } catch (e) {
       setLay({ kind: 'error', text: humanError(e) })
     }
@@ -122,19 +97,14 @@ export function createStoryboardAssetController(
     try {
       let nodeId = alive
       if (!nodeId) {
-        const data = await resolveDefaults({
-          channels,
-          type: 'generation',
-          extraData: { mode: 'image', prompt: assetTurnaroundPrompt(asset) },
+        const data = await canvas.resolveGenerationData({
+          mode: 'image',
+          prompt: assetTurnaroundPrompt(asset),
         })
-        const base = canvasNodeCount
-        canvasStore.beginPlan('storyboard:asset-turnaround', '多视角 ×1')
+        const base = canvas.getSnapshot().nodes.length
+        canvas.beginPlan('storyboard:asset-turnaround', '多视角 ×1')
         try {
-          nodeId = applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
+          nodeId = canvas.createGenerationNode({
             at: { x: 40, y: 40 + base * 200 },
             data,
           })
@@ -142,16 +112,16 @@ export function createStoryboardAssetController(
           const baseNodeId =
             asset.nodeId && liveNodeIds.has(asset.nodeId) ? asset.nodeId : null
           if (baseNodeId) {
-            canvasStore.dispatch({ kind: 'edge.connect', source: baseNodeId, target: nodeId })
+            canvas.connectEdge(baseNodeId, nodeId)
           }
         } finally {
-          canvasStore.endPlan()
+          canvas.endPlan()
         }
         if (!nodeId) return
         const current = currentDoc()
         if (current) apply(setAssetTurnaroundNode(current, 'char', assetId, nodeId, 0))
       }
-      await execution.runNode(nodeId, { inPlace: true })
+      await canvas.runNode(nodeId, { inPlace: true })
     } catch (e) {
       setLay({ kind: 'error', text: humanError(e) })
     }

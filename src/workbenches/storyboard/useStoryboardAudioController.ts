@@ -1,8 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { SpeechTarget } from '../../domain/shared/chatTarget'
 import type { DirectRunTraceInput } from '../../state/shared/directRun'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { ChannelStore } from '../../state/channel/channelStore'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import {
   speechSettingsOf,
   updateEpisode,
@@ -23,8 +23,7 @@ export interface StoryboardAudioControllerArgs {
   speechTarget: SpeechTarget | null
   platform: PlatformKit
   channels: ChannelStore
-  canvasStore: CanvasStore
-  projectId: string
+  canvas: StoryboardCanvasPort
   directTrace: (args: {
     subjectId: string
     kind: 'text' | 'video' | 'speech'
@@ -48,8 +47,7 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     speechTarget,
     platform,
     channels,
-    canvasStore,
-    projectId,
+    canvas,
     directTrace,
     apply,
     setStatus,
@@ -102,16 +100,7 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
           params: { voice, speed: speech.speed },
         }),
       })
-      canvasStore.dispatch({
-        kind: 'asset.put',
-        asset: {
-          hash: asset.hash,
-          mime: asset.mime,
-          bytes: asset.bytes,
-          createdAt: Date.now(),
-          projectId,
-        },
-      })
+      canvas.putAsset(asset)
       const base = currentDoc()
       const speaker = base.characters.find((item) => item.id === line.speakerId)?.name ?? '旁白'
       apply(
@@ -176,7 +165,7 @@ export function createStoryboardAudioController(args: StoryboardAudioControllerA
     if (!selected) return
     setStatus('正在导入背景音乐…')
     try {
-      const asset = await importAudioAsset({ platform, store: canvasStore, projectId })
+      const asset = await importAudioAsset({ platform, canvas })
       if (!asset) {
         setStatus('')
         return

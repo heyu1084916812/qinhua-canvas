@@ -8,8 +8,8 @@ import {
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { ChannelStore } from '../../state/channel/channelStore'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { createMemoryPlatform } from '../../platform/memory'
+import type { StoryboardCanvasPort } from '../../features/storyboard/canvasPort'
 import { createStoryboardShotController } from './useStoryboardShotController'
 
 function shotDoc(): StoryboardDoc {
@@ -28,7 +28,7 @@ function shotDoc(): StoryboardDoc {
 }
 
 function harness(doc: StoryboardDoc) {
-  const dispatch = vi.fn(() => ({ patches: [] }))
+  const updateNodeData = vi.fn()
   const beginPlan = vi.fn()
   const endPlan = vi.fn()
   const runNode = vi.fn(async () => undefined)
@@ -48,15 +48,15 @@ function harness(doc: StoryboardDoc) {
     graphEdges: [],
     liveNodeIds: new Set(['n1', 'n2']),
     channels: {} as ChannelStore,
-    canvasStore: {
-      dispatch,
+    canvas: {
+      updateNodeData,
       beginPlan,
       endPlan,
       getSnapshot,
-    } as unknown as CanvasStore,
-    execution: { runNode, nodeStateOf },
+      runNode,
+      nodeStateOf,
+    } as unknown as StoryboardCanvasPort,
     platform: createMemoryPlatform(),
-    projectId: 'p1',
     directTrace: () => ({
       projectId: 'p1',
       workbench: 'storyboard',
@@ -70,7 +70,7 @@ function harness(doc: StoryboardDoc) {
   })
   return {
     controller,
-    dispatch,
+    updateNodeData,
     beginPlan,
     endPlan,
     runNode,
@@ -89,13 +89,12 @@ describe('Storyboard shot controller', () => {
       'storyboard:sync-prompt',
       '按资产刷新提示词 ×2',
     )
-    expect(test.dispatch).toHaveBeenCalledTimes(2)
-    expect(test.dispatch).toHaveBeenCalledWith({
-      kind: 'node.updateData',
-      id: 'n1',
-      patch: { prompt: expect.any(String) },
-      transient: false,
-    })
+    expect(test.updateNodeData).toHaveBeenCalledTimes(2)
+    expect(test.updateNodeData).toHaveBeenCalledWith(
+      'n1',
+      { prompt: expect.any(String) },
+      false,
+    )
     expect(test.endPlan).toHaveBeenCalledTimes(1)
     expect(test.setLay).toHaveBeenCalledWith({
       kind: 'done',

@@ -43,19 +43,16 @@ module.exports = {
         pathNot: '^src/state/workbenches/[^/]+/commands',
       },
     },
-    // 拆成两条互斥规则：写成 from (canvas|comic) → to (canvas|comic) 时，
-    // domain/canvas 内部互引（layout → geometry 等）会被误判为跨工作台引用（实测 34 处误报）
     {
-      name: 'no-workbench-cross-talk-canvas-to-comic',
-      comment: '画布 → 漫画剧 互引禁止',
-      from: { path: '^src/(workbenches|features|state/workbenches|domain)/canvas' },
-      to: { path: '^src/(workbenches|features|state/workbenches|domain)/comic' },
-    },
-    {
-      name: 'no-workbench-cross-talk-comic-to-canvas',
-      comment: '漫画剧 → 画布 互引禁止',
-      from: { path: '^src/(workbenches|features|state/workbenches|domain)/comic' },
-      to: { path: '^src/(workbenches|features|state/workbenches|domain)/canvas' },
+      name: 'storyboard-no-canvas-runtime',
+      comment:
+        '漫剧页面、工作台和业务能力不得直接依赖画布 Store / 执行器 / Provider / 节点创建入口；只能使用 features/storyboard/canvasPort',
+      from: {
+        path: '^src/(pages/StoryboardPage|workbenches/storyboard|features/storyboard)',
+      },
+      to: {
+        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas/(execution|createNodeWithDefaults|importAsset))',
+      },
     },
     {
       // M6-1 收口：架构 §5.10 承诺过「共享层不得依赖工作台私有层」，但此前**无工具强制**，

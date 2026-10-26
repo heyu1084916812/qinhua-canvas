@@ -78,6 +78,14 @@
   管铺画布 / 单镜与整集出图 / 镜头视频 / 数字人口播 / 参考图与提示词同步。加上导出、音频、
   视频后处理，阶段 4 的独立控制器要求已满足。控制器定向 8/8，项目文件降到 1622 行；
   全量 **3147 passed / 1 skipped**，check/build 通过。剩余是画布运行时装配边界。
+- **阶段 4F / 5 已完成**：`app/workbenchHosts/StoryboardCanvasHost` 持有画布 Store、Execution、
+  水合与写盘保险；业务侧经 `features/storyboard/canvasPort` 使用中性能力，页面与
+  `workbenches/storyboard` 不再直接 import 画布运行时。依赖规则新增
+  `storyboard-no-canvas-runtime`，旧 comic 规则已删。隔离库 G145 **44/44**，全量
+  **3147 passed / 1 skipped**，check/build/依赖/smoke 语法全绿；开发版 1420 与 store 18765 已恢复。
+- **冒烟矩阵 health 不能写死 version 4**：SQLite V2 当前 health 为 version 5，矩阵已改为
+  `>= 4`。G145 的 ChoicePicker 断言必须用 `data-choice-picker` + `data-choice-option`，
+  不能再用旧的原生 select / `data-storyboard-*-voice` 选择器。
 
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 
