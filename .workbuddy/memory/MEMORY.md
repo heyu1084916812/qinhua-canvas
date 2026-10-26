@@ -1,5 +1,23 @@
 # CanvasFlow（轻画）项目记忆
 
+### 工作台解耦方案审阅（2026-10-26 → 对账 #766）
+
+- 当前 `WorkbenchId` 有三类，但生产路径的 `runEngine` 仍只经画布
+  `CanvasExecutionProvider` 间接使用。电商和漫剧页面都直接挂载画布 Store / Execution，
+  不能把“共享引擎文件存在”误写成“三个工作台已经独立消费共享引擎”。
+- `StoryboardPage.tsx` 实测约 **4826 行**；内部还有 3 处 `completeWithTools`、5 处
+  `generateVideo`、1 处 `generateSpeech` 直接走渠道层，绕过 `runEngine`。审阅生成能力时
+  必须同时检查 `CanvasExecutionProvider` 和这些直连入口。
+- `runEngine` / `useExecution` / `ExecutionPlacement` 已经是正确的共享调度内核。
+  `GenerationClient` 只能做渠道、凭据、分组、模型映射与适配器调用的薄网关；若让它再管
+  任务状态、重试、素材落库和 RunRecord，就会形成第二套执行器。
+- 电商结果真源是 `ecommerceTasks` / `ecommerceResults`，`EcommerceCanvasItem` 只能做
+  可重建投影；漫剧业务真源是 `storyboardStore`，“铺到画布”只能是显式投影。
+- `.dependency-cruiser.cjs` 仍在引用已删除的 comic；新规则必须清理旧项并覆盖
+  `ecommerce` / `storyboard` 到画布私有层的依赖。
+- 详细取证和更正见 `轻画-工作台解耦方案审阅报告.md`；原方案 v0.2 已同步修正。
+  计划类文档不按行数机械验收，必须同时约束页面装配、控制器职责和 import 边界。
+
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 
 - 外观拆成主题与颜色、字体与文字、画布外观；备份拆出快照；帮助拆出快捷键。栏目、分组和搜索
