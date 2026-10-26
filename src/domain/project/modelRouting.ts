@@ -390,9 +390,13 @@ export function resolveRouteForChannel(
   const source = channels.find((channel) => channel.id === channelId)
   if (!source) return { ok: false, reason: 'channel_missing' }
   if (!source.enabled) return { ok: false, reason: 'channel_disabled' }
-  if (!source.hasToken) return { ok: false, reason: 'channel_no_token' }
   const candidate = routeCandidatesFor([source], logicalModel, resolve)[0]
-  if (!candidate?.upstreamModel) return { ok: false, reason: 'model_missing' }
+  if (!candidate) {
+    return { ok: false, reason: source.hasToken ? 'model_missing' : 'channel_no_token' }
+  }
+  // 渠道级 hasToken 只是聚合值；显式渠道的可用性必须服从实际命中的 Key 分组。
+  if (!candidate.hasToken) return { ok: false, reason: 'channel_no_token' }
+  if (!candidate.upstreamModel) return { ok: false, reason: 'model_missing' }
   return {
     ok: true,
     selection: {

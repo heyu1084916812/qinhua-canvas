@@ -201,6 +201,77 @@ describe('resolveRouteForChannel', () => {
       reason: 'model_missing',
     })
   })
+  it('主分组缺 Key、第二分组有 Key 时返回第二分组', () => {
+    expect(
+      resolveRouteForChannel(
+        [
+          source('multi-key', {
+            hasToken: false,
+            credentialGroups: [
+              { id: 'primary', hasToken: false, priority: 10, modelIds: ['gpt-image-2'] },
+              { id: 'backup', hasToken: true, priority: 0, modelIds: ['gpt-image-2'] },
+            ],
+          }),
+        ],
+        'GPT Image 2',
+        'multi-key',
+        resolveUpstreamModel,
+      ),
+    ).toEqual({
+      ok: true,
+      selection: {
+        channelId: 'multi-key',
+        upstreamModel: 'gpt-image-2',
+        credentialGroupId: 'backup',
+        credentialGroupIds: ['backup'],
+      },
+    })
+  })
+
+  it('所有分组都缺 Key 时仍报告缺 Key', () => {
+    expect(
+      resolveRouteForChannel(
+        [
+          source('multi-key', {
+            hasToken: true,
+            credentialGroups: [
+              { id: 'primary', hasToken: false, priority: 10, modelIds: ['gpt-image-2'] },
+              { id: 'backup', hasToken: false, priority: 0, modelIds: ['gpt-image-2'] },
+            ],
+          }),
+        ],
+        'GPT Image 2',
+        'multi-key',
+        resolveUpstreamModel,
+      ),
+    ).toEqual({ ok: false, reason: 'channel_no_token' })
+  })
+
+  it('空分组继续被排除，不进入显式渠道的降级链', () => {
+    expect(
+      resolveRouteForChannel(
+        [
+          source('multi-key', {
+            credentialGroups: [
+              { id: 'primary', hasToken: true, priority: 10, modelIds: ['gpt-image-2'] },
+              { id: 'empty-alt', hasToken: false, priority: 0, modelIds: [] },
+            ],
+          }),
+        ],
+        'GPT Image 2',
+        'multi-key',
+        resolveUpstreamModel,
+      ),
+    ).toEqual({
+      ok: true,
+      selection: {
+        channelId: 'multi-key',
+        upstreamModel: 'gpt-image-2',
+        credentialGroupId: 'primary',
+        credentialGroupIds: ['primary'],
+      },
+    })
+  })
 })
 
 describe('resolveNodeRoute', () => {
