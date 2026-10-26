@@ -35,6 +35,8 @@ export interface EcommerceTaskRepository {
     metadata?: readonly EcommerceResultMetadata[],
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
+  result(resultId: string): Promise<EcommerceResultRecord | null>
+  refreshTaskStatus(taskId: string, at?: number): Promise<EcommerceTaskRecord | null>
   setResultHidden(resultId: string, hidden: boolean, at?: number): Promise<void>
   updateTask(task: EcommerceTaskRecord): Promise<void>
   removeResult(
@@ -188,6 +190,32 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateResult(result) {
       await storage.put('ecommerceResults', result as never)
+    },
+
+    async result(resultId) {
+      const rows = (await storage.query('ecommerceResults', {
+        id: resultId,
+      })) as unknown as Record<string, unknown>[]
+      return rows.map(resultOf)[0] ?? null
+    },
+
+    async refreshTaskStatus(taskId, at = Date.now()) {
+      const taskRows = (await storage.query('ecommerceTasks', {
+        id: taskId,
+      })) as unknown as Record<string, unknown>[]
+      const task = taskRows.map(taskOf)[0]
+      if (!task) return null
+      const rows = await resultsOf(taskId)
+      const failed = rows.find((row) => row.status === 'failed' && row.errorText)
+      const { errorText: _oldError, ...rest } = task
+      const next: EcommerceTaskRecord = {
+        ...rest,
+        updatedAt: at,
+        status: taskStatusOf(rows),
+        ...(failed?.errorText ? { errorText: failed.errorText } : {}),
+      }
+      await storage.put('ecommerceTasks', next as never)
+      return next
     },
 
     async setResultHidden(resultId, hidden, at = Date.now()) {
