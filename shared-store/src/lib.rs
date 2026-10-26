@@ -1363,6 +1363,36 @@ mod tests {
     }
 
     #[test]
+    fn asset_save_queue_table_is_available() {
+        let root = temp_root("asset-save-queue");
+        let row = json!({
+            "id": "result-1",
+            "projectId": "p1",
+            "resultId": "result-1",
+            "assets": [{
+                "hash": "hash-1",
+                "mime": "image/png",
+                "bytes": { "__qhType": "u8", "base64": "AQID" }
+            }],
+            "createdAt": 1
+        });
+        write_row(&root, "assetSaveQueue", &row).unwrap();
+        assert_eq!(
+            query_rows(
+                &root,
+                "assetSaveQueue",
+                &Map::from_iter([(
+                    "resultId".to_string(),
+                    Value::String("result-1".to_string())
+                )])
+            )
+            .unwrap(),
+            vec![row]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn transaction_rolls_back_partial_write() {
         let root = temp_root("rollback");
         let original = json!({ "id": "p1", "name": "原值" });

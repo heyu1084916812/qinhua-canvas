@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createStorageAssetPort } from './assets'
 import { createMemoryStorage } from './memory'
+import type { StoragePort } from './ports'
 
 describe('素材读回端口（M6-12）', () => {
   it('按 hash 读回字节与 mime', async () => {
@@ -66,6 +67,26 @@ describe('素材读回端口（M6-12）', () => {
     const port = createStorageAssetPort(storage)
     expect(await port.readUrl('h1')).toBeNull()
     expect(await port.readUrl('nope')).toBeNull()
+  })
+
+  it('readUrl 只查元数据，不读取媒体 payload', async () => {
+    const memory = createMemoryStorage()
+    const query = vi.fn(async () => [
+      {
+        id: 'v1',
+        url: 'https://cdn.example.com/v.mp4',
+        mime: 'video/mp4',
+      },
+    ])
+    const storage = { ...memory, query } as unknown as StoragePort
+
+    await createStorageAssetPort(storage).readUrl('v1')
+
+    expect(query).toHaveBeenCalledWith(
+      'assets',
+      { id: 'v1' },
+      { includePayload: false, fields: ['id', 'url', 'mime'] },
+    )
   })
 
   it('桌面本机进程用的 sourceUrl 由平台注入，不读取素材表', () => {

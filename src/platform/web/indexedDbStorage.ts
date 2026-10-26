@@ -54,6 +54,7 @@ class QinghuaDB extends Dexie {
   /** 电商任务与逐格结果（对账 #399 第二期） */
   ecommerceTasks!: Table<Row, string>
   ecommerceResults!: Table<Row, string>
+  assetSaveQueue!: Table<Row, string>
   ecommerceCanvasItems!: Table<Row, string>
   /** 灵感库的索引缓存（一行 = 一个来源；只存索引、不存媒体，见 `TableName` 的说明） */
   inspirationCache!: Table<Row, string>
@@ -179,6 +180,15 @@ class QinghuaDB extends Dexie {
      */
     this.version(15).stores({
       ecommerceCanvasItems: 'id, projectId, resultId, taskId, updatedAt',
+    })
+    /**
+     * v16：retry-save 的内部恢复队列。
+     *
+     * 只在模型成功、素材字节写入失败时出现；按 resultId 唯一，保存成功即删。
+     * 它不是业务结果表，界面不直接读取，也不进入备份。
+     */
+    this.version(16).stores({
+      assetSaveQueue: 'id, projectId, resultId, taskId, createdAt',
     })
   }
 }

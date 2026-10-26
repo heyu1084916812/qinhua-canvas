@@ -91,6 +91,7 @@ const PROJECT_CASCADE_TABLES: TableName[] = [
   /* 电商任务与逐格结果（对账 #399 第二期）：脱离项目就没有意义 */
   'ecommerceTasks',
   'ecommerceResults',
+  'assetSaveQueue',
   'ecommerceCanvasItems',
 ]
 

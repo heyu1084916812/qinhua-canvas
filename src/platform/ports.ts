@@ -62,6 +62,13 @@ export type TableName =
   | 'ecommerceTasks'
   | 'ecommerceResults'
   /**
+   * 模型已成功、`assets` 写入失败时的内部恢复队列。
+   *
+   * 一行 = 一个待保存的电商结果；保存成功后立即删除。它只保存同一份产物的
+   * 字节与展示元数据，不参与界面读取、不进备份，也绝不能被当成新一次生成。
+   */
+  | 'assetSaveQueue'
+  /**
    * 电商无限工作台的空间布局。一行 = 一个可编辑对象（图片 / 视频 / 文本）。
    * 图片只引用 `assets` 的 hash；任务事实仍以 `ecommerceTasks` / `ecommerceResults` 为准。
    */

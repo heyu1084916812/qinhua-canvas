@@ -39,7 +39,11 @@ export function createStorageAssetPort(
      * 这里补上「地址 + 类型」，让播放与下载都有据可依。
      */
     async readUrl(hash: string): Promise<AssetUrlSource | null> {
-      const rows = await storage.query('assets', { id: hash })
+      const rows = await storage.query(
+        'assets',
+        { id: hash },
+        { includePayload: false, fields: ['id', 'url', 'mime'] },
+      )
       const row = rows[0] as { url?: unknown; mime?: string } | undefined
       const url = typeof row?.url === 'string' ? row.url.trim() : ''
       if (!url) return null

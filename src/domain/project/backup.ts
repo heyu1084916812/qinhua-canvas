@@ -61,8 +61,18 @@ export const BACKUP_TABLES = [
 
 export type BackupTable = (typeof BACKUP_TABLES)[number]
 
-/** 内置技能由应用自带、启动时幂等同步，**不进备份**（带了反而会和包内版本打架） */
-export const BACKUP_EXCLUDED = ['credentials', 'builtinSkills', 'agentSessions'] as const
+/**
+ * 内部缓存 / 临时恢复数据不进备份。
+ *
+ * `assetSaveQueue` 是 retry-save 的短期句柄：它可能在失败后暂存一份待保存字节，
+ * 但业务真相仍是 `ecommerceResults`，不把恢复队列带进备份，避免重复字节和跨机误恢复。
+ */
+export const BACKUP_EXCLUDED = [
+  'credentials',
+  'builtinSkills',
+  'agentSessions',
+  'assetSaveQueue',
+] as const
 
 export interface BackupOptions {
   /** 是否带上自定义字体（用户自己导入的界面字体） */

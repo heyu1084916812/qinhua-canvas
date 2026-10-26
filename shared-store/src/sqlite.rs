@@ -12,7 +12,7 @@ pub const SCHEMA_VERSION: i64 = 2;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-pub const TABLE_NAMES: [&str; 22] = [
+pub const TABLE_NAMES: [&str; 23] = [
     "projects",
     "projectFolders",
     "nodes",
@@ -33,6 +33,7 @@ pub const TABLE_NAMES: [&str; 22] = [
     "storyboards",
     "ecommerceTasks",
     "ecommerceResults",
+    "assetSaveQueue",
     "ecommerceCanvasItems",
     "inspirationCache",
 ];

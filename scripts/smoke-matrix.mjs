@@ -73,7 +73,7 @@ async function waitHealth(expectedDir) {
         const body = await response.json()
         if (
           body.ok === true &&
-          body.version >= 4 &&
+          body.version >= 5 &&
           path.resolve(String(body.dataDir)) === path.resolve(expectedDir)
         ) {
           return true

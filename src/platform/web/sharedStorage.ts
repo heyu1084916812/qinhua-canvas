@@ -8,7 +8,7 @@ import type {
 } from '../ports'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18765'
-const REQUIRED_STORE_VERSION = 4
+const REQUIRED_STORE_VERSION = 5
 export const SHARED_STORE_URL =
   String(import.meta.env.VITE_SHARED_STORE_URL ?? '').trim() || DEFAULT_BASE_URL
 

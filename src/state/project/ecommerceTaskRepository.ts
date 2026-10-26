@@ -1,4 +1,7 @@
-import type { StoragePort } from '../../platform/ports'
+import type { AssetPort, StoragePort } from '../../platform/ports'
+import { createStorageAssetPort } from '../../platform/assets'
+import type { GeneratedAsset } from '../../platform/channels/types'
+import { fingerprintBytes } from '../../domain/shared/hash'
 import { createId } from '../../shared/id'
 import {
   statusOfResult,
@@ -10,6 +13,26 @@ import {
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
+
+export interface QueuedAssetSave {
+  id: string
+  projectId: string
+  resultId: string
+  taskId: string
+  planId: string
+  prompt: string
+  model: string
+  assets: readonly GeneratedAsset[]
+  createdAt: number
+  updatedAt: number
+  errorText?: string
+}
+
+export interface RetryAssetSaveResult {
+  ok: boolean
+  result: EcommerceResultRecord | null
+  errorText?: string
+}
 
 /**
  * 电商任务 / 结果的持久化仓储（对账 #399 第二期）。
@@ -35,6 +58,36 @@ export interface EcommerceTaskRepository {
     metadata?: readonly EcommerceResultMetadata[],
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
+  /**
+   * 正常提交的唯一落库入口：写素材、读回校验、再置 done。
+   *
+   * 任一步失败都会留下 retry-save 句柄；不会把只有主键或损坏字节的结果标完成。
+   */
+  commitAssets(input: {
+    resultId: string
+    planId: string
+    prompt: string
+    model: string
+    assets: readonly GeneratedAsset[]
+    at?: number
+  }): Promise<RetryAssetSaveResult>
+  /**
+   * 模型已成功、素材写入失败时，把同一份产物存进内部恢复队列并把结果切到
+   * `failed + retry-save`。后续只能重试保存，不能重新请求模型。
+   */
+  markRetrySave(input: {
+    resultId: string
+    planId: string
+    prompt: string
+    model: string
+    assets: readonly GeneratedAsset[]
+    errorText: string
+    at?: number
+  }): Promise<EcommerceResultRecord | null>
+  /** 从内部恢复队列重试同一份产物；成功后才清队列。 */
+  retrySave(resultId: string, at?: number): Promise<RetryAssetSaveResult>
+  /** 只给诊断与单测使用：查看内部恢复句柄是否真的持久化。 */
+  queuedSave(resultId: string): Promise<QueuedAssetSave | null>
   result(resultId: string): Promise<EcommerceResultRecord | null>
   refreshTaskStatus(taskId: string, at?: number): Promise<EcommerceTaskRecord | null>
   setResultHidden(resultId: string, hidden: boolean, at?: number): Promise<void>
@@ -137,7 +190,76 @@ function firstOutputHashOf(run: Record<string, unknown> | undefined): string | u
   return run.outputHashes.map(String).find((hash) => hash.length > 0)
 }
 
-export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTaskRepository {
+function queuedSaveOf(row: Record<string, unknown>): QueuedAssetSave {
+  const assets = Array.isArray(row.assets)
+    ? (row.assets as GeneratedAsset[])
+    : []
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId ?? ''),
+    resultId: String(row.resultId ?? ''),
+    taskId: String(row.taskId ?? ''),
+    planId: String(row.planId ?? ''),
+    prompt: String(row.prompt ?? ''),
+    model: String(row.model ?? ''),
+    assets,
+    createdAt: Number(row.createdAt) || 0,
+    updatedAt: Number(row.updatedAt) || 0,
+    ...(typeof row.errorText === 'string' && row.errorText
+      ? { errorText: row.errorText }
+      : {}),
+  }
+}
+
+async function storedAssetIsReadable(
+  assets: AssetPort,
+  hash: string,
+): Promise<boolean> {
+  const payload = await assets.read(hash).catch(() => null)
+  if (payload && payload.bytes.length > 0) {
+    const actual = await fingerprintBytes(payload.bytes).catch(() => '')
+    return actual.toLowerCase() === hash.toLowerCase()
+  }
+  const remote = await assets.readUrl(hash).catch(() => null)
+  return Boolean(
+    remote?.url &&
+      /^https?:\/\//i.test(remote.url) &&
+      remote.mime.trim().toLowerCase().startsWith('video/'),
+  )
+}
+
+export function createEcommerceTaskRepository(
+  storage: StoragePort,
+  assets: AssetPort = createStorageAssetPort(storage),
+): EcommerceTaskRepository {
+  const putAssets = async (
+    projectId: string,
+    queuedAssets: readonly GeneratedAsset[],
+    at: number,
+  ) => {
+    for (const asset of queuedAssets) {
+      await storage.put(
+        'assets',
+        {
+          id: asset.hash,
+          hash: asset.hash,
+          mime: asset.mime,
+          bytes: asset.bytes,
+          ...(asset.width ? { width: asset.width } : {}),
+          ...(asset.height ? { height: asset.height } : {}),
+          ...(asset.url ? { url: asset.url } : {}),
+          ...(asset.requestedWidth ? { requestedWidth: asset.requestedWidth } : {}),
+          ...(asset.requestedHeight ? { requestedHeight: asset.requestedHeight } : {}),
+          createdAt: at,
+          projectId,
+        } as never,
+      )
+      if (!(await storedAssetIsReadable(assets, asset.hash))) {
+        throw new Error(`素材 ${asset.hash} 写入后仍不可读或内容校验失败`)
+      }
+    }
+  }
+
   const resultsOf = async (taskId: string) =>
     (
       (await storage.query('ecommerceResults', { taskId })) as unknown as Record<string, unknown>[]
@@ -191,6 +313,318 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateResult(result) {
       await storage.put('ecommerceResults', result as never)
+    },
+
+    async commitAssets({
+      resultId,
+      planId,
+      prompt,
+      model,
+      assets: nextAssets,
+      at = Date.now(),
+    }) {
+      const current = await this.result(resultId)
+      const primary = nextAssets[0]
+      if (!current) {
+        return {
+          ok: false,
+          result: null,
+          errorText: `电商结果不存在：${resultId}`,
+        }
+      }
+      if (!primary) {
+        return {
+          ok: false,
+          result: current,
+          errorText: '生成成功但没有返回可落库的产物',
+        }
+      }
+      try {
+        await putAssets(current.projectId, nextAssets, at)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        let failed: EcommerceResultRecord | null = null
+        try {
+          failed = await this.markRetrySave({
+            resultId,
+            planId,
+            prompt,
+            model,
+            assets: nextAssets,
+            errorText: `生成已成功，但素材保存失败：${reason}。请重试保存结果，不要重新生成。`,
+            at,
+          })
+        } catch (recoveryError) {
+          const {
+            errorText: _oldError,
+            recovery: _oldRecovery,
+            assetHash: _oldAssetHash,
+            mime: _oldMime,
+            width: _oldWidth,
+            height: _oldHeight,
+            ...rest
+          } = current
+          failed = {
+            ...rest,
+            status: 'failed',
+            prompt,
+            model,
+            errorText:
+              `生成已成功，但素材保存失败：${reason}；` +
+              `恢复句柄也写入失败：${
+                recoveryError instanceof Error
+                  ? recoveryError.message
+                  : String(recoveryError)
+              }`,
+            updatedAt: at,
+          }
+          await this.updateResult(failed)
+        }
+        return {
+          ok: false,
+          result: failed,
+          errorText: `素材保存失败：${reason}`,
+        }
+      }
+
+      const {
+        errorText: _oldError,
+        recovery: _oldRecovery,
+        ...rest
+      } = current
+      const done: EcommerceResultRecord = {
+        ...rest,
+        status: 'done',
+        assetHash: primary.hash,
+        mime: primary.mime,
+        prompt,
+        model,
+        ...(primary.width ? { width: primary.width } : {}),
+        ...(primary.height ? { height: primary.height } : {}),
+        updatedAt: at,
+      }
+      try {
+        await this.updateResult(done)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        let failed: EcommerceResultRecord | null = null
+        try {
+          failed = await this.markRetrySave({
+            resultId,
+            planId,
+            prompt,
+            model,
+            assets: nextAssets,
+            errorText: `素材已保存，但结果状态写入失败：${reason}。请重试保存结果。`,
+            at,
+          })
+        } catch {
+          failed = {
+            ...current,
+            status: 'failed',
+            prompt,
+            model,
+            errorText: `素材已保存，但结果状态写入失败：${reason}`,
+            updatedAt: at,
+          }
+          await this.updateResult(failed)
+        }
+        return {
+          ok: false,
+          result: failed,
+          errorText: `结果状态写入失败：${reason}`,
+        }
+      }
+      return { ok: true, result: done }
+    },
+
+    async markRetrySave({
+      resultId,
+      planId,
+      prompt,
+      model,
+      assets: queuedAssets,
+      errorText,
+      at = Date.now(),
+    }) {
+      const rows = (await storage.query('ecommerceResults', {
+        id: resultId,
+      })) as unknown as Record<string, unknown>[]
+      const row = rows.map(resultOf)[0]
+      if (!row) return null
+      const {
+        errorText: _oldError,
+        recovery: _oldRecovery,
+        assetHash: _oldAssetHash,
+        mime: _oldMime,
+        width: _oldWidth,
+        height: _oldHeight,
+        ...rest
+      } = row
+      const next: EcommerceResultRecord = {
+        ...rest,
+        status: 'failed',
+        recovery: 'retry-save',
+        prompt,
+        model,
+        errorText,
+        updatedAt: at,
+      }
+      const queued: QueuedAssetSave = {
+        id: resultId,
+        projectId: row.projectId,
+        resultId,
+        taskId: row.taskId,
+        planId,
+        prompt,
+        model,
+        assets: [...queuedAssets],
+        createdAt: at,
+        updatedAt: at,
+        errorText,
+      }
+      await storage.transaction(
+        ['assetSaveQueue', 'ecommerceResults'],
+        async (tx) => {
+          await tx.put('assetSaveQueue', queued as never)
+          await tx.put('ecommerceResults', next as never)
+        },
+      )
+      return next
+    },
+
+    async retrySave(resultId, at = Date.now()) {
+      const queued = await this.queuedSave(resultId)
+      const current = await this.result(resultId)
+      if (!queued || !current) {
+        return {
+          ok: false,
+          result: current,
+          errorText: '没有找到可恢复的保存句柄，请查看运行日志',
+        }
+      }
+      try {
+        await putAssets(queued.projectId, queued.assets, at)
+      } catch (error) {
+        const message = `重试保存失败：${error instanceof Error ? error.message : String(error)}`
+        let outcome: RetryAssetSaveResult = {
+          ok: false,
+          result: current,
+          errorText: message,
+        }
+        await storage.transaction(
+          ['assetSaveQueue', 'ecommerceResults'],
+          async (tx) => {
+            const resultRows = await tx.query('ecommerceResults', {
+              id: resultId,
+            })
+            const queueRows = await tx.query('assetSaveQueue', { resultId })
+            const latest = (resultRows as unknown as Record<string, unknown>[])
+              .map(resultOf)[0]
+            const latestQueue = (queueRows as unknown as Record<string, unknown>[])
+              .map(queuedSaveOf)[0]
+            if (
+              !latest ||
+              !latestQueue ||
+              latest.updatedAt !== current.updatedAt ||
+              latestQueue.updatedAt !== queued.updatedAt ||
+              latest.status !== 'failed' ||
+              latest.recovery !== 'retry-save'
+            ) {
+              outcome = {
+                ok: false,
+                result: latest ?? null,
+                errorText: '结果状态已变化，旧恢复句柄已停止写入',
+              }
+              return
+            }
+            const { errorText: _oldError, recovery: _oldRecovery, ...rest } =
+              latest
+            const failed: EcommerceResultRecord = {
+              ...rest,
+              status: 'failed',
+              recovery: 'retry-save',
+              errorText: message,
+              updatedAt: at,
+            }
+            await tx.put(
+              'assetSaveQueue',
+              { ...latestQueue, updatedAt: at, errorText: message } as never,
+            )
+            await tx.put('ecommerceResults', failed as never)
+            outcome = { ok: false, result: failed, errorText: message }
+          },
+        )
+        return outcome
+      }
+      const primary = queued.assets[0]
+      let outcome: RetryAssetSaveResult = {
+        ok: false,
+        result: current,
+        errorText: '结果状态已变化，旧恢复句柄已停止写入',
+      }
+      await storage.transaction(
+        ['assetSaveQueue', 'ecommerceResults'],
+        async (tx) => {
+          const resultRows = await tx.query('ecommerceResults', {
+            id: resultId,
+          })
+          const queueRows = await tx.query('assetSaveQueue', { resultId })
+          const latest = (resultRows as unknown as Record<string, unknown>[])
+            .map(resultOf)[0]
+          const latestQueue = (queueRows as unknown as Record<string, unknown>[])
+            .map(queuedSaveOf)[0]
+          if (
+            !latest ||
+            !latestQueue ||
+            latest.updatedAt !== current.updatedAt ||
+            latestQueue.updatedAt !== queued.updatedAt ||
+            latest.status !== 'failed' ||
+            latest.recovery !== 'retry-save'
+          ) {
+            outcome = {
+              ok: false,
+              result: latest ?? null,
+              errorText: '结果状态已变化，旧恢复句柄已停止写入',
+            }
+            return
+          }
+          const {
+            errorText: _oldError,
+            recovery: _oldRecovery,
+            ...rest
+          } = latest
+          const done: EcommerceResultRecord = {
+            ...rest,
+            status: 'done',
+            prompt: latestQueue.prompt,
+            model: latestQueue.model,
+            ...(primary
+              ? {
+                  assetHash: primary.hash,
+                  mime: primary.mime,
+                  ...(primary.width ? { width: primary.width } : {}),
+                  ...(primary.height ? { height: primary.height } : {}),
+                }
+              : {}),
+            updatedAt: at,
+          }
+          await tx.put('ecommerceResults', done as never)
+          await tx.delete('assetSaveQueue', resultId)
+          outcome = { ok: true, result: done }
+        },
+      )
+      if (outcome.ok && outcome.result) {
+        await this.refreshTaskStatus(outcome.result.taskId, at)
+      }
+      return outcome
+    },
+
+    async queuedSave(resultId) {
+      const rows = (await storage.query('assetSaveQueue', {
+        resultId,
+      })) as unknown as Record<string, unknown>[]
+      return rows.map(queuedSaveOf)[0] ?? null
     },
 
     async result(resultId) {
@@ -300,35 +734,39 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         latestRunStatus === 'failed' ||
         latestRunStatus === 'canceled'
       if (!removable) return null
-      return storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
-        const resultRows = (await tx.query('ecommerceResults', {
-          id: resultId,
-        })) as unknown as Record<string, unknown>[]
-        const target = resultRows.map(resultOf)[0]
-        if (!target) return null
-        const taskRows = (await tx.query('ecommerceTasks', {
-          id: target.taskId,
-        })) as unknown as Record<string, unknown>[]
-        const task = taskRows.map(taskOf)[0]
-        if (!task) return null
-        await tx.delete('ecommerceResults', resultId)
-        const remaining = (
-          (await tx.query('ecommerceResults', {
-            taskId: task.id,
+      return storage.transaction(
+        ['ecommerceTasks', 'ecommerceResults', 'assetSaveQueue'],
+        async (tx) => {
+          const resultRows = (await tx.query('ecommerceResults', {
+            id: resultId,
           })) as unknown as Record<string, unknown>[]
-        )
-          .map(resultOf)
-          .sort((a, b) => a.position - b.position)
-        const nextTask: EcommerceTaskRecord = {
-          ...task,
-          updatedAt: at,
-          status: taskStatusOf(remaining),
-          nodeIds: remaining.map((row) => row.nodeId),
-        }
-        delete nextTask.errorText
-        await tx.put('ecommerceTasks', nextTask as never)
-        return { task: nextTask, results: remaining }
-      })
+          const target = resultRows.map(resultOf)[0]
+          if (!target) return null
+          const taskRows = (await tx.query('ecommerceTasks', {
+            id: target.taskId,
+          })) as unknown as Record<string, unknown>[]
+          const task = taskRows.map(taskOf)[0]
+          if (!task) return null
+          await tx.delete('ecommerceResults', resultId)
+          await tx.delete('assetSaveQueue', resultId)
+          const remaining = (
+            (await tx.query('ecommerceResults', {
+              taskId: task.id,
+            })) as unknown as Record<string, unknown>[]
+          )
+            .map(resultOf)
+            .sort((a, b) => a.position - b.position)
+          const nextTask: EcommerceTaskRecord = {
+            ...task,
+            updatedAt: at,
+            status: taskStatusOf(remaining),
+            nodeIds: remaining.map((row) => row.nodeId),
+          }
+          delete nextTask.errorText
+          await tx.put('ecommerceTasks', nextTask as never)
+          return { task: nextTask, results: remaining }
+        },
+      )
     },
 
     async interruptUnfinished(taskId, reason, at = Date.now()) {
@@ -391,13 +829,19 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     results: resultsOf,
 
     async reconcileFromRunRecords(projectId, at = Date.now()) {
-      const [taskRows, resultRows, runRows] = await Promise.all([
+      const [taskRows, resultRows, runRows, queueRows] = await Promise.all([
         storage.query('ecommerceTasks', { projectId }),
         storage.query('ecommerceResults', { projectId }),
         storage.query('runRecords', { projectId }),
+        storage.query('assetSaveQueue', { projectId }),
       ])
       const tasks = (taskRows as unknown as Record<string, unknown>[]).map(taskOf)
       const results = (resultRows as unknown as Record<string, unknown>[]).map(resultOf)
+      const queuedByResult = new Map(
+        (queueRows as unknown as Record<string, unknown>[])
+          .map(queuedSaveOf)
+          .map((row) => [row.resultId, row] as const),
+      )
       const latestByNode = new Map<string, Record<string, unknown>>()
       for (const run of (runRows as unknown as Record<string, unknown>[]).sort(
         (a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0),
@@ -408,37 +852,71 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       const outputHashesToVerify = new Set<string>()
       for (const row of results) {
         const run = latestByNode.get(row.nodeId)
-        if (String(run?.status ?? '') !== 'succeeded') continue
-        const hash = firstOutputHashOf(run)
-        if (hash) outputHashesToVerify.add(hash)
+        const runHash =
+          String(run?.status ?? '') === 'succeeded'
+            ? firstOutputHashOf(run)
+            : undefined
+        const hash = runHash ?? row.assetHash
+        if (
+          hash &&
+          (Boolean(runHash) ||
+            row.status === 'done' ||
+            row.recovery === 'retry-save')
+        ) {
+          outputHashesToVerify.add(hash)
+        }
       }
-      const existingAssetHashes = new Set<string>()
+      const readableHashes = new Set<string>()
       for (const hash of outputHashesToVerify) {
-        const found = await storage.query(
-          'assets',
-          { id: hash },
-          { fields: ['id'] },
-        )
-        if (found.length > 0) existingAssetHashes.add(hash)
+        if (await storedAssetIsReadable(assets, hash)) readableHashes.add(hash)
       }
       const changed: EcommerceResultRecord[] = []
       const nextResults = results.map((row) => {
         const run = latestByNode.get(row.nodeId)
         const runStatus = String(run?.status ?? '')
-        const outputHash = firstOutputHashOf(run)
+        const runOutputHash = firstOutputHashOf(run)
         const active = row.status === 'pending' || row.status === 'running'
         const needsHashBackfill = row.status === 'done' && !row.assetHash
-        if ((!active && !needsHashBackfill) || !run) return row
-        if (runStatus !== 'succeeded' && runStatus !== 'failed' && runStatus !== 'canceled') {
+        const needsRetrySave = row.recovery === 'retry-save'
+        const needsIntegrityCheck = row.status === 'done' && Boolean(row.assetHash)
+        if (
+          (!active &&
+            !needsHashBackfill &&
+            !needsRetrySave &&
+            !needsIntegrityCheck)
+        ) {
           return row
         }
-        const succeeded = runStatus === 'succeeded'
-        const outputAssetExists = !outputHash || existingAssetHashes.has(outputHash)
+        if (
+          run &&
+          runStatus !== 'succeeded' &&
+          runStatus !== 'failed' &&
+          runStatus !== 'canceled'
+        ) {
+          return row
+        }
+        if (!run && active) return row
+        const succeeded = run ? runStatus === 'succeeded' : row.status === 'done'
+        const outputHash = succeeded ? runOutputHash ?? row.assetHash : undefined
+        const outputAssetExists = Boolean(
+          outputHash && readableHashes.has(outputHash),
+        )
+        if (
+          succeeded &&
+          outputHash &&
+          outputAssetExists &&
+          row.status === 'done' &&
+          row.assetHash === outputHash &&
+          !row.recovery
+        ) {
+          return row
+        }
         const assetHash = succeeded
-          ? outputHash && outputAssetExists
+          ? outputAssetExists
             ? outputHash
             : undefined
           : row.assetHash
+        const queued = queuedByResult.get(row.id)
         const {
           errorText: _oldError,
           recovery: _oldRecovery,
@@ -453,20 +931,27 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
           updatedAt: at,
           status: succeeded ? (assetHash ? 'done' : 'failed') : 'failed',
           ...(assetHash ? { assetHash } : {}),
-          ...(assetHash && row.mime ? { mime: row.mime } : {}),
-          ...(succeeded && typeof run?.sentModel === 'string'
+          ...(assetHash && (row.mime || queued?.assets[0]?.mime)
+            ? { mime: row.mime ?? queued?.assets[0]?.mime }
+            : {}),
+          ...(assetHash && succeeded && typeof run?.sentModel === 'string'
             ? { model: run.sentModel }
             : {}),
-          ...(typeof run?.outputWidth === 'number' && run.outputWidth > 0
+          ...(assetHash &&
+          typeof run?.outputWidth === 'number' &&
+          run.outputWidth > 0
             ? { width: run.outputWidth }
             : {}),
-          ...(typeof run?.outputHeight === 'number' && run.outputHeight > 0
+          ...(assetHash &&
+          typeof run?.outputHeight === 'number' &&
+          run.outputHeight > 0
             ? { height: run.outputHeight }
             : {}),
-          ...(succeeded && outputHash && !outputAssetExists
+          ...(succeeded && outputHash && !outputAssetExists && queued
             ? {
                 recovery: 'retry-save' as const,
                 errorText:
+                  queued.errorText ??
                   '生成已成功，但素材字节不在库中。请重试保存同一产物，不要重新生成。',
               }
             : !succeeded || !assetHash
@@ -489,7 +974,12 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       for (const task of tasks) {
         const rows = nextResults.filter((row) => row.taskId === task.id)
         const realError = rows.find((row) => row.status === 'failed' && row.errorText)?.errorText
-        if (realError && realError !== task.errorText) affected.add(task.id)
+        if (
+          task.status !== taskStatusOf(rows) ||
+          realError !== task.errorText
+        ) {
+          affected.add(task.id)
+        }
       }
       const nextTasks = tasks.map((task) => {
         if (!affected.has(task.id)) return task
@@ -550,11 +1040,16 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     async remove(taskId) {
-      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+      await storage.transaction(
+        ['ecommerceTasks', 'ecommerceResults', 'assetSaveQueue'],
+        async (tx) => {
         await tx.delete('ecommerceTasks', taskId)
         const rows = await tx.query('ecommerceResults', { taskId })
         for (const row of rows) await tx.delete('ecommerceResults', row.id)
-      })
+          const queued = await tx.query('assetSaveQueue', { taskId })
+          for (const row of queued) await tx.delete('assetSaveQueue', row.id)
+        },
+      )
     },
   }
 }

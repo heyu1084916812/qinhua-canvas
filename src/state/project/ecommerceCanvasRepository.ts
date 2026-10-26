@@ -198,11 +198,14 @@ export function createEcommerceCanvasRepository(
               : result.ratio
                 ? ratioAspectOf(result.ratio)
                 : ratioAspectOf(task?.request.ratio)
+          const { assetHash: _oldAssetHash, ...rest } = item
           const next = {
-            ...item,
+            ...rest,
             kind,
             taskId: result.taskId,
-            assetHash: result.assetHash ?? item.assetHash,
+            ...(result.status === 'done' && result.assetHash
+              ? { assetHash: result.assetHash }
+              : {}),
             ...(item.autoLayout && aspect
               ? { height: Math.max(120, Math.round(item.width / aspect)) }
               : {}),

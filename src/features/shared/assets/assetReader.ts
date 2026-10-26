@@ -13,6 +13,7 @@ import {
   freshAssetOf,
   freshThumbOf,
 } from '../../../platform/freshAssets'
+import { toBytes } from '../../../platform/assets'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -222,11 +223,11 @@ export async function loadAssetUrl(
       return { url: URL.createObjectURL(onDisk), mime, expectedPath }
     }
   }
-  if ((preferThumb || preferPreview) && !row?.bytes) {
+  if ((preferThumb || preferPreview) && !toBytes(row?.bytes)) {
     row = (await platform.storage.query('assets', { id: hash }))[0] as typeof row
   }
-  if (!row?.bytes) return { url: null, mime, expectedPath }
-  const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
+  const buf = toBytes(row?.bytes)
+  if (!buf || buf.length === 0) return { url: null, mime, expectedPath }
   const blob = new Blob([buf as BlobPart], { type: mime ?? 'image/png' })
   scheduleThumb(platform, row, blob, preferThumb && isImage)
   schedulePreview(platform, row, blob, preferPreview && isImage)

@@ -142,6 +142,29 @@ describe('ecommerceCanvasRepository', () => {
     expect(nextSecond.y).toBe(nextFirst.y + nextFirst.height)
   })
 
+  it('结果降为 retry-save 后投影移除旧 assetHash，避免继续暴露过期素材', async () => {
+    const storage = seed()
+    const repo = createEcommerceCanvasRepository(storage)
+    const before = await repo.sync('p1', 1280)
+    expect(before.find((item) => item.resultId === 'r1')?.assetHash).toBe('a1')
+
+    await storage.put('ecommerceResults', {
+      id: 'r1',
+      taskId: 't1',
+      projectId: 'p1',
+      nodeId: 'n1',
+      position: 0,
+      createdAt: 1,
+      updatedAt: 10,
+      status: 'failed',
+      recovery: 'retry-save',
+      errorText: '素材字节不在库中',
+    })
+
+    const after = await repo.sync('p1', 1280)
+    expect(after.find((item) => item.resultId === 'r1')?.assetHash).toBeUndefined()
+  })
+
   it('再次 sync 不覆盖用户调整过的坐标', async () => {
     const storage = seed()
     const repo = createEcommerceCanvasRepository(storage)
