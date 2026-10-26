@@ -65,6 +65,10 @@
 - **阶段 4B 已完成**：单句配音、整集配音补齐、BGM 导入 / 移除抽到
   `useStoryboardAudioController.ts`。控制器保留 120s 超时、直连留痕和素材落库；
   单测 2/2，页面降到 4784 行。全量 **3134 passed / 1 skipped**、check/build 通过。
+- **阶段 4C 已完成**：视频超清 / 补帧、字幕擦除、视频编辑、视频续写抽到
+  `useStoryboardVideoController.ts`。继续保留 20 分钟超时、直连留痕、视频 MIME 校验、
+  新节点 / 旧边保留，以及视频编辑的参考图必填边界；控制器单测 5/5。页面降到 4206 行，
+  全量 **3139 passed / 1 skipped**，check/build 通过。
 
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 
