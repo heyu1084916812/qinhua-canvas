@@ -21,7 +21,7 @@ describe('shared storage', () => {
         response({
           ok: true,
           service: 'qinghua-shared-store',
-          version: 5,
+          version: 6,
         }),
       ),
     )
@@ -73,6 +73,47 @@ describe('shared storage', () => {
       row: { id: 'a1', bytes: { __qhType: 'u8' } },
     })
     expect(Array.from(rows[0]!.bytes as Uint8Array)).toEqual([1, 2, 3])
+  })
+
+  it('queryPage 把分页条件传到共享存储并还原行数据', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+        return response({
+          rows: [{ id: 'r1', projectId: 'p1', createdAt: 10 }],
+          total: 201,
+        })
+      }),
+    )
+
+    const page = await createSharedStorage().queryPage?.(
+      'runRecords',
+      { projectId: 'p1', action: 'shot-image' },
+      {
+        missingFields: ['parentRunId'],
+        ranges: [{ field: 'createdAt', from: 1, to: 20 }],
+        orderBy: { field: 'createdAt', direction: 'desc' },
+        offset: 198,
+        limit: 3,
+      },
+    )
+
+    expect(calls[0]!.url).toContain('/queryPage')
+    expect(calls[0]!.body).toMatchObject({
+      table: 'runRecords',
+      filter: { projectId: 'p1', action: 'shot-image' },
+      missingFields: ['parentRunId'],
+      ranges: [{ field: 'createdAt', from: 1, to: 20 }],
+      orderBy: { field: 'createdAt', direction: 'desc' },
+      offset: 198,
+      limit: 3,
+    })
+    expect(page).toMatchObject({
+      rows: [{ id: 'r1', projectId: 'p1', createdAt: 10 }],
+      total: 201,
+    })
   })
 
   it('transaction 在回调成功后才一次提交，失败则一次都不提交', async () => {

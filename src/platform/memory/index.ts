@@ -12,6 +12,7 @@ import type {
   NetworkResponse,
   StreamChunk,
   AssetFolderPort,
+  StorageQueryPageOptions,
 } from '../ports'
 import { parseSSELine, createLineSplitter } from '../sse'
 import { createStorageAssetPort } from '../assets'
@@ -27,6 +28,23 @@ export interface MemorySeed {
 
 function matches(row: Row, filter: Partial<Row>): boolean {
   return Object.entries(filter).every(([k, v]) => row[k] === v)
+}
+
+function matchesPageQuery(
+  row: Row,
+  filter: Partial<Row>,
+  options: StorageQueryPageOptions,
+): boolean {
+  if (!matches(row, filter)) return false
+  if (options.ids?.length && !options.ids.includes(row.id)) return false
+  if (options.missingFields?.some((field) => row[field] !== undefined)) return false
+  for (const range of options.ranges ?? []) {
+    const value = row[range.field]
+    if (typeof value !== 'number') return false
+    if (range.from !== undefined && value < range.from) return false
+    if (range.to !== undefined && value > range.to) return false
+  }
+  return true
 }
 
 export function createMemoryStorage(seed: MemorySeed = {}): StoragePort {
@@ -65,6 +83,30 @@ export function createMemoryStorage(seed: MemorySeed = {}): StoragePort {
     },
     async query(table, filter) {
       return [...tableOf(table).values()].filter((r) => matches(r, filter)).map((r) => ({ ...r }))
+    },
+    async queryPage(table, filter, options = {}) {
+      const rows = [...tableOf(table).values()].filter((row) =>
+        matchesPageQuery(row, filter, options),
+      )
+      const order = options.orderBy
+      if (order) {
+        const direction = order.direction === 'desc' ? -1 : 1
+        rows.sort((a, b) => {
+          const left = a[order.field]
+          const right = b[order.field]
+          const compared =
+            typeof left === 'number' && typeof right === 'number'
+              ? left - right
+              : String(left ?? '').localeCompare(String(right ?? ''))
+          return compared * direction || a.id.localeCompare(b.id)
+        })
+      }
+      const offset = Math.max(0, options.offset ?? 0)
+      const limit = Math.max(0, options.limit ?? rows.length)
+      return {
+        rows: rows.slice(offset, offset + limit).map((row) => ({ ...row })),
+        total: rows.length,
+      }
     },
     /**
      * 内存实现的"分批"是**语义上的**：它本来就整表在内存里，分批只保证**交给调用方的形状**

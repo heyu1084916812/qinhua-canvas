@@ -25,6 +25,7 @@ function rec(overrides: Partial<RunRecord> & { id: string; version: number }): R
     scope: {
       scopeVersion: 1,
       workbench: overrides.workbench ?? 'canvas',
+      ...(overrides.action ? { action: overrides.action } : {}),
       subjectId: overrides.subjectId ?? overrides.nodeId ?? 'n1',
       scopeId: overrides.scopeId ?? 'plan:test',
       operationId: overrides.operationId ?? 'op:test',
@@ -71,6 +72,9 @@ describe('RunRecordScope / 新记录运行时校验', () => {
     )
     expect(() => rec({ id: 'bad-operation', version: 1, operationId: ' ' })).toThrow(
       'RunRecord 作用域缺少 operationId',
+    )
+    expect(() => rec({ id: 'bad-action', version: 1, action: ' ' })).toThrow(
+      'RunRecord 作用域的 action 不能为空字符串',
     )
   })
 })

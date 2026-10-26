@@ -13,6 +13,7 @@ const trace: DirectRunTraceInput = {
   projectId: 'p1',
   scopeVersion: 1,
   workbench: 'storyboard',
+  action: 'shot-video',
   subjectId: 'shot:1:video',
   scopeId: 'episode:1',
   operationId: 'video:shot-1',
@@ -55,6 +56,7 @@ describe('runDirectGeneration', () => {
     expect(finished.record).toMatchObject({
       projectId: 'p1',
       workbench: 'storyboard',
+      action: 'shot-video',
       subjectId: 'shot:1:video',
       scopeId: 'episode:1',
       operationId: 'video:shot-1',

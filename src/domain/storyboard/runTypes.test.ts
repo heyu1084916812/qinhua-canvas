@@ -308,11 +308,13 @@ describe("storyboard run contracts", () => {
     expect(
       storyboardRunRecordScopeOfTask({
         operationId: "operation-1",
+        action: "shot-image",
         subject: subjectFor("shot-image"),
       }),
     ).toEqual({
       scopeVersion: 1,
       workbench: "storyboard",
+      action: "shot-image",
       subjectId: "shot:shot-1",
       scopeId: "episode:episode-1",
       operationId: "operation-1",
@@ -324,6 +326,7 @@ describe("storyboard run contracts", () => {
       storyboardRunRecordScopeOfTask({
         operationId: "operation-1",
         parentRunId: "record-parent",
+        action: "video-edit",
         subject: subjectFor("video-edit"),
       }),
     ).toMatchObject({

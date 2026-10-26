@@ -8,7 +8,7 @@ import type {
 } from '../ports'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18765'
-const REQUIRED_STORE_VERSION = 5
+const REQUIRED_STORE_VERSION = 6
 export const SHARED_STORE_URL =
   String(import.meta.env.VITE_SHARED_STORE_URL ?? '').trim() || DEFAULT_BASE_URL
 
@@ -257,6 +257,25 @@ export function createSharedStorage(): StoragePort {
 
     async query(table, filter, options) {
       return rawQuery(table, filter, options)
+    },
+
+    async queryPage(table, filter, options = {}) {
+      const result = (await post('/queryPage', {
+        table,
+        filter: encodeValue(filter),
+        ids: options.ids,
+        missingFields: options.missingFields,
+        ranges: options.ranges,
+        orderBy: options.orderBy,
+        offset: Math.max(0, options.offset ?? 0),
+        limit: Math.max(0, options.limit ?? 200),
+        includePayload: options.includePayload !== false,
+        fields: options.fields?.join(','),
+      })) as { rows: JsonValue[]; total: number }
+      return {
+        rows: result.rows.map((row) => decodeValue(row) as RowOf<typeof table>),
+        total: result.total,
+      }
     },
 
     async scan(table, batchSize, onBatch, options?: StorageScanOptions) {

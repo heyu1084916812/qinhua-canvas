@@ -1,6 +1,11 @@
 use crate::hash::sha1_hex;
+use crate::strip_payload;
 use base64::Engine;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{
+    params, params_from_iter,
+    types::Value as SqlValue,
+    Connection, OptionalExtension, TransactionBehavior,
+};
 use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -158,6 +163,61 @@ impl SqliteStore {
             .into_iter()
             .map(|row| project_fields(row, include_payload, fields))
             .collect())
+    }
+
+    pub fn query_page(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        page: &crate::PageQuery,
+    ) -> Result<(Vec<Value>, u64), String> {
+        validate_table(table)?;
+        if table == "assets" {
+            return Err("queryPage does not support assets; use query or scan".into());
+        }
+        let conn = self.connection()?;
+        let (where_sql, params) = page_where_sql(table, filter, page)?;
+        let total_sql = format!("SELECT COUNT(*) FROM rows WHERE {where_sql}");
+        let total: i64 = conn
+            .query_row(&total_sql, params_from_iter(params.iter()), |row| {
+                row.get(0)
+            })
+            .map_err(|err| format!("count page rows: {err}"))?;
+
+        let order_sql = page_order_sql(page)?;
+        let limit = page.limit.min(1000);
+        let page_sql = format!(
+            "SELECT payload_json FROM rows
+             WHERE {where_sql}
+             ORDER BY {order_sql}
+             LIMIT ? OFFSET ?"
+        );
+        let mut paged_params = params;
+        paged_params.push(SqlValue::Integer(limit as i64));
+        paged_params.push(SqlValue::Integer(page.offset as i64));
+        let mut stmt = conn
+            .prepare(&page_sql)
+            .map_err(|err| format!("prepare page rows: {err}"))?;
+        let rows = stmt
+            .query_map(params_from_iter(paged_params.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|err| format!("query page rows: {err}"))?
+            .map(|value| {
+                let raw = value.map_err(|err| format!("decode page row: {err}"))?;
+                serde_json::from_str::<Value>(&raw)
+                    .map_err(|err| format!("parse page row: {err}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|mut row| {
+                if !page.include_payload {
+                    strip_payload(&mut row);
+                }
+                project_fields(row, page.include_payload, page.fields.as_deref())
+            })
+            .collect();
+        Ok((rows, total.max(0) as u64))
     }
 
     pub fn scan_page(
@@ -353,6 +413,14 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
            id TEXT NOT NULL,
            project_id TEXT,
            updated_at INTEGER,
+           workbench TEXT,
+           run_status TEXT,
+           action TEXT,
+           subject_id TEXT,
+           scope_id TEXT,
+           operation_id TEXT,
+           parent_run_id TEXT,
+           scope_version INTEGER,
            payload_json TEXT NOT NULL,
            PRIMARY KEY (table_name, id)
          );
@@ -381,6 +449,53 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|err| format!("initialize sqlite schema: {err}"))?;
     ensure_column(conn, "assets", "content_sha1", "TEXT")?;
+    for (column, declaration) in [
+        ("workbench", "TEXT"),
+        ("run_status", "TEXT"),
+        ("action", "TEXT"),
+        ("subject_id", "TEXT"),
+        ("scope_id", "TEXT"),
+        ("operation_id", "TEXT"),
+        ("parent_run_id", "TEXT"),
+        ("scope_version", "INTEGER"),
+    ] {
+        ensure_column(conn, "rows", column, declaration)?;
+    }
+    for (column, path) in [
+        ("workbench", "$.workbench"),
+        ("run_status", "$.status"),
+        ("action", "$.action"),
+        ("subject_id", "$.subjectId"),
+        ("scope_id", "$.scopeId"),
+        ("operation_id", "$.operationId"),
+        ("parent_run_id", "$.parentRunId"),
+        ("scope_version", "$.scopeVersion"),
+    ] {
+        let sql = format!(
+            "UPDATE rows
+             SET {column} = json_extract(payload_json, '{path}')
+             WHERE table_name = 'runRecords'
+               AND {column} IS NULL
+               AND json_extract(payload_json, '{path}') IS NOT NULL"
+        );
+        conn.execute(&sql, [])
+            .map_err(|err| format!("backfill rows.{column}: {err}"))?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS rows_run_project_updated_idx
+           ON rows(table_name, project_id, updated_at DESC)
+           WHERE table_name = 'runRecords';
+         CREATE INDEX IF NOT EXISTS rows_run_workbench_updated_idx
+           ON rows(table_name, project_id, workbench, updated_at DESC)
+           WHERE table_name = 'runRecords';
+         CREATE INDEX IF NOT EXISTS rows_run_action_idx
+           ON rows(table_name, project_id, action, updated_at DESC)
+           WHERE table_name = 'runRecords';
+         CREATE INDEX IF NOT EXISTS rows_run_scope_idx
+           ON rows(table_name, project_id, scope_id, subject_id, operation_id)
+           WHERE table_name = 'runRecords';",
+    )
+    .map_err(|err| format!("initialize run record indexes: {err}"))?;
 
     let existing = conn
         .query_row(
@@ -473,15 +588,49 @@ fn put_on(conn: &Connection, root: &Path, table: &str, row: &Value) -> Result<()
         .get("updatedAt")
         .or_else(|| row.get("createdAt"))
         .and_then(Value::as_i64);
+    let workbench = row.get("workbench").and_then(Value::as_str);
+    let run_status = row.get("status").and_then(Value::as_str);
+    let action = row.get("action").and_then(Value::as_str);
+    let subject_id = row.get("subjectId").and_then(Value::as_str);
+    let scope_id = row.get("scopeId").and_then(Value::as_str);
+    let operation_id = row.get("operationId").and_then(Value::as_str);
+    let parent_run_id = row.get("parentRunId").and_then(Value::as_str);
+    let scope_version = row.get("scopeVersion").and_then(Value::as_i64);
     let payload = serde_json::to_string(row).map_err(|err| format!("encode row: {err}"))?;
     conn.execute(
-        "INSERT INTO rows (table_name, id, project_id, updated_at, payload_json)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO rows (
+           table_name, id, project_id, updated_at,
+           workbench, run_status, action, subject_id, scope_id, operation_id,
+           parent_run_id, scope_version, payload_json
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(table_name, id) DO UPDATE SET
            project_id = excluded.project_id,
            updated_at = excluded.updated_at,
+           workbench = excluded.workbench,
+           run_status = excluded.run_status,
+           action = excluded.action,
+           subject_id = excluded.subject_id,
+           scope_id = excluded.scope_id,
+           operation_id = excluded.operation_id,
+           parent_run_id = excluded.parent_run_id,
+           scope_version = excluded.scope_version,
            payload_json = excluded.payload_json",
-        params![table, id, project_id, updated_at, payload],
+        params![
+            table,
+            id,
+            project_id,
+            updated_at,
+            workbench,
+            run_status,
+            action,
+            subject_id,
+            scope_id,
+            operation_id,
+            parent_run_id,
+            scope_version,
+            payload
+        ],
     )
     .map_err(|err| format!("put row: {err}"))?;
     Ok(())
@@ -532,6 +681,103 @@ fn query_rows(
         .into_iter()
         .filter(|row| matches_filter(row, filter))
         .collect())
+}
+
+fn page_field_expression(field: &str) -> Result<String, String> {
+    if field.is_empty()
+        || !field
+            .chars()
+            .enumerate()
+            .all(|(index, ch)| ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || ch.is_ascii_alphabetic()))
+    {
+        return Err(format!("invalid page field: {field}"));
+    }
+    Ok(match field {
+        "id" => "id".into(),
+        "projectId" => "project_id".into(),
+        "createdAt" => "updated_at".into(),
+        "workbench" => "workbench".into(),
+        "status" => "run_status".into(),
+        "action" => "action".into(),
+        "subjectId" => "subject_id".into(),
+        "scopeId" => "scope_id".into(),
+        "operationId" => "operation_id".into(),
+        "parentRunId" => "parent_run_id".into(),
+        "scopeVersion" => "scope_version".into(),
+        _ => format!("json_extract(payload_json, '$.{field}')"),
+    })
+}
+
+fn page_value(value: &Value) -> Result<SqlValue, String> {
+    Ok(match value {
+        Value::String(value) => SqlValue::Text(value.clone()),
+        Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                SqlValue::Integer(value)
+            } else {
+                SqlValue::Real(
+                    value
+                        .as_f64()
+                        .ok_or_else(|| "page filter number is not finite".to_string())?,
+                )
+            }
+        }
+        Value::Bool(value) => SqlValue::Integer(i64::from(*value)),
+        Value::Null => SqlValue::Null,
+        _ => return Err("page filters only accept scalar values".into()),
+    })
+}
+
+fn page_where_sql(
+    table: &str,
+    filter: &Map<String, Value>,
+    page: &crate::PageQuery,
+) -> Result<(String, Vec<SqlValue>), String> {
+    let mut conditions = vec!["table_name = ?".to_string()];
+    let mut values = vec![SqlValue::Text(table.to_string())];
+    for (field, expected) in filter {
+        let expression = page_field_expression(field)?;
+        if expected.is_null() {
+            conditions.push(format!("{expression} IS NULL"));
+        } else {
+            conditions.push(format!("{expression} = ?"));
+            values.push(page_value(expected)?);
+        }
+    }
+    if !page.ids.is_empty() {
+        let placeholders = vec!["?"; page.ids.len()].join(", ");
+        conditions.push(format!("id IN ({placeholders})"));
+        values.extend(page.ids.iter().cloned().map(SqlValue::Text));
+    }
+    for field in &page.missing_fields {
+        let expression = page_field_expression(field)?;
+        conditions.push(format!("{expression} IS NULL"));
+    }
+    for range in &page.ranges {
+        let expression = page_field_expression(&range.field)?;
+        if let Some(from) = range.from {
+            conditions.push(format!("{expression} >= ?"));
+            values.push(SqlValue::Integer(from));
+        }
+        if let Some(to) = range.to {
+            conditions.push(format!("{expression} <= ?"));
+            values.push(SqlValue::Integer(to));
+        }
+    }
+    Ok((conditions.join(" AND "), values))
+}
+
+fn page_order_sql(page: &crate::PageQuery) -> Result<String, String> {
+    let Some(order) = &page.order_by else {
+        return Ok("updated_at DESC, id ASC".into());
+    };
+    let expression = page_field_expression(&order.field)?;
+    let direction = if order.direction.as_deref() == Some("desc") {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    Ok(format!("{expression} {direction}, id ASC"))
 }
 
 fn query_assets(
@@ -1060,6 +1306,7 @@ fn content_sha1(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{PageOrder, PageQuery, PageRange};
 
     fn temp_root(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -1111,6 +1358,113 @@ mod tests {
             rows,
             vec![json!({"id":"n1","projectId":"p1","title":"A","x":1})]
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn query_page_filters_orders_and_has_stable_198_201_boundary() {
+        let root = temp_root("page");
+        let store = SqliteStore::open(&root).unwrap();
+        for index in 1..=450 {
+            store
+                .put(
+                    "runRecords",
+                    &json!({
+                        "id": format!("r{index:04}"),
+                        "projectId": "p1",
+                        "createdAt": index,
+                        "scopeVersion": 1,
+                        "workbench": "storyboard",
+                        "status": "succeeded",
+                        "action": "shot-image",
+                        "subjectId": format!("shot-{}", index % 3),
+                        "scopeId": "episode:1",
+                        "operationId": format!("op-{index}")
+                    }),
+                )
+                .unwrap();
+        }
+        let filter = Map::from_iter([
+            ("projectId".into(), json!("p1")),
+            ("workbench".into(), json!("storyboard")),
+            ("action".into(), json!("shot-image")),
+        ]);
+        let page = PageQuery {
+            ids: Vec::new(),
+            missing_fields: Vec::new(),
+            ranges: vec![PageRange {
+                field: "createdAt".into(),
+                from: Some(1),
+                to: Some(450),
+            }],
+            order_by: Some(PageOrder {
+                field: "createdAt".into(),
+                direction: Some("desc".into()),
+            }),
+            offset: 198,
+            limit: 3,
+            include_payload: true,
+            fields: None,
+        };
+        let (rows, total) = store.query_page("runRecords", &filter, &page).unwrap();
+        assert_eq!(total, 450);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["createdAt"], json!(252));
+        assert_eq!(rows[1]["createdAt"], json!(251));
+        assert_eq!(rows[2]["createdAt"], json!(250));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn query_page_backfills_columns_from_old_v2_rows() {
+        let root = temp_root("old-v2-page");
+        fs::create_dir_all(&root).unwrap();
+        {
+            let conn = Connection::open(root.join("manifest.sqlite")).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO schema_meta (key, value) VALUES ('schema_version', '2');
+                 CREATE TABLE rows (
+                   table_name TEXT NOT NULL,
+                   id TEXT NOT NULL,
+                   project_id TEXT,
+                   updated_at INTEGER,
+                   payload_json TEXT NOT NULL,
+                   PRIMARY KEY (table_name, id)
+                 );
+                 INSERT INTO rows (table_name, id, project_id, updated_at, payload_json)
+                 VALUES (
+                   'runRecords',
+                   'old-1',
+                   'p1',
+                   10,
+                   '{\"id\":\"old-1\",\"projectId\":\"p1\",\"createdAt\":10,\"scopeVersion\":1,\"workbench\":\"storyboard\",\"status\":\"succeeded\",\"action\":\"shot-image\",\"subjectId\":\"shot-1\",\"scopeId\":\"episode:1\",\"operationId\":\"op-1\"}'
+                 );",
+            )
+            .unwrap();
+        }
+        let store = SqliteStore::open(&root).unwrap();
+        let filter = Map::from_iter([
+            ("projectId".into(), json!("p1")),
+            ("workbench".into(), json!("storyboard")),
+            ("action".into(), json!("shot-image")),
+        ]);
+        let page = PageQuery {
+            ids: Vec::new(),
+            missing_fields: Vec::new(),
+            ranges: Vec::new(),
+            order_by: Some(PageOrder {
+                field: "createdAt".into(),
+                direction: Some("desc".into()),
+            }),
+            offset: 0,
+            limit: 200,
+            include_payload: true,
+            fields: None,
+        };
+        let (rows, total) = store.query_page("runRecords", &filter, &page).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(rows[0]["id"], json!("old-1"));
         let _ = fs::remove_dir_all(root);
     }
 

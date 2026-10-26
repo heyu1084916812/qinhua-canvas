@@ -11,6 +11,8 @@ import type { WorkbenchId } from '../workbench'
 export interface RunRecordScope {
   scopeVersion: 1
   workbench: WorkbenchId
+  /** 工作台动作（如 shot-image / video-edit）；旧记录可缺。 */
+  action?: string
   subjectId: string
   scopeId: string
   operationId: string
@@ -31,6 +33,9 @@ export function assertValidRunRecordScope(scope: RunRecordScope): RunRecordScope
   }
   for (const key of ['subjectId', 'scopeId', 'operationId'] as const) {
     if (!scope[key]?.trim()) throw new Error(`RunRecord 作用域缺少 ${key}`)
+  }
+  if (scope.action !== undefined && !scope.action.trim()) {
+    throw new Error('RunRecord 作用域的 action 不能为空字符串')
   }
   if (scope.parentRunId !== undefined && !scope.parentRunId.trim()) {
     throw new Error('RunRecord 作用域的 parentRunId 不能为空字符串')
@@ -103,6 +108,8 @@ export interface RunRecord<TParams = unknown> {
   workbench?: WorkbenchId
   /** 新作用域契约版本；旧记录没有这个字段，读取侧按 legacy 处理。 */
   scopeVersion?: 1
+  /** 工作台动作；新漫剧记录写入，旧记录可为空。 */
+  action?: string
   subjectId?: string
   scopeId?: string
   parentRunId?: string
@@ -146,6 +153,7 @@ export function createRunRecord<TParams>(args: {
     ...args,
     scopeVersion: scope.scopeVersion,
     workbench: scope.workbench,
+    ...(scope.action ? { action: scope.action } : {}),
     subjectId: scope.subjectId,
     scopeId: scope.scopeId,
     operationId: scope.operationId,

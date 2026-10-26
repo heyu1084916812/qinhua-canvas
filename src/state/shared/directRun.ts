@@ -180,6 +180,7 @@ export async function runDirectGeneration<T>(args: {
     scope: {
       scopeVersion: args.trace.scopeVersion,
       workbench: args.trace.workbench,
+      ...(args.trace.action ? { action: args.trace.action } : {}),
       subjectId: args.trace.subjectId,
       scopeId: args.trace.scopeId,
       operationId: args.trace.operationId,

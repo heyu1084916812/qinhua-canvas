@@ -1,5 +1,10 @@
-import Dexie, { type Table } from 'dexie'
-import type { StoragePort, Row, TableName } from '../ports'
+import Dexie, { type Collection, type Table } from 'dexie'
+import type {
+  StoragePort,
+  Row,
+  TableName,
+  StorageQueryPageOptions,
+} from '../ports'
 
 /**
  * IndexedDB（Dexie）——业务主库。
@@ -190,7 +195,41 @@ class QinghuaDB extends Dexie {
     this.version(16).stores({
       assetSaveQueue: 'id, projectId, resultId, taskId, createdAt',
     })
+    /**
+     * v17：运行日志分页索引。
+     *
+     * 日志页按 `createdAt` 倒序，并且工作台私有查询固定带 `projectId`；
+     * 复合索引让 Dexie 在游标层过滤和取页，不再把整个项目日志读成数组。
+     * 新增 action / scope 字段索引也给后续漫剧日志筛选留出下推能力。
+     */
+    this.version(17).stores({
+      runRecords:
+        'id, nodeId, projectId, version, createdAt, workbench, status, action, subjectId, scopeId, operationId, parentRunId, [projectId+createdAt], [projectId+workbench+createdAt]',
+    })
   }
+}
+
+function matchesPageQuery(
+  row: Row,
+  filter: Partial<Row>,
+  options: StorageQueryPageOptions,
+): boolean {
+  if (
+    !Object.entries(filter).every(
+      ([key, value]) => value === undefined || row[key] === value,
+    )
+  ) {
+    return false
+  }
+  if (options.ids?.length && !options.ids.includes(row.id)) return false
+  if (options.missingFields?.some((field) => row[field] !== undefined)) return false
+  for (const range of options.ranges ?? []) {
+    const value = row[range.field]
+    if (typeof value !== 'number') return false
+    if (range.from !== undefined && value < range.from) return false
+    if (range.to !== undefined && value > range.to) return false
+  }
+  return true
 }
 
 export function createIndexedDbStorage(dbName?: string): StoragePort {
@@ -235,6 +274,48 @@ export function createIndexedDbStorage(dbName?: string): StoragePort {
       const entries = Object.entries(filter).filter(([, v]) => v !== undefined)
       if (entries.length === 0) return tableOf(table).toArray()
       return tableOf(table).where(entries[0]![0]).equals(entries[0]![1] as never).toArray()
+    },
+    async queryPage(table, filter, options = {}) {
+      if (needsOpen()) await db.open()
+      const target = tableOf(table)
+      const createdRange = options.ranges?.find((range) => range.field === 'createdAt')
+      const offset = Math.max(0, options.offset ?? 0)
+      const limit = Math.max(0, options.limit ?? 200)
+      let collection: Collection<Row, string>
+
+      if (
+        options.orderBy?.field === 'createdAt' &&
+        filter.projectId !== undefined &&
+        filter.workbench !== undefined
+      ) {
+        collection = target
+          .where('[projectId+workbench+createdAt]')
+          .between(
+            [filter.projectId, filter.workbench, createdRange?.from ?? Dexie.minKey],
+            [filter.projectId, filter.workbench, createdRange?.to ?? Dexie.maxKey],
+          )
+      } else if (options.orderBy?.field === 'createdAt' && filter.projectId !== undefined) {
+        collection = target
+          .where('[projectId+createdAt]')
+          .between(
+            [filter.projectId, createdRange?.from ?? Dexie.minKey],
+            [filter.projectId, createdRange?.to ?? Dexie.maxKey],
+          )
+      } else if (options.orderBy) {
+        collection = target.orderBy(options.orderBy.field)
+      } else if (filter.projectId !== undefined) {
+        collection = target.where('projectId').equals(filter.projectId as never)
+      } else {
+        collection = target.toCollection()
+      }
+
+      collection = collection.filter((row) =>
+        matchesPageQuery(row, filter, options),
+      )
+      if (options.orderBy?.direction === 'desc') collection = collection.reverse()
+      const total = await collection.count()
+      const rows = await collection.offset(offset).limit(limit).toArray()
+      return { rows, total }
     },
     async scan(table, batchSize, onBatch) {
       if (needsOpen()) await db.open()

@@ -105,11 +105,15 @@ export function subjectKindOfAction(
 }
 
 export function storyboardRunRecordScopeOfTask(
-  task: Pick<StoryboardRunTask, "operationId" | "parentRunId" | "subject">,
+  task: Pick<
+    StoryboardRunTask,
+    "operationId" | "parentRunId" | "subject" | "action"
+  >,
 ): RunRecordScope {
   return {
     scopeVersion: 1,
     workbench: "storyboard",
+    action: task.action,
     subjectId: task.subject.id,
     scopeId: task.subject.scopeId,
     operationId: task.operationId,

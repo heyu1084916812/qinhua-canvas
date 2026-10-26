@@ -315,6 +315,45 @@ fn row_matches(row: &Value, filter: &Map<String, Value>) -> bool {
         .all(|(key, expected)| row.get(key).is_some_and(|actual| actual == expected))
 }
 
+fn page_row_matches(row: &Value, filter: &Map<String, Value>, page: &PageQuery) -> bool {
+    if !row_matches(row, filter) {
+        return false;
+    }
+    if !page.ids.is_empty()
+        && !row
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| page.ids.iter().any(|candidate| candidate == id))
+    {
+        return false;
+    }
+    if page
+        .missing_fields
+        .iter()
+        .any(|field| row.get(field).is_some())
+    {
+        return false;
+    }
+    page.ranges.iter().all(|range| {
+        row.get(&range.field)
+            .and_then(Value::as_i64)
+            .is_some_and(|value| {
+                range.from.is_none_or(|from| value >= from)
+                    && range.to.is_none_or(|to| value <= to)
+            })
+    })
+}
+
+fn compare_page_values(left: Option<&Value>, right: Option<&Value>) -> std::cmp::Ordering {
+    match (left.and_then(Value::as_i64), right.and_then(Value::as_i64)) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        _ => left
+            .map(Value::to_string)
+            .unwrap_or_default()
+            .cmp(&right.map(Value::to_string).unwrap_or_default()),
+    }
+}
+
 fn query_rows(root: &Path, table: &str, filter: &Map<String, Value>) -> Result<Vec<Value>, String> {
     if let Some(Value::String(id)) = filter.get("id") {
         if filter.len() == 1 {
@@ -358,6 +397,52 @@ struct QueryRequest {
     #[serde(default = "default_true", rename = "includePayload")]
     include_payload: bool,
     fields: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRange {
+    pub field: String,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageOrder {
+    pub field: String,
+    pub direction: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageQuery {
+    #[serde(default)]
+    pub ids: Vec<String>,
+    #[serde(default)]
+    pub missing_fields: Vec<String>,
+    #[serde(default)]
+    pub ranges: Vec<PageRange>,
+    pub order_by: Option<PageOrder>,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_page_limit")]
+    pub limit: usize,
+    #[serde(default = "default_true")]
+    pub include_payload: bool,
+    pub fields: Option<String>,
+}
+
+fn default_page_limit() -> usize {
+    200
+}
+
+#[derive(Deserialize)]
+struct QueryPageRequest {
+    table: String,
+    filter: Map<String, Value>,
+    #[serde(flatten)]
+    page: PageQuery,
 }
 
 fn default_true() -> bool {
@@ -576,6 +661,12 @@ trait StoreBackend: Send + Sync {
         include_payload: bool,
         fields: Option<&str>,
     ) -> Result<Vec<Value>, String>;
+    fn query_page(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        page: &PageQuery,
+    ) -> Result<(Vec<Value>, u64), String>;
     fn scan_page(
         &self,
         table: &str,
@@ -675,6 +766,55 @@ impl StoreBackend for Store {
             project_fields(row, fields);
         }
         Ok(rows)
+    }
+
+    fn query_page(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        page: &PageQuery,
+    ) -> Result<(Vec<Value>, u64), String> {
+        let root = self.root.as_path();
+        let _guard = self.lock.lock().expect("store lock poisoned");
+        let mut rows = list_rows(root, table)?
+            .into_iter()
+            .filter(|row| page_row_matches(row, filter, page))
+            .collect::<Vec<_>>();
+        if let Some(order) = &page.order_by {
+            rows.sort_by(|left, right| {
+                let mut compared = compare_page_values(
+                    left.get(&order.field),
+                    right.get(&order.field),
+                );
+                if order.direction.as_deref() == Some("desc") {
+                    compared = compared.reverse();
+                }
+                compared.then_with(|| {
+                    left.get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .cmp(
+                            right
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        )
+                })
+            });
+        }
+        let total = rows.len() as u64;
+        let mut paged = rows
+            .into_iter()
+            .skip(page.offset)
+            .take(page.limit)
+            .collect::<Vec<_>>();
+        for row in &mut paged {
+            if !page.include_payload {
+                strip_payload(row);
+            }
+            project_fields(row, page.fields.as_deref());
+        }
+        Ok((paged, total))
     }
 
     fn scan_page(
@@ -808,6 +948,15 @@ impl StoreBackend for sqlite::SqliteStore {
         fields: Option<&str>,
     ) -> Result<Vec<Value>, String> {
         sqlite::SqliteStore::query(self, table, filter, include_payload, fields)
+    }
+
+    fn query_page(
+        &self,
+        table: &str,
+        filter: &Map<String, Value>,
+        page: &PageQuery,
+    ) -> Result<(Vec<Value>, u64), String> {
+        sqlite::SqliteStore::query_page(self, table, filter, page)
     }
 
     fn scan_page(
@@ -1003,7 +1152,7 @@ fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 5,
+                "version": 6,
                 "backend": store.kind(),
                 "maintenance": store.in_maintenance(),
                 "dataDir": store.root().to_string_lossy(),
@@ -1040,6 +1189,12 @@ fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
                 body.fields.as_deref(),
             )?;
             return Ok(json!({ "rows": rows }));
+        }
+        if request.method() == &Method::Post && path == "/queryPage" {
+            let body: QueryPageRequest = body_json(&mut request)?;
+            let (rows, total) =
+                store.query_page(&body.table, &body.filter, &body.page)?;
+            return Ok(json!({ "rows": rows, "total": total }));
         }
         if request.method() == &Method::Get && path.starts_with("/rows") {
             let url = url::Url::parse(&format!("http://127.0.0.1{path}"))
@@ -1212,6 +1367,16 @@ mod tests {
                 ],
             )
             .unwrap();
+        backend
+            .bulk_put(
+                "runRecords",
+                &[
+                    json!({"id":"r1","projectId":"p1","createdAt":3,"workbench":"storyboard","action":"shot-image"}),
+                    json!({"id":"r2","projectId":"p1","createdAt":2,"workbench":"storyboard","action":"shot-image"}),
+                    json!({"id":"r3","projectId":"p1","createdAt":1,"workbench":"storyboard","action":"speech"}),
+                ],
+            )
+            .unwrap();
 
         let projects = backend
             .query(
@@ -1225,6 +1390,32 @@ mod tests {
         let (nodes, total) = backend.scan_page("nodes", 0, 1, false).unwrap();
         assert_eq!(total, 2);
         assert_eq!(nodes.len(), 1);
+        let (records, total) = backend
+            .query_page(
+                "runRecords",
+                &Map::from_iter([
+                    ("projectId".into(), json!("p1")),
+                    ("workbench".into(), json!("storyboard")),
+                    ("action".into(), json!("shot-image")),
+                ]),
+                &PageQuery {
+                    ids: Vec::new(),
+                    missing_fields: Vec::new(),
+                    ranges: Vec::new(),
+                    order_by: Some(PageOrder {
+                        field: "createdAt".into(),
+                        direction: Some("desc".into()),
+                    }),
+                    offset: 1,
+                    limit: 1,
+                    include_payload: true,
+                    fields: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["id"], json!("r2"));
 
         backend.kv_put("theme", &json!({"mode":"dark"})).unwrap();
         assert_eq!(backend.kv_get("theme").unwrap(), json!({"mode":"dark"}));

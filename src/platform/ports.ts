@@ -95,6 +95,34 @@ export interface StorageQueryOptions {
   includePayload?: boolean
 }
 
+export interface StorageQueryRange {
+  field: string
+  from?: number
+  to?: number
+}
+
+export interface StorageQueryOrder {
+  field: string
+  direction?: 'asc' | 'desc'
+}
+
+export interface StorageQueryPageOptions extends StorageQueryOptions {
+  /** 按 id 批量取父记录等点查集合。 */
+  ids?: readonly string[]
+  /** 只保留这些字段不存在的行；undefined 不会写进普通 filter。 */
+  missingFields?: readonly string[]
+  ranges?: readonly StorageQueryRange[]
+  orderBy?: StorageQueryOrder
+  offset?: number
+  limit?: number
+}
+
+export interface StorageQueryPage<K extends TableName> {
+  rows: RowOf<K>[]
+  /** 应用 filter / ids / missingFields / ranges 后的总数，不受分页影响。 */
+  total: number
+}
+
 export interface StorageScanOptions {
   includePayload?: boolean
 }
@@ -110,6 +138,15 @@ export interface StoragePort {
     filter: Partial<RowOf<K>>,
     options?: StorageQueryOptions,
   ): Promise<RowOf<K>[]>
+  /**
+   * 分页查询（可选）：生产端把过滤、稳定排序、总数和 offset / limit 下推到存储层。
+   * 未实现的旧后端 / 测试替身由调用方按 `query` 结果做只读兜底。
+   */
+  queryPage?<K extends TableName>(
+    table: K,
+    filter: Partial<RowOf<K>>,
+    options?: StorageQueryPageOptions,
+  ): Promise<StorageQueryPage<K>>
   /**
    * **整表流式扫描**（可选）：一次只把 `batchSize` 行交给 `onBatch`，**不把整表拿在手里**；
    * 第二参数带着**总数**（进度要分母）。返回一共扫过多少行。
