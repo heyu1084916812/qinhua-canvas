@@ -1,19 +1,28 @@
 /**
- * Real Tauri UI-freeze geometry gate.
+ * Real Tauri UI-freeze gate.
  *
- * This script intentionally talks to the page-level WebView2 CDP target instead
- * of Playwright's connectOverCDP. WebView2 exposes shared-worker targets that
- * have previously triggered an internal Playwright assertion on this project.
+ * The script talks to the page-level WebView2 CDP target instead of using
+ * Playwright connectOverCDP. WebView2 exposes shared-worker targets that have
+ * triggered an internal Playwright assertion in this project.
  *
  * Usage:
  *   node scripts/check-tauri-ui-freeze.mjs
  *   node scripts/check-tauri-ui-freeze.mjs --launch
+ *   node scripts/check-tauri-ui-freeze.mjs --compare-baseline
+ *   node scripts/check-tauri-ui-freeze.mjs --write-baseline --baseline-ref=199a6d9
  *
- * The default mode only attaches to an already-running app. `--launch`
- * temporarily starts the debug desktop shell, requiring Vite on :1420.
+ * Default mode checks all three viewports, stable DOM snapshots and runtime
+ * errors. Baseline comparison is opt-in so an explicit two-stage gate is
+ * possible. Writing a baseline requires an explicit source commit.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -27,33 +36,78 @@ const OUT_DIR = path.join(
   'qinghua-ui-freeze-geometry',
   new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19),
 )
-const EXPECTED_REAL = { width: 1440, height: 900, dpr: 1 }
+const DEFAULT_BASELINE_DIR = path.join(
+  ROOT,
+  'scripts',
+  'fixtures',
+  'tauri-ui-freeze-baseline',
+)
+const REAL_VIEWPORT = {
+  name: 'real-tauri-1440x900',
+  width: 1440,
+  height: 900,
+  dpr: 1,
+  real: true,
+}
 const AUXILIARY_VIEWPORTS = [
-  { width: 1024, height: 700 },
-  { width: 1178, height: 762 },
+  { name: 'auxiliary-1024x700', width: 1024, height: 700, dpr: 1, real: false },
+  { name: 'auxiliary-1178x762', width: 1178, height: 762, dpr: 1, real: false },
 ]
+const BASELINE_SCHEMA_VERSION = 1
+const MAX_DIFF_RATIO = 0.0001
+const PIXEL_DELTA = 8
+const STRONG_DELTA = 120
+const STRONG_PIXELS = 200
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalize(value[key])]),
+  )
+}
+
+export function stableJson(value) {
+  return JSON.stringify(canonicalize(value))
+}
+
+export function hashSnapshot(value) {
+  return sha256(stableJson(value))
+}
 
 function formatRect(rect) {
   if (!rect) return 'missing'
   return `${rect.x.toFixed(1)},${rect.y.toFixed(1)} ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}`
 }
 
-function compareExpected(result) {
+function viewportProblems(result, expected) {
   const problems = []
-  if (Math.abs(result.viewport.width - EXPECTED_REAL.width) > 1) {
-    problems.push(`innerWidth=${result.viewport.width}，期望 ${EXPECTED_REAL.width}`)
+  if (Math.abs(result.viewport.width - expected.width) > 1) {
+    problems.push(`innerWidth=${result.viewport.width}, expected ${expected.width}`)
   }
-  if (Math.abs(result.viewport.height - EXPECTED_REAL.height) > 1) {
-    problems.push(`innerHeight=${result.viewport.height}，期望 ${EXPECTED_REAL.height}`)
+  if (Math.abs(result.viewport.height - expected.height) > 1) {
+    problems.push(`innerHeight=${result.viewport.height}, expected ${expected.height}`)
   }
-  if (Math.abs(result.viewport.dpr - EXPECTED_REAL.dpr) > 0.01) {
-    problems.push(`DPR=${result.viewport.dpr}，期望 ${EXPECTED_REAL.dpr}`)
+  if (Math.abs(result.viewport.dpr - expected.dpr) > 0.01) {
+    problems.push(`DPR=${result.viewport.dpr}, expected ${expected.dpr}`)
   }
-  if (!result.isTauri) problems.push('当前 CDP 页面不是真实 Tauri WebView')
-  if (!result.sidebar) problems.push('缺少 [data-app-sidebar]')
-  if (!result.projectTree) problems.push('缺少 [data-sidebar-project-tree]')
-  if (!result.settings) problems.push('缺少 [data-sidebar-settings]')
+  return problems
+}
+
+function shellProblems(result) {
+  const problems = []
+  if (!result.isTauri) problems.push('CDP page is not the real Tauri WebView')
+  if (!result.sidebar) problems.push('missing [data-app-sidebar]')
+  if (!result.projectTree) problems.push('missing [data-sidebar-project-tree]')
+  if (!result.settings) problems.push('missing [data-sidebar-settings]')
   if (
     result.sidebar &&
     result.projectTree &&
@@ -61,52 +115,158 @@ function compareExpected(result) {
     !(result.projectTree.bottom < result.settings.top)
   ) {
     problems.push(
-      `项目树 bottom=${result.projectTree.bottom.toFixed(1)} 未小于设置区 top=${result.settings.top.toFixed(1)}`,
+      `project tree bottom=${result.projectTree.bottom.toFixed(1)} is not above settings top=${result.settings.top.toFixed(1)}`,
     )
   }
   if (result.horizontalOverflow > 0) {
-    problems.push(`页面横向溢出 ${result.horizontalOverflow}px`)
+    problems.push(`page horizontal overflow ${result.horizontalOverflow}px`)
   }
   if (!result.projectTree?.contentFullyAccessible) {
-    problems.push('项目树滚动到底后仍有内容无法完整访问')
+    problems.push('project tree content is not fully accessible after scrolling to the end')
   }
   if (result.projectTree?.projectRows === 0) {
-    problems.push('项目树没有项目行，无法证明真实内容可访问')
+    problems.push('project tree has no rows, so real content accessibility is unproven')
   }
   return problems
 }
 
-function summarizeAuxiliary(result) {
-  const problems = []
-  if (!result.projectTree || !result.settings) {
-    problems.push('辅助视口缺少项目树或设置区')
-    return problems
-  }
-  if (!(result.projectTree.bottom < result.settings.top)) {
-    problems.push(
-      `项目树 bottom=${result.projectTree.bottom.toFixed(1)} 未小于设置区 top=${result.settings.top.toFixed(1)}`,
-    )
-  }
-  if (result.horizontalOverflow > 0) problems.push(`横向溢出 ${result.horizontalOverflow}px`)
-  if (!result.projectTree.contentFullyAccessible) problems.push('项目树内容不可完整访问')
-  return problems
+function summarizeViewport(result, expected) {
+  return [...viewportProblems(result, expected), ...shellProblems(result)]
 }
 
-export function evaluateGate(real, auxiliary = []) {
-  const realProblems = compareExpected(real)
-  const auxiliaryProblems = auxiliary.map((item) => ({
-    viewport: item.viewport,
-    problems: summarizeAuxiliary(item),
-  }))
+export function evaluateGate(
+  real,
+  auxiliary = [],
+  expectedAuxiliary = AUXILIARY_VIEWPORTS,
+) {
+  const realProblems = summarizeViewport(real, REAL_VIEWPORT)
+  const auxiliaryProblems = expectedAuxiliary.map((expected, index) => {
+    const result = auxiliary[index]
+    if (!result) {
+      return {
+        viewport: { width: expected.width, height: expected.height, dpr: expected.dpr },
+        problems: ['missing viewport result'],
+      }
+    }
+    return {
+      viewport: result.viewport,
+      problems: summarizeViewport(result, expected),
+    }
+  })
+  if (auxiliary.length !== expectedAuxiliary.length) {
+    auxiliaryProblems.push({
+      viewport: null,
+      problems: [
+        `expected ${expectedAuxiliary.length} auxiliary viewports, received ${auxiliary.length}`,
+      ],
+    })
+  }
   return {
-    ok: realProblems.length === 0,
+    ok:
+      realProblems.length === 0 &&
+      auxiliaryProblems.every((item) => item.problems.length === 0),
     realProblems,
     auxiliaryProblems,
   }
 }
 
+function shortJson(value, maxLength = 180) {
+  const text = stableJson(value)
+  return text.length <= maxLength ? text : `${text.slice(0, maxLength - 3)}...`
+}
+
+export function diffDomSnapshots(expected, actual, limit = 40) {
+  const differences = []
+
+  function walk(left, right, pointer) {
+    if (differences.length >= limit) return
+    if (Object.is(left, right)) return
+
+    if (Array.isArray(left) && Array.isArray(right)) {
+      if (left.length !== right.length) {
+        differences.push(`${pointer}: array length ${left.length} -> ${right.length}`)
+      }
+      const length = Math.max(left.length, right.length)
+      for (let index = 0; index < length && differences.length < limit; index += 1) {
+        const childPointer = `${pointer}[${index}]`
+        if (index >= left.length) {
+          differences.push(`${childPointer}: missing baseline item; current=${shortJson(right[index])}`)
+        } else if (index >= right.length) {
+          differences.push(`${childPointer}: missing current item; baseline=${shortJson(left[index])}`)
+        } else {
+          walk(left[index], right[index], childPointer)
+        }
+      }
+      return
+    }
+
+    const leftObject = left && typeof left === 'object'
+    const rightObject = right && typeof right === 'object'
+    if (leftObject && rightObject) {
+      const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()
+      for (const key of keys) {
+        if (differences.length >= limit) return
+        const childPointer = pointer ? `${pointer}.${key}` : key
+        if (!(key in left)) {
+          differences.push(`${childPointer}: missing in baseline; current=${shortJson(right[key])}`)
+        } else if (!(key in right)) {
+          differences.push(`${childPointer}: missing in current; baseline=${shortJson(left[key])}`)
+        } else {
+          walk(left[key], right[key], childPointer)
+        }
+      }
+      return
+    }
+
+    differences.push(
+      `${pointer || '$'}: baseline=${shortJson(left)} current=${shortJson(right)}`,
+    )
+  }
+
+  walk(expected, actual, '$')
+  if (differences.length >= limit) differences.push(`...stopped after ${limit} differences`)
+  return differences
+}
+
+export function evaluateRuntimeEvents(events) {
+  const groups = [
+    ['consoleErrors', events.consoleErrors],
+    ['pageErrors', events.pageErrors],
+    ['logErrors', events.logErrors],
+    ['resourceFailures', events.resourceFailures],
+    ['httpErrors', events.httpErrors],
+  ]
+  const problems = []
+  for (const [name, entries] of groups) {
+    for (const entry of entries ?? []) {
+      problems.push(`${name}: ${entry.message ?? entry.text ?? shortJson(entry)}`)
+    }
+  }
+  return { ok: problems.length === 0, problems }
+}
+
+export function evaluateImageDiff(diff) {
+  if (diff.sizeMismatch) {
+    return {
+      ok: false,
+      reason: `size mismatch: ${diff.sizeMismatch}`,
+    }
+  }
+  const tooMany = diff.ratio > MAX_DIFF_RATIO
+  const strong =
+    diff.maxChannelDelta > STRONG_DELTA && diff.differencePixels > STRONG_PIXELS
+  return {
+    ok: !tooMany && !strong,
+    reason: tooMany
+      ? `difference ratio ${(diff.ratio * 100).toFixed(4)}% exceeds ${(MAX_DIFF_RATIO * 100).toFixed(2)}%`
+      : strong
+        ? `strong local difference: max channel delta ${diff.maxChannelDelta}, pixels ${diff.differencePixels}`
+        : null,
+  }
+}
+
 function fail(message) {
-  console.error(`\n✗ ${message}\n`)
+  console.error(`\nFAIL: ${message}\n`)
   process.exitCode = 1
 }
 
@@ -142,8 +302,8 @@ async function ensureDevServer() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
   } catch (error) {
     throw new Error(
-      `--launch 使用调试版桌面壳，需要 Vite 已在 ${DEV_URL} 运行。请先执行 npm run dev:vite。` +
-        `\n探测失败：${error instanceof Error ? error.message : String(error)}`,
+      `--launch uses the debug desktop shell and requires Vite at ${DEV_URL}. Run npm run dev:vite first.` +
+        `\nProbe failed: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
 }
@@ -161,7 +321,7 @@ async function maybeLaunch(shouldLaunch) {
   if (!shouldLaunch) return null
   const exe = defaultExe()
   if (!exe || !existsSync(exe)) {
-    throw new Error('找不到桌面壳可执行文件；可用 QH_APP_EXE 指定 qinghua.exe。')
+    throw new Error('desktop shell executable not found; set QH_APP_EXE to qinghua.exe')
   }
   if (exe.includes(`${path.sep}debug${path.sep}`)) await ensureDevServer()
   const logPath = path.join(OUT_DIR, 'desktop-app.log')
@@ -183,16 +343,14 @@ async function maybeLaunch(shouldLaunch) {
     killTree(child)
     if (child.exitCode !== null) {
       throw new Error(
-        `桌面壳在开放 CDP ${ENDPOINT} 前退出（code=${child.exitCode}）。` +
-          '\n如果界面上已经有轻画窗口，请先完全退出旧实例再重试；Tauri 单实例会把新进程转交给旧窗口。' +
-          `\n启动日志：${logPath}`,
+        `desktop shell exited before opening CDP ${ENDPOINT} (code=${child.exitCode}).` +
+          '\nIf an existing Qinghua window is open, fully exit it before retrying because Tauri is single-instance.' +
+          `\nLaunch log: ${logPath}`,
       )
     }
-    throw new Error(
-      `桌面壳已启动但 60 秒内没有开放 CDP ${ENDPOINT}。启动日志：${logPath}`,
-    )
+    throw new Error(`desktop shell did not open CDP ${ENDPOINT} within 60 seconds. Log: ${logPath}`)
   }
-  console.log(`临时桌面壳 PID=${child.pid}，调试端口 ${PORT}`)
+  console.log(`Temporary desktop shell PID=${child.pid}, CDP port ${PORT}`)
   return { child, logPath }
 }
 
@@ -223,10 +381,11 @@ async function pickPageTarget() {
 }
 
 class CdpSession {
-  constructor(target) {
+  constructor(target, onEvent = null) {
     this.socket = new WebSocket(target.webSocketDebuggerUrl)
     this.nextId = 0
     this.pending = new Map()
+    this.onEvent = onEvent
   }
 
   async open() {
@@ -236,7 +395,10 @@ class CdpSession {
     })
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data))
-      if (!message.id) return
+      if (!message.id) {
+        this.onEvent?.(message)
+        return
+      }
       const entry = this.pending.get(message.id)
       if (!entry) return
       this.pending.delete(message.id)
@@ -276,6 +438,108 @@ class CdpSession {
   }
 }
 
+function formatRemoteArgument(argument) {
+  if (!argument) return ''
+  if ('value' in argument) return String(argument.value)
+  return argument.description ?? argument.type ?? ''
+}
+
+function formatConsoleArguments(args = []) {
+  return args.map(formatRemoteArgument).filter(Boolean).join(' ')
+}
+
+function createRuntimeCollector() {
+  const consoleErrors = []
+  const consoleWarnings = []
+  const pageErrors = []
+  const logErrors = []
+  const resourceFailures = []
+  const httpErrors = []
+  const seenResources = new Set()
+  const seenHttpErrors = new Set()
+
+  function ingest(event) {
+    if (event.method === 'Runtime.consoleAPICalled') {
+      const type = event.params.type
+      const message = formatConsoleArguments(event.params.args)
+      const stack = event.params.stackTrace?.callFrames?.[0]
+      const record = {
+        type,
+        message,
+        url: stack?.url ?? null,
+        lineNumber: stack?.lineNumber ?? null,
+      }
+      if (type === 'error' || type === 'assert') consoleErrors.push(record)
+      else if (type === 'warning') consoleWarnings.push(record)
+      return
+    }
+    if (event.method === 'Runtime.exceptionThrown') {
+      const details = event.params.exceptionDetails
+      pageErrors.push({
+        message:
+          details.exception?.description ??
+          details.text ??
+          'uncaught runtime exception',
+        url: details.url ?? null,
+        lineNumber: details.lineNumber ?? null,
+        columnNumber: details.columnNumber ?? null,
+      })
+      return
+    }
+    if (event.method === 'Log.entryAdded') {
+      const entry = event.params.entry
+      if (entry.level === 'error') {
+        logErrors.push({
+          source: entry.source,
+          message: entry.text,
+          url: entry.url ?? null,
+          lineNumber: entry.lineNumber ?? null,
+        })
+      }
+      return
+    }
+    if (event.method === 'Network.loadingFailed') {
+      if (event.params.canceled || seenResources.has(event.params.requestId)) return
+      seenResources.add(event.params.requestId)
+      resourceFailures.push({
+        requestId: event.params.requestId,
+        resourceType: event.params.type,
+        message: event.params.errorText,
+        blockedReason: event.params.blockedReason ?? null,
+      })
+      return
+    }
+    if (event.method === 'Network.responseReceived') {
+      const response = event.params.response
+      if (response.status < 400) return
+      const key = `${event.params.requestId}:${response.status}:${response.url}`
+      if (seenHttpErrors.has(key)) return
+      seenHttpErrors.add(key)
+      httpErrors.push({
+        requestId: event.params.requestId,
+        resourceType: event.params.type,
+        status: response.status,
+        statusText: response.statusText,
+        message: `${response.status} ${response.statusText} ${response.url}`,
+      })
+    }
+  }
+
+  return {
+    ingest,
+    snapshot() {
+      return {
+        consoleErrors,
+        consoleWarnings,
+        pageErrors,
+        logErrors,
+        resourceFailures,
+        httpErrors,
+      }
+    },
+  }
+}
+
 async function waitForShell(session, timeoutMs = 20_000) {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
@@ -291,7 +555,7 @@ async function waitForShell(session, timeoutMs = 20_000) {
     if (ready) return
     await sleep(200)
   }
-  throw new Error('真实 Tauri 页面已连接，但侧栏 / 项目树 / 设置区在 20 秒内没有就绪')
+  throw new Error('real Tauri page connected, but shell/project tree/settings did not become ready within 20 seconds')
 }
 
 async function waitForProjectRows(session, timeoutMs = 20_000) {
@@ -306,6 +570,203 @@ async function waitForProjectRows(session, timeoutMs = 20_000) {
     await sleep(200)
   }
   return 0
+}
+
+const STABILIZE_EXPRESSION = `(async () => {
+  const styleId = '__qh_ui_freeze_stability__'
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style')
+    style.id = styleId
+    style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}'
+    document.head.appendChild(style)
+  }
+
+  await Promise.race([
+    document.fonts?.ready ?? Promise.resolve(),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
+
+  const imagePromises = Array.from(document.images).map(async (image) => {
+    if (image.complete) {
+      if (image.naturalWidth > 0) await image.decode?.().catch(() => {})
+      return
+    }
+    await new Promise((resolve) => {
+      const done = () => resolve()
+      image.addEventListener('load', done, { once: true })
+      image.addEventListener('error', done, { once: true })
+      setTimeout(done, 5000)
+    })
+    await image.decode?.().catch(() => {})
+  })
+  await Promise.race([
+    Promise.all(imagePromises),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
+
+  const twoFrames = () =>
+    new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve)),
+    )
+
+  const readSignature = () => {
+    const root = document.documentElement
+    const body = document.body
+    const regions = Array.from(
+      document.querySelectorAll(
+        '[data-app-sidebar],[data-sidebar-project-tree],[data-sidebar-settings],[data-canvas-surface],[data-agent-panel],[data-settings-panel],[role="dialog"],main,nav,aside,header',
+      ),
+    ).map((element) => {
+      const rect = element.getBoundingClientRect()
+      return [
+        element.tagName,
+        Math.round(rect.x * 10) / 10,
+        Math.round(rect.y * 10) / 10,
+        Math.round(rect.width * 10) / 10,
+        Math.round(rect.height * 10) / 10,
+      ]
+    })
+    return JSON.stringify({
+      viewport: [innerWidth, innerHeight, devicePixelRatio],
+      document: [root.scrollWidth, root.scrollHeight],
+      body: body ? [body.scrollWidth, body.scrollHeight] : null,
+      regions,
+    })
+  }
+
+  let previous = ''
+  let stableSamples = 0
+  for (let sample = 0; sample < 30; sample += 1) {
+    await twoFrames()
+    const signature = readSignature()
+    if (signature === previous) stableSamples += 1
+    else stableSamples = 0
+    previous = signature
+    if (stableSamples >= 2) {
+      return { stable: true, samples: sample + 1 }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return { stable: false, samples: 30 }
+})()`
+
+async function stabilizeForCapture(session) {
+  const result = await session.evaluate(STABILIZE_EXPRESSION)
+  if (!result?.stable) {
+    throw new Error('UI did not produce two consecutive stable layout samples')
+  }
+}
+
+async function clearCaptureStability(session) {
+  if (!session) return
+  await session
+    .evaluate(
+      `document.getElementById('__qh_ui_freeze_stability__')?.remove(); true`,
+    )
+    .catch(() => {})
+}
+
+const READ_DOM_SNAPSHOT_EXPRESSION = `(() => {
+  const round = (value) => Math.round(value * 10) / 10
+  const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim()
+  const isVisible = (element) => {
+    if (!(element instanceof Element)) return false
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    return (
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      Number(style.opacity) > 0.01 &&
+      rect.width > 0 &&
+      rect.height > 0
+    )
+  }
+  const rectOf = (element) => {
+    const rect = element.getBoundingClientRect()
+    return {
+      x: round(rect.x),
+      y: round(rect.y),
+      width: round(rect.width),
+      height: round(rect.height),
+      top: round(rect.top),
+      right: round(rect.right),
+      bottom: round(rect.bottom),
+      left: round(rect.left),
+    }
+  }
+  const labelOf = (element) =>
+    normalize(
+      element.getAttribute('aria-label') ||
+        element.getAttribute('title') ||
+        element.innerText ||
+        element.textContent,
+    )
+  const anchorOf = (element) =>
+    Array.from(element.attributes)
+      .filter((attribute) =>
+        attribute.name.startsWith('data-') ||
+        attribute.name === 'id' ||
+        attribute.name === 'role' ||
+        attribute.name === 'aria-label',
+      )
+      .map((attribute) => [attribute.name, attribute.value])
+      .sort((left, right) => left[0].localeCompare(right[0]))
+
+  const regionElements = Array.from(
+    new Set(
+      document.querySelectorAll(
+        '[data-app-sidebar],[data-sidebar-project-tree],[data-sidebar-settings],[data-canvas-surface],[data-ecommerce-workbench],[data-storyboard-workbench],[data-agent-panel],[data-settings-panel],[role="dialog"],main,nav,aside,header',
+      ),
+    ),
+  ).filter(isVisible)
+
+  const navigation = Array.from(
+    document.querySelectorAll(
+      'a,button,[role="tab"],[role="menuitem"],[data-nav-item]',
+    ),
+  )
+    .filter(isVisible)
+    .map((element) => ({
+      tag: element.tagName.toLowerCase(),
+      role: element.getAttribute('role'),
+      label: labelOf(element),
+      anchor: anchorOf(element),
+    }))
+    .filter((item) => item.label || item.anchor.length > 0)
+
+  const root = document.documentElement
+  const body = document.body
+  return {
+    url: location.pathname + location.search,
+    viewport: {
+      width: innerWidth,
+      height: innerHeight,
+      dpr: devicePixelRatio,
+    },
+    visibleText: normalize(body?.innerText ?? ''),
+    navigation,
+    regions: regionElements.map((element) => ({
+      tag: element.tagName.toLowerCase(),
+      anchor: anchorOf(element),
+      rect: rectOf(element),
+      overflow: {
+        horizontal: element.scrollWidth > element.clientWidth + 1,
+        vertical: element.scrollHeight > element.clientHeight + 1,
+      },
+    })),
+    overflow: {
+      horizontal: Math.max(
+        0,
+        root.scrollWidth - root.clientWidth,
+        body ? body.scrollWidth - body.clientWidth : 0,
+      ),
+      vertical: Math.max(0, root.scrollHeight - root.clientHeight),
+    },
+  }
+})()`
+
+async function readDomSnapshot(session) {
+  return session.evaluate(READ_DOM_SNAPSHOT_EXPRESSION)
 }
 
 async function readGeometry(session) {
@@ -410,140 +871,659 @@ async function captureScreenshot(session, filename) {
     fromSurface: true,
     captureBeyondViewport: false,
   })
+  const buffer = Buffer.from(result.data, 'base64')
   const target = path.join(OUT_DIR, filename)
-  writeFileSync(target, Buffer.from(result.data, 'base64'))
-  return target
+  writeFileSync(target, buffer)
+  return {
+    name: filename,
+    path: target,
+    bytes: buffer.length,
+    sha256: sha256(buffer),
+    buffer,
+  }
 }
 
 async function emulateViewport(session, viewport) {
   await session.send('Emulation.setDeviceMetricsOverride', {
     width: viewport.width,
     height: viewport.height,
-    deviceScaleFactor: 1,
+    deviceScaleFactor: viewport.dpr,
     mobile: false,
     screenWidth: viewport.width,
     screenHeight: viewport.height,
   })
-  await sleep(400)
 }
 
 async function clearViewportOverride(session) {
   await session.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
 }
 
-function report(result, gate, screenshots) {
-  console.log('\n真实 Tauri WebView')
-  console.log(
-    `  viewport ${result.viewport.width}x${result.viewport.height} @ DPR ${result.viewport.dpr}`,
+async function captureViewport(session, viewport) {
+  if (!viewport.real) await emulateViewport(session, viewport)
+  await stabilizeForCapture(session)
+  const geometry = await readGeometry(session)
+  await stabilizeForCapture(session)
+  const dom = await readDomSnapshot(session)
+  const screenshot = await captureScreenshot(session, `${viewport.name}.png`)
+  return {
+    viewport,
+    geometry,
+    dom,
+    domHash: hashSnapshot(dom),
+    screenshot,
+  }
+}
+
+function screenshotForReport(screenshot) {
+  return {
+    name: screenshot.name,
+    path: screenshot.path,
+    bytes: screenshot.bytes,
+    sha256: screenshot.sha256,
+  }
+}
+
+function captureForReport(capture) {
+  return {
+    viewport: capture.viewport,
+    geometry: capture.geometry,
+    domHash: capture.domHash,
+    screenshot: screenshotForReport(capture.screenshot),
+  }
+}
+
+function readJson(file) {
+  return JSON.parse(readFileSync(file, 'utf8'))
+}
+
+function readBaseline(baselineDir) {
+  const manifestPath = path.join(baselineDir, 'manifest.json')
+  const domPath = path.join(baselineDir, 'dom-snapshots.json')
+  if (!existsSync(manifestPath)) {
+    throw new Error(`baseline manifest is missing: ${manifestPath}`)
+  }
+  if (!existsSync(domPath)) {
+    throw new Error(`baseline DOM snapshot is missing: ${domPath}`)
+  }
+  const manifest = readJson(manifestPath)
+  if (manifest.schemaVersion !== BASELINE_SCHEMA_VERSION) {
+    throw new Error(
+      `baseline schema ${manifest.schemaVersion} is unsupported; expected ${BASELINE_SCHEMA_VERSION}`,
+    )
+  }
+  const domBuffer = readFileSync(domPath)
+  const domHash = sha256(domBuffer)
+  if (manifest.domSnapshotSha256 !== domHash) {
+    throw new Error(
+      `baseline DOM snapshot hash mismatch: manifest ${manifest.domSnapshotSha256}, file ${domHash}`,
+    )
+  }
+  const domSnapshots = JSON.parse(domBuffer.toString('utf8'))
+  const viewports = new Map()
+  for (const viewport of manifest.viewports ?? []) {
+    const screenshotPath = path.join(baselineDir, viewport.screenshot)
+    if (!existsSync(screenshotPath)) {
+      throw new Error(`baseline screenshot is missing: ${screenshotPath}`)
+    }
+    const buffer = readFileSync(screenshotPath)
+    const fileHash = sha256(buffer)
+    if (fileHash !== viewport.sha256) {
+      throw new Error(
+        `baseline screenshot hash mismatch for ${viewport.name}: manifest ${viewport.sha256}, file ${fileHash}`,
+      )
+    }
+    const dom = domSnapshots[viewport.name]
+    if (!dom) throw new Error(`baseline DOM snapshot is missing for ${viewport.name}`)
+    const domSnapshotHash = hashSnapshot(dom)
+    if (domSnapshotHash !== viewport.domSha256) {
+      throw new Error(
+        `baseline DOM snapshot hash mismatch for ${viewport.name}: manifest ${viewport.domSha256}, file ${domSnapshotHash}`,
+      )
+    }
+    viewports.set(viewport.name, {
+      ...viewport,
+      path: screenshotPath,
+      buffer,
+      dom,
+    })
+  }
+  return { manifest, domSnapshots, domPath, manifestPath, viewports }
+}
+
+function gitOutput(args) {
+  const result = spawnSync('git', args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (result.status !== 0) {
+    return { ok: false, stdout: result.stdout?.trim() ?? '', stderr: result.stderr?.trim() ?? '' }
+  }
+  return { ok: true, stdout: result.stdout?.trim() ?? '', stderr: '' }
+}
+
+function currentCommit() {
+  const result = gitOutput(['rev-parse', 'HEAD'])
+  return result.ok ? result.stdout : null
+}
+
+function uiSourceStatus() {
+  const result = gitOutput([
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+    '--',
+    'src',
+    'src-tauri',
+    'index.html',
+    'vite.config.ts',
+    'vite.config.js',
+  ])
+  return result.ok ? result.stdout : null
+}
+
+function verifyBaselineWriteAllowed(options, commit) {
+  if (!options.baselineRef) {
+    throw new Error(
+      '--write-baseline requires --baseline-ref=<commit> so the baseline source is never implicit',
+    )
+  }
+  if (!commit) {
+    throw new Error('cannot write a UI baseline without a resolvable git HEAD')
+  }
+  if (!commit.startsWith(options.baselineRef) && !options.allowBaselineCommitMismatch) {
+    throw new Error(
+      `git HEAD ${commit} does not match --baseline-ref=${options.baselineRef}; ` +
+        'use --allow-baseline-commit-mismatch only when the desktop binary is known to come from that ref',
+    )
+  }
+  const dirtyUiSources = uiSourceStatus()
+  if (dirtyUiSources === null) {
+    throw new Error('cannot inspect UI source status; refusing to write an unverified baseline')
+  }
+  if (dirtyUiSources && !options.allowDirtyBaseline) {
+    throw new Error(
+      'refusing to write a baseline from dirty UI source. Commit/stash changes or pass ' +
+        `--allow-dirty-baseline only after explicit review:\n${dirtyUiSources}`,
+    )
+  }
+}
+
+function writeBaseline(baselineDir, captures, options, commit) {
+  mkdirSync(baselineDir, { recursive: true })
+  const domSnapshots = {}
+  const viewports = []
+  for (const capture of captures) {
+    const screenshotName = `${capture.viewport.name}.png`
+    const screenshotPath = path.join(baselineDir, screenshotName)
+    writeFileSync(screenshotPath, capture.screenshot.buffer)
+    domSnapshots[capture.viewport.name] = capture.dom
+    viewports.push({
+      name: capture.viewport.name,
+      width: capture.viewport.width,
+      height: capture.viewport.height,
+      dpr: capture.viewport.dpr,
+      screenshot: screenshotName,
+      bytes: capture.screenshot.buffer.length,
+      sha256: sha256(capture.screenshot.buffer),
+      domSha256: hashSnapshot(capture.dom),
+    })
+  }
+  const domBuffer = Buffer.from(JSON.stringify(domSnapshots, null, 2))
+  writeFileSync(path.join(baselineDir, 'dom-snapshots.json'), domBuffer)
+  const manifest = {
+    schemaVersion: BASELINE_SCHEMA_VERSION,
+    createdAt: new Date().toISOString(),
+    baselineRef: options.baselineRef,
+    sourceCommit: commit,
+    sourceCommitMatchesBaselineRef: commit.startsWith(options.baselineRef),
+    dirtyUiSourcesAllowed: options.allowDirtyBaseline,
+    viewports,
+    domSnapshotSha256: sha256(domBuffer),
+    note:
+      'Baseline screenshots and DOM snapshots are written only from an explicitly requested and verified capture.',
+  }
+  writeFileSync(
+    path.join(baselineDir, 'manifest.json'),
+    JSON.stringify(manifest, null, 2),
   )
-  console.log(`  侧栏     ${formatRect(result.sidebar)}`)
-  console.log(`  项目树   ${formatRect(result.projectTree)}`)
-  console.log(`  设置区   ${formatRect(result.settings)}`)
-  if (result.projectTree?.scrollMetrics) {
-    const metrics = result.projectTree.scrollMetrics
-    console.log(
-      `  项目树滚动区 client=${metrics.clientHeight} scroll=${metrics.scrollHeight} max=${metrics.maxScrollTop} 最后内容 bottom=${metrics.lastContentBottom.toFixed(1)} viewport bottom=${metrics.viewportBottom.toFixed(1)}`,
+  return manifest
+}
+
+async function comparePngBuffers(session, baselineBuffer, currentBuffer) {
+  const baselineBase64 = baselineBuffer.toString('base64')
+  const currentBase64 = currentBuffer.toString('base64')
+  return session.evaluate(`(async () => {
+    const load = async (dataUrl) => {
+      const image = new Image()
+      image.src = dataUrl
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
+      canvas.getContext('2d').drawImage(image, 0, 0)
+      return canvas
+    }
+    const baseline = await load('data:image/png;base64,${baselineBase64}')
+    const current = await load('data:image/png;base64,${currentBase64}')
+    if (baseline.width !== current.width || baseline.height !== current.height) {
+      return {
+        sizeMismatch: baseline.width + 'x' + baseline.height + ' != ' + current.width + 'x' + current.height,
+      }
+    }
+    const baselineData = baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height).data
+    const currentData = current.getContext('2d').getImageData(0, 0, current.width, current.height).data
+    const output = new ImageData(baseline.width, baseline.height)
+    let differencePixels = 0
+    let maxChannelDelta = 0
+    for (let index = 0; index < baselineData.length; index += 4) {
+      const delta = Math.max(
+        Math.abs(baselineData[index] - currentData[index]),
+        Math.abs(baselineData[index + 1] - currentData[index + 1]),
+        Math.abs(baselineData[index + 2] - currentData[index + 2]),
+      )
+      if (delta > maxChannelDelta) maxChannelDelta = delta
+      if (delta > ${PIXEL_DELTA}) {
+        differencePixels += 1
+        output.data[index] = 255
+        output.data[index + 1] = 0
+        output.data[index + 2] = 0
+        output.data[index + 3] = 255
+      } else {
+        output.data[index] = 236
+        output.data[index + 1] = 236
+        output.data[index + 2] = 236
+        output.data[index + 3] = 255
+      }
+    }
+    const diffCanvas = document.createElement('canvas')
+    diffCanvas.width = baseline.width
+    diffCanvas.height = baseline.height
+    diffCanvas.getContext('2d').putImageData(output, 0, 0)
+    const totalPixels = baseline.width * baseline.height
+    return {
+      width: baseline.width,
+      height: baseline.height,
+      totalPixels,
+      differencePixels,
+      ratio: differencePixels / totalPixels,
+      maxChannelDelta,
+      diffDataUrl: diffCanvas.toDataURL('image/png'),
+    }
+  })()`)
+}
+
+async function compareWithBaseline(session, baseline, captures) {
+  const comparisons = []
+  const files = []
+  for (const capture of captures) {
+    const baselineViewport = baseline.viewports.get(capture.viewport.name)
+    if (!baselineViewport) {
+      comparisons.push({
+        name: capture.viewport.name,
+        viewport: capture.viewport,
+        ok: false,
+        problems: ['viewport is missing from baseline manifest'],
+      })
+      continue
+    }
+    const rawDiff = await comparePngBuffers(
+      session,
+      baselineViewport.buffer,
+      capture.screenshot.buffer,
     )
+    const imageGate = evaluateImageDiff(rawDiff)
+    let diffPath = null
+    let diffSha256 = null
+    if (rawDiff.diffDataUrl) {
+      const diffBuffer = Buffer.from(rawDiff.diffDataUrl.split(',')[1], 'base64')
+      diffPath = path.join(OUT_DIR, `diff-${capture.viewport.name}.png`)
+      writeFileSync(diffPath, diffBuffer)
+      diffSha256 = sha256(diffBuffer)
+    }
+    const domDifferences = diffDomSnapshots(baselineViewport.dom, capture.dom)
+    const image = {
+      ok: imageGate.ok,
+      reason: imageGate.reason,
+      width: rawDiff.width ?? null,
+      height: rawDiff.height ?? null,
+      totalPixels: rawDiff.totalPixels ?? null,
+      differencePixels: rawDiff.differencePixels ?? null,
+      ratio: rawDiff.ratio ?? null,
+      maxChannelDelta: rawDiff.maxChannelDelta ?? null,
+      baselineSha256: baselineViewport.sha256,
+      currentSha256: capture.screenshot.sha256,
+      diffPath,
+      diffSha256,
+    }
+    const dom = {
+      ok: domDifferences.length === 0,
+      baselineSha256: baselineViewport.domSha256,
+      currentSha256: capture.domHash,
+      differences: domDifferences,
+    }
+    comparisons.push({
+      name: capture.viewport.name,
+      viewport: capture.viewport,
+      ok: image.ok && dom.ok,
+      image,
+      dom,
+      problems: [
+        ...(image.ok ? [] : [image.reason ?? 'image differs from baseline']),
+        ...(dom.ok ? [] : [`DOM snapshot differs in ${domDifferences.length} place(s)`]),
+      ],
+    })
+    if (diffPath) files.push(diffPath)
   }
-  console.log(`  横向溢出 ${result.horizontalOverflow}px`)
-  console.log(`  project rows=${result.projectTree?.projectRows ?? 0}`)
-  console.log(`  真实门禁 ${gate.realProblems.length === 0 ? '通过' : '失败'}`)
-  for (const problem of gate.realProblems) console.log(`    - ${problem}`)
-  for (const item of gate.auxiliaryProblems) {
+  return { comparisons, diffFiles: files }
+}
+
+function writeReport(reportData) {
+  const reportPath = path.join(OUT_DIR, 'report.json')
+  writeFileSync(reportPath, JSON.stringify(reportData, null, 2))
+  return reportPath
+}
+
+function printReport(reportData, reportPath) {
+  const { commits, geometryGate, runtimeGate, baselineComparison, captures, gate } =
+    reportData
+  console.log('\nReal Tauri WebView')
+  console.log(`  current commit ${commits.current ?? 'unknown'}`)
+  if (commits.baselineRef) {
+    console.log(`  baseline ref   ${commits.baselineRef}`)
+  }
+  for (const capture of captures) {
+    const result = capture.geometry
     console.log(
-      `辅助 ${item.viewport.width}x${item.viewport.height}: ${item.problems.length === 0 ? '通过' : '失败'}`,
+      `  ${capture.viewport.name}: ${result.viewport.width}x${result.viewport.height} @ DPR ${result.viewport.dpr}`,
     )
-    for (const problem of item.problems) console.log(`    - ${problem}`)
+    console.log(`    sidebar    ${formatRect(result.sidebar)}`)
+    console.log(`    projectTree ${formatRect(result.projectTree)}`)
+    console.log(`    settings   ${formatRect(result.settings)}`)
+    console.log(`    overflow   ${result.horizontalOverflow}px`)
+    console.log(`    DOM hash   ${capture.domHash}`)
+    console.log(`    PNG        ${capture.screenshot.sha256}`)
   }
-  console.log(`截图目录 ${OUT_DIR}`)
-  for (const screenshot of screenshots) console.log(`  ${screenshot}`)
+  console.log(`\n  geometry gate ${geometryGate.ok ? 'PASS' : 'FAIL'}`)
+  for (const problem of geometryGate.realProblems) console.log(`    - ${problem}`)
+  for (const item of geometryGate.auxiliaryProblems) {
+    const size = item.viewport
+      ? `${item.viewport.width}x${item.viewport.height}`
+      : 'coverage'
+    console.log(`    ${size}: ${item.problems.length === 0 ? 'PASS' : 'FAIL'}`)
+    for (const problem of item.problems) console.log(`      - ${problem}`)
+  }
+  console.log(`  runtime gate ${runtimeGate.ok ? 'PASS' : 'FAIL'}`)
+  for (const problem of runtimeGate.problems) console.log(`    - ${problem}`)
+  if (baselineComparison) {
+    console.log(`  baseline compare ${baselineComparison.ok ? 'PASS' : 'FAIL'}`)
+    for (const problem of baselineComparison.problems ?? []) {
+      console.log(`    - ${problem}`)
+    }
+    for (const comparison of baselineComparison.comparisons) {
+      console.log(
+        `    ${comparison.name}: ${comparison.ok ? 'PASS' : 'FAIL'}` +
+          (comparison.image?.ratio != null
+            ? ` (PNG diff ${comparison.image.differencePixels}/${comparison.image.totalPixels})`
+            : ''),
+      )
+      for (const problem of comparison.problems) console.log(`      - ${problem}`)
+    }
+  } else {
+    console.log('  baseline compare SKIPPED (pass --compare-baseline)')
+  }
+  console.log(`\n  overall ${gate.ok ? 'PASS' : 'FAIL'}`)
+  console.log(`  screenshots ${OUT_DIR}`)
+  console.log(`  report ${reportPath}`)
+}
+
+function parseArgs(argv) {
+  const options = {
+    launch: false,
+    mode: 'capture',
+    baselineDir:
+      process.env.QH_UI_FREEZE_BASELINE_DIR
+        ? path.resolve(process.env.QH_UI_FREEZE_BASELINE_DIR)
+        : DEFAULT_BASELINE_DIR,
+    baselineRef: null,
+    allowDirtyBaseline: false,
+    allowBaselineCommitMismatch: false,
+  }
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === '--launch') options.launch = true
+    else if (argument === '--write-baseline') {
+      if (options.mode !== 'capture') throw new Error('choose only one baseline mode')
+      options.mode = 'write'
+    } else if (argument === '--compare-baseline') {
+      if (options.mode !== 'capture') throw new Error('choose only one baseline mode')
+      options.mode = 'compare'
+    } else if (argument === '--allow-dirty-baseline') {
+      options.allowDirtyBaseline = true
+    } else if (argument === '--allow-baseline-commit-mismatch') {
+      options.allowBaselineCommitMismatch = true
+    } else if (argument.startsWith('--baseline-dir=')) {
+      options.baselineDir = path.resolve(argument.slice('--baseline-dir='.length))
+    } else if (argument === '--baseline-dir') {
+      const value = argv[index + 1]
+      if (!value) throw new Error('--baseline-dir requires a path')
+      options.baselineDir = path.resolve(value)
+      index += 1
+    } else if (argument.startsWith('--baseline-ref=')) {
+      options.baselineRef = argument.slice('--baseline-ref='.length)
+    } else if (argument === '--baseline-ref') {
+      const value = argv[index + 1]
+      if (!value) throw new Error('--baseline-ref requires a commit')
+      options.baselineRef = value
+      index += 1
+    } else if (argument === '--help' || argument === '-h') {
+      console.log(
+        [
+          'Usage: node scripts/check-tauri-ui-freeze.mjs [options]',
+          '  --launch                         temporarily start the debug desktop shell',
+          '  --compare-baseline               compare all three viewports with a saved baseline',
+          '  --write-baseline                 write a baseline after an explicit reviewed capture',
+          '  --baseline-ref=<commit>          source commit required with --write-baseline',
+          '  --baseline-dir=<path>            override baseline directory',
+          '  --allow-dirty-baseline           permit writing after explicit review of dirty UI source',
+          '  --allow-baseline-commit-mismatch permit a known desktop binary from another commit',
+          '',
+        ].join('\n'),
+      )
+      process.exitCode = 0
+      return null
+    } else {
+      throw new Error(`unknown argument: ${argument}`)
+    }
+  }
+  return options
 }
 
 async function main() {
+  let options
+  let commit
+  try {
+    options = parseArgs(process.argv.slice(2))
+    if (!options) return
+    commit = currentCommit()
+    if (options.mode === 'write') verifyBaselineWriteAllowed(options, commit)
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error))
+  }
   mkdirSync(OUT_DIR, { recursive: true })
-  const shouldLaunch = process.argv.includes('--launch')
+
   let launched = null
   let session = null
   let artifactsCreated = false
+  const runtimeCollector = createRuntimeCollector()
+
   try {
     const existingVersion = await waitForCdp(500)
-    if (!existingVersion && !shouldLaunch) {
+    if (!existingVersion && !options.launch) {
       return fail(
-        `无法连接真实 Tauri WebView 的 CDP：${ENDPOINT}\n` +
-          `请先用带 --remote-debugging-port=${PORT} 的桌面调试壳启动，或运行：\n` +
-          `  npm run dev:vite\n  node scripts/check-tauri-ui-freeze.mjs --launch\n` +
-          '脚本默认不会自动拉起应用，避免误连普通浏览器。',
+        `cannot connect to real Tauri WebView CDP at ${ENDPOINT}\n` +
+          `start a desktop debug shell with --remote-debugging-port=${PORT}, or run:\n` +
+          '  npm run dev:vite\n  node scripts/check-tauri-ui-freeze.mjs --launch\n' +
+          'The script never attaches to an ordinary browser by default.',
       )
     }
-    launched = await maybeLaunch(shouldLaunch)
+    launched = await maybeLaunch(options.launch)
     if (!(await waitForCdp(3_000))) {
       return fail(
-        `找不到 CDP 目标 ${ENDPOINT}。若应用已开但未加 --remote-debugging-port=${PORT}，请重启。`,
+        `CDP target ${ENDPOINT} was not found. Restart an existing app with --remote-debugging-port=${PORT}.`,
       )
     }
     const target = await pickPageTarget()
     if (!target) {
       return fail(
-        `CDP ${ENDPOINT} 已开放，但没有 page 目标。请确认启动的是 Tauri app，而不是普通浏览器页面。`,
+        `CDP ${ENDPOINT} is open, but there is no page target. Confirm the launched app is Tauri, not an ordinary browser.`,
       )
     }
-    session = new CdpSession(target)
+
+    session = new CdpSession(target, runtimeCollector.ingest)
     await session.open()
     await session.send('Page.enable')
     await session.send('Runtime.enable')
+    await session.send('Log.enable')
+    await session.send('Network.enable')
     await waitForShell(session)
     await waitForProjectRows(session)
 
-    const real = await readGeometry(session)
-    const screenshots = [await captureScreenshot(session, 'real-tauri-1440x900.png')]
-    artifactsCreated = true
-    const auxiliary = []
-    for (const viewport of AUXILIARY_VIEWPORTS) {
-      await emulateViewport(session, viewport)
-      const geometry = await readGeometry(session)
-      auxiliary.push(geometry)
-      screenshots.push(
-        await captureScreenshot(
-          session,
-          `auxiliary-${viewport.width}x${viewport.height}.png`,
-        ),
-      )
+    const captures = []
+    try {
+      captures.push(await captureViewport(session, REAL_VIEWPORT))
+      for (const viewport of AUXILIARY_VIEWPORTS) {
+        captures.push(await captureViewport(session, viewport))
+      }
+    } finally {
+      await clearViewportOverride(session)
+      await clearCaptureStability(session)
     }
-    await clearViewportOverride(session)
-    const gate = evaluateGate(real, auxiliary)
+    artifactsCreated = true
+
+    const realGeometry = captures[0]?.geometry
+    const auxiliaryGeometry = captures.slice(1).map((capture) => capture.geometry)
+    const geometryGate = evaluateGate(realGeometry, auxiliaryGeometry)
+    const runtimeEvents = runtimeCollector.snapshot()
+    const runtimeGate = evaluateRuntimeEvents(runtimeEvents)
+
+    let baseline = null
+    let baselineComparison = null
+    let writtenBaseline = null
+    if (options.mode === 'compare') {
+      try {
+        baseline = readBaseline(options.baselineDir)
+        const comparison = await compareWithBaseline(session, baseline, captures)
+        baselineComparison = {
+          ok: comparison.comparisons.every((item) => item.ok),
+          comparisons: comparison.comparisons,
+          problems: [],
+          diffFiles: comparison.diffFiles,
+        }
+      } catch (error) {
+        baselineComparison = {
+          ok: false,
+          comparisons: [],
+          problems: [
+            error instanceof Error ? error.message : String(error),
+          ],
+          diffFiles: [],
+        }
+      }
+    } else if (options.mode === 'write') {
+      if (!geometryGate.ok || !runtimeGate.ok) {
+        baselineComparison = {
+          ok: false,
+          comparisons: [],
+          problems: [
+            'baseline was not written because geometry or runtime checks failed',
+          ],
+          diffFiles: [],
+        }
+      } else {
+        try {
+          writtenBaseline = writeBaseline(options.baselineDir, captures, options, commit)
+        } catch (error) {
+          baselineComparison = {
+            ok: false,
+            comparisons: [],
+            problems: [
+              `baseline write failed: ${error instanceof Error ? error.message : String(error)}`,
+            ],
+            diffFiles: [],
+          }
+        }
+      }
+    }
+
+    const gate = {
+      ok:
+        geometryGate.ok &&
+        runtimeGate.ok &&
+        (baselineComparison?.ok ?? true),
+      geometry: geometryGate.ok,
+      runtime: runtimeGate.ok,
+      baseline: baselineComparison?.ok ?? null,
+    }
     const reportData = {
       generatedAt: new Date().toISOString(),
+      schemaVersion: BASELINE_SCHEMA_VERSION,
       endpoint: ENDPOINT,
-      expectedReal: EXPECTED_REAL,
-      real,
-      auxiliary,
+      outputDir: OUT_DIR,
+      commits: {
+        current: commit,
+        baselineRef: options.baselineRef,
+        baselineSource: baseline?.manifest.sourceCommit ?? null,
+      },
+      mode: options.mode,
+      baselineDir: options.mode === 'capture' ? null : options.baselineDir,
+      expectedReal: REAL_VIEWPORT,
+      expectedAuxiliary: AUXILIARY_VIEWPORTS,
+      captures: captures.map(captureForReport),
+      geometryGate,
+      runtimeEvents,
+      runtimeGate,
+      baselineComparison,
+      writtenBaseline,
       gate,
-      screenshots,
-      note: '1024x700 and 1178x762 use CDP emulation and are advisory only.',
+      files: {
+        report: path.join(OUT_DIR, 'report.json'),
+        domSnapshots: path.join(OUT_DIR, 'dom-snapshots.json'),
+      },
+      note:
+        'All geometry checks are authoritative. 1024x700 and 1178x762 use CDP emulation but are no longer advisory. Baseline comparison compares PNG pixels and normalized DOM snapshots.',
     }
-    writeFileSync(path.join(OUT_DIR, 'report.json'), JSON.stringify(reportData, null, 2))
-    report(real, gate, screenshots)
-    console.log(`报告 ${path.join(OUT_DIR, 'report.json')}`)
+    writeFileSync(
+      reportData.files.domSnapshots,
+      JSON.stringify(
+        Object.fromEntries(captures.map((capture) => [capture.viewport.name, capture.dom])),
+        null,
+        2,
+      ),
+    )
+    const reportPath = writeReport(reportData)
+    printReport(reportData, reportPath)
     if (!gate.ok) process.exitCode = 1
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error))
   } finally {
     if (session) {
       await clearViewportOverride(session)
+      await clearCaptureStability(session)
       session.close()
     }
     if (launched?.child) {
       killTree(launched.child)
       await sleep(800)
       if (launched.child.exitCode === null) {
-        console.log(`⚠ 临时桌面壳仍在退出中，PID=${launched.child.pid}`)
+        console.log(`Temporary desktop shell is still exiting, PID=${launched.child.pid}`)
       } else {
-        console.log(`临时桌面壳已停止，日志 ${launched.logPath}`)
+        console.log(`Temporary desktop shell stopped; log ${launched.logPath}`)
       }
     } else if (session) {
-      console.log('使用已有桌面壳：未关闭用户进程')
+      console.log('Attached to an existing desktop shell; it was left running.')
     }
-    if (artifactsCreated) console.log(`截图保留供对比：${OUT_DIR}`)
+    if (artifactsCreated) console.log(`Screenshots retained for review: ${OUT_DIR}`)
   }
 }
 
