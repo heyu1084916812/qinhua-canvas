@@ -33,6 +33,20 @@
 - `scripts/check-tauri-ui-freeze.mjs --launch` 现在提供可复现的 A7 真机几何与三视口截图；
   脚本会先报旧实例单实例冲突，不会再把“新进程退出 code=0”误判成 CDP 超时。
 
+### A1 删渠道时序（2026-10-26 → 对账 #766）
+
+- `channelStore.remove()` 必须在第一个 `await` 前把渠道从内存路由表同步摘除，并保留删除中 ID
+  过滤并发 `load()`；清凭据和删数据库只能发生在内存失效之后。Store 变更会同步触发
+  `ChannelRemovalGuard`，所以不要等 `repo.remove()` 完成后再 `setState`。
+- 应用级运行表已迁到 `state/shared/runChannelGuard.ts`；`state` 不能反向 import `features`，
+  `features/shared/execution/runChannelGuard.ts` 只保留 re-export。
+- `runDirectGeneration` 会给直连调用登记同一守卫，并把组合后的 `AbortSignal` 传给渠道调用。
+  `createGenerationClient` 在异步解析完 Key 后、调用适配器前必须再次检查信号，否则删除发生在
+  Key 读取期间时仍可能拿旧 Key 发出请求。
+- 回归覆盖：Store 删除订阅先于凭据清理、删除期间等待 Key 的直连被中止且网络请求数 0、
+  删除后再次调用直接 `missingChannel`。定向 **68/68**、全量 **3193 passed / 1 skipped**、
+  `npm run check` / `tsc --noEmit` 通过。本次 commit `aa04ad9`，未 push。
+
 ### P0 执行安全批次一（2026-10-26 → 对账 #766）
 
 - `RunRecordScope` 现在带 `scopeVersion:1`，新记录必须显式提供
