@@ -536,7 +536,7 @@
  * 短视口下把“所有项目”的区域还给列表：标题和行高各收 2–4px，
  * 但文字字号不变。项目树自己是唯一滚动区，不能靠裁掉第三组来维持布局。
  */
-@media (max-height: 800px) {
+@media (max-height: 920px) {
   .root {
     margin-top: var(--space-3);
   }

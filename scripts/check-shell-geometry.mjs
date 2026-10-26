@@ -47,9 +47,9 @@ if (problems.length > 0) {
   process.exit(1)
 }
 
-const compactStart = sidebarCss.indexOf('@media (max-height: 800px)')
+const compactStart = sidebarCss.indexOf('@media (max-height: 920px)')
 const compactSidebar = compactStart >= 0 ? sidebarCss.slice(compactStart) : ''
-const compactTreeStart = projectTreeCss.indexOf('@media (max-height: 800px)')
+const compactTreeStart = projectTreeCss.indexOf('@media (max-height: 920px)')
 const compactTree = compactTreeStart >= 0 ? projectTreeCss.slice(compactTreeStart) : ''
 const compactRules = [
   [compactSidebar, /\.newBtn\s*\{[^}]*height:\s*36px/, '短视口必须把“新建项目”收到 36px'],
