@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
-import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
-import { createStore } from '../../state/createStore'
-import { CanvasStoreProvider, useCanvasStore, useGraph } from '../../workbenches/canvas/storeContext'
 import {
-  CanvasExecutionProvider,
-  useCanvasExecution,
-} from '../../workbenches/canvas/execution/CanvasExecutionProvider'
+  EcommerceExecutionProvider,
+  useEcommerceExecution,
+} from '../../workbenches/ecommerce/execution/EcommerceExecutionProvider'
+import { buildEcommerceRunPlan } from '../../features/ecommerce/execution/ecommerceRunPlan'
 import { useAssetMeta } from '../../features/shared/assets/index'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
@@ -26,12 +24,7 @@ import {
 } from '../../domain/ecommerce/sessions'
 import { LongImagePanel, type LongImageTileSource } from './LongImagePanel'
 import { createProjectRepository } from '../../state/project/repository'
-import {
-  createAssetNode,
-  importAssetFile,
-  isImportableMedia,
-} from '../../features/canvas/importAsset'
-import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
+import { importEcommerceAsset } from '../../features/ecommerce/importEcommerceAsset'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
 import { imagePromptForModel } from '../../domain/ecommerce/imagePromptProfile'
 import {
@@ -69,7 +62,6 @@ import { createEcommerceTaskRepository } from '../../state/project/ecommerceTask
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { createEcommerceCanvasRepository } from '../../state/project/ecommerceCanvasRepository'
 import type { EcommerceCanvasItem } from '../../domain/ecommerce/canvasItem'
-import { ensureEcommerceCanvasCopy } from '../../features/ecommerce/ensureCanvasCopy'
 import {
   acquireEcommerceTaskLease,
   hasEcommerceTaskLease,
@@ -96,7 +88,6 @@ import {
   languageLabel,
   type EcommerceLanguage,
 } from '../../domain/ecommerce/types'
-import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { RunRecord } from '../../domain/canvas/model/runRecord'
@@ -104,7 +95,6 @@ import {
   EcommerceWorkbench,
   type EcommerceWorkbenchAction,
 } from './EcommerceWorkbench'
-import type { Edge } from '../../domain/canvas/model/edge'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
 import type { EcommerceGenerationStage } from '../../domain/ecommerce/progress'
 import {
@@ -188,61 +178,14 @@ function EcommerceProject({ projectId }: { projectId: string }) {
   useEffect(() => {
     rememberActiveWorkbench('ecommerce', projectId)
   }, [projectId])
-  /**
-   * **与画布页共用同一个 store 实例**（对账 #411）。
-   *
-   * 这条以前是各页一个 Map，代价实测过：在电商页出一套图 → 点「在画布里打开」，
-   * 画布页的撤销按钮是**灰的**（那批操作记在另一个实例的栈上），画布页还可能拿着旧快照。
-   * 缓存与完整理由见 `state/workbenches/canvas/storeCache.ts`。
-   */
-  const cached = canvasStoreFor(projectId, () =>
-    createStore({ workbench: 'canvas', platform, projectId }),
-  )
-  const store = cached.store
-  /**
-   * 水合门：页面在工作区可交互之前必须先把同一个画布 store 的节点 / 连线读回来。
-   *
-   * 为什么不能像旧版一样“后台读、表单先开”：用户如果很快上传产品图，`node.create`
-   * 会先写进空 store，随后异步 `store.hydrate()` 用磁盘快照覆盖内存图；磁盘上节点还在，
-   * 本地图却已经没有它，出图时第一条 `edge.connect` 就报“源节点不存在”。
-   */
-  const [hydrated, setHydrated] = useState(cached.hydrated)
+  const [hydrated, setHydrated] = useState(false)
   const [hydrateError, setHydrateError] = useState('')
-
-  /**
-   * 离开这一页时把还没到防抖时间的写入**冲一次**（与画布页同一手法）。
-   * 实例是共用的，`dispose()` 只做 flush、不销毁状态 —— 紧接着进画布页仍拿得到同一个 store。
-   */
-  useEffect(() => () => store.dispose(), [store])
-
-  /**
-   * **关窗口 / 切到后台**也要冲一次，并广播给别的窗口（对账 #453）。
-   *
-   * `dispose()` 只在**路由离开**时跑；用户在这一页直接关窗口时它不会执行 ——
-   * 画布页因为接了这两道保险所以没事，电商页原先没有 ⇒ "出完图立刻关窗口"那 ≤800ms
-   * 的写入没人兜底，且两个窗口并排时这里的写入不会通知对面。
-   * 与画布页**共用同一份**实现，别再各写一套。
-   */
-  useProjectWriteSafety(projectId, store)
-
-  /** 从库里读回图（与画布页同一口径：只读一次，避免把内存里正在跑的写入盖回去） */
   useEffect(() => {
-    if (cached.hydrated) return
     let cancelled = false
     void (async () => {
       try {
         await platform.storage.open()
-        const [nodes, edges] = await Promise.all([
-          platform.storage.query('nodes', { projectId }),
-          platform.storage.query('edges', { projectId }),
-        ])
         if (cancelled) return
-        cached.hydrated = true
-        store.hydrate({
-          projectId,
-          nodes: nodes as unknown as NodeSnapshot[],
-          edges: edges as unknown as Edge[],
-        })
         setHydrated(true)
       } catch (e) {
         if (!cancelled) {
@@ -253,7 +196,7 @@ function EcommerceProject({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true
     }
-  }, [cached, platform, projectId, store])
+  }, [platform])
 
   if (!hydrated) {
     return (
@@ -266,11 +209,9 @@ function EcommerceProject({ projectId }: { projectId: string }) {
   }
 
   return (
-    <CanvasStoreProvider store={store}>
-      <CanvasExecutionProvider>
-        <StudioHost projectId={projectId} />
-      </CanvasExecutionProvider>
-    </CanvasStoreProvider>
+    <EcommerceExecutionProvider projectId={projectId}>
+      <StudioHost projectId={projectId} />
+    </EcommerceExecutionProvider>
   )
 }
 
@@ -287,9 +228,25 @@ function ResultPreview({ hash, mime }: { hash: string; mime?: string }) {
 function StudioHost({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
-  const store = useCanvasStore()
-  const graph = useGraph()
-  const exec = useCanvasExecution()
+  const exec = useEcommerceExecution()
+  const [legacyNodes, setLegacyNodes] = useState<NodeSnapshot[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void platform.storage
+      .query('nodes', { projectId })
+      .then((rows) => {
+        if (!cancelled) setLegacyNodes(rows as unknown as NodeSnapshot[])
+      })
+      .catch((error) => {
+        platform.logger.log('warn', '[ecommerce] 旧画布节点只读兼容失败', {
+          error: String(error),
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [platform, projectId])
+  const graph = useMemo(() => ({ nodes: legacyNodes }), [legacyNodes])
   const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
   const canvasRepo = useMemo(
     () => createEcommerceCanvasRepository(platform.storage),
@@ -504,15 +461,43 @@ function StudioHost({ projectId }: { projectId: string }) {
       if (cancelled) return
       const nodes = rows as unknown as NodeSnapshot[]
       const byId = new Map(nodes.map((n) => [n.id, n]))
-      const uploadOf = (nodeId: string | null | undefined): EcommerceUpload | null => {
-        if (!nodeId) return null
-        const node = byId.get(nodeId)
+      const draftIds = [
+        ...new Set([
+          ...(draft?.productNodeIds ?? []),
+          ...(draft?.referenceNodeIds ?? []),
+        ]),
+      ]
+      const assetIds = new Set<string>()
+      await Promise.all(
+        draftIds.map(async (id) => {
+          if (byId.has(id)) return
+          if (await platform.assets.read(id)) assetIds.add(id)
+        }),
+      )
+      if (cancelled) return
+      const uploadOf = (uploadId: string | null | undefined): EcommerceUpload | null => {
+        if (!uploadId) return null
+        const node = byId.get(uploadId)
         const hash = node ? assetHashesOfNode(node)[0] : undefined
-        if (!hash) return null
-        return { nodeId, hash, preview: <ResultPreview hash={hash} /> }
+        if (hash) {
+          return { nodeId: uploadId, hash, preview: <ResultPreview hash={hash} /> }
+        }
+        if (assetIds.has(uploadId)) {
+          return {
+            nodeId: uploadId,
+            hash: uploadId,
+            preview: <ResultPreview hash={uploadId} />,
+          }
+        }
+        return null
       }
       const validNodeIds = new Set(
-        nodes.filter((node) => assetHashesOfNode(node).length > 0).map((node) => node.id),
+        [
+          ...nodes
+            .filter((node) => assetHashesOfNode(node).length > 0)
+            .map((node) => node.id),
+          ...assetIds,
+        ],
       )
       const cleaned = draft ? cleanEcommerceDraftRefs(draft, validNodeIds) : null
       const products = (cleaned?.productNodeIds ?? [])
@@ -574,110 +559,17 @@ function StudioHost({ projectId }: { projectId: string }) {
       setTaskHistory(list)
       setTaskLoaded(true)
       await refreshWorkbench()
+      /**
+       * 共享存储写入刚落盘时，首屏偶尔会读到少一条结果的旧快照。
+       * 工作台投影是纯派生数据，二次同步没有副作用，却能避免“刷新后才出现”。
+       */
+      await new Promise((resolve) => window.setTimeout(resolve, 220))
+      if (!cancelled) await refreshWorkbench()
     })()
     return () => {
       cancelled = true
     }
   }, [projectId, refreshWorkbench, taskRepo])
-
-  /** 把某一格从内部节点的最新状态同步回结果表（跑完 / 失败 / 取消都走这里）。 */
-  const syncResultRow = useCallback(
-    async (taskId: string, nodeId: string) => {
-      const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
-      const state = exec.nodeStateOf(nodeId)
-      const nodeHash = node ? assetHashesOfNode(node)[0] : undefined
-      const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
-        ?.naturalSize
-      const data = node?.data as
-        | {
-            prompt?: unknown
-            model?: unknown
-            assetMime?: unknown
-            ratio?: unknown
-            shotTitle?: unknown
-            brief?: unknown
-            headline?: unknown
-            subheadline?: unknown
-            visualSystem?: unknown
-          }
-        | undefined
-      const width =
-        typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined
-      const height =
-        typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined
-      const current = (await taskRepo.results(taskId)).find((r) => r.nodeId === nodeId)
-      if (!current) return
-      /**
-       * `runNode` 返回前执行宿主会清掉节点内存状态；因此这里不能只看
-       * `exec.nodeStateOf()`，否则所有失败都会落成最后一条 running。
-       * RunRecord 才是每次调用的持久事实源，先 flush 再读取。
-       */
-      await store.flush()
-      const runRows = (
-        (await platform.storage.query('runRecords', { projectId, nodeId })) as unknown as RunRecord[]
-      ).sort((a, b) => b.createdAt - a.createdAt)
-      const run = runRows[0]
-      const runHash = Array.isArray(run?.outputHashes)
-        ? run.outputHashes.find((item) => item.trim().length > 0)
-        : undefined
-      const hash = nodeHash ?? runHash
-      const status: EcommerceResultRecord['status'] =
-        run?.status === 'failed' || run?.status === 'canceled'
-          ? 'failed'
-          : run?.status === 'succeeded'
-            ? hash
-              ? 'done'
-              : 'failed'
-            : state?.kind === 'canceled'
-          ? 'canceled'
-          : resultDisplayStatus({
-              stored: current.status,
-              ...(state?.kind ? { live: state.kind } : {}),
-              hasAsset: !!hash,
-            })
-      const next: EcommerceResultRecord = {
-        ...current,
-        updatedAt: Date.now(),
-        status,
-        ...(hash ? { assetHash: hash } : {}),
-        ...(typeof data?.assetMime === 'string' && data.assetMime
-          ? { mime: data.assetMime }
-          : {}),
-        ...(width !== undefined ? { width } : {}),
-        ...(height !== undefined ? { height } : {}),
-        ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
-        ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
-        ...(typeof data?.ratio === 'string' && data.ratio && !current.ratio
-          ? { ratio: data.ratio }
-          : {}),
-        ...(typeof data?.shotTitle === 'string' && data.shotTitle && !current.shotTitle
-          ? { shotTitle: data.shotTitle }
-          : {}),
-        ...(typeof data?.brief === 'string' && data.brief && !current.brief
-          ? { brief: data.brief }
-          : {}),
-        ...(typeof data?.headline === 'string' && data.headline && !current.headline
-          ? { headline: data.headline }
-          : {}),
-        ...(typeof data?.subheadline === 'string' && data.subheadline && !current.subheadline
-          ? { subheadline: data.subheadline }
-          : {}),
-        ...(typeof data?.visualSystem === 'string' && data.visualSystem && !current.visualSystem
-          ? { visualSystem: data.visualSystem }
-          : {}),
-        ...(run?.errorText
-          ? { errorText: run.errorText }
-          : run?.status === 'succeeded' && !hash
-            ? { errorText: '生成已完成，但没有找到可展示的产物' }
-          : state?.kind === 'failed'
-            ? { errorText: describeError(state.error) }
-            : {}),
-      }
-      await taskRepo.updateResult(next)
-      setResultRows((rows) => rows.map((row) => (row.id === next.id ? next : row)))
-    },
-    [exec, platform, projectId, store, taskRepo],
-  )
 
   /** 用最新的逐格状态收口整批任务（running / partial / done / failed / canceled）。 */
   const refreshTask = useCallback(
@@ -727,40 +619,6 @@ function StudioHost({ projectId }: { projectId: string }) {
     [activeTask?.id, refreshTaskHistory, refreshWorkbench, taskRepo],
   )
 
-  /**
-   * 结果卡上的编辑动作只编辑**显式副本**。
-   *
-   * 内部执行节点仍在画布里承担 runEngine，但用户从电商结果进入编辑时，
-   * 新建（或复用）一份 `canvasCopyNodeId`，之后改名、连线、改参数都不再影响任务。
-   */
-  const ensureResultCopy = useCallback(
-    (row: EcommerceResultRecord) => {
-      const copy = ensureEcommerceCanvasCopy({
-        store,
-        projectId,
-        result: row,
-        title: `电商结果 ${row.position + 1}`,
-      })
-      if (copy.created) {
-        const next: EcommerceResultRecord = {
-          ...row,
-          canvasCopyNodeId: copy.nodeId,
-          updatedAt: Date.now(),
-        }
-        void taskRepo
-          .updateResult(next)
-          .then(() => setResultRows((rows) => rows.map((item) => (item.id === next.id ? next : item))))
-          .catch((error) => {
-            platform.logger.log('warn', '[ecommerce] 保存画布副本引用失败', {
-              error: String(error),
-            })
-          })
-      }
-      return copy
-    },
-    [platform, projectId, store, taskRepo],
-  )
-
   const handleCanvasItemsChange = useCallback(
     (next: EcommerceCanvasItem[]) => {
       const before = canvasItemsRef.current
@@ -786,46 +644,18 @@ function StudioHost({ projectId }: { projectId: string }) {
         .then(() => canvasRepo.replace(projectId, next))
         .catch((error) => {
           platform.logger.log('warn', '[ecommerce] 工作台布局保存失败', { error: String(error) })
-          store.notify('工作台布局没保存下来，请稍后再试', 'error')
         })
     },
-    [canvasRepo, platform, projectId, store, taskRepo],
+    [canvasRepo, platform, projectId, taskRepo],
   )
 
-  const retryWorkbenchResult = useCallback(
-    async (resultId: string) => {
-      const row =
-        workbenchResults.find((result) => result.id === resultId) ??
-        resultRows.find((result) => result.id === resultId)
-      if (!row) return
-      const { errorText: _oldError, ...rest } = row
-      const running: EcommerceResultRecord = {
-        ...rest,
-        status: 'running',
-        updatedAt: Date.now(),
-      }
-      await taskRepo.updateResult(running)
-      setResultRows((rows) =>
-        rows.map((result) => (result.id === running.id ? running : result)),
-      )
-      await exec.runNode(row.nodeId, { inPlace: true })
-      await syncResultRow(row.taskId, row.nodeId)
-      if (activeTask?.id === row.taskId) await refreshTask(activeTask)
-      await refreshTaskHistory()
-      await queueWorkbenchRefresh()
-    },
-    [
-      activeTask,
-      exec,
-      queueWorkbenchRefresh,
-      refreshTask,
-      refreshTaskHistory,
-      resultRows,
-      syncResultRow,
-      taskRepo,
-      workbenchResults,
-    ],
-  )
+  async function retryWorkbenchResult(resultId: string) {
+    const row =
+      workbenchResults.find((result) => result.id === resultId) ??
+      resultRows.find((result) => result.id === resultId)
+    if (!row) return
+    await runStoredResult(row, { inPlace: true })
+  }
 
   const handleWorkbenchAction = useCallback(
     (item: EcommerceCanvasItem, action: EcommerceWorkbenchAction) => {
@@ -862,8 +692,16 @@ function StudioHost({ projectId }: { projectId: string }) {
             ...(row?.model ? { model: row.model } : {}),
           })
         })()
-          .then(() => store.notify('已收藏到素材库', 'info'))
-          .catch(() => store.notify('收藏失败', 'error'))
+          .then(() =>
+            setGenerationStage({ phase: 'done', label: '已收藏到素材库' }),
+          )
+          .catch((error: unknown) =>
+            setGenerationStage({
+              phase: 'failed',
+              label: '收藏失败',
+              detail: error instanceof Error ? error.message : String(error),
+            }),
+          )
         return
       }
     },
@@ -873,7 +711,6 @@ function StudioHost({ projectId }: { projectId: string }) {
       projectId,
       resultRows,
       retryWorkbenchResult,
-      store,
       workbenchResults,
     ],
   )
@@ -1160,23 +997,10 @@ function StudioHost({ projectId }: { projectId: string }) {
   }
 
   const onUpload = async (file: File, _kind: 'product' | 'reference'): Promise<EcommerceUpload | null> => {
-    /**
-     * **先挡一道类型**（对账 #427）：`accept="image/*"` 只管文件对话框，
-     * **拖放绕得过它** —— `.txt` 拖进来会一路落库、变成一个破图预览。
-     * 口径与画布那边一致（画布是导入后判、这里是导入前判，更省一次写入）：
-     * 已知类型不是图/视频就拒收；**类型为空放行**（有些图没扩展名，别把它们冤枉掉）。
-     */
-    if (file.type && !isImportableMedia(file.type)) return null
-    const deps = { platform, store, projectId }
-    const asset = await importAssetFile(deps, file)
+    const asset = await importEcommerceAsset({ platform, projectId, file })
     if (!asset) return null
-    /* 素材节点落点：一列一列往右排，与生成节点分开（用户之后在画布里能一眼分清） */
-    /* 素材节点往下排：与生成节点那一列分开，用户之后在画布里能一眼分清谁是输入 */
-    const index = store.getSnapshot().nodes.length
-    const nodeId = createAssetNode(deps, asset, { x: 40, y: 40 + index * 200 })
-    if (!nodeId) return null
     return {
-      nodeId,
+      nodeId: asset.hash,
       hash: asset.hash,
       preview: <ResultPreview hash={asset.hash} />,
       ...(asset.width ? { width: asset.width } : {}),
@@ -1207,7 +1031,9 @@ function StudioHost({ projectId }: { projectId: string }) {
    * **不抛错**：所有失败都变成 `{ ok:false, error }` —— 调用方要的是"能不能拿到方案"，
    * 而不是一个异常（分镜失败从来不该让出图失败）。
    */
-  const visualInputsFor = (request: EcommerceRequest): Extract<NodeInput, { kind: 'asset' }>[] => {
+  const visualInputsFor = async (
+    request: EcommerceRequest,
+  ): Promise<Extract<NodeInput, { kind: 'asset' }>[]> => {
     const nodeIds = [
       ...new Set([
         request.productNodeId,
@@ -1218,7 +1044,18 @@ function StudioHost({ projectId }: { projectId: string }) {
     const raw: NodeInput[] = []
     for (const nodeId of nodeIds) {
       const node = graph.nodes.find((item) => item.id === nodeId)
-      if (!node) continue
+      if (!node) {
+        const payload = await platform.assets.read(nodeId)
+        if (payload) {
+          raw.push({
+            kind: 'asset',
+            nodeId,
+            assetHash: nodeId,
+            mime: payload.mime,
+          })
+        }
+        continue
+      }
       const mime =
         typeof (node.data as { assetMime?: unknown }).assetMime === 'string'
           ? ((node.data as { assetMime: string }).assetMime)
@@ -1237,7 +1074,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         error: '没有可用的对话模型 —— 先去「设置 → 模型服务」给一条服务勾上对话模型',
       }
     }
-    const visualInputs = visualInputsFor(request)
+    const visualInputs = await visualInputsFor(request)
     if (visualInputs.length === 0) {
       return {
         ok: false,
@@ -1360,6 +1197,137 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
   }
 
+  /**
+   * 重跑 / 替换现有结果。
+   *
+   * 结果行是唯一落点；抽卡先追加一行，原地替换复用原行。
+   * 这里不创建画布生成节点，也不从节点状态推结果。
+   */
+  const runStoredResult = useCallback(
+    async (
+      row: EcommerceResultRecord,
+      options: { inPlace?: boolean } = {},
+    ): Promise<void> => {
+      const sourceTask =
+        (activeTask?.id === row.taskId ? activeTask : null) ??
+        taskHistory.find((task) => task.id === row.taskId) ??
+        null
+      if (!sourceTask) throw new Error('找不到这张图所属的电商任务')
+
+      let task = sourceTask
+      let targetRow = row
+      if (!options.inPlace) {
+        const appended = await taskRepo.appendResults(
+          sourceTask.id,
+          [createId('ecsubject')],
+          [resultMetadataOf(row)],
+        )
+        task = appended.task
+        targetRow = appended.results[appended.results.length - 1] ?? row
+        setActiveTask(task)
+        setResultRows(appended.results)
+      }
+
+      const mediaKind = task.request.mediaKind ?? 'image'
+      const target = resolveGenerationTarget({
+        channels: channelList,
+        category: mediaKind,
+        catalog: channels.protocolCatalog(),
+        strategy: routeStrategy,
+        logicalModel: task.request.resolvedModel ?? task.request.model,
+        channelId: task.request.resolvedChannelId ?? task.request.channelId,
+      })
+      if (!target) throw new Error('这个结果对应的模型 / 渠道已经不可用')
+
+      const inputs = [...(await visualInputsFor(task.request))]
+      if (
+        task.sourceAssetHash &&
+        !inputs.some((input) => input.assetHash === task.sourceAssetHash)
+      ) {
+        const payload = await platform.assets.read(task.sourceAssetHash)
+        if (payload) {
+          inputs.push({
+            kind: 'asset',
+            nodeId: `result:${task.sourceResultId ?? row.id}`,
+            assetHash: task.sourceAssetHash,
+            mime: payload.mime,
+          })
+        }
+      }
+
+      const params = {
+        ratio: row.ratio ?? task.request.ratio,
+        count: 1,
+        ...(task.request.resolution ? { resolution: task.request.resolution } : {}),
+        ...(task.request.quality ? { quality: task.request.quality } : {}),
+        ...(task.request.scale ? { scale: task.request.scale } : {}),
+        ...(mediaKind === 'video'
+          ? { durationSec: task.request.durationSec ?? 5 }
+          : {}),
+      }
+      const plan = buildEcommerceRunPlan({
+        taskId: task.id,
+        mediaKind,
+        channelId: target.channelId,
+        model: target.upstreamModel,
+        ...(target.credentialGroupId
+          ? { credentialGroupId: target.credentialGroupId }
+          : {}),
+        inputs,
+        shots: [
+          {
+            resultId: targetRow.id,
+            subjectId: targetRow.nodeId,
+            prompt:
+              row.prompt?.trim() ||
+              task.request.note?.trim() ||
+              '按当前任务配置重新生成这张图',
+            params,
+            metadata: resultMetadataOf(row),
+          },
+        ],
+      })
+
+      const { errorText: _oldError, ...rest } = targetRow
+      const running: EcommerceResultRecord = {
+        ...rest,
+        status: 'running',
+        updatedAt: Date.now(),
+      }
+      await taskRepo.updateResult(running)
+      setResultRows((rows) =>
+        rows.map((item) => (item.id === running.id ? running : item)),
+      )
+
+      acquireEcommerceTaskLease(task.id)
+      try {
+        const outcome = await exec.run(plan)
+        for (const warning of outcome.warnings) {
+          platform.logger.log('warn', '[ecommerce] 重跑结果落库 / 投影警告', { warning })
+        }
+        await refreshTask(task)
+        await refreshTaskHistory()
+        await queueWorkbenchRefresh()
+      } finally {
+        releaseEcommerceTaskLease(task.id)
+      }
+    },
+    [
+      activeTask,
+      channelList,
+      channels,
+      exec,
+      platform,
+      queueWorkbenchRefresh,
+      refreshTask,
+      refreshTaskHistory,
+      routeStrategy,
+      taskHistory,
+      taskRepo,
+      visualInputsFor,
+    ],
+  )
+
   const onGenerate = async (
     request: EcommerceRequest,
     shotPlan?: readonly EcommerceShot[],
@@ -1400,6 +1368,10 @@ function StudioHost({ projectId }: { projectId: string }) {
         }
         setPreparingShots(true)
         try {
+          setGenerationStage({
+            phase: 'analyze',
+            label: '正在分析商品图并写逐张提示词',
+          })
           const out = await requestShots(request)
           if (!out.ok) {
             throw new Error(`商品分析或逐张提示词生成失败：${out.error}`)
@@ -1450,8 +1422,8 @@ function StudioHost({ projectId }: { projectId: string }) {
        */
       const batchId = createId('ecb')
       const prescribed: {
-        at: { x: number; y: number }
-        data: Record<string, unknown>
+        prompt: string
+        params: Record<string, unknown>
         metadata: ReturnType<typeof resultMetadataOf>
       }[] = []
       for (let i = 0; i < plan.count; i += 1) {
@@ -1464,179 +1436,134 @@ function StudioHost({ projectId }: { projectId: string }) {
           subheadline: shot?.subheadline,
           visualSystem: shot?.visualSystem,
         })
-        const data = await resolveDefaults({
-          channels,
-          type: 'generation',
-          extraData: {
-            mode: mediaKind,
-            channelId: channelForRun,
-            model: modelForRun,
-            ecommerceBatch: batchId,
-            /** 第 i 张只发第 i 条最终提示词；白底图仍允许 N 条相同（抽卡）。 */
-            prompt: imagePromptForModel({
-              prompt: plan.prompts[i] ?? plan.prompt,
-              model: modelForRun,
-              ratio: shot?.ratio ?? plan.ratio,
-              headline: shot?.headline,
-              subheadline: shot?.subheadline,
-            }),
-            ratio: ecommerceAspectRatio(shot?.ratio ?? plan.ratio),
-            ...(shot?.title ? { shotTitle: shot.title } : {}),
-            ...(shot?.brief ? { brief: shot.brief } : {}),
-            ...(shot?.headline ? { headline: shot.headline } : {}),
-            ...(shot?.subheadline ? { subheadline: shot.subheadline } : {}),
-            ...(shot?.visualSystem ? { visualSystem: shot.visualSystem } : {}),
-            ...(request.resolution ? { resolution: request.resolution } : {}),
-            ...(request.quality ? { quality: request.quality } : {}),
-            count: 1,
-            ...(request.scale ? { scale: request.scale } : {}),
-            ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
-          },
+        const prompt = imagePromptForModel({
+          prompt: plan.prompts[i] ?? plan.prompt,
+          model: modelForRun,
+          ratio: shot?.ratio ?? plan.ratio,
+          headline: shot?.headline,
+          subheadline: shot?.subheadline,
         })
+        const params: Record<string, unknown> = {
+          mode: mediaKind,
+          ratio: ecommerceAspectRatio(shot?.ratio ?? plan.ratio),
+          count: 1,
+          ...(request.resolution ? { resolution: request.resolution } : {}),
+          ...(request.quality ? { quality: request.quality } : {}),
+          ...(request.scale ? { scale: request.scale } : {}),
+          ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
+        }
         prescribed.push({
-          at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 },
-          data,
+          prompt,
+          params,
           metadata,
         })
       }
-      setGenerationStage({ phase: 'workflow', label: '正在创建工作流' })
-      const created: string[] = []
-      const createdMetadata: ReturnType<typeof resultMetadataOf>[] = []
-      store.beginPlan('ecommerce:generate', `电商出图 ×${prescribed.length}`)
-      try {
-        for (const item of prescribed) {
-          const id = applyDefaults({
-            store,
-            channels,
-            projectId,
-            type: 'generation',
-            at: item.at,
-            data: item.data,
-          })
-          if (!id) continue
-          created.push(id)
-          createdMetadata.push(item.metadata)
-          store.setSelection([id])
-          /* 产品图与参考图都连成上游：引擎按上游素材收集输入。 */
-          for (const productNodeId of plan.productNodeIds) {
-            store.dispatch({ kind: 'edge.connect', source: productNodeId, target: id })
-          }
-          for (const ref of plan.referenceNodeIds) {
-            store.dispatch({ kind: 'edge.connect', source: ref, target: id })
-          }
-        }
-      } finally {
-        store.endPlan()
+      setGenerationStage({ phase: 'workflow', label: '正在建立结果记录' })
+      const effectiveRequest: EcommerceRequest = {
+        ...request,
+        resolvedModel: modelForRun,
+        resolvedChannelId: channelForRun,
       }
-      if (created.length === 0) throw new Error('工作流没有建成：生成节点未能写入画布')
+      const createdTask = await taskRepo.create({
+        projectId,
+        batchId,
+        request: effectiveRequest,
+        nodeIds: prescribed.map(() => createId('ecsubject')),
+        metadata: prescribed.map((item) => item.metadata),
+        ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
+        ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
+        ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
+      })
+      const task = createdTask.task
+      setActiveTask(task)
+      setResultRows(createdTask.results)
+      acquireEcommerceTaskLease(task.id)
+      await queueWorkbenchRefresh()
 
-      /**
-       * 先落任务与逐格结果，再并发跑引擎。
-       * 写失败不挡出图；结果表是结果真源，但存储失败不能反过来阻断请求。
-       */
-      let task: EcommerceTaskRecord | null = null
-      try {
-        const effectiveRequest: EcommerceRequest = {
-          ...request,
-          resolvedModel: modelForRun,
-          resolvedChannelId: channelForRun,
-        }
-        const createdTask = await taskRepo.create({
-          projectId,
-          batchId,
-          request: effectiveRequest,
-          nodeIds: created,
-          metadata: createdMetadata,
-          ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
-          ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
-          ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
-        })
-        task = createdTask.task
-        setActiveTask(task)
-        setResultRows(createdTask.results)
-      } catch {
-        setActiveTask(null)
-        setResultRows([])
-      }
-      if (task) acquireEcommerceTaskLease(task.id)
-      if (task) await queueWorkbenchRefresh()
+      const runPlan = buildEcommerceRunPlan({
+        taskId: task.id,
+        mediaKind,
+        channelId: channelForRun,
+        model: target.upstreamModel,
+        ...(target.credentialGroupId
+          ? { credentialGroupId: target.credentialGroupId }
+          : {}),
+        inputs: await visualInputsFor(request),
+        shots: createdTask.results.map((row, index) => {
+          const prescribedShot = prescribed[index]
+          return {
+            resultId: row.id,
+            subjectId: row.nodeId,
+            prompt: prescribedShot?.prompt ?? (plan.prompts[index] ?? plan.prompt),
+            params: prescribedShot?.params ?? {},
+            metadata: prescribed[index]?.metadata ?? {},
+          }
+        }),
+      })
+      const total = runPlan.tasks.length
       let completed = 0
       setGenerationStage({
         phase: 'generate',
-        label: `正在生成 0/${created.length}`,
+        label: `正在生成 0/${total}`,
         current: 0,
-        total: created.length,
+        total,
       })
 
       /*
-       * 请求已经提交，`onGenerate` 不再等图片返回。进度改从 RunRecord / 任务结果表
-       * 轮询收口：这比依赖执行 Promise 更适合跨路由页面，也能在结果表先完成时
-       * 同步更新阶段条，不会一直停在“生成 0/N”。
+       * 请求已经提交，`onGenerate` 不再等图片返回。进度从结果表轮询收口；
+       * 执行层直接把每格写到 `ecommerceResults`，不再经过画布节点状态。
        */
-      const runJobs = created.map((id) =>
-        exec.runNode(id).then(async () => {
-          if (task) await syncResultRow(task.id, id)
-        }),
-      )
-      const allJobs = Promise.all(runJobs)
-      void allJobs.catch(() => undefined)
-      if (task) {
-        const currentTask = task
-        void (async () => {
-          const startedAt = Date.now()
-          try {
-            while (Date.now() - startedAt < 10 * 60_000) {
-              await taskRepo.reconcileFromRunRecords(projectId)
-              const rows = await taskRepo.results(currentTask.id)
-              completed = rows.filter(
-                (row) => row.status === 'done' || row.status === 'failed' || row.status === 'canceled',
-              ).length
-              setGenerationStage((current) =>
-                current?.phase === 'done'
-                  ? current
-                  : {
-                      phase: 'generate',
-                      label: `正在生成 ${completed}/${created.length}`,
-                      current: completed,
-                      total: created.length,
-                    },
-              )
-              if (completed >= created.length) break
-              await new Promise((resolve) => window.setTimeout(resolve, 250))
-            }
-            await refreshTask(currentTask)
-            await refreshTaskHistory()
-            await queueWorkbenchRefresh()
-            setGenerationStage({
-              phase: 'done',
-              label: `本批已结束 ${created.length}/${created.length}`,
-              current: created.length,
-              total: created.length,
-            })
-          } catch (error) {
-            const message = error instanceof Error ? error.message : '生成失败'
-            setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
-          } finally {
-            releaseEcommerceTaskLease(currentTask.id)
+      void exec
+        .run(runPlan)
+        .then((outcome) => {
+          for (const warning of outcome.warnings) {
+            platform.logger.log('warn', '[ecommerce] 结果落库 / 投影警告', { warning })
           }
-        })()
-      } else {
-        void allJobs
-          .then(async () => {
-            await refreshTaskHistory()
-            await queueWorkbenchRefresh()
-            setGenerationStage({
-              phase: 'done',
-              label: `本批已结束 ${created.length}/${created.length}`,
-              current: created.length,
-              total: created.length,
-            })
+        })
+        .catch((error: unknown) => {
+          platform.logger.log('warn', '[ecommerce] 执行失败', {
+            error: error instanceof Error ? error.message : String(error),
           })
-          .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : '生成失败'
-            setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
+        })
+      const currentTask = task
+      void (async () => {
+        const startedAt = Date.now()
+        try {
+          while (Date.now() - startedAt < 10 * 60_000) {
+            await taskRepo.reconcileFromRunRecords(projectId)
+            const rows = await taskRepo.results(currentTask.id)
+            completed = rows.filter(
+              (row) => row.status === 'done' || row.status === 'failed' || row.status === 'canceled',
+            ).length
+            setGenerationStage((current) =>
+              current?.phase === 'done'
+                ? current
+                : {
+                    phase: 'generate',
+                    label: `正在生成 ${completed}/${total}`,
+                    current: completed,
+                    total,
+                  },
+            )
+            if (completed >= total) break
+            await new Promise((resolve) => window.setTimeout(resolve, 250))
+          }
+          await refreshTask(currentTask)
+          await refreshTaskHistory()
+          await queueWorkbenchRefresh()
+          setGenerationStage({
+            phase: 'done',
+            label: `本批已结束 ${total}/${total}`,
+            current: total,
+            total,
           })
-      }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '生成失败'
+          setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
+        } finally {
+          releaseEcommerceTaskLease(currentTask.id)
+        }
+      })()
     } catch (error) {
       const message = error instanceof Error ? error.message : '生成失败'
       setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
@@ -1649,8 +1576,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   /**
    * 以当前结果图为上游做一次**定向 AI 编辑**。
    *
-   * 先确保编辑对象是独立画布副本，再把副本作为产品图输入；新产物另起一个批次，
-   * 原结果与内部执行节点都不动。这样“换背景”失败或效果不满意时，历史仍可回看。
+   * 直接用结果素材 hash 作为编辑输入；新产物另起一个批次，原结果不动。
    */
   const editResult = async (
     nodeId: string,
@@ -1660,9 +1586,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     const row =
       resultRows.find((item) => item.nodeId === nodeId || item.canvasCopyNodeId === nodeId) ?? null
     if (!row) throw new Error('没找到这张结果对应的素材记录')
+    if (!row.assetHash) throw new Error('这张结果还没有可编辑的素材')
     const text = instruction.trim()
     if (!text) throw new Error('先在左侧「补充要求」写清要换成的背景')
-    const copy = ensureResultCopy(row)
     await onGenerate(
       {
         usage: 'edit',
@@ -1670,7 +1596,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         language: activeTask?.request.language ?? 'zh-CN',
         count: 1,
         ratio: activeTask?.request.ratio ?? '1:1',
-        productNodeId: copy.nodeId,
+        productNodeId: row.assetHash,
         referenceNodeIds: options?.referenceNodeId ? [options.referenceNodeId] : [],
         note: text,
         ...(options?.model || row.model
@@ -1725,7 +1651,6 @@ function StudioHost({ projectId }: { projectId: string }) {
     if (!target) {
       throw new Error(`当前没有可用的「${option.model}」渠道，请先在 RunningHub 勾选该模型`)
     }
-    const copy = ensureResultCopy(row)
     await onGenerate(
       {
         usage: 'edit',
@@ -1734,7 +1659,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         language: activeTask?.request.language ?? 'zh-CN',
         count: 1,
         ratio: activeTask?.request.ratio ?? '1:1',
-        productNodeId: copy.nodeId,
+        productNodeId: row.assetHash,
         referenceNodeIds: [],
         note: upscaleNoteOf(profile, scale),
         model: option.model,
@@ -1803,46 +1728,15 @@ function StudioHost({ projectId }: { projectId: string }) {
         const height =
           row.height ??
           (typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined)
-        const liveState = exec.nodeStateOf(row.nodeId)
+        const liveState = exec.resultStateOf(row.id)
         const status: EcommerceResultItem['status'] = resultDisplayStatus({
           stored: row.status,
           ...(liveState?.kind ? { live: liveState.kind } : {}),
           hasAsset: !!hash,
         })
-        const rerunnable = !!node && status !== 'running'
+        const rerunnable = status !== 'running'
         const rerun = async (inPlace = false) => {
-          const before = new Set(store.getSnapshot().nodes.map((item) => item.id))
-          await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
-          let taskForRefresh = activeTask
-          if (!inPlace) {
-            const carriers = store
-              .getSnapshot()
-              .nodes.filter(
-                (item) =>
-                  !before.has(item.id) &&
-                  (item.data as { __carrierOf?: string }).__carrierOf === row.nodeId,
-              )
-            if (carriers.length > 0) {
-              const appended = await taskRepo.appendResults(
-                activeTask.id,
-                carriers.map((item) => item.id),
-                carriers.map(() => resultMetadataOf(row)),
-              )
-              taskForRefresh = appended.task
-              setActiveTask(appended.task)
-              setResultRows(appended.results)
-              for (const carrier of carriers) {
-                await syncResultRow(activeTask.id, carrier.id)
-              }
-            } else {
-              await syncResultRow(activeTask.id, row.nodeId)
-            }
-          } else {
-            await syncResultRow(activeTask.id, row.nodeId)
-          }
-          await refreshTask(taskForRefresh)
-          await refreshTaskHistory()
-          await queueWorkbenchRefresh()
+          await runStoredResult(row, { inPlace })
         }
         return {
           nodeId: row.nodeId,
@@ -1907,7 +1801,6 @@ function StudioHost({ projectId }: { projectId: string }) {
       const data = node?.data as
         | { prompt?: unknown; model?: unknown; ratio?: unknown; assetMime?: unknown }
         | undefined
-      const state = exec.nodeStateOf(id)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
       const sizeRaw = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
@@ -1921,7 +1814,6 @@ function StudioHost({ projectId }: { projectId: string }) {
       const status: EcommerceResultItem['status'] =
         resultDisplayStatus({
           stored: 'pending',
-          ...(state?.kind ? { live: state.kind } : {}),
           hasAsset: !!hash,
         })
       return {
@@ -1932,7 +1824,6 @@ function StudioHost({ projectId }: { projectId: string }) {
           ? { mime: data.assetMime }
           : {}),
         pixelSize,
-        error: state?.kind === 'failed' ? describeError(state.error) : undefined,
         preview: hash ? (
           <ResultPreview
             hash={hash}
@@ -1946,10 +1837,8 @@ function StudioHost({ projectId }: { projectId: string }) {
           ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
           ...(typeof data?.ratio === 'string' && data.ratio ? { ratio: data.ratio } : {}),
         }),
-        onRerun:
-          status === 'running' ? undefined : () => exec.runNode(id),
-        onReplace:
-          status === 'running' ? undefined : () => exec.runNode(id, { inPlace: true }),
+        onRerun: undefined,
+        onReplace: undefined,
       }
     })
   }, [
@@ -1960,12 +1849,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     graph.nodes,
     platform,
     projectId,
-    syncResultRow,
-    refreshTask,
-    refreshTaskHistory,
+    runStoredResult,
     assetLibraryRepo,
     taskRepo,
-    store,
   ])
 
   /*

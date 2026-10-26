@@ -20,6 +20,7 @@ describe('buildEcommerceRunPlan', () => {
       shots: [
         {
           resultId: 'ecr_1',
+          subjectId: 'ecsubject_1',
           prompt: '第一张',
           params: { ratio: '1:1', count: 1 },
           metadata: { shotTitle: '主图', ratio: '1:1' },
@@ -36,7 +37,7 @@ describe('buildEcommerceRunPlan', () => {
     expect(plan.tasks).toHaveLength(2)
     expect(plan.tasks[0]).toMatchObject({
       id: 'ect_1:task:1',
-      nodeId: 'ecr_1',
+      nodeId: 'ecsubject_1',
       planId: 'ecommerce:ect_1:run',
       taskId: 'ect_1',
       resultId: 'ecr_1',

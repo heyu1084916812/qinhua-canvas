@@ -1134,7 +1134,7 @@ export interface EcommerceStudioProps {
   projectName: string
   /** 项目级草稿（对账 #477）：刷新 / 切走后把左侧表单原样放回来 */
   initialDraft?: EcommerceFormDraft | null
-  /** 与草稿一起恢复的上传槽；页面按节点 id 校验后再传，悬空引用不会出现在这里 */
+  /** 与草稿一起恢复的上传槽；页面按素材 id / 旧节点 id 校验后再传。 */
   initialProducts?: readonly EcommerceUpload[]
   initialReferences?: readonly EcommerceUpload[]
   /** 表单每次变化后回传；页面负责防抖落库 */
@@ -1144,12 +1144,12 @@ export interface EcommerceStudioProps {
    * （对账 #386 的 E3：平台规则可发扩展包更新，不必等应用发版）。
    */
   platforms?: readonly EcommercePlatform[]
-  /** 上传一张图：由页面落到画布（assets + 节点），返回节点 id 与预览 */
+  /** 上传一张图：由页面落到公共素材库，返回上传槽 id 与预览。 */
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
   /** 用当前对话模型生成一段可直接编辑的商品卖点文案。 */
   onWriteSellingPoints?: (request: EcommerceRequest) => Promise<string>
   /**
-   * 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎。
+   * 点「开始生成」并在二次确认之后调用；页面负责结果行 / RunPlan / 执行。
    *
    * `shotPlan` = 用户**先看过并确认**的那份分镜（对账 #423）。传了它，
    * 页面就**不再多花一次对话额度**去问模型 —— 直接用这份。

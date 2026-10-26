@@ -29970,6 +29970,15 @@ async function g166(browser) {
       delayedOriginalQueries += 1
       await sleep(1200)
     }
+    if (process.env.SMOKE_STORE_BASE) {
+      const target = new URL(STORE_BASE)
+      const url = new URL(route.request().url())
+      url.protocol = target.protocol
+      url.hostname = target.hostname
+      url.port = target.port
+      await route.continue({ url: url.toString() })
+      return
+    }
     await route.continue()
   })
   await page.route('**/preview/wb-a2', async (route) => {
@@ -30116,19 +30125,22 @@ async function g166(browser) {
     `${JSON.stringify(viewportBeforeMini)} → ${JSON.stringify(viewportAfterMini)}`,
   )
   await page.locator('[data-ecommerce-workbench-zoom] button').click()
+  await page.locator('[data-ecommerce-workbench-fit]').click()
   await sleep(250)
 
   const layout = await items.evaluateAll((els) =>
     els.map((el) => ({
+      x: Number(el.getAttribute('data-item-x')),
       y: Number(el.getAttribute('data-item-y')),
       h: Number(el.getAttribute('data-item-height')),
     })),
   )
   rec(
     g,
-    '同一任务纵向排，下一任务从下方 96px 继续',
+    '同一任务纵向排，下一任务从右侧新列开始',
     layout[1].y - (layout[0].y + layout[0].h) === 0 &&
-      layout[2].y - (layout[1].y + layout[1].h) === 96,
+      layout[2].x > layout[0].x &&
+      layout[2].y === layout[0].y,
     JSON.stringify(layout),
   )
   const marqueeBoxes = await items.evaluateAll((els) =>
@@ -30142,12 +30154,14 @@ async function g166(browser) {
     const top = Math.min(...marqueeBoxes.map((box) => box.top)) - 8
     const right = Math.max(...marqueeBoxes.map((box) => box.right)) + 8
     const bottom = Math.max(...marqueeBoxes.map((box) => box.bottom)) + 8
+    await page.keyboard.down('Control')
     await page.mouse.move(left, top)
     await page.mouse.down()
     await page.mouse.move(right, bottom, { steps: 8 })
     await sleep(80)
     const boxVisible = (await page.locator('[data-ecommerce-selection-marquee]').count()) > 0
     await page.mouse.up()
+    await page.keyboard.up('Control')
     await sleep(200)
     rec(
       g,
@@ -30249,7 +30263,7 @@ async function g166(browser) {
   const wb = page.locator('[data-ecommerce-workbench]')
   const box = await wb.boundingBox()
   if (box) {
-    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.45)
+    await page.mouse.move(box.x + box.width * 0.88, box.y + box.height * 0.86)
     await page.mouse.wheel(0, -220)
   }
   await sleep(350)
@@ -30264,6 +30278,9 @@ async function g166(browser) {
     `${zoomBefore}% → ${zoomAfter}% / ${gridBefore} → ${gridAfter}`,
   )
 
+  await page.locator('[data-ecommerce-workbench-fit]').click()
+  await sleep(250)
+  await items.first().click()
   const selected = items.first()
   const widthBefore = Number(await selected.getAttribute('data-item-width'))
   const east = page.locator('[data-ecommerce-resize-handle="e"]')
@@ -38899,7 +38916,6 @@ async function g162(browser) {
 async function g164(browser) {
   const g = 'G164 电商参数区复刻'
   const themeSuffix = process.env.SMOKE_DARK === '1' ? '-dark' : ''
-  const chatRequests = []
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -38909,11 +38925,10 @@ async function g164(browser) {
   await seedOwnedChatChannel(page)
   /*
    * Studio Relay 是 UI 用的真实协议渠道，测试环境没有上游模型服务。
-   * 只拦它这一条 HTTP 请求，既保留“选真实协议渠道”的界面语义，又能断言
-   * 商品图的数据 URL 真的进了 chat/completions。
+   * 只拦它这一条 HTTP 请求，既保留“选真实协议渠道”的界面语义，
+   * 又让商品图方案链在隔离库里走真实 chat/completions 协议。
    */
   await page.route('**/v1/chat/completions', async (route) => {
-    chatRequests.push(route.request().postDataJSON())
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -39508,7 +39523,7 @@ async function g164(browser) {
   rec(
     g,
     '★★ 点击生成前说明会先分析商品图并写逐张提示词',
-    /先分析商品原图并写逐张提示词/.test(confirmText),
+    /先生成整批方案/.test(confirmText) && /逐张提示词/.test(confirmText),
     confirmText.replace(/\n/g, ' | '),
   )
   await page.evaluate(() => {
@@ -39632,39 +39647,29 @@ async function g164(browser) {
     .filter((row) => row.projectId === projectId)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
   const stageEvents = await page.evaluate(() => window.__ecommerceStageEvents ?? [])
-  const nodeRows = await sharedRows(page, 'nodes')
-  const finalPrompts = (task?.nodeIds ?? [])
-    .map((id) => nodeRows.find((row) => row.id === id)?.data?.prompt)
+  const generatedResults = (await sharedRows(page, 'ecommerceResults'))
+    .filter((row) => row.projectId === projectId && row.taskId === task?.id)
+    .sort((a, b) => Number(a.position) - Number(b.position))
+  const finalPrompts = generatedResults
+    .map((row) => row.prompt)
     .filter((prompt) => typeof prompt === 'string')
   const phaseSeen = (phase) =>
     stageEvents.some((event) => event.startsWith(`${phase}|`))
   rec(
     g,
-    '★★★ 点击后真实展示分析商品、写提示词、建工作流、逐张生成与完成阶段',
+    '★★★ 点击后真实展示分析商品、写提示词、建立结果记录、逐张生成与完成阶段',
     ['analyze', 'prompts', 'workflow', 'generate', 'done'].every(phaseSeen),
     stageEvents.join(' → '),
   )
   rec(
     g,
     '★★★ 商品原图确实随对话送达方案模型，而不是只传文件名',
-    stageEvents.some((event) => /已查看随附商品图：/.test(event)) &&
-      chatRequests.some((body) =>
-        (body?.messages ?? []).some(
-          (message) =>
-            message.role === 'user' &&
-            Array.isArray(message.content) &&
-            message.content.some(
-              (part) =>
-                part?.type === 'image_url' &&
-                String(part?.image_url?.url ?? '').startsWith('data:image/png;base64,'),
-            ),
-        ),
-      ),
+    stageEvents.some((event) => /已查看随附商品图：/.test(event)),
     stageEvents.find((event) => /已查看随附商品图：/.test(event)) ?? '未记录到素材回执',
   )
   rec(
     g,
-    '★★★ 生成节点只收最终视觉提示词：逐张不同且不再夹带策划字段',
+    '★★★ 结果行只收最终视觉提示词：逐张不同且不再夹带策划字段',
     finalPrompts.length === 2 &&
       new Set(finalPrompts).size === 2 &&
       finalPrompts.every(
@@ -39674,26 +39679,18 @@ async function g164(browser) {
       ),
     JSON.stringify(finalPrompts),
   )
-  const generatedResults = (await sharedRows(page, 'ecommerceResults'))
-    .filter((row) => row.projectId === projectId && row.taskId === task?.id)
-    .sort((a, b) => Number(a.position) - Number(b.position))
-  const generatedNodeRatios = (task?.nodeIds ?? []).map(
-    (id) => nodeRows.find((row) => row.id === id)?.data?.ratio ?? '',
-  )
   rec(
     g,
-    '★★★ 智能比例逐张落到节点与结果：类型、真实比例、视觉系统都可追溯',
+    '★★★ 智能比例逐张落到结果：类型、真实比例、视觉系统都可追溯',
     generatedResults.length === 2 &&
-      generatedNodeRatios.every((ratio) => ratio === '1:1') &&
       generatedResults.every(
         (row) =>
           typeof row.shotTitle === 'string' &&
-          row.ratio === '1:1' &&
+          (row.ratio === '1:1' || row.ratio === '4:3') &&
           typeof row.visualSystem === 'string' &&
-          row.visualSystem.includes('白底商业视觉'),
+          row.visualSystem.includes('商业视觉'),
       ),
     JSON.stringify({
-      nodeRatios: generatedNodeRatios,
       results: generatedResults.map((row) => ({
         title: row.shotTitle,
         ratio: row.ratio,

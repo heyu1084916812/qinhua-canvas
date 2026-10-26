@@ -16,6 +16,8 @@ export type EcommerceExecutionCommand =
       kind: 'result.commit'
       planId: string
       resultId: string
+      prompt: string
+      model: string
       assets: readonly GeneratedAsset[]
     }
   | {
@@ -63,6 +65,8 @@ export function createEcommercePlacement(
           kind: 'result.commit',
           planId: task.planId,
           resultId: targetId,
+          prompt: task.request.prompt,
+          model: task.request.model,
           assets: [...assets],
         },
       ]

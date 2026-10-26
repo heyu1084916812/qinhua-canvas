@@ -42,6 +42,8 @@ export async function executeEcommerceCommands(
         case 'result.commit': {
           const primary = command.assets[0]
           if (!primary) throw new Error('生成成功但没有返回可落库的产物')
+          const row = await deps.taskRepo.result(command.resultId)
+          if (!row) throw new Error(`电商结果不存在：${command.resultId}`)
           const at = now()
           for (const asset of command.assets) {
             await deps.storage.put(
@@ -55,17 +57,18 @@ export async function executeEcommerceCommands(
                 ...(asset.height ? { height: asset.height } : {}),
                 ...(asset.url ? { url: asset.url } : {}),
                 createdAt: at,
+                projectId: row.projectId,
               } as never,
             )
           }
-          const row = await deps.taskRepo.result(command.resultId)
-          if (!row) throw new Error(`电商结果不存在：${command.resultId}`)
           const { errorText: _oldError, ...rest } = row
           await deps.taskRepo.updateResult({
             ...rest,
             status: 'done',
             assetHash: primary.hash,
             mime: primary.mime,
+            prompt: command.prompt,
+            model: command.model,
             ...(primary.width ? { width: primary.width } : {}),
             ...(primary.height ? { height: primary.height } : {}),
             updatedAt: at,

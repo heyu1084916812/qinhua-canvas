@@ -49,6 +49,8 @@ describe('executeEcommerceCommands', () => {
           kind: 'result.commit',
           planId: 'ecommerce:ect_1:run',
           resultId: created.results[0]!.id,
+          prompt: '主图提示词',
+          model: 'image-model',
           assets: [
             {
               hash: 'asset1',
@@ -85,6 +87,8 @@ describe('executeEcommerceCommands', () => {
       status: 'done',
       assetHash: 'asset1',
       mime: 'image/png',
+      prompt: '主图提示词',
+      model: 'image-model',
       width: 64,
       height: 64,
     })
@@ -151,6 +155,8 @@ describe('executeEcommerceCommands', () => {
           kind: 'result.commit',
           planId: 'ecommerce:ect_1:run',
           resultId: created.results[0]!.id,
+          prompt: '投影失败测试',
+          model: 'image-model',
           assets: [
             {
               hash: 'asset2',

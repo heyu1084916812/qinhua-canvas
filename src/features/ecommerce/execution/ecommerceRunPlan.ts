@@ -6,6 +6,8 @@ import { fingerprintHex } from '../../../domain/shared/hash'
 export interface EcommerceRunShot {
   /** 对应 `ecommerceResults.id`；执行计划不依赖画布节点 id。 */
   resultId: string
+  /** RunRecord 的中性执行主体；缺省与 resultId 相同。 */
+  subjectId?: string
   prompt: string
   params: Record<string, unknown>
   metadata?: EcommerceResultMetadata
@@ -85,7 +87,7 @@ export function buildEcommerceRunPlan(
     )
     return {
       id: `${input.taskId}:task:${seq + 1}`,
-      nodeId: shot.resultId,
+      nodeId: shot.subjectId ?? shot.resultId,
       planId,
       taskId: input.taskId,
       resultId: shot.resultId,

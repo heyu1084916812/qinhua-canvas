@@ -74,6 +74,15 @@ module.exports = {
       from: { path: '^src/(workbenches|features|state|domain)' },
       to: { path: '^src/dev' },
     },
+    {
+      name: 'ecommerce-no-canvas-runtime',
+      comment:
+        '电商页面和工作台不得依赖画布 Store / 执行器 / 节点创建入口（对账 #766 阶段 3）',
+      from: { path: '^src/(pages/EcommercePage|workbenches/ecommerce)' },
+      to: {
+        path: '^src/(workbenches/canvas|state/workbenches/canvas|features/canvas/(execution|createNodeWithDefaults|importAsset))',
+      },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

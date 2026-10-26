@@ -33,7 +33,7 @@
 - `.dependency-cruiser.cjs` 仍在引用已删除的 comic；新规则必须清理旧项并覆盖
   `ecommerce` / `storyboard` 到画布私有层的依赖。
 - 详细取证、更正、资源库归属和验收标准已全部合并到
-  `轻画-工作台解耦与公共能力重构方案.md` v0.6；不再维护独立审阅报告。
+  `轻画-工作台解耦与公共能力重构方案.md` v0.7；不再维护独立审阅报告。
   计划类文档不按行数机械验收，必须同时约束页面装配、控制器职责和 import 边界。
 - **阶段 2 已完成**：渠道网关落在 `src/platform/generation/`，统一分组选择、Key 读取、
   模型映射、协议适配器和底层错误。渠道 Store、画布执行宿主、漫剧直连都走同一入口；
@@ -48,8 +48,16 @@
 - **阶段 3A 已完成**：`EcommerceRunPlan` 用结果行直接生成 RunTask，不再先建画布生成节点；
   `EcommercePlacement` 先写结果状态 / 产物，再追加 RunRecord，最后同步工作区投影。
   `EcommerceExecutionProvider` 按 planId 隔离适配器和写队列，避免并发任务串命令。
-  命令执行器单条失败只记警告，不能把已成功生成改判失败或重发。页面接线仍未切换。
+  命令执行器单条失败只记警告，不能把已成功生成改判失败或重发；阶段 3 已完成页面接线。
   3A 证据：定向 **22/22**、全量 **3131 passed / 1 skipped**、`npm run check` 通过。
+- **阶段 3 已完成**：电商页已卸载 `CanvasStoreProvider` / `CanvasExecutionProvider`；
+  上传直接写 `assets`，生成 / 重跑 / 抽卡 / 编辑统一走
+  `EcommerceRunPlan -> runEngine -> EcommercePlacement`。结果先写 `ecommerceResults`，
+  `EcommerceCanvasItem` 只做投影。旧画布节点只读兼容，不再参与新任务执行。
+- `ecommerce-no-canvas-runtime` 已成为依赖门禁；以后不能让电商页重新引用画布 Store、
+  执行器、节点创建或导入入口。
+- 阶段 3 冒烟：G164 **56/56**、G161 **7/7**、G166 **30/30**、G167 **3/3**；
+  全量 **3130 passed / 1 skipped**、`npm run check`、`npm run build` 通过。
 
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 

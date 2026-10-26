@@ -69,6 +69,8 @@ describe('EcommercePlacement', () => {
         kind: 'result.commit',
         planId: 'ecommerce:ect_1:run',
         resultId: 'ecr_1',
+        prompt: 'prompt',
+        model: 'model_1',
         assets: [asset],
       },
     ])
