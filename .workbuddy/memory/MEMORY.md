@@ -1,5 +1,30 @@
 # CanvasFlow（轻画）项目记忆
 
+### 工作台拆分复审与剩余目标（2026-10-26 → 对账 #766）
+
+- **完成口径已降级**：`StoryboardPage.tsx` 变短、控制器文件存在、G145 44/44 和 depcruise 0 违规，
+  都只能证明“局部拆分 / 当前规则未命中”，不能证明工作台完全解耦。当前正确状态是
+  “阶段 0 / 1 完成，阶段 2–5 部分完成”；详细剩余目标只在
+  `轻画-工作台解耦与公共能力重构方案.md` §8.6 维护。
+- **P0 先于继续迁移**：新 RunRecord 必须由宿主显式注入
+  `workbench / subjectId / scopeId / operationId`；所有付费调用（含提示词工具、Agent、电商文字、
+  漫剧直连）必须统一留痕。不能靠 `projectId / nodeId` 猜工作台或业务主体。
+- **已有 P0/P1 风险必须补故障注入**：电商素材字节落库失败仍可能写成功记录并最终显示 `done`；
+  运行中删渠道没有注册电商计划；画布并发计划取消只读单槽 `planIdRef`，可能取消最后启动的计划；
+  显式渠道在主分组缺 Key、备用分组有 Key 时仍可能先报 `channel_no_token`；HTTP 408 仍会重试
+  付费生成。测试全绿不代表这些路径被覆盖。
+- **漫剧执行仍是画布借壳**：当前没有 `StoryboardRunPlanner / StoryboardRunScheduler /
+  StoryboardPlacement`；图片、视频等经画布节点执行后镜像回 `storyboardStore`，`runEngine`
+  生成的记录也没有工作台作用域。迁移时先做 R1 契约 / R2 Planner / R3 Scheduler，再按
+  资产图 → 镜头图 → 视频与后处理 → 数字人 → 整集批量推进，最后删除业务对 CanvasHost 的依赖。
+- **UI 拆分不能只搬 JSX**：`StoryboardProject.tsx` 约 1630 行、`ShotCard.tsx` 1048 行；
+  文档水合、防抖保存、目标推导、画布镜像、六个控制器装配和 840 行 JSX 仍集中在页面。
+  先抽 `useStoryboardDocument / useStoryboardTargets / useStoryboardCanvasMirror`，再拆页面和
+  `ShotVideoTools`。busy 状态必须由控制器持有并用同步 ref 锁，不能让页面 setter 回传。
+- **门禁必须反向验证**：漫剧规则仍放行 `features/canvas/downloadAsset`、`domain/canvas`；
+  `no-shared-to-workbench` 仍只匹配 canvas/comic。扩大规则后要放一个故意违规的测试夹具，
+  证明检查会失败；否则“0 违规”只是盲区证据。
+
 ### SoonStudio missingKey（2026-10-26 → 对账 #767）
 
 - 内置 SoonStudio 只有一条渠道，但旧数据可能带一个 UI 不展示的空“备用 Key”分组。
