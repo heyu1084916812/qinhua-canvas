@@ -572,6 +572,33 @@ describe('runEngine / 回调参数契约', () => {
 })
 
 describe('runEngine / 拓扑依赖', () => {
+  function deferredSignal(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void
+    const promise = new Promise<void>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+
+  async function within(promise: Promise<void>, label: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`等待超时：${label}`)),
+        500,
+      )
+      promise.then(
+        () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        (error: unknown) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
+  }
+
   function dependencyTask(id: string, dependsOn: string[] = []): RunTask {
     return {
       id,
@@ -776,6 +803,258 @@ describe('runEngine / 拓扑依赖', () => {
       },
     })
     expect(summary.records).toHaveLength(1)
+  })
+
+  it('前置成功后立即启动后继，不被同层无关慢任务阻塞', async () => {
+    const slowGate = deferredSignal()
+    const childStarted = deferredSignal()
+    let slowFinished = false
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-ready-after-parent',
+      scope: 'node',
+      mode: 'single',
+      tasks: [
+        dependencyTask('parent'),
+        dependencyTask('slow'),
+        dependencyTask('child', ['parent']),
+      ],
+    }
+    const running = runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            if (request.prompt === 'slow') {
+              await slowGate.promise
+              slowFinished = true
+            }
+            if (request.prompt === 'child') childStarted.resolve()
+            return [
+              {
+                hash: request.prompt,
+                mime: 'image/png',
+                bytes: new Uint8Array([1]),
+              },
+            ]
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      now: () => 0,
+    })
+
+    try {
+      await within(childStarted.promise, 'child start')
+      expect(slowFinished).toBe(false)
+    } finally {
+      slowGate.resolve()
+    }
+    const summary = await running
+
+    expect(summary.succeeded).toBe(3)
+    expect(summary.taskResults.map((item) => item.taskId)).toEqual([
+      'parent',
+      'slow',
+      'child',
+    ])
+  })
+
+  it('独立慢任务不拖住快任务落库，最终结算仍按稳定顺序', async () => {
+    const slowGate = deferredSignal()
+    const fastRecorded = deferredSignal()
+    let slowFinished = false
+    let active = 0
+    let maxActive = 0
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-stable-settlement',
+      scope: 'node',
+      mode: 'single',
+      tasks: [dependencyTask('slow'), dependencyTask('fast')],
+    }
+    const running = runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            if (request.prompt === 'slow') {
+              await slowGate.promise
+              slowFinished = true
+            }
+            active -= 1
+            return [
+              {
+                hash: request.prompt,
+                mime: 'image/png',
+                bytes: new Uint8Array([1]),
+              },
+            ]
+          },
+        }) as never,
+      writeBack: (commands) => {
+        if (
+          commands.some(
+            (command) =>
+              (command as unknown as RunRecord).taskId === 'fast',
+          )
+        ) {
+          fastRecorded.resolve()
+        }
+      },
+      placement,
+      now: () => 0,
+    })
+
+    try {
+      await within(fastRecorded.promise, 'fast record')
+      expect(maxActive).toBe(2)
+      expect(slowFinished).toBe(false)
+    } finally {
+      slowGate.resolve()
+    }
+    const summary = await running
+
+    expect(summary.taskResults.map((item) => item.taskId)).toEqual([
+      'slow',
+      'fast',
+    ])
+    expect(summary.records.map((record) => record.taskId)).toEqual([
+      'slow',
+      'fast',
+    ])
+  })
+
+  it('一个分支失败只阻断其下游，无关慢任务和成功结果继续结算', async () => {
+    const slowGate = deferredSignal()
+    const downstreamFailed = deferredSignal()
+    let slowFinished = false
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-partial-success',
+      scope: 'node',
+      mode: 'single',
+      tasks: [
+        dependencyTask('slow-success'),
+        dependencyTask('failed-parent'),
+        dependencyTask('blocked-child', ['failed-parent']),
+      ],
+    }
+    const running = runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage(request: RunRequest) {
+            if (request.prompt === 'slow-success') {
+              await slowGate.promise
+              slowFinished = true
+              return [
+                {
+                  hash: 'slow',
+                  mime: 'image/png',
+                  bytes: new Uint8Array([1]),
+                },
+              ]
+            }
+            throw { kind: 'http', status: 500, body: '失败分支' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      policy: { maxRetries: 0 },
+      onTaskUpdate: (_planId, taskId, state) => {
+        if (taskId === 'blocked-child' && state.kind === 'failed') {
+          downstreamFailed.resolve()
+        }
+      },
+      now: () => 0,
+    })
+
+    try {
+      await within(downstreamFailed.promise, 'downstream failure')
+      expect(slowFinished).toBe(false)
+    } finally {
+      slowGate.resolve()
+    }
+    const summary = await running
+
+    expect(summary.succeeded).toBe(1)
+    expect(summary.failed).toBe(2)
+    expect(summary.taskResults.map((item) => item.state.kind)).toEqual([
+      'succeeded',
+      'failed',
+      'failed',
+    ])
+    expect(summary.records.map((record) => record.taskId)).toEqual([
+      'slow-success',
+      'failed-parent',
+    ])
+  })
+
+  it('取消立即收口未启动后代，已启动任务保留取消留痕', async () => {
+    const controller = new AbortController()
+    const parentStarted = deferredSignal()
+    const plan: RunPlan<RunTask> = {
+      id: 'plan-cancel-ready-queue',
+      scope: 'node',
+      mode: 'single',
+      tasks: [
+        dependencyTask('parent'),
+        dependencyTask('child', ['parent']),
+      ],
+    }
+    const running = runEngine(plan, {
+      signal: controller.signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          generateImage(
+            _request: RunRequest,
+            signal: AbortSignal,
+          ): Promise<never> {
+            parentStarted.resolve()
+            return new Promise((_, reject) => {
+              const abort = () => {
+                const error = new Error('aborted')
+                error.name = 'AbortError'
+                reject(error)
+              }
+              if (signal.aborted) abort()
+              else signal.addEventListener('abort', abort, { once: true })
+            })
+          },
+        }) as never,
+      writeBack: () => {},
+      placement,
+      now: () => 0,
+    })
+
+    await parentStarted.promise
+    controller.abort()
+    const summary = await running
+
+    expect(summary.succeeded).toBe(0)
+    expect(summary.failed).toBe(0)
+    expect(summary.canceled).toBe(2)
+    expect(summary.taskResults.map((item) => item.state.kind)).toEqual([
+      'canceled',
+      'canceled',
+    ])
+    expect(summary.records).toHaveLength(1)
+    expect(summary.records[0]).toMatchObject({
+      taskId: 'parent',
+      status: 'canceled',
+    })
   })
 })
 

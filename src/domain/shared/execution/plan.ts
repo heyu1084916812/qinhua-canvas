@@ -53,10 +53,11 @@ export interface RunPlan<TTask extends RunTask = RunTask> {
 }
 
 /**
- * 把任务按依赖深度分成可并发执行的波次。
+ * 把任务按依赖深度分组，用于 DAG 校验与稳定拓扑排序。
  *
- * 同层任务可并发；下一层必须等上一层完整收口。未知依赖、自依赖、重复 id
- * 和环都在调用渠道前失败，不能靠“碰巧数组顺序对”冒充拓扑。
+ * 返回的层不限制运行时派发：runEngine 会让前置成功后满足条件的任务立即启动，
+ * 不等待同层无关慢任务。未知依赖、自依赖、重复 id 和环都在调用渠道前失败，
+ * 不能靠“碰巧数组顺序对”冒充拓扑。
  */
 export function runPlanWaves<TTask extends RunTask>(
   tasks: readonly TTask[],

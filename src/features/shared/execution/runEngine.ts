@@ -298,217 +298,304 @@ export async function runEngine<TTask extends RunTask, TCommand>(
    * 累加时按「调用序号」去重：同一张素材被放进集合多次时，
    * 集合项 nodeId 相同、素材 hash 也可能相同，只有序号能区分它们是两次独立调用。
    */
-  const collected = new Map<string, { item: string | null; seq: number; asset: GeneratedAsset }[]>()
+  const collected = new Map<
+    string,
+    {
+      nodeId: string
+      entries: { item: string | null; seq: number; asset: GeneratedAsset }[]
+    }
+  >()
   const callCounts = new Map<string, number>()
   for (const t of plan.tasks) callCounts.set(t.nodeId, (callCounts.get(t.nodeId) ?? 0) + 1)
 
-  const collect = (nodeId: string, task: RunTask, assets: GeneratedAsset[]): void => {
-    const list = collected.get(nodeId) ?? []
+  const collect = (task: RunTask, assets: GeneratedAsset[]): void => {
+    const current = collected.get(task.id) ?? {
+      nodeId: task.nodeId,
+      entries: [],
+    }
     const item = task.collectionItemId ?? null
     const seq = task.seq ?? 0
     // 同一 (集合项, 序号) 只保留一次；不同 (集合项) 各自入列，即使素材 hash 相同
     const key = `${item ?? ''}#${seq}`
-    if (list.some((x) => `${x.item ?? ''}#${x.seq}` === key)) return
-    for (const asset of assets) list.push({ item, seq, asset })
-    collected.set(nodeId, list)
+    if (
+      current.entries.some(
+        (entry) => `${entry.item ?? ''}#${entry.seq}` === key,
+      )
+    ) {
+      return
+    }
+    for (const asset of assets) current.entries.push({ item, seq, asset })
+    collected.set(task.id, current)
   }
 
-  const waves = runPlanWaves(plan.tasks)
+  /**
+   * `runPlanWaves` 在这里只负责校验 DAG 并给出稳定的拓扑顺序。
+   * 它不再决定运行时分批：某个任务的前置一成功，它就能立刻启动，
+   * 不必等待同一拓扑层的无关慢任务。
+   */
+  const orderedTasks = runPlanWaves(plan.tasks).flat()
   const stateByTaskId = new Map<string, RunTaskState>()
+  const recordsByTaskId = new Map<string, ScopedRunRecord>()
+  const pendingTaskIds = new Set(orderedTasks.map((task) => task.id))
+  const activeSettlements = new Set<Promise<void>>()
   let startedCount = 0
 
-  for (const wave of waves) {
-    const runnable: TTask[] = []
-    for (const task of wave) {
-      const dependencyStates = task.dependsOn.map(
-        (dependency) => stateByTaskId.get(dependency)!,
-      )
-      const failedDependency = task.dependsOn.find(
-        (dependency) => stateByTaskId.get(dependency)?.kind === 'failed',
-      )
-      const canceledDependency =
-        failedDependency === undefined &&
-        task.dependsOn.find(
-          (dependency) => stateByTaskId.get(dependency)?.kind === 'canceled',
-        )
+  type StartedTask = {
+    task: TTask
+    targetId: string
+    startedAt: number
+    scope: RunRecordScope
+  }
 
-      if (failedDependency || canceledDependency) {
-        const state: RunTaskState = failedDependency
-          ? {
-              kind: 'failed',
-              error: {
-                kind: 'validation',
-                field: 'dependsOn',
-                reason: `依赖任务未成功：${failedDependency}`,
-              },
-              attempts: 0,
-            }
-          : { kind: 'canceled' }
-        update(task.id, state)
-        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
-        stateByTaskId.set(task.id, state)
-        continue
-      }
-      if (
-        dependencyStates.some((state) => state?.kind !== 'succeeded')
-      ) {
-        const invalid: RunTaskState = {
-          kind: 'failed',
-          error: {
-            kind: 'validation',
-            field: 'dependsOn',
-            reason: '依赖任务未完成',
-          },
-          attempts: 0,
+  const settleWithoutRun = (task: TTask, state: RunTaskState): void => {
+    pendingTaskIds.delete(task.id)
+    stateByTaskId.set(task.id, state)
+    update(task.id, state)
+  }
+
+  const cancelPendingTasks = (): void => {
+    for (const task of orderedTasks) {
+      if (!pendingTaskIds.has(task.id)) continue
+      settleWithoutRun(task, { kind: 'canceled' })
+    }
+  }
+
+  type PreparedTask = StartedTask & { beganCommands: TCommand[] }
+
+  const executeTask = async ({
+    task,
+    startedAt,
+  }: StartedTask): Promise<{
+    state: RunTaskState
+    assets: GeneratedAsset[]
+  }> => {
+    let attempt = 0
+    let state: RunTaskState = {
+      kind: 'failed',
+      error: { kind: 'parse', raw: 'unreachable' },
+      attempts: 1,
+    }
+    let assets: GeneratedAsset[] = []
+
+    for (;;) {
+      try {
+        const adapter = deps.channelResolver({
+          ...task.request,
+          routingAttempt: attempt,
+        })
+        const callRequest = applyCallOrdinal(task)
+        assets = await callChannel(adapter, callRequest, deps.signal)
+        if (deps.signal.aborted) {
+          state = { kind: 'canceled' }
+          break
         }
-        update(task.id, invalid)
-        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state: invalid })
-        stateByTaskId.set(task.id, invalid)
-        continue
+        state = {
+          kind: 'succeeded',
+          result: assets,
+          duration: now() - startedAt,
+        }
+        break
+      } catch (e) {
+        const error = normalizeError(e)
+        if (deps.signal.aborted) {
+          state = { kind: 'canceled' }
+          break
+        }
+        const hasNextCredentialGroup =
+          attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
+        const shouldRetry =
+          (isRetryable(error, policy) && attempt < policy.maxRetries) ||
+          (hasNextCredentialGroup && isGroupSwitchable(error))
+        if (shouldRetry) {
+          attempt += 1
+          await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
+          if (deps.signal.aborted) {
+            state = { kind: 'canceled' }
+            break
+          }
+          continue
+        }
+        state = { kind: 'failed', error, attempts: attempt + 1 }
+        break
       }
-      runnable.push(task)
     }
 
-    const started: {
-      task: TTask
-      targetId: string
-      startedAt: number
-      scope: RunRecordScope
-    }[] = []
+    return { state, assets }
+  }
 
-    /**
-     * 同一拓扑波次先同步完成全部落位，再并发调用渠道。这样独立任务仍保持
-     * “占位同时出现、请求同时开始”；依赖任务必须等上一波完整成功后才落位。
-     */
-    for (const task of runnable) {
-      if (deps.signal.aborted) {
-        const state: RunTaskState = { kind: 'canceled' }
-        update(task.id, state)
-        taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
-        stateByTaskId.set(task.id, state)
-        continue
+  const finishTask = (
+    started: StartedTask,
+    state: RunTaskState,
+    assets: GeneratedAsset[],
+  ): void => {
+    const { task, targetId, startedAt, scope } = started
+    const status: RunRecord['status'] =
+      state.kind === 'succeeded'
+        ? 'succeeded'
+        : state.kind === 'canceled'
+          ? 'canceled'
+          : 'failed'
+    if (state.kind === 'succeeded') {
+      const cmds = placement.commit(task, targetId, assets)
+      if (cmds.length > 0) write(cmds)
+      if (placement.shouldCollect(task, assets)) {
+        collect(task, assets)
       }
+    }
+    const finishedAt = now()
+    const record = makeRecord(
+      task,
+      targetId,
+      scope,
+      deps,
+      startedAt,
+      status,
+      state.kind === 'succeeded' ? assets : [],
+      finishedAt - startedAt,
+      state.kind === 'failed' ? describeError(state.error) : undefined,
+    )
+    const recordCommand = placement.record(task, targetId, record)
+    if (recordCommand !== null) write([recordCommand])
 
-      const isRepeat =
-        (callCounts.get(task.nodeId) ?? 1) > 1 && (task.seq ?? 0) > 0
-      const began = placement.begin(task, {
-        isRepeat,
-        slotIndex: startedCount,
-        slotCount: plan.tasks.length,
-      })
-      const targetId = began.targetId
-      const scope = deps.recordScope(plan, task, targetId)
-      if (began.commands.length > 0) write(began.commands)
+    stateByTaskId.set(task.id, state)
+    recordsByTaskId.set(task.id, record)
+    update(task.id, state)
+
+    // 前置的成功 / 失败都在这里收口；此刻才允许依赖它的任务启动或阻断。
+    dispatchReadyTasks()
+  }
+
+  const launchTask = (started: StartedTask): void => {
+    const settlement = (async () => {
+      const { state, assets } = await executeTask(started)
+      finishTask(started, state, assets)
+    })().finally(() => {
+      activeSettlements.delete(settlement)
+    })
+    activeSettlements.add(settlement)
+  }
+
+  function dispatchReadyTasks(): void {
+    if (deps.signal.aborted) {
+      cancelPendingTasks()
+      return
+    }
+
+    const prepared: PreparedTask[] = []
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const task of orderedTasks) {
+        if (!pendingTaskIds.has(task.id)) continue
+
+        let allSucceeded = true
+        let failedDependency: string | undefined
+        let canceledDependency: string | undefined
+        for (const dependency of task.dependsOn) {
+          const state = stateByTaskId.get(dependency)
+          if (!state) {
+            allSucceeded = false
+          } else if (state.kind === 'failed') {
+            allSucceeded = false
+            failedDependency = dependency
+          } else if (state.kind === 'canceled') {
+            allSucceeded = false
+            if (!failedDependency) canceledDependency = dependency
+          } else if (state.kind !== 'succeeded') {
+            allSucceeded = false
+          }
+        }
+
+        if (failedDependency || canceledDependency) {
+          const state: RunTaskState = failedDependency
+            ? {
+                kind: 'failed',
+                error: {
+                  kind: 'validation',
+                  field: 'dependsOn',
+                  reason: `依赖任务未成功：${failedDependency}`,
+                },
+                attempts: 0,
+              }
+            : { kind: 'canceled' }
+          settleWithoutRun(task, state)
+          changed = true
+          continue
+        }
+        if (!allSucceeded) continue
+
+        const isRepeat =
+          (callCounts.get(task.nodeId) ?? 1) > 1 && (task.seq ?? 0) > 0
+        const began = placement.begin(task, {
+          isRepeat,
+          slotIndex: startedCount + prepared.length,
+          slotCount: plan.tasks.length,
+        })
+        const scope = deps.recordScope(plan, task, began.targetId)
+        prepared.push({
+          task,
+          targetId: began.targetId,
+          startedAt: 0,
+          scope,
+          beganCommands: began.commands,
+        })
+        pendingTaskIds.delete(task.id)
+      }
+    }
+
+    for (const started of prepared) {
+      const { task, targetId, beganCommands } = started
+      if (beganCommands.length > 0) write(beganCommands)
       deps.onTaskTarget?.(plan.id, task.id, targetId)
       update(task.id, { kind: 'queued' })
 
       const taskStartedAt = now()
+      started.startedAt = taskStartedAt
       update(task.id, { kind: 'running', startedAt: taskStartedAt })
-      started.push({ task, targetId, startedAt: taskStartedAt, scope })
       startedCount += 1
     }
 
-    const settled = await Promise.all(
-      started.map(async ({ task, targetId, startedAt, scope }) => {
-        let attempt = 0
-        let state: RunTaskState = {
-          kind: 'failed',
-          error: { kind: 'parse', raw: 'unreachable' },
-          attempts: 1,
-        }
-        let assets: GeneratedAsset[] = []
-
-        for (;;) {
-          try {
-            const adapter = deps.channelResolver({
-              ...task.request,
-              routingAttempt: attempt,
-            })
-            const callRequest = applyCallOrdinal(task)
-            assets = await callChannel(adapter, callRequest, deps.signal)
-            state = {
-              kind: 'succeeded',
-              result: assets,
-              duration: now() - startedAt,
-            }
-            break
-          } catch (e) {
-            const error = normalizeError(e)
-            if (deps.signal.aborted) {
-              state = { kind: 'canceled' }
-              break
-            }
-            const hasNextCredentialGroup =
-              attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
-            const shouldRetry =
-              (isRetryable(error, policy) && attempt < policy.maxRetries) ||
-              (hasNextCredentialGroup && isGroupSwitchable(error))
-            if (shouldRetry) {
-              attempt += 1
-              await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
-              continue
-            }
-            state = { kind: 'failed', error, attempts: attempt + 1 }
-            break
-          }
-        }
-        const status: RunRecord['status'] =
-          state.kind === 'succeeded'
-            ? 'succeeded'
-            : state.kind === 'canceled'
-              ? 'canceled'
-              : 'failed'
-        if (state.kind === 'succeeded') {
-          const cmds = placement.commit(task, targetId, assets)
-          if (cmds.length > 0) write(cmds)
-          if (placement.shouldCollect(task, assets)) {
-            collect(task.nodeId, task, assets)
-          }
-        }
-        const finishedAt = now()
-        const record = makeRecord(
-          task,
-          targetId,
-          scope,
-          deps,
-          startedAt,
-          status,
-          state.kind === 'succeeded' ? assets : [],
-          finishedAt - startedAt,
-          state.kind === 'failed' ? describeError(state.error) : undefined,
-        )
-        const recordCommand = placement.record(task, targetId, record)
-        if (recordCommand !== null) write([recordCommand])
-        update(task.id, state)
-        return {
-          task,
-          targetId,
-          startedAt,
-          scope,
-          state,
-          assets,
-          finishedAt,
-          record,
-        }
-      }),
-    )
-
-    for (const done of settled) {
-      taskResults.push({
-        taskId: done.task.id,
-        nodeId: done.task.nodeId,
-        state: done.state,
-      })
-      stateByTaskId.set(done.task.id, done.state)
-      records.push(done.record)
+    // 落位和状态广播全部就绪后再发请求，整批任务仍同时开工。
+    for (const started of prepared) {
+      launchTask(started)
     }
+  }
+
+  const onAbort = () => cancelPendingTasks()
+  deps.signal.addEventListener('abort', onAbort)
+  try {
+    dispatchReadyTasks()
+    while (activeSettlements.size > 0) {
+      await Promise.race(activeSettlements)
+    }
+  } finally {
+    deps.signal.removeEventListener('abort', onAbort)
+  }
+
+  if (pendingTaskIds.size > 0) {
+    throw new Error('RunPlan 调度结束但仍有任务未结算')
+  }
+
+  for (const task of orderedTasks) {
+    const state = stateByTaskId.get(task.id)
+    if (!state) throw new Error(`RunPlan 任务缺少终态：${task.id}`)
+    taskResults.push({ taskId: task.id, nodeId: task.nodeId, state })
+    const record = recordsByTaskId.get(task.id)
+    if (record) records.push(record)
   }
 
   // 计划收尾：把聚合到的产物落成工作台自己的形态（canvas：结果组 + 逐张子节点 + 素材本体）
   const collectedList: CollectedAsset[] = []
-  for (const [nodeId, entries] of collected) {
-    for (const e of entries) {
-      collectedList.push({ sourceId: nodeId, itemId: e.item, seq: e.seq, asset: e.asset })
+  for (const task of orderedTasks) {
+    const current = collected.get(task.id)
+    if (!current) continue
+    for (const entry of current.entries) {
+      collectedList.push({
+        sourceId: current.nodeId,
+        itemId: entry.item,
+        seq: entry.seq,
+        asset: entry.asset,
+      })
     }
   }
   const finalCommands = placement.finalize(plan, collectedList)
