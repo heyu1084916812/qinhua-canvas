@@ -75,6 +75,11 @@ import {
 import { directTextTrace } from '../../../../state/shared/directRun'
 import { createId } from '../../../../shared/id'
 import {
+  queuedTurnPreview,
+  sessionForQueuedTurn,
+  type QueuedAgentTurn,
+} from '../../../../domain/agent/queuedTurn'
+import {
   IconAuto,
   IconArrowUp,
   IconCheck,
@@ -144,6 +149,10 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
   error: '出错',
 }
 
+function statusIsBusy(status: Status): boolean {
+  return status.kind !== 'idle' && status.kind !== 'error'
+}
+
 /**
  * 自动模式下**一轮对话最多自动执行几次**。
  *
@@ -200,6 +209,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const setStatusFor = useCallback((sessionId: string, next: Status) => {
     setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
   }, [])
+  const [queueExpanded, setQueueExpanded] = useState(false)
+  const queueAutoDrainRef = useRef(new Set<string>())
+  const queuePumpingRef = useRef(new Set<string>())
+  const activeAgentTurnsRef = useRef(new Set<string>())
+  const queuePumpRef = useRef<(sessionId: string) => void>(() => {})
   /**
    * 「现在显示的是哪个会话」。
    *
@@ -492,7 +506,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const persist = useCallback(
     async (session: AgentSession, next: ChatMessage[]) => {
-      await sessions.save({ ...session, messages: next })
+      await sessions.saveMessages(session.id, next)
       await refresh()
     },
     [sessions, refresh],
@@ -513,6 +527,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 带过来的话新会话第一次建节点就会莫名沿用上一段对话选的模型。
        */
       stickyModelRef.current = {}
+      setQueueExpanded(false)
     },
     [],
   )
@@ -892,7 +907,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           : outcome.messages
       if (currentIdRef.current === session.id) setMessages(full)
       await persist(session, full)
-      if (outcome.kind === 'message') setStatusFor(session.id, IDLE_STATUS)
+      if (outcome.kind === 'message') {
+        setStatusFor(session.id, IDLE_STATUS)
+        queueMicrotask(() => queuePumpRef.current(session.id))
+      }
       else if (outcome.kind === 'confirm') {
         setStatusFor(session.id, { kind: 'awaitingConfirm', request: outcome.request })
       } else if (outcome.kind === 'stopped') {
@@ -908,26 +926,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 这样「重试」才能复用同一条路（用户 2026-10-14 第 1 条：助手回复下方要有
    * 复制 / 重试）。重试要拿的是**上一条用户消息**，而不是输入框里此刻的内容。
    */
-  const sendText = useCallback(async (raw: string) => {
-    const text = raw.trim()
-    if (!text || !current) return
-    if (!current.model) {
-      setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
+  const runSendText = useCallback(async (
+    text: string,
+    session: AgentSession,
+    queuedSession?: AgentSession,
+  ) => {
+    if (!session.model) {
+      setStatusFor(session.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
       return
     }
-    const chatRoute = resolveChatRoute(current, true)
+    const chatRoute = resolveChatRoute(session, true)
     if (!chatRoute) {
-      setStatusFor(current.id, {
+      setStatusFor(session.id, {
         kind: 'error',
-        message: `没有可用的模型服务提供「${shownModel || current.model}」：请在模型服务里勾选该模型或补好模型映射`,
+        message: `没有可用的模型服务提供「${session.model}」：请在模型服务里勾选该模型或补好模型映射`,
       })
       return
     }
     const operationId = createId('op')
     const controller = new AbortController()
-    abortRefs.current.set(current.id, controller)
-    setStatusFor(current.id, { kind: 'thinking' })
-    autoRunRef.current.set(current.id, current.autoRun === true)
+    abortRefs.current.set(session.id, controller)
+    setStatusFor(session.id, { kind: 'thinking' })
+    autoRunRef.current.set(session.id, session.autoRun === true)
 
     /**
      * 发消息前先问一次「这个对话模型到底会不会 tool_calls」。
@@ -952,8 +972,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             trace: directTextTrace({
               projectId: store.getSnapshot().projectId,
               workbench: 'canvas',
-              subjectId: current.id,
-              scopeId: `session:${current.id}`,
+              subjectId: session.id,
+              scopeId: `session:${session.id}`,
               operationId,
               purpose: 'agent-tool-probe',
               channelId: req.channelId,
@@ -977,7 +997,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (controller.signal.aborted) return
     const decision = decideToolMode(support)
     if (decision.kind === 'error') {
-      setStatusFor(current.id, { kind: 'error', message: decision.message })
+      setStatusFor(session.id, { kind: 'error', message: decision.message })
       return
     }
     /**
@@ -985,11 +1005,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 不能因为探测缓存已命中就中途切回原生 tools（那样模型又会「无法调用工具」）。
      */
     const toolMode = decision.mode
-    toolModeRef.current.set(current.id, toolMode)
-    const sentAssetIds = current.pendingAssetIds ?? []
-    setDraft('')
+    toolModeRef.current.set(session.id, toolMode)
+    const sentAssetIds = session.pendingAssetIds ?? []
     if (sentAssetIds.length > 0) {
-      await patchSession({ pendingAssetIds: [] })
+      const cleared = await sessions.clearPendingAssetIds(session.id, sentAssetIds)
+      if (cleared) {
+        setList((prev) => prev.map((item) => (item.id === cleared.id ? cleared : item)))
+        if (currentIdRef.current === cleared.id) setCurrent(cleared)
+      }
     }
 
     const summary = readGraphSummary(store, 'all', selection)
@@ -1003,7 +1026,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 拼接本身放在 `buildAgentSystemPromptWithContext` 里，不在这儿现拼：
      * 「技能正文到底进没进提示词」只能靠发出去的消息证明，抽成纯函数才有单测。
      */
-    const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
+    const skill = session.skillId ? allSkills.find((s) => s.id === session.skillId) : undefined
     /**
      * 这句话里 @ 引用了什么（节点 / 模型）。空数组就不加那一段。
      *
@@ -1031,8 +1054,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       })
     /** 用户点选的三档模型里的图片 / 视频那两个（对话模型由 `inherited` 报） */
     const mediaModels = {
-      ...(current.imageModel ? { image: current.imageModel } : {}),
-      ...(current.videoModel ? { video: current.videoModel } : {}),
+      ...(session.imageModel ? { image: session.imageModel } : {}),
+      ...(session.videoModel ? { video: session.videoModel } : {}),
     }
     /**
      * 这次 @ 到了几张**有图**的节点 —— 「该不该一张图一条流程」要看**图数**
@@ -1083,8 +1106,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * ⚠️ 这条窗口**早就写在 `sessionStore.contextFor` 里**，但面板从来没调用过 ——
      * 所以在此之前发出去的其实是**全部历史**，历史越长请求越重。
      */
-    const history = messages.filter((m) => m.role !== 'system')
-    const windowSize = current.contextWindow ?? AGENT_CONTEXT_WINDOW
+    const history = (queuedSession?.messages ?? messages).filter((m) => m.role !== 'system')
+    const windowSize = session.contextWindow ?? AGENT_CONTEXT_WINDOW
     const cut = Math.max(0, history.length - windowSize)
     const hidden = history.slice(0, cut)
     const visible = trimOrphanToolMessages(history.slice(cut))
@@ -1116,14 +1139,17 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ])],
       },
     ]
-    setMessages(withSystem)
+    if (currentIdRef.current === session.id) {
+      setDraft('')
+      setMessages(withSystem)
+    }
     const visualNodeIds = [...new Set([
       ...sentAssetIds,
       ...mentions
         .filter((mention): mention is MentionRef & { kind: 'node' } => mention.kind === 'node')
         .map((mention) => mention.id),
     ])]
-    const currentLoopDeps = loopDeps(current, operationId, toolMode, visualNodeIds)
+    const currentLoopDeps = loopDeps(session, operationId, toolMode, visualNodeIds)
     let outcome = await runAgentTurn(withSystem, currentLoopDeps)
     /**
      * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
@@ -1135,17 +1161,17 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     let autoSteps = 0
     while (
       outcome.kind === 'confirm' &&
-      autoRunRef.current.get(current.id) === true &&
+      autoRunRef.current.get(session.id) === true &&
       autoSteps < AUTO_RUN_LIMIT
     ) {
       autoSteps += 1
-      setStatusFor(current.id, { kind: 'executing' })
+      setStatusFor(session.id, { kind: 'executing' })
       const done = await executeConfirmedTool(
         outcome.request.name,
         outcome.request.args,
         toolCtx(originOf(viewport)),
       )
-      if (currentIdRef.current === current.id) setMessages(withHidden(outcome.messages))
+      if (currentIdRef.current === session.id) setMessages(withHidden(outcome.messages))
       outcome = await resumeAgentTurn(
         outcome.messages,
         outcome.request.callId,
@@ -1154,9 +1180,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.request.name,
       )
     }
-    await handleOutcome(current, outcome, hidden)
+    await handleOutcome(session, outcome, hidden)
   }, [
-    current,
     messages,
     store,
     selection,
@@ -1167,14 +1192,120 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     toolCtx,
     viewport,
     resolveChatRoute,
-    shownModel,
+    sessions,
     generationAvailability,
   ])
 
-  /** 输入框那条路：把草稿交给 `sendText` */
+  const sendText = useCallback(async (raw: string, queuedSession?: AgentSession) => {
+    const text = raw.trim()
+    const session = queuedSession ?? current
+    if (!text || !session || activeAgentTurnsRef.current.has(session.id)) return
+    activeAgentTurnsRef.current.add(session.id)
+    try {
+      await runSendText(text, session, queuedSession)
+    } catch (error) {
+      const aborted = abortRefs.current.get(session.id)?.signal.aborted === true
+      setStatusFor(
+        session.id,
+        aborted ? IDLE_STATUS : { kind: 'error', message: errText(error) },
+      )
+    } finally {
+      activeAgentTurnsRef.current.delete(session.id)
+    }
+  }, [current, runSendText, setStatusFor])
+
+  const applySessionSnapshot = useCallback((next: AgentSession) => {
+    setList((prev) => prev.map((item) => (item.id === next.id ? next : item)))
+    if (currentIdRef.current === next.id) setCurrent(next)
+  }, [])
+
+  const queueText = useCallback(async (raw: string) => {
+    if (!current) return false
+    const text = raw.trim()
+    if (!text) return false
+    if (!current.model) {
+      setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
+      return false
+    }
+    const turn: QueuedAgentTurn = {
+      id: createId('turn'),
+      text,
+      createdAt: Date.now(),
+      channelId: current.channelId,
+      model: current.model,
+      ...(current.imageModel ? { imageModel: current.imageModel } : {}),
+      ...(current.videoModel ? { videoModel: current.videoModel } : {}),
+      ...(current.skillId ? { skillId: current.skillId } : {}),
+      ...(current.autoRun === true ? { autoRun: true } : {}),
+      ...(current.pendingAssetIds?.length
+        ? { pendingAssetIds: [...current.pendingAssetIds] }
+        : {}),
+    }
+    const queued = await sessions.enqueueTurn(current.id, turn)
+    if (!queued.ok) {
+      if (queued.reason === 'full') {
+        store.notify('排队任务已达上限，请先处理或删除队列中的任务', 'error')
+      }
+      return false
+    }
+    queueAutoDrainRef.current.add(current.id)
+    applySessionSnapshot(queued.session)
+    if (currentIdRef.current === current.id) {
+      setDraft((value) => (value.trim() === text ? '' : value))
+    }
+    return true
+  }, [applySessionSnapshot, current, sessions, setStatusFor, store])
+
+  const removeQueued = useCallback(async (turnId: string) => {
+    if (!current) return
+    const next = await sessions.removeQueuedTurn(current.id, turnId)
+    if (next) applySessionSnapshot(next)
+  }, [applySessionSnapshot, current, sessions])
+
+  const pumpQueuedTurn = useCallback(async (sessionId: string) => {
+    if (queuePumpingRef.current.has(sessionId)) return
+    queuePumpingRef.current.add(sessionId)
+    try {
+      const next = await sessions.takeNextQueuedTurn(sessionId)
+      if (!next) {
+        queueAutoDrainRef.current.delete(sessionId)
+        return
+      }
+      applySessionSnapshot(next.session)
+      if (next.session.queuedTurns.length > 0) queueAutoDrainRef.current.add(sessionId)
+      else queueAutoDrainRef.current.delete(sessionId)
+      await sendText(next.turn.text, sessionForQueuedTurn(next.session, next.turn))
+    } finally {
+      queuePumpingRef.current.delete(sessionId)
+    }
+  }, [applySessionSnapshot, sendText, sessions])
+
+  queuePumpRef.current = (sessionId) => {
+    if (!queueAutoDrainRef.current.has(sessionId)) return
+    void pumpQueuedTurn(sessionId)
+  }
+
+  const resumeQueue = useCallback(() => {
+    if (!current) return
+    queueAutoDrainRef.current.add(current.id)
+    void pumpQueuedTurn(current.id)
+  }, [current, pumpQueuedTurn])
+
+  useEffect(() => {
+    if (!current || status.kind !== 'idle') return
+    if (!queueAutoDrainRef.current.has(current.id)) return
+    void pumpQueuedTurn(current.id)
+  }, [current, status.kind, pumpQueuedTurn])
+
+  /** 输入框那条路：空闲就执行，忙碌就排队，绝不在同一会话并发启动两个回合。 */
   const send = useCallback(() => {
+    if (!draft.trim()) return
+    if (statusIsBusy(status) || (current && activeAgentTurnsRef.current.has(current.id))) {
+      void queueText(draft)
+      return
+    }
     void sendText(draft)
-  }, [draft, sendText])
+  }, [current, draft, queueText, sendText, status])
 
   /**
    * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
@@ -1183,8 +1314,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const retry = useCallback(() => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     if (!lastUser) return
-    void sendText(lastUser.display ?? lastUser.content)
-  }, [messages, sendText])
+    const text = lastUser.display ?? lastUser.content
+    if (statusIsBusy(status) || (current && activeAgentTurnsRef.current.has(current.id))) {
+      void queueText(text)
+    } else void sendText(text)
+  }, [current, messages, queueText, sendText, status])
 
   /** 复制一条助手回复；剪贴板被拒时静默 —— 不弹一个用户看不懂的错误 */
   const copyReply = useCallback(async (key: number, text: string) => {
@@ -1248,9 +1382,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const stop = useCallback(() => {
     if (!current) return
+    queueAutoDrainRef.current.delete(current.id)
     abortRefs.current.get(current.id)?.abort()
     setStatusFor(current.id, IDLE_STATUS)
-  }, [current, setStatusFor])
+    if ((current.queuedTurns?.length ?? 0) > 0) {
+      store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
+    }
+  }, [current, setStatusFor, store])
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
@@ -2117,6 +2255,59 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         </div>
       )}
 
+      {current && current.queuedTurns.length > 0 && (
+        <div
+          className={styles.queue}
+          data-agent-queue
+          data-agent-queue-count={current.queuedTurns.length}
+        >
+          <div className={styles.queueHead}>
+            <button
+              type="button"
+              className={styles.queueToggle}
+              onClick={() => setQueueExpanded((value) => !value)}
+              data-agent-queue-toggle
+            >
+              <span className={styles.queueDot} aria-hidden="true" />
+              <span>{current.queuedTurns.length} 条排队中</span>
+              <IconChevronDown
+                size={14}
+                className={queueExpanded ? styles.queueChevronOpen : styles.queueChevron}
+              />
+            </button>
+            {(status.kind === 'idle' || status.kind === 'error') && (
+              <button
+                type="button"
+                className={styles.queueResume}
+                onClick={resumeQueue}
+                data-agent-queue-resume
+              >
+                继续
+              </button>
+            )}
+          </div>
+          {queueExpanded && (
+            <div className={styles.queueList}>
+              {current.queuedTurns.map((turn, index) => (
+                <div key={turn.id} className={styles.queueItem} data-agent-queue-item={turn.id}>
+                  <span className={styles.queueIndex}>{index + 1}</span>
+                  <span className={styles.queueText}>{queuedTurnPreview(turn.text)}</span>
+                  <button
+                    type="button"
+                    className={styles.queueRemove}
+                    onClick={() => void removeQueued(turn.id)}
+                    title="移出队列"
+                    data-agent-queue-remove
+                  >
+                    <IconClose size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/*
         对话模型 = **agent 自己的 LLM**，单独一处（用户 2026-10-02：「对话模型是
         agent 的 llm，需要单独放在一个地方」）。
@@ -2593,7 +2784,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
             与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
           */}
-          {status.kind === 'thinking' || status.kind === 'executing' ? (
+          {(status.kind === 'thinking' ||
+            status.kind === 'toolRunning' ||
+            status.kind === 'executing') && (
             <button
               type="button"
               className={`${styles.send} ${styles.sendBusy}`}
@@ -2603,19 +2796,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             >
               <IconClose size={16} />
             </button>
-          ) : draft.trim() ? (
+          )}
+          {draft.trim() ? (
             <button
               type="button"
               className={`${styles.send} ${styles.sendActive}`}
               onClick={() => void send()}
-              title="发送"
+              title={statusIsBusy(status) ? '加入队列' : '发送'}
               data-agent-send
             >
               <IconArrowUp size={16} />
             </button>
-          ) : (
+          ) : !statusIsBusy(status) ? (
             <span className={styles.sendIdle} data-agent-send-idle aria-hidden="true" />
-          )}
+          ) : null}
         </div>
 
         <input

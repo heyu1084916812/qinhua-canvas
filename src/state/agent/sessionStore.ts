@@ -1,6 +1,13 @@
 import type { ChatMessage } from '../../domain/shared/execution/types'
 import type { StoragePort, RowOf } from '../../platform/ports'
 import { createId } from '../../shared/id'
+import {
+  enqueueAgentTurn,
+  normalizeQueuedTurns,
+  removeAgentTurn,
+  takeNextAgentTurn,
+  type QueuedAgentTurn,
+} from '../../domain/agent/queuedTurn'
 
 /**
  * Agent 会话存储（设计文档 §8 / §12）。
@@ -68,6 +75,12 @@ export interface AgentSession {
    * 而不是把图片塞进对话上下文里再让它猜。
    */
   pendingAssetIds?: string[]
+  /**
+   * 当前回合尚未结束时，用户继续提交的任务。
+   *
+   * 队列随会话落库，切走会话或关闭面板不会丢；任务真正开始时才取队首。
+   */
+  queuedTurns: QueuedAgentTurn[]
   /** **全部历史**（展示与回溯）。发给模型的是它的窗口，见 `contextFor` */
   messages: ChatMessage[]
   createdAt: number
@@ -80,6 +93,7 @@ export const AGENT_CONTEXT_WINDOW = 20
 export interface AgentSessionStore {
   /** 列某个项目的会话（新的在前） */
   list(projectId: string): Promise<AgentSession[]>
+  get(id: string): Promise<AgentSession | null>
   create(input: {
     projectId: string
     channelId: string
@@ -93,6 +107,20 @@ export interface AgentSessionStore {
     skillId?: string
   }): Promise<AgentSession>
   save(session: AgentSession): Promise<void>
+  /**
+   * 只更新历史消息。
+   *
+   * 回合执行期间用户可能继续入队；如果结束时拿开局那份旧 session 整行覆盖，
+   * 后入队的任务会被悄悄抹掉。所有后台写回都走这里，只改自己拥有的字段。
+   */
+  saveMessages(id: string, messages: ChatMessage[]): Promise<AgentSession | null>
+  clearPendingAssetIds(id: string, assetIds: readonly string[]): Promise<AgentSession | null>
+  enqueueTurn(
+    id: string,
+    turn: QueuedAgentTurn,
+  ): Promise<{ ok: true; session: AgentSession } | { ok: false; reason: 'missing' | 'empty' | 'full' }>
+  removeQueuedTurn(id: string, turnId: string): Promise<AgentSession | null>
+  takeNextQueuedTurn(id: string): Promise<{ session: AgentSession; turn: QueuedAgentTurn } | null>
   rename(id: string, title: string): Promise<void>
   remove(id: string): Promise<void>
   /**
@@ -122,6 +150,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     ...(Array.isArray(row.pendingAssetIds) && row.pendingAssetIds.length > 0
       ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
       : {}),
+    queuedTurns: normalizeQueuedTurns(row.queuedTurns),
     messages: asMessages(row.messages),
     createdAt: Number(row.createdAt ?? 0),
     updatedAt: Number(row.updatedAt ?? 0),
@@ -133,6 +162,8 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
   }
 
   return {
+    get: find,
+
     async list(projectId) {
       const rows = await storage.query('agentSessions', { projectId })
       return rows.map(toSession).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -149,6 +180,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         ...(imageModel ? { imageModel } : {}),
         ...(videoModel ? { videoModel } : {}),
         ...(skillId ? { skillId } : {}),
+        queuedTurns: [],
         messages: [],
         createdAt: now,
         updatedAt: now,
@@ -162,6 +194,60 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         'agentSessions',
         { ...session, updatedAt: Date.now() } as unknown as RowOf<'agentSessions'>,
       )
+    },
+
+    async saveMessages(id, messages) {
+      const latest = await find(id)
+      if (!latest) return null
+      const next = { ...latest, messages, updatedAt: Date.now() }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return next
+    },
+
+    async clearPendingAssetIds(id, assetIds) {
+      const latest = await find(id)
+      if (!latest) return null
+      const sent = new Set(assetIds)
+      const pending = (latest.pendingAssetIds ?? []).filter((assetId) => !sent.has(assetId))
+      const next = {
+        ...latest,
+        ...(pending.length > 0 ? { pendingAssetIds: pending } : { pendingAssetIds: undefined }),
+        updatedAt: Date.now(),
+      }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return next
+    },
+
+    async enqueueTurn(id, turn) {
+      const latest = await find(id)
+      if (!latest) return { ok: false, reason: 'missing' }
+      const queued = enqueueAgentTurn(latest.queuedTurns, turn)
+      if (!queued.ok) return { ok: false, reason: queued.reason }
+      const next = { ...latest, queuedTurns: queued.turns, updatedAt: Date.now() }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return { ok: true, session: next }
+    },
+
+    async removeQueuedTurn(id, turnId) {
+      const latest = await find(id)
+      if (!latest) return null
+      const next = {
+        ...latest,
+        queuedTurns: removeAgentTurn(latest.queuedTurns, turnId),
+        updatedAt: Date.now(),
+      }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return next
+    },
+
+    async takeNextQueuedTurn(id) {
+      const latest = await find(id)
+      if (!latest) return null
+      const next = takeNextAgentTurn(latest.queuedTurns)
+      if (!next.turn) return null
+      const session = { ...latest, queuedTurns: next.turns, updatedAt: Date.now() }
+      await storage.put('agentSessions', session as unknown as RowOf<'agentSessions'>)
+      return { session, turn: next.turn }
     },
 
     async rename(id, title) {

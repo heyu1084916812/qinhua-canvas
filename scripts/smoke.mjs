@@ -40272,7 +40272,154 @@ async function g735(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735]
+/**
+ * G769 会话级持久队列。
+ *
+ * 这里直接种会话行而不是跑真实模型：本组要证明的是“队列能读回、卡能展开、
+ * 单项能删、关掉面板还在”，网络与生成链路由别的组覆盖。用固定项目 / 会话 id，
+ * 结束后删干净，避免污染共享夹具。
+ */
+async function g769(browser) {
+  const g = 'G769 Agent 持久队列'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const projectId = 'p-agent-queue'
+  const sessionId = 'chat-agent-queue'
+  const now = Date.now()
+
+  try {
+    await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+    await sharedPut(page, 'projects', {
+      id: projectId,
+      name: 'Agent 队列验证',
+      workbench: 'canvas',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await sharedPut(page, 'agentSessions', {
+      id: sessionId,
+      projectId,
+      title: '持久队列',
+      channelId: '',
+      model: 'GPT-6 Astra',
+      imageModel: 'GPT Image 2',
+      messages: [],
+      queuedTurns: [
+        {
+          id: 'turn-1',
+          text: '生成小猫钓鱼插画',
+          createdAt: now,
+          channelId: '',
+          model: 'GPT-6 Astra',
+          imageModel: 'GPT Image 2',
+        },
+        {
+          id: 'turn-2',
+          text: '再生成一张小猫捉蝴蝶',
+          createdAt: now + 1,
+          channelId: '',
+          model: 'GPT-6 Astra',
+          imageModel: 'GPT Image 2',
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await page.goto(`${BASE}/canvas/${projectId}`, { waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-queue]').waitFor({ state: 'visible', timeout: 10000 })
+    rec(
+      g,
+      '★★ 队列随会话读回，不提前混进消息正文',
+      (await page.locator('[data-agent-queue]').getAttribute('data-agent-queue-count')) === '2' &&
+        (await page.locator('[data-agent-message="user"]').count()) === 0,
+    )
+
+    await page.locator('[data-agent-queue-toggle]').click()
+    await page.locator('[data-agent-queue-item]').first().waitFor({ state: 'visible', timeout: 5000 })
+    rec(
+      g,
+      '★ 队列卡可展开并显示两条任务',
+      (await page.locator('[data-agent-queue-item]').count()) === 2,
+    )
+
+    await page.locator('[data-agent-queue-remove]').first().click()
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('[data-agent-queue-item]').length === 1,
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => {})
+    const afterRemove = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 单项移出立即落库，另一条不动',
+      afterRemove?.queuedTurns?.length === 1 && afterRemove.queuedTurns[0]?.id === 'turn-2',
+      `剩余=${afterRemove?.queuedTurns?.map((turn) => turn.id).join(',') ?? '无'}`,
+    )
+
+    await page.screenshot({ path: `${OUT}/769-agent-queue.png` })
+    await page.locator('[data-agent-close]').click()
+    await page.locator('[data-canvas-agent]').waitFor({ state: 'visible', timeout: 5000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-queue]').waitFor({ state: 'visible', timeout: 10000 })
+    rec(
+      g,
+      '★★ 关闭再打开 Agent，剩余队列仍存在',
+      (await page.locator('[data-agent-queue]').getAttribute('data-agent-queue-count')) === '1',
+    )
+
+    if ((await page.locator('[data-agent-queue-item]').count()) === 0) {
+      await page.locator('[data-agent-queue-toggle]').click()
+    }
+    await page.setViewportSize({ width: 1024, height: 700 })
+    await sleep(300)
+    const narrow = await page.evaluate(() => {
+      const queue = document.querySelector('[data-agent-queue]')?.getBoundingClientRect()
+      const composer = document.querySelector('[data-agent-composer]')?.getBoundingClientRect()
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        queueFits:
+          !!queue &&
+          !!composer &&
+          queue.left >= composer.left - 1 &&
+          queue.right <= composer.right + 1,
+      }
+    })
+    rec(
+      g,
+      '★ 1024×700 下队列卡不溢出输入区或页面',
+      narrow.overflow <= 0 && narrow.queueFits,
+      JSON.stringify(narrow),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-queue-1024.png` })
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await sleep(250)
+
+    await page.locator('[data-agent-queue-remove]').click()
+    await page.locator('[data-agent-queue]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+    const afterClear = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '队列清空后不残留 UI 或数据库条目',
+      (await page.locator('[data-agent-queue]').count()) === 0 &&
+        Array.isArray(afterClear?.queuedTurns) &&
+        afterClear.queuedTurns.length === 0,
+    )
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
+    await sharedDelete(page, 'projects', projectId).catch(() => {})
+    await ctx.close()
+  }
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

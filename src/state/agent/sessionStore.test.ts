@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
+import type { QueuedAgentTurn } from '../../domain/agent/queuedTurn'
 import { AGENT_CONTEXT_WINDOW, createAgentSessionStore } from './sessionStore'
 
 /**
@@ -120,5 +121,60 @@ describe('Agent 会话 · 隔离（最容易出错的地方）', () => {
   it('★ 会话不存在时上下文是空的（不抛错，也不拿别人的顶上）', async () => {
     const s = store()
     expect(await s.contextFor('nope')).toEqual([])
+  })
+})
+
+describe('Agent 会话 · 待执行任务队列', () => {
+  const turn = (id: string, text = `任务 ${id}`): QueuedAgentTurn => ({
+    id,
+    text,
+    createdAt: Number(id),
+    channelId: 'channel-a',
+    model: 'chat-a',
+  })
+
+  it('队列随会话落库，切走或重开仍能读回', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    const queued = await s.enqueueTurn(a.id, turn('1'))
+    expect(queued.ok).toBe(true)
+
+    const reopened = createAgentSessionStore(storage)
+    expect((await reopened.get(a.id))?.queuedTurns.map((item) => item.id)).toEqual(['1'])
+  })
+
+  it('★★ 消息写回只更新 messages，不会把运行中后来入队的任务整行覆盖掉', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    const queued = await s.enqueueTurn(a.id, turn('1'))
+    expect(queued.ok).toBe(true)
+
+    const saved = await s.saveMessages(a.id, [{ role: 'user', content: '正在执行的回合' }])
+    expect(saved?.messages.map((message) => message.content)).toEqual(['正在执行的回合'])
+    expect(saved?.queuedTurns.map((item) => item.id)).toEqual(['1'])
+  })
+
+  it('FIFO 取队首；删除单项只影响指定任务', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1'))
+    await s.enqueueTurn(a.id, turn('2'))
+    await s.enqueueTurn(a.id, turn('3'))
+
+    await s.removeQueuedTurn(a.id, '2')
+    const first = await s.takeNextQueuedTurn(a.id)
+    expect(first?.turn.id).toBe('1')
+    expect(first?.session.queuedTurns.map((item) => item.id)).toEqual(['3'])
+    expect((await s.takeNextQueuedTurn(a.id))?.turn.id).toBe('3')
+    expect(await s.takeNextQueuedTurn(a.id)).toBeNull()
+  })
+
+  it('后台回合只清理已发送的素材引用，不误删运行中后来附加的素材', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.save({ ...a, pendingAssetIds: ['sent', 'new'] })
+    const next = await s.clearPendingAssetIds(a.id, ['sent'])
+    expect(next?.pendingAssetIds).toEqual(['new'])
   })
 })
