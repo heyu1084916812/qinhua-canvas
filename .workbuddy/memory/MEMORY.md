@@ -37,6 +37,22 @@
 - A3/A4 验证：全量 3247/1 skipped、Rust 32/32、check/build/真实 Tauri 门禁通过。
   G164 隔离电商 55/56，前 55 条含真实 mock 生成、落库、校验和日志；唯一红是既有失败卡
   “重新生成”尾段，不能在有 UI 冻结时顺手修改。
+- **执行器语义**：`RunPlan.tasks` 的数组顺序只负责稳定结算；只有 `dependsOn` 才是真执行前置。
+  画布批量 N 张必须保持零依赖并发，不能再用 `previousId` 把兄弟任务串行。任务完成后要立即
+  commit、写 RunRecord、广播状态，再让慢任务继续，不能整波等完才落库。
+- **漫剧业务真相**：图片、视频、后处理、语音和数字人已走独立 StoryboardExecutionProvider；
+  CanvasHost 只保留投影/已铺节点配置。`StoryboardRunTask.nodeId = subject.id`，parentRunId 必须是
+  已落库的真实记录 id。视频后处理查同镜头上一条成功视频；数字人查首句最近 speech 记录。
+- **项目级写队列**：`storyboardStore` 用 storage 实例 + projectId 共享串行写队列，load 前等待
+  队列收口。执行器旧快照不能整份覆盖页面新编辑；只合并 asset/image/video/audio 业务字段。
+- **公共层边界**：共享几何在 `domain/shared/geometry`，图片参数在
+  `domain/shared/modelParams/imageParams`，视频参数在 `domain/storyboard/videoParams`，素材下载在
+  `features/shared/assets/downloadAsset`。画布旧路径只做 re-export。
+- **架构反测**：`scripts/check-architecture-rules.mjs` 在临时目录故意放入 storyboard/ecommerce
+  直引画布、shared 直引工作台三类违规 import；dependency-cruiser 必须失败且命中规则名。当前
+  `npm run check` 已包含此反测，不能只凭正常源码 0 违规冒充覆盖完整。
+- 2026-10-26 阶段验证：全量 Vitest **3315 passed / 1 skipped**，check/build、真实 Tauri
+  `1440×900 / 1024×700 / 1178×762` 门禁通过。UI 基线比较仍待 `199a6d9` 黄金截图。
 
 ### 短视口侧栏项目树（2026-10-26 → 对账 #768）
 
