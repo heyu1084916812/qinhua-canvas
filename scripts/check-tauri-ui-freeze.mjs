@@ -83,6 +83,13 @@ export function hashSnapshot(value) {
   return sha256(stableJson(value))
 }
 
+export function normalizeVolatileText(value) {
+  return String(value).replace(
+    /\d+\s*(秒|分钟|小时|天|周|个月|年)\s*前/g,
+    'N $1前',
+  )
+}
+
 function formatRect(rect) {
   if (!rect) return 'missing'
   return `${rect.x.toFixed(1)},${rect.y.toFixed(1)} ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}`
@@ -181,6 +188,15 @@ export function diffDomSnapshots(expected, actual, limit = 40) {
   function walk(left, right, pointer) {
     if (differences.length >= limit) return
     if (Object.is(left, right)) return
+    if (typeof left === 'string' && typeof right === 'string') {
+      const normalizedLeft = normalizeVolatileText(left)
+      const normalizedRight = normalizeVolatileText(right)
+      if (normalizedLeft === normalizedRight) return
+      differences.push(
+        `${pointer || '$'}: baseline=${shortJson(normalizedLeft)} current=${shortJson(normalizedRight)}`,
+      )
+      return
+    }
 
     if (Array.isArray(left) && Array.isArray(right)) {
       if (left.length !== right.length) {
@@ -804,6 +820,39 @@ async function readDomSnapshot(session) {
   return session.evaluate(READ_DOM_SNAPSHOT_EXPRESSION)
 }
 
+async function readVolatileTextRects(session) {
+  return session.evaluate(`(() => {
+    const pattern = /\\d+\\s*(秒|分钟|小时|天|周|个月|年)\\s*前/
+    const isVisible = (element) => {
+      const style = getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity) > 0.01 &&
+        rect.width > 0 &&
+        rect.height > 0
+      )
+    }
+    return Array.from(document.querySelectorAll('body *'))
+      .filter(
+        (element) =>
+          element.children.length === 0 &&
+          pattern.test(element.textContent ?? '') &&
+          isVisible(element),
+      )
+      .map((element) => {
+        const rect = element.getBoundingClientRect()
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        }
+      })
+  })()`)
+}
+
 async function readGeometry(session) {
   return session.evaluate(`(() => {
     const rectOf = (element) => {
@@ -939,12 +988,14 @@ async function captureViewport(session, viewport) {
   const geometry = await readGeometry(session)
   await stabilizeForCapture(session)
   const dom = await readDomSnapshot(session)
+  const volatileTextRects = await readVolatileTextRects(session)
   const screenshot = await captureScreenshot(session, `${viewport.name}.png`)
   return {
     viewport,
     geometry,
     dom,
     domHash: hashSnapshot(dom),
+    volatileTextRects,
     screenshot,
   }
 }
@@ -1248,7 +1299,10 @@ async function compareWithBaseline(session, baseline, captures) {
       session,
       baselineViewport.buffer,
       capture.screenshot.buffer,
-      capture.dom.decorativeImages?.map((image) => image.rect) ?? [],
+      [
+        ...(capture.dom.decorativeImages?.map((image) => image.rect) ?? []),
+        ...(capture.volatileTextRects ?? []),
+      ],
       capture.viewport.width,
     )
     const imageGate = evaluateImageDiff(rawDiff)

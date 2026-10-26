@@ -5,6 +5,7 @@ import {
   evaluateImageDiff,
   evaluateRuntimeEvents,
   hashSnapshot,
+  normalizeVolatileText,
   stableJson,
 } from './check-tauri-ui-freeze.mjs'
 
@@ -121,6 +122,16 @@ describe('DOM snapshot comparison', () => {
 
   it('returns no differences for equal snapshots', () => {
     expect(diffDomSnapshots({ a: [1, 2] }, { a: [1, 2] })).toEqual([])
+  })
+
+  it('normalizes relative dates without hiding surrounding layout data', () => {
+    expect(normalizeVolatileText('画布 5 天前')).toBe('画布 N 天前')
+    expect(
+      diffDomSnapshots(
+        { visibleText: '画布 5 天前', rect: { width: 216 } },
+        { visibleText: '画布 6 天前', rect: { width: 216 } },
+      ),
+    ).toEqual([])
   })
 })
 
