@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset } from '../../features/shared/assets/index'
 import { filterCases, tagCounts, type InspirationCase } from '../../domain/inspiration/cases'
 import { createInspirationRepository } from '../../state/project/inspirationRepository'
 import {

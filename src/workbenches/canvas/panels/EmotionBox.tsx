@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_EMOTION_ID, EMOTIONS, emotionById } from '../../../domain/canvas/layout/presets'
 import { IconClose } from '../toolbar/icons'
-import { useAsset } from '../hooks/useAsset'
+import { useAsset } from '../../../features/shared/assets/index'
 import styles from './EmotionBox.module.css'
 
 /**

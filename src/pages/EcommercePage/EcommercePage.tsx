@@ -9,7 +9,7 @@ import {
   CanvasExecutionProvider,
   useCanvasExecution,
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAssetMeta } from '../../features/shared/assets/index'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
 import { openGlobalSettings } from '../../state/ui/globalSettings'

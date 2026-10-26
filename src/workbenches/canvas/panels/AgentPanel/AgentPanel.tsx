@@ -93,7 +93,7 @@ import {
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { errText } from '../../agent/agentLoop'
-import { loadAssetUrl, useAsset } from '../../hooks/useAsset'
+import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
  * 参数控件与档位表**与创作面板共用同一份**（不各写一套）。

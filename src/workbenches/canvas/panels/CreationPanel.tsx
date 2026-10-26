@@ -7,7 +7,7 @@ import { customSizeIssue } from '../../../domain/canvas/layout/customSize'
 import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
-import { useAsset } from '../hooks/useAsset'
+import { useAsset } from '../../../features/shared/assets/index'
 import {
   MentionEditor,
   mentionToken,

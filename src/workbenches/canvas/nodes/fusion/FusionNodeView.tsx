@@ -36,7 +36,7 @@
  */
 import type { InputPortAsset, NodeViewProps } from '../registry'
 import type { FusionData } from '../../../../domain/canvas/model/node'
-import { useAssetThumbUrl } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../../../features/shared/assets/index'
 import styles from './FusionNodeView.module.css'
 
 export function FusionNodeView(props: NodeViewProps) {

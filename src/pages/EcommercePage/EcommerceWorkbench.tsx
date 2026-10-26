@@ -34,7 +34,7 @@ import { workbenchBlankDragIntent } from '../../domain/ecommerce/workbenchGestur
 import {
   useAssetMeta,
   useAssetPreview,
-} from '../../workbenches/canvas/hooks/useAsset'
+} from '../../features/shared/assets/index'
 import styles from './EcommerceWorkbench.module.css'
 
 type WorkbenchTool = 'select' | 'hand'

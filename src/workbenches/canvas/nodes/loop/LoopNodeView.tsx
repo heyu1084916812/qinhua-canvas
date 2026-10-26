@@ -37,7 +37,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
 import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
-import { useAssetThumbUrl } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../../../features/shared/assets/index'
 import { TokenEditor, type TokenEditorHandle } from '../../text/TokenEditor'
 import styles from './LoopNodeView.module.css'
 import { loopImageStatusText } from '../../../../domain/canvas/loop/loopImageStatus'

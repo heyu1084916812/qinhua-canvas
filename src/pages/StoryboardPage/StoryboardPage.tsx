@@ -15,7 +15,7 @@ import {
   CanvasExecutionProvider,
   useCanvasExecution,
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
-import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset, useAssetMeta } from '../../features/shared/assets/index'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { videoParamsFor } from '../../domain/canvas/layout/videoParams'

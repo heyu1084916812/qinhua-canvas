@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
-import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset, useAssetMeta } from '../../features/shared/assets/index'
 import {
   dialogueTextOf,
   timelineLineSpans,

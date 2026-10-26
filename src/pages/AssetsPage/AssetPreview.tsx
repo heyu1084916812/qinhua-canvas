@@ -17,7 +17,7 @@ import {
   extractPaletteFromUrl,
   paletteTextFor,
 } from '../../domain/shared/colorPalette'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAssetMeta } from '../../features/shared/assets/index'
 import styles from './AssetsPage.module.css'
 
 /**

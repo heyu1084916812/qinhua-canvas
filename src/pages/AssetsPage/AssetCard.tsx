@@ -6,7 +6,7 @@ import {
 } from '../../domain/shared/assetLibrary'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import type { AssetsView } from '../../state/project/assetLibraryStore'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAssetMeta } from '../../features/shared/assets/index'
 import styles from './AssetsPage.module.css'
 
 /**

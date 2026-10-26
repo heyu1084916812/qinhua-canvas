@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { EcommerceLongImageTools } from '../../workbenches/ecommerce/EcommerceStudio'
-import { loadAssetUrl } from '../../workbenches/canvas/hooks/useAsset'
+import { loadAssetUrl } from '../../features/shared/assets/index'
 import { addTile, moveTile, planLongImage, removeTile } from '../../domain/ecommerce/longImage'
 import styles from './LongImagePanel.module.css'
 

@@ -5,7 +5,7 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from 'react'
 import { useCanvasStore } from '../storeContext'
-import { useAssetMeta } from '../hooks/useAsset'
+import { useAssetMeta } from '../../../features/shared/assets/index'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { Viewport } from '../../../domain/canvas/geometry/coords'

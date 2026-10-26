@@ -26,7 +26,7 @@ import {
 } from '../../domain/project/selection'
 import styles from './ProjectsPage.module.css'
 import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAssetMeta } from '../../features/shared/assets/index'
 
 /**
  * 回收站的"保留天数"（对账 #409）：超过这些天的项目会出现在「清理 N 天前」按钮上。

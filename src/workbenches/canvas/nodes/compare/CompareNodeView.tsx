@@ -2,7 +2,7 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { CompareData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
-import { useAssetThumbUrl } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../../../features/shared/assets/index'
 import { assetBoxCorrection } from '../../../../domain/canvas/layout/assetBoxCorrection'
 import styles from './CompareNodeView.module.css'
 

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { PlatformKit } from '../../platform/ports'
 import { createPlatform, detectRuntime, type RuntimeId } from '../../platform'
+import { AssetPlatformProvider } from '../../features/shared/assets/AssetPlatformContext'
 
 /**
  * 平台注入（架构 §5.6）：业务代码只接触 PlatformKit 端口，
@@ -37,7 +38,11 @@ export function PlatformProvider({
     if (typeof document === 'undefined') return
     document.documentElement.dataset.platform = resolved
   }, [resolved])
-  return <PlatformContext.Provider value={platform}>{children}</PlatformContext.Provider>
+  return (
+    <PlatformContext.Provider value={platform}>
+      <AssetPlatformProvider platform={platform}>{children}</AssetPlatformProvider>
+    </PlatformContext.Provider>
+  )
 }
 
 export function usePlatform(): PlatformKit {

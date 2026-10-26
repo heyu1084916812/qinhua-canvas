@@ -25,6 +25,9 @@
   落库或工作区投影失败只重试保存，不重新调用付费模型；批量任务逐项结算，部分成功不能被整批
   失败覆盖。验收必须同时证明功能、错误可解释、无重复付费、唯一数据真相、日志作用域、
   import 边界和旧项目兼容，并保留 mock 请求计数与 import 对比作为证据。
+- **阶段 1 已完成**：公共素材已迁到 `features/shared/assets/`，`assetReader.ts` 管非 React 读取、
+  `useAsset.ts` 管 Hook 生命周期；`AssetPlatformProvider` 从 `PlatformProvider` 注入平台，
+  共享层不再依赖 app Provider。旧画布路径只做兼容转出，页面和工作台调用方均已改公共入口。
 - 电商结果真源是 `ecommerceTasks` / `ecommerceResults`，`EcommerceCanvasItem` 只能做
   可重建投影；漫剧业务真源是 `storyboardStore`，“铺到画布”只能是显式投影。
 - `.dependency-cruiser.cjs` 仍在引用已删除的 comic；新规则必须清理旧项并覆盖

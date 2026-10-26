@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { InspirationCase } from '../../domain/inspiration/cases'
-import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset } from '../../features/shared/assets/index'
 import styles from './InspirationPage.module.css'
 
 /**
