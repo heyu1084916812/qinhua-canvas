@@ -69,6 +69,10 @@
   `useStoryboardVideoController.ts`。继续保留 20 分钟超时、直连留痕、视频 MIME 校验、
   新节点 / 旧边保留，以及视频编辑的参考图必填边界；控制器单测 5/5。页面降到 4206 行，
   全量 **3139 passed / 1 skipped**，check/build 通过。
+- **阶段 4D 入口与组件已拆**：`StoryboardPage.tsx` 只剩 9 行路由装配；项目水合与编辑器在
+  `StoryboardProject.tsx`（约 2474 行），`ShotCard`、资产行、BGM、媒体预览和图标各自独立。
+  这只是页面入口达标，不能把仍偏大的编辑器文件误报成阶段 4 完成；下一步继续抽媒体 /
+  生图编排控制器。全量 **3139 passed / 1 skipped**，build 通过。
 
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 
