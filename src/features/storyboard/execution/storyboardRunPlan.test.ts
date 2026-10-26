@@ -214,4 +214,67 @@ describe('buildStoryboardRunPlan', () => {
       }),
     ).toThrow('缺少模型')
   })
+
+  it('视频后处理以已有视频为输入，并按动作写入独立参数', () => {
+    const doc = fixture()
+    const withVideo: StoryboardDoc = {
+      ...doc,
+      shots: doc.shots.map((shot) => ({
+        ...shot,
+        videoHash: `video-${shot.id}`,
+      })),
+    }
+    const plan = buildStoryboardRunPlan({
+      doc: withVideo,
+      planId: 'plan-video-edit',
+      operationId: 'op-video-edit',
+      target: {
+        channelId: 'channel-video',
+        model: 'video-edit-model',
+        params: { quality: 'high' },
+      },
+      action: 'video-edit',
+      episodeId: withVideo.episodes[0]!.id,
+      shotIds: [withVideo.shots[0]!.id],
+      prompt: '把天空改成黄昏',
+      params: { resolution: '1080p' },
+      includeReferenceImage: true,
+    })
+
+    expect(plan.tasks[0]).toMatchObject({
+      action: 'video-edit',
+      subject: {
+        kind: 'video-postprocess',
+        shotId: withVideo.shots[0]!.id,
+      },
+      request: {
+        kind: 'video',
+        prompt: '把天空改成黄昏',
+        inputs: [
+          { assetHash: `video-${withVideo.shots[0]!.id}`, mime: 'video/mp4' },
+          { assetHash: 'shot-1-image', mime: 'image/png' },
+        ],
+        params: {
+          quality: 'high',
+          resolution: '1080p',
+          action: 'video-edit',
+        },
+      },
+    })
+  })
+
+  it('视频后处理缺少视频时在规划阶段失败', () => {
+    const doc = fixture()
+    expect(() =>
+      buildStoryboardRunPlan({
+        doc,
+        planId: 'plan-erase',
+        operationId: 'op-erase',
+        target,
+        action: 'video-erase',
+        episodeId: doc.episodes[0]!.id,
+        shotIds: [doc.shots[0]!.id],
+      }),
+    ).toThrow('还没有视频')
+  })
 })

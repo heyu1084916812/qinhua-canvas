@@ -16,10 +16,7 @@ import {
   planShotRefEdges,
   setShotVideoNode,
   shotPromptWithAssets,
-  shotVideoPrompt,
-  shotsOf,
 } from '../../domain/storyboard/storyboard'
-import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
 import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
 import { fingerprintBytesSync } from '../../domain/shared/hash'
 import { mixAudioSequentially } from '../../platform/web/audioMix'
@@ -193,183 +190,6 @@ export function createStoryboardShotController(
   }
 
   /**
-   * **「这一镜出视频」**（对账 #429）—— #428 查实"引擎那条路是通的，差的只是接线"。
-   *
-   * 四件事，一件都不能省：
-   * ① 这一镜得先有图（图生视频是拿图去动的，没图就没得动）；
-   * ② 第一次建一个 `mode:'video'` 的**新节点**；重出时**复用**它。把这一镜的图节点
-   *    连上去，下一镜已出图且模型支持时再接一条尾帧 —— 上游图正是靠这两条连线进
-   *    `inputs` 的（G141 验过：`[{kind:'asset',…}]`）；
-   * ③ **建完节点立刻写进文档**（`setShotVideoNode`）—— 跑视频是长任务、中途失败很常见，
-   *    那时节点已经躺在画布上了；不写，用户再点一次会又建一个，画布上慢慢堆起没人认领的空节点；
-   * ④ 产物 hash 由上面那条镜像 effect 收回文档，列表才知道这一镜有视频了。
-   *
-   * **为什么另铺节点、而不像出图那样 `inPlace`**：写回会把这一镜的**图**顶掉，
-   * 而图还得留着 —— 它既是视频的输入，也是分镜表里的画面。图与视频各占一个节点，两条都在。
-   */
-  const makeShotVideo = async (
-    shot: StoryboardShot,
-    options: { quiet?: boolean } = {},
-  ): Promise<boolean> => {
-    const report = (kind: 'running' | 'done' | 'error', text: string) => {
-      if (!options.quiet) setLay({ kind, text })
-    }
-    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId)) {
-      report('error', '这一镜还没铺到画布 —— 先铺一次，出了图再出视频')
-      return false
-    }
-    if (!shot.imageHash) {
-      report('error', '这一镜还没有图 —— 图生视频要先有画面，先点「出图」')
-      return false
-    }
-    try {
-      /**
-       * 视频模型由**渠道解析**决定（与画布同一条口径：模型定下来，谁提供它由选路决定）。
-       * 解析不到就如实说 —— 不硬编一个预设名去请求（#414 那条教训）。
-       */
-      const recipe = await channels.defaultForNewNode({}, 'video')
-      if (!recipe?.channelId || !recipe?.model) {
-        report('error', '还没有可用的视频模型服务 —— 先去「全局设置 → 模型服务」添加一条并勾上视频模型')
-        return false
-      }
-      const latestDoc = currentDoc()
-      const episodeShots = latestDoc ? shotsOf(latestDoc, shot.episodeId) : []
-      const shotIndex = episodeShots.findIndex((item) => item.id === shot.id)
-      const nextShot = shotIndex >= 0 ? episodeShots[shotIndex + 1] : undefined
-      const nextFrameNodeId =
-        nextShot?.nodeId && nextShot.imageHash && liveNodeIds.has(nextShot.nodeId)
-          ? nextShot.nodeId
-          : ''
-      const liveChannel = channels
-        .getState()
-        .channels.find((channel) => channel.id === recipe.channelId)
-      const logicalModel =
-        Object.entries(liveChannel?.modelMap ?? {}).find(
-          ([, upstream]) => upstream === recipe.model,
-        )?.[0] ?? recipe.model
-      const videoSpec = videoParamsFor(logicalModel)
-      /**
-       * 未声明能力时不设限（项目既有口径）：认不出的渠道模型仍可按首尾帧发，
-       * 由适配器 / 上游如实报错；只有**明确声明了不支持**时才回落单张首帧。
-       */
-      const supportsFirstLastFrame =
-        !!nextFrameNodeId &&
-        (videoSpec ? videoSpec.modes.includes('first-last-frame') : true)
-      const endFrameNodeId = supportsFirstLastFrame ? nextFrameNodeId : ''
-      const singleImageMode = videoSpec?.modes.includes('image-to-video')
-        ? 'image-to-video'
-        : videoSpec?.modes.includes('all-purpose')
-          ? 'all-purpose'
-          : undefined
-      const videoMode = endFrameNodeId
-        ? 'first-last-frame'
-        : singleImageMode
-      const videoPrompt = shotVideoPrompt(doc, shot, endFrameNodeId ? nextShot : undefined)
-      const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
-      const data = withStoryboardRunScope(
-        await canvas.resolveGenerationData({
-          mode: 'video',
-          model: recipe.model,
-          prompt: videoPrompt,
-          durationSec: shot.durationSec,
-          ...(videoMode ? { videoMode } : {}),
-        }),
-        {
-          subjectKind: 'shot-video',
-          subjectId: `shot:${shot.id}`,
-          scopeId: `episode:${shot.episodeId}`,
-        },
-      )
-      let nodeId =
-        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
-      canvas.beginPlan('storyboard:shot-video', '这一镜出视频')
-      try {
-        if (nodeId) {
-          /**
-           * 重出必须**复用原视频节点**：每次都新建会让画布堆出一排空视频节点，
-           * 而分镜文档只认最后一个，前几个就永远没人认领。
-           */
-          canvas.updateNodeData(nodeId, {
-            ...data,
-            mode: 'video',
-            model: recipe.model,
-            prompt: videoPrompt,
-            count: 1,
-            durationSec: shot.durationSec,
-            ...(videoMode ? { videoMode } : {}),
-          })
-        } else {
-          nodeId =
-            canvas.createGenerationNode({
-              /* 贴着这一镜的图节点往右放（与模板「图生视频」的摆法一致，一眼看得出谁喂谁） */
-              at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
-              data,
-            }) ?? ''
-        }
-        if (nodeId) {
-          const connected = new Set(
-            graph.edges.filter((edge) => edge.target === nodeId).map((edge) => edge.source),
-          )
-          /* 下一镜换了 / 被删了：只断我们自己记录的旧尾帧，用户手工参考图不动。 */
-          if (
-            shot.videoEndNodeId &&
-            shot.videoEndNodeId !== endFrameNodeId &&
-            connected.has(shot.videoEndNodeId)
-          ) {
-            const old = graph.edges.find(
-              (edge) => edge.source === shot.videoEndNodeId && edge.target === nodeId,
-            )
-            if (old) {
-              canvas.removeEdge(old.id)
-              connected.delete(shot.videoEndNodeId)
-            }
-          }
-          /* 这一步是"图进请求"的全部机制：连线就是 inputs（G141 验过） */
-          if (!connected.has(shot.nodeId)) {
-            canvas.connectEdge(shot.nodeId, nodeId)
-            connected.add(shot.nodeId)
-          }
-          if (endFrameNodeId && !connected.has(endFrameNodeId)) {
-            canvas.connectEdge(endFrameNodeId, nodeId)
-          }
-        }
-      } finally {
-        canvas.endPlan()
-      }
-      if (!nodeId) {
-        report('error', '视频节点没能建出来（模型服务或模型没配全）')
-        return false
-      }
-      const current = currentDoc()
-      if (current) apply(setShotVideoNode(current, shot.id, nodeId, 0, endFrameNodeId))
-      report(
-        'running',
-        endFrameNodeId
-          ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
-          : nextFrameNodeId
-            ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
-            : '这一镜的视频在跑…',
-      )
-      await canvas.runNode(nodeId, { inPlace: true })
-      const state = canvas.nodeStateOf(nodeId)
-      if (state?.kind === 'failed') {
-        report('error', `这一镜的视频生成失败：${describeError(state.error)}`)
-        return false
-      }
-      report(
-        'done',
-        endFrameNodeId
-          ? '这一镜的视频已出（用了这一镜与下一镜的首尾帧）'
-          : '这一镜的视频已出（画布里就挂在这一镜的图右边）',
-      )
-      return true
-    } catch (e) {
-      report('error', humanError(e))
-      return false
-    }
-  }
-
-  /**
    * 整镜数字人口播：RunningHub 官方数字人端点只接收一条音轨。
    * 同一角色的多句台词先按顺序合成一条 WAV；多角色镜头仍拒绝，避免把多人
    * 对白错误地映射到同一个人的口型上。
@@ -534,48 +354,6 @@ export function createStoryboardShotController(
   }
 
   /**
-   * 已有镜头视频 → 真实视频超清。
-   *
-   * 旧视频节点与素材一个都不动：超清结果落成新的视频节点，并把它作为旧节点的下游。
-   * 镜头的 `videoNodeId / videoHash` 指向新结果；旧节点仍留在画布上可供对比 / 回退。
-   */
-
-  /** 这一集出视频：只跑“有图但还没有视频”的镜头，逐镜串行，避免免费额度被并发打满。 */
-  const runEpisodeVideos = async () => {
-    const targets = shots.filter(
-      (shot) =>
-        shot.nodeId &&
-        liveNodeIds.has(shot.nodeId) &&
-        shot.imageHash &&
-        (!shot.videoHash ||
-          !shot.videoNodeId ||
-          !liveNodeIds.has(shot.videoNodeId)),
-    )
-    if (targets.length === 0) {
-      setLay({ kind: 'done', text: '这一集没有待出视频的镜头（要重出请用单镜那把）' })
-      return
-    }
-    let ok = 0
-    let failed = 0
-    for (let i = 0; i < targets.length; i += 1) {
-      setLay({
-        kind: 'running',
-        text: `这一集出视频 ${i + 1}/${targets.length}：第 ${shots.indexOf(targets[i]!) + 1} 镜…`,
-      })
-      const success = await makeShotVideo(targets[i]!, { quiet: true })
-      if (success) ok += 1
-      else failed += 1
-    }
-    setLay({
-      kind: failed > 0 ? 'error' : 'done',
-      text:
-        failed > 0
-          ? `这一集视频跑完：成功 ${ok} 镜，失败 ${failed} 镜（失败原因见各自状态）`
-          : `这一集 ${ok} 镜视频已出`,
-    })
-  }
-
-  /**
    * 「刷新提示词」：把**当前**资产设定重新拼进已经铺到画布的节点（对账 #418）。
    *
    * 为什么需要它：提示词是在**铺的那一刻**按当时的资产拼好的（快照）。改完角色描述，
@@ -605,9 +383,7 @@ export function createStoryboardShotController(
 
   return {
     layOut,
-    makeShotVideo,
     makeDigitalHuman,
-    runEpisodeVideos,
     syncPrompts,
   }
 }

@@ -39,12 +39,12 @@ import { createStoryboardAuthoringController } from '../../workbenches/storyboar
 import { createStoryboardImageExecutionController } from '../../workbenches/storyboard/useStoryboardImageExecutionController'
 import { createStoryboardShotController } from '../../workbenches/storyboard/useStoryboardShotController'
 import {
-  createStoryboardVideoController,
+  createStoryboardVideoExecutionController,
   type VideoEraseTarget,
   type VideoEditTarget,
   type VideoExtendTarget,
   type VideoUpscaleTarget,
-} from '../../workbenches/storyboard/useStoryboardVideoController'
+} from '../../workbenches/storyboard/useStoryboardVideoExecutionController'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
 import { AssetRow } from './AssetRow'
@@ -673,15 +673,25 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     apply(updateShot(doc, id, patch))
   }
 
-  const { makeVideoUpscale, makeVideoErase, makeVideoEdit, makeVideoExtend } =
-    createStoryboardVideoController({
+  const {
+    makeShotVideo,
+    runEpisodeVideos,
+    makeVideoUpscale,
+    makeVideoErase,
+    makeVideoEdit,
+    makeVideoExtend,
+  } = createStoryboardVideoExecutionController({
       currentDoc: () => docRef.current,
       graphNodes: graph.nodes,
+      graphEdges: graph.edges,
       liveNodeIds,
       channels,
       canvas,
-      directTrace,
-      apply,
+      execution: storyboardExecution,
+      documents: store,
+      projectId,
+      flush,
+      replaceDoc: apply,
       setLay,
       videoUpscaleBusy,
       setVideoUpscaleBusy,
@@ -709,30 +719,25 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay,
     })
 
-  const {
-    layOut,
-    makeShotVideo,
-    makeDigitalHuman,
-    runEpisodeVideos,
-    syncPrompts,
-  } = createStoryboardShotController({
-    doc,
-    currentDoc: () => docRef.current,
-    selected,
-    shots,
-    needNodes,
-    graphNodes: graph.nodes,
-    graphEdges: graph.edges,
-    liveNodeIds,
-    channels,
-    canvas,
-    platform,
-    directTrace,
-    digitalHumanTarget,
-    apply,
-    setLay,
-    setDigitalHumanBusy,
-  })
+  const { layOut, makeDigitalHuman, syncPrompts } =
+    createStoryboardShotController({
+      doc,
+      currentDoc: () => docRef.current,
+      selected,
+      shots,
+      needNodes,
+      graphNodes: graph.nodes,
+      graphEdges: graph.edges,
+      liveNodeIds,
+      channels,
+      canvas,
+      platform,
+      directTrace,
+      digitalHumanTarget,
+      apply,
+      setLay,
+      setDigitalHumanBusy,
+    })
 
   const {
     scanMerges,
@@ -1342,7 +1347,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           ? `逐镜生成这一集还缺视频的 ${videoPending} 个镜头`
                           : '这一集没有待出视频的镜头'
                       }
-                      onClick={() => void runEpisodeVideos()}
+                      onClick={() => void runEpisodeVideos(shots)}
                     >
                       这一集出视频
                     </button>

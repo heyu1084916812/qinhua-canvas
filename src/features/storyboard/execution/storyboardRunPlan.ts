@@ -61,11 +61,33 @@ export interface StoryboardShotRunPlannerInput extends StoryboardPlannerBase {
   shotIds?: readonly string[]
   requireAssetBases?: boolean
   includeNextShotEndFrame?: boolean
+  imageMime?: string
+  nextImageMime?: string
+}
+
+export type StoryboardVideoPostprocessAction =
+  | 'video-upscale'
+  | 'video-fps'
+  | 'video-erase'
+  | 'video-edit'
+  | 'video-extend'
+
+export interface StoryboardVideoPostprocessPlannerInput
+  extends StoryboardPlannerBase {
+  action: StoryboardVideoPostprocessAction
+  episodeId: string
+  shotIds?: readonly string[]
+  prompt?: string
+  params?: Record<string, unknown>
+  includeReferenceImage?: boolean
+  videoMime?: string
+  referenceImageMime?: string
 }
 
 export type StoryboardRunPlannerInput =
   | StoryboardAssetRunPlannerInput
   | StoryboardShotRunPlannerInput
+  | StoryboardVideoPostprocessPlannerInput
 
 function assertTarget(target: StoryboardRunTarget): void {
   if (!target.channelId.trim()) throw new Error('漫剧执行计划缺少渠道')
@@ -208,6 +230,21 @@ function selectedShots(input: StoryboardShotRunPlannerInput): StoryboardShot[] {
   return shots
 }
 
+function selectedPostprocessShots(
+  input: StoryboardVideoPostprocessPlannerInput,
+): StoryboardShot[] {
+  const episode = input.doc.episodes.find((item) => item.id === input.episodeId)
+  if (!episode) throw new Error(`漫剧分集不存在：${input.episodeId}`)
+  const selected = input.shotIds ? new Set(input.shotIds) : null
+  const shots = input.doc.shots.filter(
+    (shot) =>
+      shot.episodeId === input.episodeId &&
+      (!selected || selected.has(shot.id)),
+  )
+  if (shots.length === 0) throw new Error('漫剧执行计划没有匹配的镜头')
+  return shots
+}
+
 function dependenciesOf(
   input: StoryboardRunPlannerInput,
   action: StoryboardRunAction,
@@ -319,7 +356,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
         kind: 'asset',
         nodeId: `shot:${shot.id}`,
         assetHash: shot.imageHash,
-        mime: 'image/png',
+        mime: input.imageMime ?? 'image/png',
       },
     ]
     if (nextShot?.imageHash) {
@@ -327,7 +364,7 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
         kind: 'asset',
         nodeId: `shot:${nextShot.id}`,
         assetHash: nextShot.imageHash,
-        mime: 'image/png',
+        mime: input.nextImageMime ?? 'image/png',
       })
     }
     const prompt = shotVideoPrompt(input.doc, shot, nextShot)
@@ -360,6 +397,87 @@ function shotPlan(input: StoryboardShotRunPlannerInput): StoryboardRunPlan {
   }
 }
 
+function postprocessPrompt(action: StoryboardVideoPostprocessAction): string {
+  switch (action) {
+    case 'video-upscale':
+      return '视频超清'
+    case 'video-fps':
+      return '视频补帧'
+    case 'video-erase':
+      return ''
+    case 'video-edit':
+      return '视频编辑'
+    case 'video-extend':
+      return '延续当前镜头内容与运动，保持人物、场景和画风一致'
+  }
+}
+
+function videoPostprocessPlan(
+  input: StoryboardVideoPostprocessPlannerInput,
+): StoryboardRunPlan {
+  const shots = selectedPostprocessShots(input)
+  const tasks = shots.map((shot, index) => {
+    if (!shot.videoHash) {
+      throw new Error(`镜头 ${index + 1} 还没有视频，不能执行 ${input.action}`)
+    }
+    const subject: StoryboardRunSubject = {
+      kind: 'video-postprocess',
+      id: `shot:${shot.id}`,
+      scopeId: `episode:${shot.episodeId}`,
+      episodeId: shot.episodeId,
+      shotId: shot.id,
+    }
+    const resolvedTarget = targetOf(input, input.action, subject)
+    const inputs: NodeInput[] = [
+      {
+        kind: 'asset',
+        nodeId: `shot:${shot.id}`,
+        assetHash: shot.videoHash,
+        mime: input.videoMime ?? 'video/mp4',
+      },
+    ]
+    if (
+      input.action === 'video-edit' &&
+      input.includeReferenceImage === true
+    ) {
+      if (!shot.imageHash) {
+        throw new Error(`镜头 ${index + 1} 没有可引用的画面`)
+      }
+      inputs.push({
+        kind: 'asset',
+        nodeId: `shot:${shot.id}:image`,
+        assetHash: shot.imageHash,
+        mime: input.referenceImageMime ?? 'image/png',
+      })
+    }
+    const prompt = input.prompt?.trim() || postprocessPrompt(input.action)
+    const params = {
+      ...(resolvedTarget.params ?? {}),
+      ...(input.params ?? {}),
+      action: input.action,
+      episodeId: shot.episodeId,
+      shotId: shot.id,
+      modelIsUpstream: resolvedTarget.modelIsUpstream === true,
+    }
+    return taskOf({
+      planId: input.planId,
+      operationId: input.operationId,
+      action: input.action,
+      subject,
+      request: requestOf('video', resolvedTarget, prompt, inputs, params),
+      params,
+      dependsOn: dependenciesOf(input, input.action, subject),
+    })
+  })
+  return {
+    id: input.planId,
+    workbench: 'storyboard',
+    tasks,
+    scope: tasks.length === 1 ? 'node' : 'global',
+    mode: 'single',
+  }
+}
+
 /**
  * 从当前漫剧文档生成稳定 RunPlan。
  *
@@ -375,8 +493,12 @@ export function buildStoryboardRunPlan(
   let plan: StoryboardRunPlan
   if (input.action === 'asset-base' || input.action === 'asset-turnaround') {
     plan = assetPlan(input as StoryboardAssetRunPlannerInput)
-  } else {
+  } else if (input.action === 'shot-image' || input.action === 'shot-video') {
     plan = shotPlan(input as StoryboardShotRunPlannerInput)
+  } else {
+    plan = videoPostprocessPlan(
+      input as StoryboardVideoPostprocessPlannerInput,
+    )
   }
   if (plan.tasks.length === 0) throw new Error('漫剧执行计划为空')
   // 依赖必须能由同一计划完整证明；计划外 task id 不是“外部状态”，执行器

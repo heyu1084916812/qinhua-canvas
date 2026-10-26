@@ -31,9 +31,8 @@ function harness(doc: StoryboardDoc) {
   const updateNodeData = vi.fn()
   const beginPlan = vi.fn()
   const endPlan = vi.fn()
-  const runNode = vi.fn(async () => undefined)
-  const nodeStateOf = vi.fn(() => undefined)
   const setLay = vi.fn()
+  const setDigitalHumanBusy = vi.fn()
   const getSnapshot = vi.fn(() => ({
     nodes: [] as NodeSnapshot[],
     edges: [] as Edge[],
@@ -53,8 +52,6 @@ function harness(doc: StoryboardDoc) {
       beginPlan,
       endPlan,
       getSnapshot,
-      runNode,
-      nodeStateOf,
     } as unknown as StoryboardCanvasPort,
     platform: createMemoryPlatform(),
     directTrace: () => ({
@@ -69,19 +66,32 @@ function harness(doc: StoryboardDoc) {
     digitalHumanTarget: null,
     apply: () => undefined,
     setLay,
-    setDigitalHumanBusy: () => undefined,
+    setDigitalHumanBusy,
   })
   return {
     controller,
     updateNodeData,
     beginPlan,
     endPlan,
-    runNode,
     setLay,
+    setDigitalHumanBusy,
   }
 }
 
 describe('Storyboard shot controller', () => {
+  it('没有待铺镜头时不创建画布事务', async () => {
+    const doc = shotDoc()
+    const test = harness(doc)
+
+    await test.controller.layOut()
+
+    expect(test.beginPlan).not.toHaveBeenCalled()
+    expect(test.setLay).toHaveBeenCalledWith({
+      kind: 'done',
+      text: '这一集的镜头都已经在画布上了',
+    })
+  })
+
   it('刷新提示词只改仍在画布上的镜头，整批只占一个事务', () => {
     const doc = shotDoc()
     const test = harness(doc)
@@ -105,17 +115,16 @@ describe('Storyboard shot controller', () => {
     })
   })
 
-  it('出视频前先检查画面，缺图直接报错且不解析渠道', async () => {
+  it('数字人缺少目标模型时拒绝，且不进入忙碌态', async () => {
     const doc = shotDoc()
     const test = harness(doc)
 
-    const success = await test.controller.makeShotVideo(doc.shots[1]!)
+    await test.controller.makeDigitalHuman(doc.shots[0]!)
 
-    expect(success).toBe(false)
-    expect(test.runNode).not.toHaveBeenCalled()
+    expect(test.setDigitalHumanBusy).not.toHaveBeenCalled()
     expect(test.setLay).toHaveBeenCalledWith({
       kind: 'error',
-      text: '这一镜还没有图 —— 图生视频要先有画面，先点「出图」',
+      text: '当前没有可用的数字人口播模型：在 RunningHub 渠道勾选 Kling V2 数字人口播',
     })
   })
 })

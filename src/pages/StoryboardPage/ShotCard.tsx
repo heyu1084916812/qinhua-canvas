@@ -24,7 +24,7 @@ import type {
   VideoEraseTarget,
   VideoExtendTarget,
   VideoUpscaleTarget,
-} from '../../workbenches/storyboard/useStoryboardVideoController'
+} from '../../workbenches/storyboard/useStoryboardVideoExecutionController'
 import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 import { IconDown, IconTrash, IconUp } from './StoryboardIcons'
 import { LineVoiceAudio, ShotThumb, ShotVideo } from './StoryboardMedia'
