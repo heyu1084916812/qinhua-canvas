@@ -73,6 +73,11 @@
   `StoryboardProject.tsx`（约 2474 行），`ShotCard`、资产行、BGM、媒体预览和图标各自独立。
   这只是页面入口达标，不能把仍偏大的编辑器文件误报成阶段 4 完成；下一步继续抽媒体 /
   生图编排控制器。全量 **3139 passed / 1 skipped**，build 通过。
+- **阶段 4E 生成编排控制器已完成**：`useStoryboardAuthoringController` 管拆集 / 拆镜 / 查重合并，
+  `useStoryboardAssetController` 管定妆图 / 基准图 / 多视角，`useStoryboardShotController`
+  管铺画布 / 单镜与整集出图 / 镜头视频 / 数字人口播 / 参考图与提示词同步。加上导出、音频、
+  视频后处理，阶段 4 的独立控制器要求已满足。控制器定向 8/8，项目文件降到 1622 行；
+  全量 **3147 passed / 1 skipped**，check/build 通过。剩余是画布运行时装配边界。
 
 ### 全局设置拆分与版式（2026-10-26 → 对账 #764 / #765）
 
