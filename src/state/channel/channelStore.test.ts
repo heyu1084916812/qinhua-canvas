@@ -1,8 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
 import { createChannelStore } from './channelStore'
 import { directTextTrace } from '../shared/directRun'
+import {
+  clearGuardedChannelRuns,
+  interruptGuardedRunsForRemovedChannels,
+  registerGuardedChannelRun,
+} from '../shared/runChannelGuard'
+
+afterEach(() => clearGuardedChannelRuns())
 
 /** 可编程网络响应：探测用例要能分别构造「这台机器支持该协议 / 不支持」两种现实 */
 function jsonResponse(status: number, body: unknown): NetworkResponse {
@@ -943,5 +950,154 @@ describe('channelStore · 自建协议', () => {
     await store.create({ name: 'R', protocol: 'in-use', baseUrl: 'https://relay.mine' })
     await expect(store.removeCustomProtocol('in-use')).rejects.toThrow()
     expect(store.protocolCatalog().all.some((d) => d.id === 'in-use')).toBe(true)
+  })
+
+  it('remove synchronously leaves the routing table before credential cleanup', async () => {
+    const base = createMemoryPlatform()
+    const events: string[] = []
+    const platform = {
+      ...base,
+      credentials: {
+        ...base.credentials,
+        async remove(ref: string) {
+          events.push('credential')
+          await base.credentials.remove(ref)
+        },
+      },
+    }
+    const store = createChannelStore(platform, { seedBuiltins: false })
+    const channel = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.saveToken(channel.id, 'old-key')
+
+    const cancel = vi.fn()
+    registerGuardedChannelRun('plan-before-remove', {
+      taskChannels: new Map([['task-1', channel.id]]),
+      cancel,
+      onInterrupted: vi.fn(),
+    })
+    let previous = new Set(store.getState().channels.map((item) => item.id))
+    const unsubscribe = store.subscribe(() => {
+      const next = new Set(store.getState().channels.map((item) => item.id))
+      const removed = new Set([...previous].filter((id) => !next.has(id)))
+      previous = next
+      if (removed.size === 0) return
+      events.push('store-removed')
+      interruptGuardedRunsForRemovedChannels(removed)
+    })
+
+    const removal = store.remove(channel.id)
+
+    expect(store.getState().channels.some((item) => item.id === channel.id)).toBe(false)
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['store-removed'])
+
+    await removal
+    expect(events[0]).toBe('store-removed')
+    expect(events).toContain('credential')
+    unsubscribe()
+  })
+
+  it('aborts an in-flight direct call and never reaches the old key again', async () => {
+    const base = createMemoryPlatform()
+    let requests = 0
+    let tokenLoads = 0
+    let releaseToken!: (token: string | null) => void
+    let tokenLoadStarted!: () => void
+    const tokenLoadStartedPromise = new Promise<void>((resolve) => {
+      tokenLoadStarted = resolve
+    })
+    const heldToken = new Promise<string | null>((resolve) => {
+      releaseToken = resolve
+    })
+    const platform = {
+      ...base,
+      credentials: {
+        ...base.credentials,
+        async load(ref: string) {
+          tokenLoads += 1
+          void ref
+          tokenLoadStarted()
+          return await heldToken
+        },
+      },
+      network: {
+        ...base.network,
+        async request(_req: NetworkRequest): Promise<NetworkResponse> {
+          requests += 1
+          throw new Error('removed channel must not reach the network')
+        },
+      },
+    }
+    const store = createChannelStore(platform, { seedBuiltins: false })
+    const channel = await store.create({
+      name: 'Direct',
+      protocol: 'openai-chat',
+      baseUrl: 'https://example.test',
+    })
+    await store.saveToken(channel.id, 'old-key')
+    await store.setModels(channel.id, [
+      { id: 'mock-chat-1', category: 'chat', inputTypes: ['text'] },
+    ])
+
+    const pending = store.completeWithTools({
+      channelId: channel.id,
+      model: 'mock-chat-1',
+      tools: [],
+      messages: [{ role: 'user', content: 'wait' }],
+      signal: new AbortController().signal,
+      trace: directTextTrace({
+        projectId: 'proj_direct_guard',
+        workbench: 'storyboard',
+        subjectId: 'shot:1',
+        scopeId: 'episode:1',
+        operationId: 'op-direct-guard',
+        purpose: 'storyboard',
+        channelId: channel.id,
+        model: 'mock-chat-1',
+        prompt: 'wait',
+      }),
+    })
+    await tokenLoadStartedPromise
+    let previous = new Set(store.getState().channels.map((item) => item.id))
+    const unsubscribe = store.subscribe(() => {
+      const next = new Set(store.getState().channels.map((item) => item.id))
+      const removed = new Set([...previous].filter((id) => !next.has(id)))
+      previous = next
+      if (removed.size > 0) interruptGuardedRunsForRemovedChannels(removed)
+    })
+
+    const removal = store.remove(channel.id)
+    releaseToken('old-key')
+    await expect(pending).rejects.toMatchObject({
+      appError: { kind: 'channel', detail: 'missingChannel' },
+    })
+    await removal
+    expect(tokenLoads).toBeGreaterThan(0)
+    expect(requests).toBe(0)
+    unsubscribe()
+
+    await expect(
+      store.completeWithTools({
+        channelId: channel.id,
+        model: 'mock-chat-1',
+        tools: [],
+        messages: [{ role: 'user', content: 'must not run' }],
+        signal: new AbortController().signal,
+        trace: directTextTrace({
+          projectId: 'proj_direct_guard',
+          workbench: 'storyboard',
+          subjectId: 'shot:1',
+          scopeId: 'episode:1',
+          operationId: 'op-after-remove',
+          purpose: 'storyboard',
+          channelId: channel.id,
+          model: 'mock-chat-1',
+          prompt: 'must not run',
+        }),
+      }),
+    ).rejects.toMatchObject({
+      appError: { kind: 'channel', detail: 'missingChannel' },
+    })
+    expect(requests).toBe(0)
   })
 })

@@ -4,7 +4,7 @@ import type { EcommerceRunTask } from '../../../features/ecommerce/execution/eco
 import {
   clearGuardedChannelRuns,
   interruptGuardedRunsForRemovedChannels,
-} from '../../../features/shared/execution/runChannelGuard'
+} from '../../../state/shared/runChannelGuard'
 import { registerEcommerceChannelGuard } from './ecommerceChannelGuard'
 import {
   createEcommercePreflightBoundary,

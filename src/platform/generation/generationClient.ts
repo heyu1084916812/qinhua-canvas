@@ -354,6 +354,7 @@ export function createGenerationClient(
       hints?: GenerationHints
       kind: GenerationAttemptEvent['kind']
     },
+    signal: AbortSignal,
     invoke: (target: ResolvedGenerationTarget) => Promise<T>,
     outputCount: (result: T) => number,
   ): Promise<T> => {
@@ -361,6 +362,11 @@ export function createGenerationClient(
     let target: ResolvedGenerationTarget | null = null
     try {
       target = await resolve(args)
+      if (signal.aborted) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Aborted', 'AbortError')
+      }
       const result = await invoke(target)
       const finishedAt = now()
       safeEmit(deps.onAttempt, {
@@ -417,6 +423,7 @@ export function createGenerationClient(
           ...(args.hints ? { hints: args.hints } : {}),
           kind: 'text',
         },
+        signal,
         (target) =>
           target.adapter.completeText(
             {
@@ -437,6 +444,7 @@ export function createGenerationClient(
           ...(args.hints ? { hints: args.hints } : {}),
           kind: 'image',
         },
+        signal,
         (target) =>
           target.adapter.generateImage(
             {
@@ -457,6 +465,7 @@ export function createGenerationClient(
           ...(args.hints ? { hints: args.hints } : {}),
           kind: 'video',
         },
+        signal,
         (target) =>
           target.adapter.generateVideo(
             {
@@ -477,6 +486,7 @@ export function createGenerationClient(
           ...(args.hints ? { hints: args.hints } : {}),
           kind: 'speech',
         },
+        signal,
         (target) => {
           if (!target.adapter.generateSpeech) throw unsupported()
           return target.adapter.generateSpeech(

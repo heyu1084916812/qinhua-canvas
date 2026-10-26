@@ -3,7 +3,7 @@ import type { EcommerceRunTask } from '../../../features/ecommerce/execution/eco
 import {
   registerGuardedChannelRun,
   unregisterGuardedChannelRun,
-} from '../../../features/shared/execution/runChannelGuard'
+} from '../../../state/shared/runChannelGuard'
 
 export interface EcommerceGuardedExecution {
   cancelRun(planId: string): void

@@ -9,6 +9,11 @@ import type { PlatformKit } from '../../platform/ports'
 import { fingerprintHex } from '../../domain/shared/hash'
 import { createId } from '../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../shared/result'
+import {
+  ChannelRemovalInterruptedError,
+  registerGuardedChannelRun,
+  unregisterGuardedChannelRun,
+} from './runChannelGuard'
 
 export interface DirectRunTraceInput extends RunRecordScope {
   projectId: string
@@ -129,8 +134,10 @@ async function persistRecord(
 export async function runDirectGeneration<T>(args: {
   storage: PlatformKit['storage']
   trace: DirectRunTraceInput
+  /** Channel used by this direct call; guards the call against channel removal. */
+  channelId?: string
   signal?: AbortSignal
-  call: () => Promise<T>
+  call: (signal: AbortSignal) => Promise<T>
   outputHashesOf: (result: T) => string[]
   outputAssetOf?: (result: T) => GeneratedAsset | undefined
   onRecordWarning?: (warning: string) => void
@@ -138,6 +145,28 @@ export async function runDirectGeneration<T>(args: {
 }): Promise<DirectRunResult<T>> {
   const now = args.now ?? (() => Date.now())
   const startedAt = now()
+  const controller = new AbortController()
+  let interrupted = false
+  const abortFromParent = () => controller.abort(args.signal?.reason)
+  if (args.signal?.aborted) abortFromParent()
+  else args.signal?.addEventListener('abort', abortFromParent, { once: true })
+
+  const guardedChannelId = args.channelId?.trim() || args.trace.sentChannelId?.trim()
+  const guardId = guardedChannelId ? createId('directguard') : null
+  if (guardId && guardedChannelId) {
+    registerGuardedChannelRun(guardId, {
+      taskChannels: new Map([[guardId, guardedChannelId]]),
+      cancel: () => {
+        interrupted = true
+        controller.abort()
+      },
+      onInterrupted: () => {
+        interrupted = true
+        controller.abort()
+      },
+    })
+  }
+
   const base = {
     id: createId('rec'),
     nodeId: args.trace.subjectId,
@@ -161,7 +190,8 @@ export async function runDirectGeneration<T>(args: {
   }
 
   try {
-    const result = await args.call()
+    const result = await args.call(controller.signal)
+    if (interrupted) throw new ChannelRemovalInterruptedError()
     const finishedAt = now()
     const asset = args.outputAssetOf?.(result)
     const record: RunRecord = createRunRecord({
@@ -181,7 +211,7 @@ export async function runDirectGeneration<T>(args: {
     }
   } catch (error) {
     const finishedAt = now()
-    const status = statusOf(error, args.signal)
+    const status = statusOf(error, controller.signal)
     const app = asAppError(error)
     const record: RunRecord = createRunRecord({
       ...base,
@@ -196,7 +226,10 @@ export async function runDirectGeneration<T>(args: {
     })
     const recordWarning = await persistRecord(args.storage, record)
     reportRecordWarning(args.onRecordWarning, recordWarning)
-    throw error
+    throw interrupted ? new ChannelRemovalInterruptedError() : error
+  } finally {
+    args.signal?.removeEventListener('abort', abortFromParent)
+    if (guardId) unregisterGuardedChannelRun(guardId)
   }
 }
 
@@ -204,14 +237,16 @@ export async function runDirectGeneration<T>(args: {
 export async function runDirectText(args: {
   storage: PlatformKit['storage']
   trace: DirectRunTraceInput
+  channelId?: string
   signal?: AbortSignal
-  call: () => Promise<string>
+  call: (signal: AbortSignal) => Promise<string>
   onRecordWarning?: (warning: string) => void
   now?: () => number
 }): Promise<string> {
   const finished = await runDirectGeneration({
     storage: args.storage,
     trace: args.trace,
+    channelId: args.channelId ?? args.trace.sentChannelId,
     signal: args.signal,
     call: args.call,
     outputHashesOf: () => [],

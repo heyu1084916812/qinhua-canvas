@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { interruptGuardedRunsForRemovedChannels } from '../features/shared/execution/runChannelGuard'
+import { interruptGuardedRunsForRemovedChannels } from '../state/shared/runChannelGuard'
 import { useChannels } from './providers/ChannelStoreProvider'
 
 /**

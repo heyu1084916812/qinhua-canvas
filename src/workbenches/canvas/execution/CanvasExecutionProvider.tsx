@@ -38,7 +38,7 @@ import type { RunSummary, RunTaskState } from '../../../features/shared/executio
 import {
   registerGuardedChannelRun,
   unregisterGuardedChannelRun,
-} from '../../../features/shared/execution/runChannelGuard'
+} from '../../../state/shared/runChannelGuard'
 import { imageCountOf, progressNotice, runNotice, shouldNotify } from '../../../domain/ui/notify'
 import { getNotifyPrefs } from '../../../state/ui/notifyPrefs'
 import { sendSystemNotify } from '../../../features/shared/notify/desktopNotify'
@@ -1043,8 +1043,9 @@ export function CanvasExecutionProvider({
           inputs: inputs ?? [],
           params: { system, requestedModel: model },
         }),
+        channelId,
         signal,
-        call: async () => {
+        call: async (callSignal) => {
           const result = await generation.completeText(
             {
               channel: ch,
@@ -1057,7 +1058,7 @@ export function CanvasExecutionProvider({
               },
               hints: { operationId },
             },
-            signal,
+            callSignal,
           )
           return result.text
         },

@@ -176,6 +176,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           }),
         ),
       ),
+      sentChannelId: args.channelId,
+      sentModel: args.model,
     }),
     [projectId],
   )

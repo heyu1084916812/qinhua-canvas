@@ -58,6 +58,7 @@ import {
   runDirectGeneration,
   type DirectRunTraceInput,
 } from '../shared/directRun'
+import { ChannelRemovalInterruptedError } from '../shared/runChannelGuard'
 
 /**
  * zustand 5 的 createStore 类型与本项目装好的 TypeScript 6 泛型推断冲突（见 state/workbenches/canvas/store.ts）。
@@ -343,6 +344,9 @@ export function createChannelStore(
   const seedBuiltins = opts.seedBuiltins !== false
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
   const presets: PresetStore = createPresetStore(platform.storage)
+  const removingChannelIds = new Set<string>()
+  const visibleChannels = (channels: Channel[]): Channel[] =>
+    channels.filter((channel) => !removingChannelIds.has(channel.id))
   const generation = createGenerationClient({
     platform,
     catalog: () => catalog(),
@@ -403,7 +407,7 @@ export function createChannelStore(
       presets.loadRoutingStrategy(),
       presets.loadRecipeMemory(),
       ])
-    let channels = loadedChannels
+    let channels = visibleChannels(loadedChannels)
     const staleRunningHub = channels.filter(
       (c) =>
         c.protocol === 'runninghub-api' &&
@@ -474,15 +478,31 @@ export function createChannelStore(
   }
 
   const remove: ChannelStoreActions['remove'] = async (id) => {
+    if (isBuiltinChannelId(id)) {
+      throw new Error('这是内置渠道，不能删除')
+    }
+    const target = store.getState().channels.find((channel) => channel.id === id)
+    if (!target) return
+
+    /**
+     * The in-memory table is the routing authority. Mark the channel
+     * unroutable before the first await so no new task can enter the provider
+     * while credentials are being removed.
+     */
+    removingChannelIds.add(id)
+    store.setState((s) => ({
+      channels: s.channels.filter((channel) => channel.id !== id),
+    }))
+
     try {
       await repo.remove(id)
     } catch (error) {
+      removingChannelIds.delete(id)
       // 删除可能已经把渠道写成停用态后才因凭据清理失败；重新读表，
       // 让界面立即反映真实状态，不能继续显示一条实际已不可用的旧行。
       store.setState({ channels: await repo.list() })
       throw error
     }
-    store.setState((s) => ({ channels: s.channels.filter((c) => c.id !== id) }))
   }
 
   const globalModelsOf: ChannelStoreActions['globalModelsOf'] = (
@@ -1311,7 +1331,7 @@ export function createChannelStore(
     const sentModel = modelIsUpstream
       ? requestedModel
       : resolveUpstreamModel(ch.modelMap, requestedModel) ?? requestedModel
-    const call = () => generation.completeText(
+    const call = (callSignal: AbortSignal) => generation.completeText(
       {
         channel: ch,
         model: requestedModel,
@@ -1330,24 +1350,32 @@ export function createChannelStore(
           operationId: trace?.operationId ?? `text:${requestedChannelId}:${requestedModel}`,
         },
       },
-      signal,
+      callSignal,
     )
-    if (!trace) return call()
-    return (
-      await runDirectGeneration({
-        storage: platform.storage,
-        trace: {
-          ...trace,
-          inputs: trace.inputs ?? [...inputs],
-          sentChannelId: requestedChannelId,
-          sentModel,
-        },
-        signal,
-        call,
-        outputHashesOf: () => [],
-        ...(onRecordWarning ? { onRecordWarning } : {}),
-      })
-    ).result
+    if (!trace) return call(signal)
+    try {
+      return (
+        await runDirectGeneration({
+          storage: platform.storage,
+          trace: {
+            ...trace,
+            inputs: trace.inputs ?? [...inputs],
+            sentChannelId: requestedChannelId,
+            sentModel,
+          },
+          channelId: requestedChannelId,
+          signal,
+          call,
+          outputHashesOf: () => [],
+          ...(onRecordWarning ? { onRecordWarning } : {}),
+        })
+      ).result
+    } catch (error) {
+      if (error instanceof ChannelRemovalInterruptedError) {
+        throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+      }
+      throw error
+    }
   }
 
   const generateSpeech: ChannelStoreActions['generateSpeech'] = async ({
@@ -1363,7 +1391,7 @@ export function createChannelStore(
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
     if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
-    const call = () => generation.generateSpeech(
+    const call = (callSignal: AbortSignal) => generation.generateSpeech(
       {
         channel: ch,
         model,
@@ -1378,19 +1406,27 @@ export function createChannelStore(
           operationId: `speech:${channelId}:${model}`,
         },
       },
-      signal,
+      callSignal,
     )
-    if (!trace) return call()
-    return (
-      await runDirectGeneration({
-        storage: platform.storage,
-        trace,
-        signal,
-        call,
-        outputHashesOf: (result) => [result.hash],
-        outputAssetOf: (result) => result,
-      })
-    ).result
+    if (!trace) return call(signal)
+    try {
+      return (
+        await runDirectGeneration({
+          storage: platform.storage,
+          trace,
+          channelId,
+          signal,
+          call,
+          outputHashesOf: (result) => [result.hash],
+          outputAssetOf: (result) => result,
+        })
+      ).result
+    } catch (error) {
+      if (error instanceof ChannelRemovalInterruptedError) {
+        throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+      }
+      throw error
+    }
   }
 
   const generateVideo: ChannelStoreActions['generateVideo'] = async ({
@@ -1402,7 +1438,7 @@ export function createChannelStore(
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
     if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
-    const call = () => generation.generateVideo(
+    const call = (callSignal: AbortSignal) => generation.generateVideo(
       {
         channel: ch,
         model,
@@ -1411,22 +1447,31 @@ export function createChannelStore(
           operationId: `video:${channelId}:${model}`,
         },
       },
-      signal,
+      callSignal,
     )
-    if (!trace) return call()
-    return (
-      await runDirectGeneration({
-        storage: platform.storage,
-        trace: {
-          ...trace,
-          inputs: trace.inputs ?? request.inputs,
-        },
-        signal,
-        call,
-        outputHashesOf: (result) => result.map((asset) => asset.hash),
-        outputAssetOf: (result) => result[0],
-      })
-    ).result
+    if (!trace) return call(signal)
+    try {
+      return (
+        await runDirectGeneration({
+          storage: platform.storage,
+          trace: {
+            ...trace,
+            sentChannelId: trace.sentChannelId ?? channelId,
+            inputs: trace.inputs ?? request.inputs,
+          },
+          channelId,
+          signal,
+          call,
+          outputHashesOf: (result) => result.map((asset) => asset.hash),
+          outputAssetOf: (result) => result[0],
+        })
+      ).result
+    } catch (error) {
+      if (error instanceof ChannelRemovalInterruptedError) {
+        throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+      }
+      throw error
+    }
   }
 
   return {

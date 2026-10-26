@@ -4,7 +4,7 @@ import {
   interruptGuardedRunsForRemovedChannels,
   registerGuardedChannelRun,
   unregisterGuardedChannelRun,
-} from './runChannelGuard'
+} from '../../../state/shared/runChannelGuard'
 
 afterEach(() => clearGuardedChannelRuns())
 
