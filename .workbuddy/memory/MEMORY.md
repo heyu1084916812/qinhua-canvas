@@ -1,5 +1,24 @@
 # CanvasFlow（轻画）项目记忆
 
+### 生成路由闭环（2026-10-27 → 对账 #769）
+
+- **RoutePlan 真正执行时，`channelId / model` 只是首选，不是唯一目标**：
+  `RunRequest.routeCandidates` 才是有序真实链，每项带自己的渠道、Key 分组和上游模型。
+  runEngine 必须按 attempt 改写本轮请求再取适配器；RunRecord 的 `sentChannelId / sentModel`
+  取最后一次 attempt，不能继续记任务初始值。
+- **付费请求只在安全阶段继续候选**：401 / 403 / 429 / 5xx 可按 RoutePlan 继续；
+  timeout、408、响应丢失、CORS / DNS / TLS 等无法证明未到达上游的错误只提交一次。
+  有后续候选也不例外，不能把“轮询”实现成重复扣费。
+- **显式渠道锁定，未显式才跨渠道**：节点/任务已有 channelId 时只在该渠道的 Key 分组内选；
+  没有显式渠道时才按全局策略跨渠道。用户取消勾选的分组不能静默回落。
+- **三个执行宿主都要为所有候选预建适配器**：画布、电商、漫剧的 resolver 都先看
+  `routeCandidates[routingAttempt]`，再回落旧 `credentialGroupIds`。删除任一在用候选渠道时
+  整个相关运行停止，避免后续 attempt 拿已删除凭据。
+- **路由设置入口固定在“模型服务”顶栏**：策略、最大尝试次数、路由范围都在这里；范围按
+  渠道 × Key 分组列出。空允许列表表示“全部可用”，非空表示严格白名单，至少保留一项。
+- **验证证据（2026-10-27）**：全量 Vitest **3398 passed / 1 skipped**，check/build 通过；
+  G769 **11/11**，截图 `.playwright-verify/769-routing-scope.png`。真实测试项目与会话已清理。
+
 ### 架构拆分 · UI 冻结（2026-10-26 → 对账 #766）
 
 - **核心拆分已完成（2026-10-26）**：从 `bf880fa` 起的提交序列完成 UI 黄金基线、依赖就绪即派发、

@@ -85,6 +85,18 @@ export type NodeInput =
   | { kind: 'collection'; nodeId: string; items: NodeInput[] }
 
 /**
+ * 执行器可使用的一次真实路由候选。
+ *
+ * `model` 已经是该渠道的上游模型 ID。执行器只有在前一次请求明确未发送或被服务端
+ * 拒绝时，才允许尝试下一项；超时、408、响应丢失等结果不明错误不得跨候选重发。
+ */
+export interface RunRouteCandidate {
+  channelId: string
+  credentialGroupId?: string
+  model: string
+}
+
+/**
  * 一次可调用的工具声明（Agent 用，架构 §5.9 ④）。
  *
  * 刻意只保留「名字 / 说明 / 参数 schema」三件：这是 OpenAI 兼容族的公共子集，
@@ -145,6 +157,12 @@ interface RunRequestBase {
   credentialGroupIds?: string[]
   /** 执行引擎内部使用：本次是分组降级链里的第几次尝试。 */
   routingAttempt?: number
+  /** 本次执行冻结的路由计划 id；日志据此把多次尝试归为同一决策。 */
+  routePlanId?: string
+  /** 有序真实候选；存在时优先于旧 `credentialGroupIds` 降级链。 */
+  routeCandidates?: RunRouteCandidate[]
+  /** 用户选择的逻辑模型名；与 `model` 的上游 ID 分开留痕。 */
+  logicalModel?: string
   model: string
   prompt: string
   inputs: NodeInput[]

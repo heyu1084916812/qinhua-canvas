@@ -1,6 +1,6 @@
 export interface GuardedChannelRun {
   /** Each task in this plan and the channel it actually uses. */
-  taskChannels: ReadonlyMap<string, string>
+  taskChannels: ReadonlyMap<string, string | readonly string[]>
   /** Abort the plan. Must remain callable after navigating away from its Provider. */
   cancel: () => void
   /** Let the owner write a visible interrupted state for affected tasks. */
@@ -37,9 +37,11 @@ export function interruptGuardedRunsForRemovedChannels(
   if (removedChannelIds.size === 0) return 0
   let interrupted = 0
   for (const run of guardedRuns.values()) {
-    const affected = [...run.taskChannels]
-      .filter(([, channelId]) => removedChannelIds.has(channelId))
-      .map(([taskId, channelId]) => ({ taskId, channelId }))
+    const affected = [...run.taskChannels].flatMap(([taskId, channels]) => {
+      const ids = typeof channels === 'string' ? [channels] : channels
+      const match = ids.find((channelId) => removedChannelIds.has(channelId))
+      return match ? [{ taskId, channelId: match }] : []
+    })
     if (affected.length === 0) continue
     interrupted += 1
     run.cancel()

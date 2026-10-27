@@ -8,6 +8,7 @@ import {
   interruptGuardedRunsForRemovedChannels,
   registerGuardedChannelRun,
 } from '../shared/runChannelGuard'
+import type { ModelCapability } from '../../domain/shared/capability'
 
 afterEach(() => clearGuardedChannelRuns())
 
@@ -192,6 +193,92 @@ describe('channelStore', () => {
     const fresh = createChannelStore(p)
     await fresh.load()
     expect(fresh.getState().routeStrategy).toBe('performance')
+  })
+
+  it('★ 新路由策略持久化允许候选，并按模型和能力推进 round_robin 游标', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const a = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    const b = await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
+    const model: ModelCapability = {
+      id: 'image-shared',
+      category: 'image',
+      inputTypes: ['text'],
+    }
+    await store.setModels(a.id, [model])
+    await store.setModels(b.id, [model])
+    const aGroupId = store.getState().channels.find((channel) => channel.id === a.id)!
+      .credentialGroups[0]!.id
+    const bGroupId = store.getState().channels.find((channel) => channel.id === b.id)!
+      .credentialGroups[0]!.id
+    await store.setRoutingPolicy({
+      strategy: 'round_robin',
+      maxAttempts: 2,
+      allowedCandidates: [
+        { channelId: a.id, credentialGroupId: aGroupId },
+        { channelId: b.id, credentialGroupId: bGroupId },
+      ],
+    })
+
+    const first = await store.planGenerationRoute({
+      category: 'image',
+      logicalModel: model.id,
+    })
+    const second = await store.planGenerationRoute({
+      category: 'image',
+      logicalModel: model.id,
+    })
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(first.plan.cursor).toBe(0)
+    expect(second.plan.cursor).toBe(1)
+
+    const fresh = createChannelStore(p, { seedBuiltins: false })
+    await fresh.load()
+    expect(fresh.getState().routingPolicy).toEqual({
+      strategy: 'round_robin',
+      maxAttempts: 2,
+      allowedCandidates: [
+        { channelId: a.id, credentialGroupId: aGroupId },
+        { channelId: b.id, credentialGroupId: bGroupId },
+      ],
+    })
+  })
+
+  it('★ 显式渠道只在自身 Key 分组内选路，勾选范围不匹配时明确拒绝', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const a = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    const b = await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
+    const model: ModelCapability = {
+      id: 'image-explicit',
+      category: 'image',
+      inputTypes: ['text'],
+    }
+    await store.setModels(a.id, [model])
+    await store.setModels(b.id, [model])
+    const aGroupId = store.getState().channels.find((channel) => channel.id === a.id)!
+      .credentialGroups[0]!.id
+    await store.setRoutingPolicy({
+      strategy: 'priority',
+      maxAttempts: 3,
+      allowedCandidates: [{ channelId: a.id, credentialGroupId: aGroupId }],
+    })
+
+    const explicit = await store.planGenerationRoute({
+      category: 'image',
+      logicalModel: model.id,
+      explicitChannelId: a.id,
+    })
+    expect(explicit.ok).toBe(true)
+    if (!explicit.ok) return
+    expect(explicit.plan.candidates.map((candidate) => candidate.channelId)).toEqual([a.id])
+
+    await expect(store.planGenerationRoute({
+      category: 'image',
+      logicalModel: model.id,
+      explicitChannelId: b.id,
+    })).resolves.toEqual({ ok: false, reason: 'policy_excluded' })
   })
 
   it('★ 存储里的策略非法 / 缺字段 → 回落 priority（不把脏数据当成有效策略）', async () => {

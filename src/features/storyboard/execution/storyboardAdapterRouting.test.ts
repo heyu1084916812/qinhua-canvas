@@ -120,6 +120,37 @@ describe('prepareStoryboardAdapters', () => {
     expect(image.request.credentialGroupId).toBe('good-group')
   })
 
+  it('★ RoutePlan 跨渠道预检会为所有候选准备适配器，并保留可执行顺序', async () => {
+    const image = task('shot-image')
+    image.request.logicalModel = 'front-image'
+    image.request.routeCandidates = [
+      { channelId: 'channel-1', credentialGroupId: 'a', model: 'upstream-a' },
+      { channelId: 'channel-2', credentialGroupId: 'b', model: 'upstream-b' },
+    ]
+    const resolve = vi.fn(async ({ channel }) => ({
+      protocol: channel.id,
+    })) as unknown as (input: {
+      taskId: string
+      channel: Channel
+      credentialGroupId?: string
+    }) => Promise<ChannelAdapter>
+
+    const result = await prepareStoryboardAdapters({
+      plan: plan([image]),
+      channels: [channel, { ...channel, id: 'channel-2', name: '渠道 2' }],
+      resolve,
+    })
+
+    expect(resolve).toHaveBeenCalledTimes(2)
+    expect(image.request.routeCandidates).toEqual([
+      { channelId: 'channel-1', credentialGroupId: 'a', model: 'upstream-a' },
+      { channelId: 'channel-2', credentialGroupId: 'b', model: 'upstream-b' },
+    ])
+    expect(image.request.channelId).toBe('channel-1')
+    expect(image.request.model).toBe('upstream-a')
+    expect(result.routesByTask.get(image.id)).toHaveLength(2)
+  })
+
   it('渠道停用或全部 Key 分组不可用时在发请求前失败', async () => {
     await expect(
       prepareStoryboardAdapters({

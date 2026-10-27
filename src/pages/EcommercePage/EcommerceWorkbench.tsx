@@ -23,7 +23,10 @@ import {
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
 import type { RunRecord } from '../../domain/shared/execution/runRecord'
-import { pixelSummaryOf } from '../../domain/shared/execution/runRecord'
+import {
+  pixelSummaryOf,
+  routeAttemptSummaryOf,
+} from '../../domain/shared/execution/runRecord'
 import {
   screenToWorld as canvasScreenToWorld,
   type Viewport as CanvasViewport,
@@ -1560,6 +1563,7 @@ export function EcommerceWorkbench({
                   const channelId = run.sentChannelId
                   const channel = channelId ? channelLabelOf?.(channelId) ?? channelId : ''
                   const pixels = pixelSummaryOf(run)
+                  const routeAttempts = routeAttemptSummaryOf(run.routeAttempts)
                   return (
                     <article
                       key={run.id}
@@ -1584,7 +1588,15 @@ export function EcommerceWorkbench({
                         {channel ? ` · ${channel}` : ''} ·{' '}
                         {run.durationMs > 0 ? `${(run.durationMs / 1000).toFixed(1)}s` : '<1s'} ·{' '}
                         {new Date(run.createdAt).toLocaleTimeString('zh-CN')}
+                        {routeAttempts
+                          ? ` · 路由 ${routeAttempts.count} 次`
+                          : ''}
                       </small>
+                      {routeAttempts ? (
+                        <small title={routeAttempts.title} data-ecommerce-route-attempts={routeAttempts.count}>
+                          {routeAttempts.title.replace(/\n/g, ' · ')}
+                        </small>
+                      ) : null}
                       {pixels ? <small>{pixels}</small> : null}
                       {run.errorText ? <p className={styles.logError}>{run.errorText}</p> : null}
                     </article>

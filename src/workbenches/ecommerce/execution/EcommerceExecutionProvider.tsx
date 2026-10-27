@@ -9,6 +9,7 @@ import {
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { RunPlan } from '../../../domain/shared/execution/plan'
+import type { RunRouteCandidate } from '../../../domain/shared/execution/types'
 import type { RunRecord } from '../../../domain/shared/execution/runRecord'
 import { createRunRecord } from '../../../domain/shared/execution/runRecord'
 import { createChannelRepository } from '../../../state/project/channelRepository'
@@ -36,6 +37,7 @@ import type {
 } from '../../../features/shared/execution/runEngine'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createGenerationClient } from '../../../platform/generation'
+import { applyRoutePlanToRequest } from '../../../domain/project/generationRouting'
 import { createId } from '../../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../../shared/result'
 import {
@@ -233,10 +235,28 @@ export function EcommerceExecutionProvider({
       if (!first) {
         throw new Error('电商执行计划为空')
       }
-      const channel = channels
-        .getState()
-        .channels.find((item) => item.id === first.request.channelId)
-      if (!channel) throw new Error('电商执行渠道不存在')
+      for (const task of plan.tasks) {
+        if (task.request.kind !== 'image' && task.request.kind !== 'video') {
+          throw new Error(`电商执行不支持 ${task.request.kind} 请求`)
+        }
+        const route = await channels.planGenerationRoute({
+          category: task.request.kind,
+          logicalModel: task.request.logicalModel ?? task.request.model,
+          explicitChannelId: task.request.channelId,
+        })
+        if (!route.ok) {
+          throw new Error(
+            route.reason === 'policy_excluded'
+              ? '电商所选渠道不在当前路由范围内'
+              : '电商渠道没有可用于本次生成的模型或 Key',
+          )
+        }
+        task.request = applyRoutePlanToRequest(
+          task.request,
+          route.plan,
+          `${plan.id}:${task.id}:route`,
+        )
+      }
       const operationId = createId('op')
       operationIdsRef.current.set(plan.id, operationId)
       const preflightBoundary = createEcommercePreflightBoundary()
@@ -246,38 +266,54 @@ export function EcommerceExecutionProvider({
         preflightBoundary.interrupt,
       )
 
-      const candidateGroupIds = first.request.credentialGroupIds?.length
-        ? [...first.request.credentialGroupIds]
-        : first.request.credentialGroupId
-          ? [first.request.credentialGroupId]
-          : [undefined]
+      const candidates: RunRouteCandidate[] =
+        first.request.routeCandidates?.length
+          ? first.request.routeCandidates.map((candidate) => ({ ...candidate }))
+          : [{
+              channelId: first.request.channelId,
+              ...(first.request.credentialGroupId
+                ? { credentialGroupId: first.request.credentialGroupId }
+                : {}),
+              model: first.request.model,
+            }]
       const adapters = new Map<string, ChannelAdapter>()
-      const usableGroupIds: string[] = []
+      const usableCandidates: RunRouteCandidate[] = []
       let firstPreflightError: unknown
       try {
         try {
-          for (const groupId of candidateGroupIds) {
+          for (const candidate of candidates) {
+            const channel = channels
+              .getState()
+              .channels.find((item) => item.id === candidate.channelId)
+            if (!channel || !channel.enabled) {
+              firstPreflightError ??= new Error(
+                `电商渠道不可用：${candidate.channelId}`,
+              )
+              continue
+            }
             try {
               const target = await preflightBoundary.run(() =>
                 generation.resolve({
                   channel,
-                  request: first.request,
+                  request: { model: candidate.model },
                   kind: first.request.kind,
                   hints: {
                     modelIsUpstream: true,
-                    ...(groupId ? { credentialGroupId: groupId } : {}),
+                    ...(candidate.credentialGroupId
+                      ? { credentialGroupId: candidate.credentialGroupId }
+                      : {}),
                   },
                 }),
               )
               adapters.set(
                 ecommerceAdapterKey(
-                  first.request.channelId,
-                  groupId,
+                  candidate.channelId,
+                  candidate.credentialGroupId,
                   first.request.kind,
                 ),
                 target.adapter,
               )
-              if (groupId) usableGroupIds.push(groupId)
+              usableCandidates.push(candidate)
             } catch (error) {
               if (preflightBoundary.isInterrupted()) throw error
               firstPreflightError ??= error
@@ -302,14 +338,17 @@ export function EcommerceExecutionProvider({
 
         adaptersRef.current.set(plan.id, adapters)
         for (const task of plan.tasks) {
-          const groups = usableGroupIds.length > 0 ? usableGroupIds : undefined
-          if (groups) {
-            task.request.credentialGroupIds = groups
-            if (
-              !task.request.credentialGroupId ||
-              !groups.includes(task.request.credentialGroupId)
-            ) {
-              task.request.credentialGroupId = groups[0]
+          if (usableCandidates.length > 0) {
+            task.request.routeCandidates = usableCandidates.map((candidate) => ({
+              ...candidate,
+            }))
+            const firstUsable = usableCandidates[0]!
+            task.request.channelId = firstUsable.channelId
+            task.request.model = firstUsable.model
+            if (firstUsable.credentialGroupId) {
+              task.request.credentialGroupId = firstUsable.credentialGroupId
+            } else {
+              delete task.request.credentialGroupId
             }
           }
           resultTaskIdsRef.current.set(task.resultId, task.id)

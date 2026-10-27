@@ -12,6 +12,7 @@ import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import {
   channelCapabilities,
   maskTokenTail,
+  protocolNeedsNoToken,
   protocolLabel,
   protocolShort,
   type Channel,
@@ -35,9 +36,11 @@ import {
 } from '../../domain/project/modelSelection'
 import styles from './SettingsPage.module.css'
 import {
-  ROUTE_STRATEGIES,
-  type RouteStrategy,
-} from '../../domain/project/modelRouting'
+  ROUTE_PLAN_STRATEGIES,
+  routeCandidateKey,
+  type RouteCandidateRef,
+  type RoutePlanStrategy,
+} from '../../domain/project/routePlan'
 import type { PresetModel, PresetVendor } from '../../domain/project/modelPresets'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
@@ -450,11 +453,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     () => channels.getState().customProtocols,
     () => channels.getState().customProtocols,
   )
-  /** 全局选路策略（用户 2026-09-29 第 12 轮）：与选中的渠道无关 */
-  const routeStrategy = useSyncExternalStore(
+  /** 全局路由策略：与选中的渠道无关，跨三个工作台共用。 */
+  const routingPolicy = useSyncExternalStore(
     channels.subscribe,
-    () => channels.getState().routeStrategy,
-    () => channels.getState().routeStrategy,
+    () => channels.getState().routingPolicy,
+    () => channels.getState().routingPolicy,
   )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -468,6 +471,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const channelMenuRef = useRef<HTMLDivElement | null>(null)
   const [channelSearch, setChannelSearch] = useState('')
   const [channelFilter, setChannelFilter] = useState<ChannelFilterKey>('all')
+  const [routingScopeOpen, setRoutingScopeOpen] = useState(false)
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
   const [profileDrawerBounds, setProfileDrawerBounds] = useState<{
     left: number
@@ -553,6 +557,59 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const platform = usePlatform()
   /** 桌面壳里才有本机命令（对账 #308）：状态行文案据此区分"本机命令"与"地址" */
   const hasLocalCli = platform.cli != null
+  const routingCandidates = useMemo(() => {
+    return channelsList.flatMap((channel) => {
+      const tokenless = protocolNeedsNoToken(channel.protocol, hasLocalCli)
+      const groups =
+        channel.credentialGroups.length > 0
+          ? channel.credentialGroups.map((group) => ({
+              id: group.id,
+              name: group.name,
+              hasToken: tokenless || group.hasToken,
+            }))
+          : [{
+              id: undefined,
+              name: '渠道级 Key',
+              hasToken: tokenless || channel.hasToken,
+            }]
+      return groups.map((group) => {
+        const ref: RouteCandidateRef = {
+          channelId: channel.id,
+          ...(group.id ? { credentialGroupId: group.id } : {}),
+        }
+        return {
+          ref,
+          key: routeCandidateKey(ref),
+          channelName: channel.name,
+          groupName: group.name,
+          hasToken: group.hasToken,
+          enabled: channel.enabled,
+        }
+      })
+    })
+  }, [channelsList, hasLocalCli])
+  const allRoutingCandidateKeys = useMemo(
+    () => new Set(routingCandidates.map((candidate) => candidate.key)),
+    [routingCandidates],
+  )
+  const selectedRoutingCandidateKeys =
+    routingPolicy.allowedCandidates.length === 0
+      ? allRoutingCandidateKeys
+      : new Set(routingPolicy.allowedCandidates.map(routeCandidateKey))
+
+  const toggleRoutingCandidate = (candidateKey: string, checked: boolean) => {
+    const next = new Set(selectedRoutingCandidateKeys)
+    if (checked) next.add(candidateKey)
+    else next.delete(candidateKey)
+    if (next.size === 0) return
+    const allowedCandidates =
+      next.size === routingCandidates.length
+        ? []
+        : routingCandidates
+            .filter((candidate) => next.has(candidate.key))
+            .map((candidate) => candidate.ref)
+    void channels.setRoutingPolicy({ allowedCandidates })
+  }
   /** 抓站点图标要原生 HTTP（对账 #396）：浏览器里跨域读不到，按钮据此如实禁用 */
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
   const protocolOptions = catalog.all
@@ -1276,22 +1333,108 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
           <div className={styles.globalRouteText}>
             <span className={styles.cardTitle}>选路策略</span>
             <span className={styles.cardSub}>
-              同一模型可用时，按此规则选择渠道。
+              同一模型可用时，按此规则选择渠道和 Key 分组。
             </span>
-            {routeStrategy === 'performance' && (
-              <span className={styles.cardSub}>按最近一次验证延迟排序。</span>
-            )}
           </div>
-          <StrategyPicker
-            value={routeStrategy}
-            options={ROUTE_STRATEGIES.map((s) => ({
-              value: s.value,
-              label: s.label,
-              hint: s.hint,
-            }))}
-            onChange={(value) => void channels.setRouteStrategy(value as RouteStrategy)}
-          />
+          <div className={styles.globalRouteControls}>
+            <StrategyPicker
+              value={routingPolicy.strategy}
+              options={ROUTE_PLAN_STRATEGIES.map((strategy) => ({
+                value: strategy.value,
+                label: strategy.label,
+                hint: strategy.hint,
+              }))}
+              onChange={(value) =>
+                void channels.setRoutingPolicy({
+                  strategy: value as RoutePlanStrategy,
+                })
+              }
+            />
+            <ChoicePicker
+              name="routing-max-attempts"
+              value={String(routingPolicy.maxAttempts)}
+              options={[1, 2, 3, 4, 5].map((count) => ({
+                value: String(count),
+                label: `最多 ${count} 次`,
+              }))}
+              ariaLabel="最大尝试次数"
+              onChange={(value) =>
+                void channels.setRoutingPolicy({ maxAttempts: Number(value) })
+              }
+            />
+            <button
+              type="button"
+              className={routingScopeOpen ? `${styles.routeScopeButton} ${styles.routeScopeButtonOpen}` : styles.routeScopeButton}
+              data-routing-scope-toggle
+              aria-expanded={routingScopeOpen}
+              onClick={() => setRoutingScopeOpen((open) => !open)}
+            >
+              路由范围
+              <span>
+                {selectedRoutingCandidateKeys.size}/{routingCandidates.length}
+              </span>
+            </button>
+          </div>
         </section>
+
+        {routingScopeOpen && (
+          <section className={styles.routeScopePanel} data-routing-scope>
+            <div className={styles.routeScopeHead}>
+              <div className={styles.globalRouteText}>
+                <span className={styles.cardTitle}>参与路由的 Key 分组</span>
+                <span className={styles.cardSub}>
+                  至少保留一项；未勾选的分组不会被自动回退使用。
+                </span>
+              </div>
+              <button
+                type="button"
+                className={styles.routeScopeReset}
+                disabled={routingPolicy.allowedCandidates.length === 0}
+                onClick={() =>
+                  void channels.setRoutingPolicy({ allowedCandidates: [] })
+                }
+              >
+                全部可用
+              </button>
+            </div>
+            {routingCandidates.length === 0 ? (
+              <p className={styles.routeScopeEmpty}>还没有可参与路由的渠道。</p>
+            ) : (
+              <div className={styles.routeScopeGrid}>
+                {routingCandidates.map((candidate) => {
+                  const checked = selectedRoutingCandidateKeys.has(candidate.key)
+                  return (
+                    <label
+                      key={candidate.key}
+                      className={styles.routeScopeOption}
+                      data-routing-candidate={candidate.key}
+                      data-routing-candidate-checked={checked ? 'true' : 'false'}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) =>
+                          toggleRoutingCandidate(candidate.key, event.target.checked)
+                        }
+                      />
+                      <span className={styles.routeScopeOptionText}>
+                        <b>{candidate.channelName}</b>
+                        <small>
+                          {candidate.groupName}
+                          {!candidate.enabled
+                            ? ' · 已停用'
+                            : !candidate.hasToken
+                              ? ' · 未配置 Key'
+                              : ''}
+                        </small>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        )}
 
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar} data-settings-sidebar>

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { formatLogTime, isLogBackdropPointerDown, statusLabel } from './LogPanel'
+import {
+  formatLogTime,
+  isLogBackdropPointerDown,
+  routeAttemptSummary,
+  statusLabel,
+} from './LogPanel'
 
 /**
  * 日志面板的纯展示逻辑（产品文档 §6.18）：
@@ -29,5 +34,49 @@ describe('LogPanel / 展示逻辑', () => {
     expect(isLogBackdropPointerDown(backdrop, backdrop)).toBe(true)
     expect(isLogBackdropPointerDown(panelChild, backdrop)).toBe(false)
     expect(isLogBackdropPointerDown(null, backdrop)).toBe(false)
+  })
+
+  it('只有发生换组时才显示路由次数，并在悬停说明里保留每次结果', () => {
+    expect(routeAttemptSummary(undefined)).toBeNull()
+    expect(routeAttemptSummary([{
+      attempt: 1,
+      channelId: 'relay',
+      requestedModel: 'GPT Image',
+      sentModel: 'gpt-image',
+      status: 'succeeded',
+      startedAt: 0,
+      finishedAt: 0,
+      durationMs: 0,
+    }])).toBeNull()
+
+    const summary = routeAttemptSummary([
+      {
+        attempt: 1,
+        channelId: 'relay',
+        credentialGroupId: 'primary',
+        requestedModel: 'GPT Image',
+        sentModel: 'gpt-image',
+        status: 'failed',
+        errorText: 'HTTP 403',
+        startedAt: 0,
+        finishedAt: 0,
+        durationMs: 0,
+      },
+      {
+        attempt: 2,
+        channelId: 'relay',
+        credentialGroupId: 'backup',
+        requestedModel: 'GPT Image',
+        sentModel: 'gpt-image',
+        status: 'succeeded',
+        startedAt: 0,
+        finishedAt: 0,
+        durationMs: 0,
+      },
+    ])
+    expect(summary?.count).toBe(2)
+    expect(summary?.title).toContain('primary')
+    expect(summary?.title).toContain('HTTP 403')
+    expect(summary?.title).toContain('backup')
   })
 })

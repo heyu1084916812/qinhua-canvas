@@ -15,7 +15,12 @@ export function registerEcommerceChannelGuard(
   onInterrupted: () => void,
 ): () => void {
   const taskChannels = new Map(
-    plan.tasks.map((task) => [task.id, task.request.channelId]),
+    plan.tasks.map((task) => [
+      task.id,
+      task.request.routeCandidates?.length
+        ? [...new Set(task.request.routeCandidates.map((candidate) => candidate.channelId))]
+        : task.request.channelId,
+    ]),
   )
   registerGuardedChannelRun(plan.id, {
     taskChannels,

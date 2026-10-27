@@ -40287,6 +40287,7 @@ async function g769(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
   const projectId = 'p-agent-queue'
   const sessionId = 'chat-agent-queue'
+  const routeRunId = 'g769-route-attempt'
   const now = Date.now()
 
   try {
@@ -40306,6 +40307,8 @@ async function g769(browser) {
       model: 'GPT-6 Astra',
       imageModel: 'GPT Image 2',
       messages: [],
+      activeTurnId: 'turn-1',
+      activeTurnStartedAt: now,
       queuedTurns: [
         {
           id: 'turn-1',
@@ -40337,6 +40340,13 @@ async function g769(browser) {
       '★★ 队列随会话读回，不提前混进消息正文',
       (await page.locator('[data-agent-queue]').getAttribute('data-agent-queue-count')) === '2' &&
         (await page.locator('[data-agent-message="user"]').count()) === 0,
+    )
+    const recoveredSession = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 进程中断留下的活动标记被释放，队首仍保留',
+      recoveredSession?.activeTurnId === undefined &&
+        recoveredSession?.queuedTurns?.length === 2,
     )
 
     await page.locator('[data-agent-queue-toggle]').click()
@@ -40411,9 +40421,127 @@ async function g769(browser) {
         Array.isArray(afterClear?.queuedTurns) &&
         afterClear.queuedTurns.length === 0,
     )
+
+    await sharedPut(page, 'agentSessions', {
+      ...afterClear,
+      pendingConfirmation: {
+        callId: 'call-restored',
+        name: 'runNode',
+        args: { nodeIds: ['node-missing'] },
+      },
+      updatedAt: Date.now(),
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    const restoredConfirm = await page
+      .locator('[data-agent-confirm]')
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    rec(g, '★★ 待确认工具调用在页面重载后仍能恢复确认卡', restoredConfirm)
+
+    await sharedPut(page, 'runRecords', {
+      id: routeRunId,
+      projectId,
+      nodeId: 'g769-route-node',
+      version: 1,
+      createdAt: now,
+      status: 'succeeded',
+      inputs: [],
+      params: { model: 'GPT Logical', prompt: '路由尝试记录' },
+      outputHashes: [],
+      fingerprint: 'g769-route-fingerprint',
+      taskId: 'g769-route-task',
+      durationMs: 1200,
+      sentChannelId: 'relay',
+      sentModel: 'gpt-upstream',
+      credentialGroupId: 'backup',
+      routePlanId: 'plan-g769',
+      routeAttempts: [
+        {
+          attempt: 1,
+          channelId: 'relay',
+          credentialGroupId: 'primary',
+          requestedModel: 'GPT Logical',
+          sentModel: 'gpt-upstream',
+          status: 'failed',
+          startedAt: now,
+          finishedAt: now + 300,
+          durationMs: 300,
+          errorKind: 'http',
+          httpStatus: 403,
+          sendPhase: 'rejected',
+          errorText: 'HTTP 403',
+        },
+        {
+          attempt: 2,
+          channelId: 'relay',
+          credentialGroupId: 'backup',
+          requestedModel: 'GPT Logical',
+          sentModel: 'gpt-upstream',
+          status: 'succeeded',
+          startedAt: now + 400,
+          finishedAt: now + 1200,
+          durationMs: 800,
+          sendPhase: 'accepted',
+        },
+      ],
+    })
+    await page.locator('[data-canvas-log]').click()
+    await page.locator('[data-log-route-attempts="2"]').waitFor({ state: 'visible', timeout: 10000 })
+    const routeCap = page.locator('[data-log-route-attempts="2"]')
+    rec(
+      g,
+      '★★ 日志显示路由次数，并保留每次分组与失败原因',
+      (await routeCap.innerText()).includes('路由 2 次') &&
+        (await routeCap.getAttribute('title'))?.includes('primary') &&
+        (await routeCap.getAttribute('title'))?.includes('HTTP 403') &&
+        (await routeCap.getAttribute('title'))?.includes('backup'),
+    )
+    await page.screenshot({ path: `${OUT}/769-route-attempts.png` })
+    await page.keyboard.press('Escape')
+
+    await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' })
+    await page
+      .locator('[data-settings-global-route]')
+      .waitFor({ state: 'visible', timeout: 15000 })
+    await page
+      .locator('[data-channel-item]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 15000 })
+    await page.locator('[data-routing-scope-toggle]').click()
+    await page.locator('[data-routing-scope]').waitFor({ state: 'visible', timeout: 5000 })
+    const routingUi = await page.evaluate(() => {
+      const panel = document.querySelector('[data-routing-scope]')?.getBoundingClientRect()
+      const candidates = document.querySelectorAll('[data-routing-candidate]')
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        panelFits:
+          !!panel &&
+          panel.left >= 0 &&
+          panel.right <= innerWidth + 1,
+        candidateCount: candidates.length,
+        checkedCount: document.querySelectorAll(
+          '[data-routing-candidate][data-routing-candidate-checked="true"]',
+        ).length,
+      }
+    })
+    rec(
+      g,
+      '★★ 模型服务可展开路由范围，候选勾选与全屏边界一致',
+      routingUi.overflow <= 0 &&
+        routingUi.panelFits &&
+        routingUi.candidateCount > 0 &&
+        routingUi.checkedCount === routingUi.candidateCount,
+      JSON.stringify(routingUi),
+    )
+    await page.screenshot({ path: `${OUT}/769-routing-scope.png` })
+
     rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   } finally {
     await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
+    await sharedDelete(page, 'runRecords', routeRunId).catch(() => {})
     await sharedDelete(page, 'projects', projectId).catch(() => {})
     await ctx.close()
   }

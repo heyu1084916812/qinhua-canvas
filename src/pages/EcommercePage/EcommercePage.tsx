@@ -1376,6 +1376,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         mediaKind,
         channelId: target.channelId,
         model: target.upstreamModel,
+        logicalModel: target.logicalModel,
         ...(target.credentialGroupId
           ? { credentialGroupId: target.credentialGroupId }
           : {}),
@@ -1594,6 +1595,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         mediaKind,
         channelId: channelForRun,
         model: target.upstreamModel,
+        logicalModel: target.logicalModel,
         ...(target.credentialGroupId
           ? { credentialGroupId: target.credentialGroupId }
           : {}),

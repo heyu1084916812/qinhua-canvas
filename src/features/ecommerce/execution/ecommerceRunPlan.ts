@@ -18,6 +18,8 @@ export interface EcommerceRunPlanInput {
   mediaKind: 'image' | 'video'
   channelId: string
   model: string
+  /** 用户选择的前端逻辑模型；`model` 可以是已映射的上游 ID。 */
+  logicalModel?: string
   /** 已完成渠道内分组选路时传入；网关只做单次执行，不再自行换组。 */
   credentialGroupId?: string
   credentialGroupIds?: string[]
@@ -41,6 +43,9 @@ function requestOf(
     kind: input.mediaKind,
     channelId: input.channelId,
     model: input.model,
+    ...(input.logicalModel?.trim()
+      ? { logicalModel: input.logicalModel.trim() }
+      : {}),
     prompt: shot.prompt,
     inputs: [...input.inputs],
     params: { ...shot.params },

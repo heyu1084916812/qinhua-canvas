@@ -52,4 +52,20 @@ describe('runChannelGuard', () => {
     expect(cancel).not.toHaveBeenCalled()
     expect(interrupted).not.toHaveBeenCalled()
   })
+
+  it('★ 跨渠道 RoutePlan 任一候选渠道被删都会停止该任务', () => {
+    const cancel = vi.fn()
+    const interrupted = vi.fn()
+    registerGuardedChannelRun('plan-route', {
+      taskChannels: new Map([['task-1', ['relay-a', 'relay-b']]]),
+      cancel,
+      onInterrupted: interrupted,
+    })
+
+    expect(interruptGuardedRunsForRemovedChannels(new Set(['relay-b']))).toBe(1)
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(interrupted).toHaveBeenCalledWith([
+      { taskId: 'task-1', channelId: 'relay-b' },
+    ])
+  })
 })

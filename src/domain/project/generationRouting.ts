@@ -3,6 +3,10 @@ import {
   type Channel,
 } from './channel'
 import type { ModelCapability } from '../shared/capability'
+import type {
+  RunRequest,
+  RunRouteCandidate,
+} from '../shared/execution/types'
 import { resolveUpstreamModel } from './modelMapping'
 import {
   resolveRouteFor,
@@ -11,6 +15,12 @@ import {
   type RouteStrategy,
 } from './modelRouting'
 import type { ProtocolCatalog } from './protocol'
+import {
+  buildRoutePlan,
+  type RoutePlan,
+  type RoutePlanResult,
+  type RoutePolicy,
+} from './routePlan'
 
 export type GenerationMediaKind = 'image' | 'video'
 
@@ -34,6 +44,85 @@ export interface GenerationRoutingTarget {
 export interface GenerationAvailability {
   ready: boolean
   reason: string | null
+}
+
+/**
+ * 生成任务的 RoutePlan 入口。
+ *
+ * 这里不决定是否换组；只把候选和轮询顺序算成不可变计划。
+ */
+export function buildGenerationRoutePlan(opts: {
+  channels: readonly Channel[]
+  category: GenerationMediaKind
+  logicalModel: string
+  policy?: Partial<RoutePolicy>
+  cursor?: number
+  random?: number
+}): RoutePlanResult {
+  return buildRoutePlan({
+    channels: opts.channels.map((channel) => ({
+      id: channel.id,
+      enabled: channel.enabled,
+      hasToken: channel.hasToken,
+      priority: channel.priority,
+      weight: channel.weight,
+      lastTestLatency: channel.lastTestLatency,
+      models: channel.models,
+      modelMap: channel.modelMap,
+      credentialGroups: channel.credentialGroups.map((group) => ({
+        id: group.id,
+        hasToken: group.hasToken,
+        priority: group.priority,
+        models: group.models,
+      })),
+    })),
+    logicalModel: opts.logicalModel,
+    capability: opts.category,
+    policy: opts.policy,
+    cursor: opts.cursor,
+    random: opts.random,
+  })
+}
+
+export type GenerationRoutePlan = RoutePlan
+
+export function runRouteCandidatesOf(
+  plan: RoutePlan,
+): RunRouteCandidate[] {
+  return plan.candidates.map((candidate) => ({
+    channelId: candidate.channelId,
+    ...(candidate.credentialGroupId
+      ? { credentialGroupId: candidate.credentialGroupId }
+      : {}),
+    model: candidate.upstreamModel,
+  }))
+}
+
+/**
+ * 把冻结的 RoutePlan 写进请求。
+ *
+ * 第一个候选同时成为旧宿主读取的 `channelId / model / credentialGroupId`，
+ * 让未升级的预检和日志仍能看到本次首选；执行引擎会按 `routeCandidates` 逐次尝试。
+ */
+export function applyRoutePlanToRequest(
+  request: RunRequest,
+  plan: RoutePlan,
+  routePlanId = `${plan.logicalModel}:${plan.capability}:${plan.strategy}`,
+): RunRequest {
+  const routeCandidates = runRouteCandidatesOf(plan)
+  const first = routeCandidates[0]
+  if (!first) return request
+  return {
+    ...request,
+    channelId: first.channelId,
+    model: first.model,
+    logicalModel: request.logicalModel ?? plan.logicalModel,
+    routePlanId,
+    routeCandidates,
+    ...(first.credentialGroupId
+      ? { credentialGroupId: first.credentialGroupId }
+      : { credentialGroupId: undefined }),
+  }
 }
 
 /**

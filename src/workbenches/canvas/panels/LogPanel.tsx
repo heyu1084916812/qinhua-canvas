@@ -6,12 +6,17 @@ import { useAsset } from '../../../features/shared/assets/index'
 import { subscribeRunRecordChanged } from '../execution/runRecordEvents'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
 import { LOCAL_RUN_CHANNEL_ID } from '../../../domain/canvas/model/runRecord'
-import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
+import {
+  pixelSummaryOf,
+  routeAttemptSummaryOf as routeAttemptSummary,
+} from '../../../domain/shared/execution/runRecord'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
 import { createRunLogRepository } from '../../../state/shared/runLogRepository'
 import styles from './LogPanel.module.css'
+
+export { routeAttemptSummary }
 
 /** 只有点在遮罩本身才收起；点在面板内部（事件已冒泡）不能误关。 */
 export function isLogBackdropPointerDown(
@@ -222,6 +227,7 @@ function LogRow({
    * 老记录没有 `sentModel` → 回落到 `params.model`（逻辑名），行为不变。
    */
   const shownModel = record.sentModel ?? params.model ?? ''
+  const routeAttemptInfo = routeAttemptSummary(record.routeAttempts)
   const intendedChannelId = params.channelId
   const routed =
     Boolean(record.sentChannelId) &&
@@ -239,6 +245,15 @@ function LogRow({
           <span className={styles.cap} data-log-model>
             {shownModel || '—'}
           </span>
+          {routeAttemptInfo && (
+            <span
+              className={styles.cap}
+              title={routeAttemptInfo.title}
+              data-log-route-attempts={routeAttemptInfo.count}
+            >
+              路由 {routeAttemptInfo.count} 次
+            </span>
+          )}
           <span className={styles.cap}>{seconds}s</span>
         </div>
         <div className={styles.meta}>

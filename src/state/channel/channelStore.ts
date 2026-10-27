@@ -2,7 +2,12 @@ import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import type { ChannelCredentialGroup } from '../../domain/project/channel'
-import { channelIsRoutable, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import {
+  channelIsRoutable,
+  protocolNeedsNoToken,
+  requiresBaseUrl,
+  tokenTailOf,
+} from '../../domain/project/channel'
 import {
   buildProtocolCatalog,
   protocolById,
@@ -21,6 +26,12 @@ import {
 } from '../../domain/project/modelMapping'
 import type { RouteStrategy } from '../../domain/project/modelRouting'
 import {
+  normalizeRoutePolicy,
+  type RoutePlanResult,
+  type RoutePolicy,
+} from '../../domain/project/routePlan'
+import { buildGenerationRoutePlan } from '../../domain/project/generationRouting'
+import {
   NO_RECIPE,
   rememberRecipe,
   resolveForNode,
@@ -35,6 +46,7 @@ import { createChannelRepository, type ChannelRepository } from '../project/chan
 import { BUILTIN_CHANNEL_IDS, isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import type { CredentialSlot } from '../../domain/project/channel'
 import { createPresetStore, type PresetStore } from '../project/presetStore'
+import { createRoutingPolicyStore } from '../project/routingPolicyStore'
 import {
   createChannelAdapter,
   type ResolvedChannelConfig,
@@ -121,6 +133,8 @@ export interface ChannelStoreState {
    * 全局问题；放进每条渠道的表单会变成「用哪条渠道的策略」这种说不清的问题。
    */
   routeStrategy: RouteStrategy
+  /** 新路由计划的持久策略；为空候选表示沿用所有可用渠道/分组。 */
+  routingPolicy: RoutePolicy
   /**
    * 「记住上次参数」是否生效（对账 #386 的 E4）。
    *
@@ -215,6 +229,18 @@ export interface ChannelStoreActions {
   setRouteTuning(id: string, patch: { priority?: number; weight?: number }): Promise<void>
   /** 全局选路策略（跨渠道比较用的那把尺子），落库到 `presets` 的保留行 */
   setRouteStrategy(strategy: RouteStrategy): Promise<void>
+  /** 持久化路由策略、最大尝试次数与允许参与路由的渠道/Key 分组。 */
+  setRoutingPolicy(patch: Partial<RoutePolicy>): Promise<void>
+  /**
+   * 为一次新请求生成可执行 RoutePlan。
+   *
+   * 显式渠道只在该渠道内生成分组候选；未指定渠道时按全局策略跨渠道。
+   */
+  planGenerationRoute(opts: {
+    category: 'image' | 'video'
+    logicalModel: string
+    explicitChannelId?: string
+  }): Promise<RoutePlanResult>
   hasToken(id: string, slot?: CredentialSlot): Promise<boolean>
   /** 「验证地址」（§7.3）：只测通不通 + 延迟，不碰 models / modelCache */
   verify(id: string, groupId?: string): Promise<void>
@@ -344,6 +370,7 @@ export function createChannelStore(
   const seedBuiltins = opts.seedBuiltins !== false
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
   const presets: PresetStore = createPresetStore(platform.storage)
+  const routingPolicies = createRoutingPolicyStore(platform.storage)
   const removingChannelIds = new Set<string>()
   const visibleChannels = (channels: Channel[]): Channel[] =>
     channels.filter((channel) => !removingChannelIds.has(channel.id))
@@ -355,6 +382,7 @@ export function createChannelStore(
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
     routeStrategy: 'priority',
+    routingPolicy: normalizeRoutePolicy(undefined),
     recipeMemory: true,
     customProtocols: [],
     customModels: [],
@@ -394,7 +422,15 @@ export function createChannelStore(
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [loadedChannels, customRows, customModels, uncommonModelIds, routeStrategy, recipeMemory] =
+    const [
+      loadedChannels,
+      customRows,
+      customModels,
+      uncommonModelIds,
+      routeStrategy,
+      storedRoutingPolicy,
+      recipeMemory,
+    ] =
       await Promise.all([
       /**
        * ★ 读表时**补齐常驻内置渠道**（用户第 20 批起）：它们常驻、置顶、不可删。
@@ -405,8 +441,13 @@ export function createChannelStore(
       presets.loadCustomModels(),
       presets.loadUncommonModels(),
       presets.loadRoutingStrategy(),
+      routingPolicies.load(),
       presets.loadRecipeMemory(),
       ])
+    const routingPolicy =
+      storedRoutingPolicy.strategy === 'priority' && routeStrategy !== 'priority'
+        ? { ...storedRoutingPolicy, strategy: routeStrategy }
+        : storedRoutingPolicy
     let channels = visibleChannels(loadedChannels)
     const staleRunningHub = channels.filter(
       (c) =>
@@ -440,6 +481,7 @@ export function createChannelStore(
       customModels,
       uncommonModelIds,
       routeStrategy,
+      routingPolicy,
       recipeMemory,
       loaded: true,
     })
@@ -942,10 +984,76 @@ export function createChannelStore(
   }
 
   const setRouteStrategy: ChannelStoreActions['setRouteStrategy'] = async (strategy) => {
-    // 先落库再改内存。落库失败不抛：偏好类写不进去不该打断使用，
-    // 最坏情况是本次能用、下次启动回落 priority（见 presetStore.saveRoutingStrategy）。
-    await presets.saveRoutingStrategy(strategy)
-    store.setState({ routeStrategy: strategy })
+    const routingPolicy = normalizeRoutePolicy({
+      ...store.getState().routingPolicy,
+      strategy,
+    })
+    await Promise.all([
+      presets.saveRoutingStrategy(strategy),
+      routingPolicies.save(routingPolicy),
+    ])
+    store.setState({ routeStrategy: strategy, routingPolicy })
+  }
+
+  const setRoutingPolicy: ChannelStoreActions['setRoutingPolicy'] = async (patch) => {
+    const routingPolicy = normalizeRoutePolicy({
+      ...store.getState().routingPolicy,
+      ...patch,
+    })
+    const legacyStrategy =
+      routingPolicy.strategy === 'round_robin'
+        ? store.getState().routeStrategy
+        : routingPolicy.strategy
+    await Promise.all([
+      routingPolicies.save(routingPolicy),
+      presets.saveRoutingStrategy(legacyStrategy),
+    ])
+    store.setState({ routingPolicy, routeStrategy: legacyStrategy })
+  }
+
+  const planGenerationRoute: ChannelStoreActions['planGenerationRoute'] = async (opts) => {
+    const state = store.getState()
+    const explicitChannelId = opts.explicitChannelId?.trim() ?? ''
+    const sourceChannels = explicitChannelId
+      ? state.channels.filter((channel) => channel.id === explicitChannelId)
+      : state.channels
+    const hasLocalCli = platform.cli != null
+    const channels = sourceChannels.map((channel) => {
+      const tokenless = protocolNeedsNoToken(channel.protocol, hasLocalCli)
+      return {
+        ...channel,
+        hasToken: tokenless || channel.hasToken,
+        credentialGroups: channel.credentialGroups.map((group) => ({
+          ...group,
+          hasToken: tokenless || group.hasToken,
+        })),
+      }
+    })
+    const first = buildGenerationRoutePlan({
+      channels,
+      category: opts.category,
+      logicalModel: opts.logicalModel,
+      policy: state.routingPolicy,
+    })
+    if (
+      !first.ok ||
+      first.plan.strategy !== 'round_robin' ||
+      first.plan.cursorModulus <= 1
+    ) {
+      return first
+    }
+    const cursor = await routingPolicies.nextCursor(
+      opts.logicalModel,
+      opts.category,
+      first.plan.cursorModulus,
+    )
+    return buildGenerationRoutePlan({
+      channels,
+      category: opts.category,
+      logicalModel: opts.logicalModel,
+      policy: state.routingPolicy,
+      cursor,
+    })
   }
 
   const hasToken: ChannelStoreActions['hasToken'] = async (id, slot = 'primary') => {
@@ -1506,6 +1614,8 @@ export function createChannelStore(
     setModelMapping: setModelMappingAction,
     setRouteTuning,
     setRouteStrategy,
+    setRoutingPolicy,
+    planGenerationRoute,
     hasToken,
     verify,
     detectProtocol,

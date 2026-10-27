@@ -32,6 +32,16 @@ import { cropAsset, extractSelection } from '../../../../features/canvas/extract
 import { splitNodeToGrid } from '../../../../features/canvas/splitToGrid'
 import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
 import {
+  activeQueueTurnOf,
+  claimSessionActivity,
+  clearQueueDrain,
+  isSessionActivityActive,
+  releaseSessionActivity,
+  requestQueueDrain,
+  shouldDrainQueue,
+  subscribeSessionRelease,
+} from '../../../../features/canvas/agent/sessionActivity'
+import {
   createAssetNode,
   importAssetFile,
   isImportableMedia,
@@ -210,9 +220,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
   }, [])
   const [queueExpanded, setQueueExpanded] = useState(false)
-  const queueAutoDrainRef = useRef(new Set<string>())
   const queuePumpingRef = useRef(new Set<string>())
-  const activeAgentTurnsRef = useRef(new Set<string>())
+  const confirmingRef = useRef(new Set<string>())
   const queuePumpRef = useRef<(sessionId: string) => void>(() => {})
   /**
    * 「现在显示的是哪个会话」。
@@ -434,10 +443,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
   const refresh = useCallback(async () => {
-    const rows = await sessions.list(projectId)
+    let rows = await sessions.list(projectId)
+    for (const row of rows) {
+      if (row.activeTurnId && !isSessionActivityActive(row.id)) {
+        await sessions.releaseActiveTurn(row.id)
+      }
+      if (row.pendingConfirmation) {
+        setStatusFor(row.id, {
+          kind: 'awaitingConfirm',
+          request: row.pendingConfirmation,
+        })
+      }
+    }
+    rows = await sessions.list(projectId)
     setList(rows)
     return rows
-  }, [sessions, projectId])
+  }, [sessions, projectId, setStatusFor])
 
   useEffect(() => {
     let alive = true
@@ -455,11 +476,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       if (rows.length > 0) {
         const head = rows[0]!
         if (!head.skillId && defaultSkillId) {
-          const next = { ...head, skillId: defaultSkillId }
-          await sessions.save(next)
-          setList([next, ...rows.slice(1)])
-          setCurrent(next)
-          setMessages(next.messages)
+          const next = await sessions.updateFields(head.id, { skillId: defaultSkillId })
+          const resolved = next ?? { ...head, skillId: defaultSkillId }
+          setList([resolved, ...rows.slice(1)])
+          setCurrent(resolved)
+          setMessages(resolved.messages)
         } else {
           setCurrent(head)
           setMessages(head.messages)
@@ -706,8 +727,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         if (model !== stored) {
           stickyModelRef.current[kind] = model
           if (current) {
-            void sessions.save(
-              kind === 'video' ? { ...current, videoModel: model } : { ...current, imageModel: model },
+            void sessions.updateFields(
+              current.id,
+              kind === 'video' ? { videoModel: model } : { imageModel: model },
             )
           }
         }
@@ -907,9 +929,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           : outcome.messages
       if (currentIdRef.current === session.id) setMessages(full)
       await persist(session, full)
+      const pendingConfirmation =
+        outcome.kind === 'confirm'
+          ? {
+              callId: outcome.request.callId,
+              name: outcome.request.name,
+              args: outcome.request.args,
+            }
+          : undefined
+      const latest = await sessions.updateFields(session.id, { pendingConfirmation })
+      if (latest) {
+        setList((prev) => prev.map((item) => (item.id === latest.id ? latest : item)))
+        if (currentIdRef.current === latest.id) setCurrent(latest)
+      }
       if (outcome.kind === 'message') {
         setStatusFor(session.id, IDLE_STATUS)
-        queueMicrotask(() => queuePumpRef.current(session.id))
       }
       else if (outcome.kind === 'confirm') {
         setStatusFor(session.id, { kind: 'awaitingConfirm', request: outcome.request })
@@ -917,8 +951,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         setStatusFor(session.id, { kind: 'error', message: outcome.reason })
       } else setStatusFor(session.id, { kind: 'error', message: outcome.message })
     },
-    [persist, setStatusFor],
+    [persist, sessions, setStatusFor],
   )
+
+  const applySessionSnapshot = useCallback((next: AgentSession) => {
+    setList((prev) => prev.map((item) => (item.id === next.id ? next : item)))
+    if (currentIdRef.current === next.id) setCurrent(next)
+  }, [])
 
   /**
    * 真正干活的那一段：**接收正文本身**，不读 `draft`。
@@ -1180,7 +1219,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.request.name,
       )
     }
+    const kind = outcome.kind
     await handleOutcome(session, outcome, hidden)
+    return kind
   }, [
     messages,
     store,
@@ -1196,28 +1237,46 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     generationAvailability,
   ])
 
-  const sendText = useCallback(async (raw: string, queuedSession?: AgentSession) => {
+  const sendText = useCallback(async (
+    raw: string,
+    queuedSession?: AgentSession,
+    opts: { preclaimed?: boolean; queueTurnId?: string } = {},
+  ) => {
     const text = raw.trim()
     const session = queuedSession ?? current
-    if (!text || !session || activeAgentTurnsRef.current.has(session.id)) return
-    activeAgentTurnsRef.current.add(session.id)
+    if (!text || !session) return undefined
+    if (!opts.preclaimed && !claimSessionActivity(session.id, opts.queueTurnId)) return undefined
+    let outcomeKind: AgentLoopOutcome['kind'] | 'error' | undefined
     try {
-      await runSendText(text, session, queuedSession)
+      outcomeKind = await runSendText(text, session, queuedSession)
+      if (outcomeKind !== 'confirm') {
+        if (opts.queueTurnId) {
+          const next = await sessions.finishActiveQueuedTurn(
+            session.id,
+            opts.queueTurnId,
+            outcomeKind === 'message',
+          )
+          if (next) applySessionSnapshot(next)
+        }
+        releaseSessionActivity(session.id, opts.queueTurnId)
+        if (outcomeKind === 'message' && shouldDrainQueue(session.id)) {
+          queueMicrotask(() => queuePumpRef.current(session.id))
+        }
+      }
     } catch (error) {
       const aborted = abortRefs.current.get(session.id)?.signal.aborted === true
       setStatusFor(
         session.id,
         aborted ? IDLE_STATUS : { kind: 'error', message: errText(error) },
       )
-    } finally {
-      activeAgentTurnsRef.current.delete(session.id)
+      if (opts.queueTurnId) {
+        const next = await sessions.finishActiveQueuedTurn(session.id, opts.queueTurnId, false)
+        if (next) applySessionSnapshot(next)
+      }
+      releaseSessionActivity(session.id, opts.queueTurnId)
     }
-  }, [current, runSendText, setStatusFor])
-
-  const applySessionSnapshot = useCallback((next: AgentSession) => {
-    setList((prev) => prev.map((item) => (item.id === next.id ? next : item)))
-    if (currentIdRef.current === next.id) setCurrent(next)
-  }, [])
+    return outcomeKind
+  }, [applySessionSnapshot, current, runSendText, sessions, setStatusFor])
 
   const queueText = useCallback(async (raw: string) => {
     if (!current) return false
@@ -1248,7 +1307,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       return false
     }
-    queueAutoDrainRef.current.add(current.id)
+    requestQueueDrain(current.id)
     applySessionSnapshot(queued.session)
     if (currentIdRef.current === current.id) {
       setDraft((value) => (value.trim() === text ? '' : value))
@@ -1266,41 +1325,72 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (queuePumpingRef.current.has(sessionId)) return
     queuePumpingRef.current.add(sessionId)
     try {
-      const next = await sessions.takeNextQueuedTurn(sessionId)
+      if (!claimSessionActivity(sessionId)) return
+      const next = await sessions.claimNextQueuedTurn(sessionId)
       if (!next) {
-        queueAutoDrainRef.current.delete(sessionId)
+        clearQueueDrain(sessionId)
+        releaseSessionActivity(sessionId)
         return
       }
       applySessionSnapshot(next.session)
-      if (next.session.queuedTurns.length > 0) queueAutoDrainRef.current.add(sessionId)
-      else queueAutoDrainRef.current.delete(sessionId)
-      await sendText(next.turn.text, sessionForQueuedTurn(next.session, next.turn))
+      if (next.session.queuedTurns.length > 0) requestQueueDrain(sessionId)
+      else clearQueueDrain(sessionId)
+      await sendText(
+        next.turn.text,
+        sessionForQueuedTurn(next.session, next.turn),
+        { preclaimed: true, queueTurnId: next.turn.id },
+      )
+    } catch (error) {
+      releaseSessionActivity(sessionId)
+      setStatusFor(sessionId, { kind: 'error', message: errText(error) })
     } finally {
       queuePumpingRef.current.delete(sessionId)
     }
-  }, [applySessionSnapshot, sendText, sessions])
+  }, [applySessionSnapshot, sendText, sessions, setStatusFor])
 
   queuePumpRef.current = (sessionId) => {
-    if (!queueAutoDrainRef.current.has(sessionId)) return
+    if (!shouldDrainQueue(sessionId)) return
     void pumpQueuedTurn(sessionId)
   }
 
   const resumeQueue = useCallback(() => {
     if (!current) return
-    queueAutoDrainRef.current.add(current.id)
+    requestQueueDrain(current.id)
     void pumpQueuedTurn(current.id)
   }, [current, pumpQueuedTurn])
 
+  const settleSessionOutcome = useCallback(async (
+    sessionId: string,
+    kind: AgentLoopOutcome['kind'],
+  ) => {
+    if (kind === 'confirm') return
+    const queueTurnId = activeQueueTurnOf(sessionId)
+    if (queueTurnId) {
+      const next = await sessions.finishActiveQueuedTurn(sessionId, queueTurnId, kind === 'message')
+      if (next) applySessionSnapshot(next)
+    }
+    releaseSessionActivity(sessionId, queueTurnId)
+    if (kind === 'message' && shouldDrainQueue(sessionId)) {
+      queueMicrotask(() => queuePumpRef.current(sessionId))
+    }
+  }, [applySessionSnapshot, sessions])
+
   useEffect(() => {
     if (!current || status.kind !== 'idle') return
-    if (!queueAutoDrainRef.current.has(current.id)) return
+    if (!shouldDrainQueue(current.id)) return
     void pumpQueuedTurn(current.id)
   }, [current, status.kind, pumpQueuedTurn])
+
+  useEffect(() => subscribeSessionRelease((sessionId) => {
+    if (currentIdRef.current === sessionId && shouldDrainQueue(sessionId)) {
+      void pumpQueuedTurn(sessionId)
+    }
+  }), [pumpQueuedTurn])
 
   /** 输入框那条路：空闲就执行，忙碌就排队，绝不在同一会话并发启动两个回合。 */
   const send = useCallback(() => {
     if (!draft.trim()) return
-    if (statusIsBusy(status) || (current && activeAgentTurnsRef.current.has(current.id))) {
+    if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
       void queueText(draft)
       return
     }
@@ -1315,7 +1405,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     if (!lastUser) return
     const text = lastUser.display ?? lastUser.content
-    if (statusIsBusy(status) || (current && activeAgentTurnsRef.current.has(current.id))) {
+    if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
       void queueText(text)
     } else void sendText(text)
   }, [current, messages, queueText, sendText, status])
@@ -1333,62 +1423,111 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
+    if (confirmingRef.current.has(current.id)) return
+    confirmingRef.current.add(current.id)
     const { request } = status
-    setStatusFor(current.id, { kind: 'executing' })
-    const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
-    const imageNodeIds = [...new Set(
-      [...messages].reverse().find((message) => message.role === 'user')?.imageNodeIds ?? [],
-    )]
-    const currentLoopDeps = loopDeps(
-      current,
-      createId('op'),
-      toolModeRef.current.get(current.id) ?? 'native',
-      imageNodeIds,
-    )
-    setStatusFor(current.id, { kind: 'thinking' })
-    const outcome = await resumeAgentTurn(
-      messages,
-      request.callId,
-      result,
-      currentLoopDeps,
-      request.name,
-    )
-    await handleOutcome(current, outcome)
-  }, [status, current, viewport, messages, toolCtx, loopDeps, handleOutcome, setStatusFor])
+    try {
+      await sessions.updateFields(current.id, { pendingConfirmation: undefined })
+      setStatusFor(current.id, { kind: 'executing' })
+      const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
+      const imageNodeIds = [...new Set(
+        [...messages].reverse().find((message) => message.role === 'user')?.imageNodeIds ?? [],
+      )]
+      const currentLoopDeps = loopDeps(
+        current,
+        createId('op'),
+        toolModeRef.current.get(current.id) ?? 'native',
+        imageNodeIds,
+      )
+      setStatusFor(current.id, { kind: 'thinking' })
+      const outcome = await resumeAgentTurn(
+        messages,
+        request.callId,
+        result,
+        currentLoopDeps,
+        request.name,
+      )
+      await handleOutcome(current, outcome)
+      await settleSessionOutcome(current.id, outcome.kind)
+    } catch (error) {
+      setStatusFor(current.id, { kind: 'error', message: errText(error) })
+      await settleSessionOutcome(current.id, 'error')
+    } finally {
+      confirmingRef.current.delete(current.id)
+    }
+  }, [
+    status,
+    current,
+    viewport,
+    messages,
+    toolCtx,
+    loopDeps,
+    handleOutcome,
+    settleSessionOutcome,
+    sessions,
+    setStatusFor,
+  ])
 
   /** 取消也要回填 —— 不回填模型会以为自己已经建好了（设计文档 §4） */
   const cancel = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
+    if (confirmingRef.current.has(current.id)) return
+    confirmingRef.current.add(current.id)
     const { request } = status
-    setStatusFor(current.id, { kind: 'thinking' })
-    const imageNodeIds = [...messages]
-      .reverse()
-      .find((message) => message.role === 'user')?.imageNodeIds ?? []
-    const currentLoopDeps = loopDeps(
-      current,
-      createId('op'),
-      toolModeRef.current.get(current.id) ?? 'native',
-      imageNodeIds,
-    )
-    const outcome = await resumeAgentTurn(
-      messages,
-      request.callId,
-      { ok: false, error: '用户取消了这次操作' },
-      currentLoopDeps,
-      request.name,
-    )
-    await handleOutcome(current, outcome)
-  }, [status, current, messages, loopDeps, handleOutcome, setStatusFor])
+    try {
+      await sessions.updateFields(current.id, { pendingConfirmation: undefined })
+      setStatusFor(current.id, { kind: 'thinking' })
+      const imageNodeIds = [...messages]
+        .reverse()
+        .find((message) => message.role === 'user')?.imageNodeIds ?? []
+      const currentLoopDeps = loopDeps(
+        current,
+        createId('op'),
+        toolModeRef.current.get(current.id) ?? 'native',
+        imageNodeIds,
+      )
+      const outcome = await resumeAgentTurn(
+        messages,
+        request.callId,
+        { ok: false, error: '用户取消了这次操作' },
+        currentLoopDeps,
+        request.name,
+      )
+      await handleOutcome(current, outcome)
+      await settleSessionOutcome(current.id, outcome.kind)
+    } catch (error) {
+      setStatusFor(current.id, { kind: 'error', message: errText(error) })
+      await settleSessionOutcome(current.id, 'error')
+    } finally {
+      confirmingRef.current.delete(current.id)
+    }
+  }, [
+    status,
+    current,
+    messages,
+    loopDeps,
+    handleOutcome,
+    settleSessionOutcome,
+    sessions,
+    setStatusFor,
+  ])
 
   const stop = useCallback(() => {
     if (!current) return
-    queueAutoDrainRef.current.delete(current.id)
+    clearQueueDrain(current.id)
+    const queueTurnId = activeQueueTurnOf(current.id)
+    if (queueTurnId) {
+      void sessions.finishActiveQueuedTurn(current.id, queueTurnId, false).then((next) => {
+        if (next) applySessionSnapshot(next)
+      })
+    }
+    releaseSessionActivity(current.id, queueTurnId)
     abortRefs.current.get(current.id)?.abort()
     setStatusFor(current.id, IDLE_STATUS)
     if ((current.queuedTurns?.length ?? 0) > 0) {
       store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
     }
-  }, [current, setStatusFor, store])
+  }, [applySessionSnapshot, current, sessions, setStatusFor, store])
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
@@ -1430,12 +1569,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 整份写回去，把库里的新值也冲掉。
    */
   const patchSession = useCallback(
-    async (patch: Partial<AgentSession>) => {
+    async (
+      patch: Partial<
+        Omit<AgentSession, 'id' | 'projectId' | 'messages' | 'queuedTurns' | 'createdAt'>
+      >,
+    ) => {
       if (!current) return
-      const next = { ...current, ...patch }
+      const next = await sessions.updateFields(current.id, patch)
+      if (!next) return
       setCurrent(next)
       setList((prev) => prev.map((s) => (s.id === next.id ? next : s)))
-      await sessions.save(next)
     },
     [current, sessions],
   )
@@ -1577,12 +1720,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setConfirmDelete(true)
       return
     }
+    if (
+      isSessionActivityActive(current.id) ||
+      queuePumpingRef.current.has(current.id) ||
+      confirmingRef.current.has(current.id)
+    ) {
+      setConfirmDelete(false)
+      store.notify('当前会话还有任务在运行，请先停止后再删除', 'error')
+      return
+    }
     setConfirmDelete(false)
     await sessions.remove(current.id)
     const rows = await refresh()
     if (rows.length > 0) await switchTo(rows[0]!)
     else await newSession()
-  }, [current, confirmDelete, sessions, refresh, switchTo, newSession])
+  }, [current, confirmDelete, sessions, refresh, switchTo, newSession, store])
 
   /**
    * 把**画布上选中的节点**当素材给这次对话（设计文档 §8「输入：文字 + 可选图片」）。

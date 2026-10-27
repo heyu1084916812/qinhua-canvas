@@ -13,6 +13,9 @@ import {
   type ChannelAdapter,
 } from '../../../platform/channels/types'
 import { protocolNeedsNoToken } from '../../../domain/project/channel'
+import {
+  applyRoutePlanToRequest,
+} from '../../../domain/project/generationRouting'
 import { createGenerationClient } from '../../../platform/generation'
 import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
 import { createId } from '../../../shared/id'
@@ -47,7 +50,10 @@ import type { TransactionBoundary } from '../../../state/shared/types'
 import { createChannelRepository } from '../../../state/project/channelRepository'
 import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
-import type { NodeInput } from '../../../domain/shared/execution/types'
+import type {
+  NodeInput,
+  RunRouteCandidate,
+} from '../../../domain/shared/execution/types'
 import type { RunRecordScope } from '../../../domain/shared/execution/runRecord'
 import type { WorkbenchId } from '../../../domain/shared/workbench'
 import {
@@ -327,15 +333,18 @@ export function CanvasExecutionProvider({
         }
       },
       channelResolver: (request: RunRequest, runPlanId: string): ChannelAdapter => {
+        const routeCandidate = request.routeCandidates?.[request.routingAttempt ?? 0]
         const ids = request.credentialGroupIds ?? []
         const groupId =
-          ids.length > 0
+          routeCandidate?.credentialGroupId ??
+          (ids.length > 0
             ? ids[Math.min(request.routingAttempt ?? 0, ids.length - 1)]
-            : request.credentialGroupId
+            : request.credentialGroupId)
+        const channelId = routeCandidate?.channelId ?? request.channelId
         const a = adapterMapsRef.current
           .get(runPlanId)
-          ?.get(adapterKey(request.channelId, groupId, request.kind))
-        if (!a) throw new Error(`[execution] 未解析到渠道适配器：${request.channelId}`)
+          ?.get(adapterKey(channelId, groupId, request.kind))
+        if (!a) throw new Error(`[execution] 未解析到渠道适配器：${channelId}`)
         return a
       },
       projectId: store.getSnapshot().projectId,
@@ -563,7 +572,10 @@ export function CanvasExecutionProvider({
           return
         }
         const picked = routed.selection
-        task.request = {
+        const routedChannelName =
+          all.find((channel) => channel.id === picked.channelId)?.name ??
+          picked.channelId
+        const baseRequest = {
           ...task.request,
           channelId: picked.channelId,
           model: picked.upstreamModel,
@@ -573,6 +585,29 @@ export function CanvasExecutionProvider({
                 credentialGroupIds: picked.credentialGroupIds,
               }
             : {}),
+        } as RunRequest
+        if (task.request.kind === 'image' || task.request.kind === 'video') {
+          const routePlan = await channels.planGenerationRoute({
+            category: task.request.kind,
+            logicalModel: logical,
+            explicitChannelId: picked.channelId,
+          })
+          if (!routePlan.ok) {
+            store.notify(
+              routePlan.reason === 'policy_excluded'
+                ? `渠道「${routedChannelName}」不在当前路由范围内，生成已停止`
+                : `渠道「${routedChannelName}」无法生成模型「${logical}」，生成已停止`,
+              'error',
+            )
+            return
+          }
+          task.request = applyRoutePlanToRequest(
+            baseRequest,
+            routePlan.plan,
+            `${plan.id}:${task.id}:route`,
+          )
+        } else {
+          task.request = baseRequest
         }
       }
 
@@ -586,14 +621,22 @@ export function CanvasExecutionProvider({
        * `createChannelAdapter` 抛「不支持的协议」，表现就是**点生成没反应**（2026-09-30 实修）。
        */
       for (const task of plan.tasks) {
-        const id = task.request.channelId
-        const ch = list.find((c) => c.id === id)
-        if (!ch) continue
-        const groupIds =
-          task.request.credentialGroupIds?.length
-            ? task.request.credentialGroupIds
-            : [task.request.credentialGroupId]
-        for (const groupId of groupIds) {
+        const candidates: RunRouteCandidate[] =
+          task.request.routeCandidates?.length
+            ? task.request.routeCandidates.map((candidate) => ({ ...candidate }))
+            : (task.request.credentialGroupIds?.length
+                ? task.request.credentialGroupIds
+                : [task.request.credentialGroupId]
+              ).map((groupId) => ({
+                channelId: task.request.channelId,
+                ...(groupId ? { credentialGroupId: groupId } : {}),
+                model: task.request.model,
+              }))
+        for (const candidate of candidates) {
+          const id = candidate.channelId
+          const ch = list.find((c) => c.id === id)
+          if (!ch) continue
+          const groupId = candidate.credentialGroupId
           const mapKey = adapterKey(id, groupId, task.request.kind)
           if (map.has(mapKey)) continue
           /**
@@ -604,7 +647,7 @@ export function CanvasExecutionProvider({
           try {
             const target = await generation.resolve({
               channel: ch,
-              request: task.request,
+              request: { model: candidate.model },
               kind: task.request.kind,
               hints: {
                 modelIsUpstream: true,
@@ -632,7 +675,13 @@ export function CanvasExecutionProvider({
         channels.getState().channels.map((channel) => [channel.id, channel]),
       )
       const vanished = plan.tasks.filter(
-        (task) => !currentChannels.has(task.request.channelId),
+        (task) => {
+          const usedChannels =
+            task.request.routeCandidates?.length
+              ? task.request.routeCandidates.map((candidate) => candidate.channelId)
+              : [task.request.channelId]
+          return usedChannels.some((channelId) => !currentChannels.has(channelId))
+        },
       )
       if (vanished.length > 0) {
         const projectId = store.getSnapshot().projectId
@@ -655,7 +704,12 @@ export function CanvasExecutionProvider({
       adapterMapsRef.current.set(plan.id, map)
       const taskToNode = new Map(plan.tasks.map((task) => [task.id, task.nodeId]))
       const taskChannels = new Map(
-        plan.tasks.map((task) => [task.id, task.request.channelId]),
+        plan.tasks.map((task) => [
+          task.id,
+          task.request.routeCandidates?.length
+            ? [...new Set(task.request.routeCandidates.map((candidate) => candidate.channelId))]
+            : task.request.channelId,
+        ]),
       )
       taskToNodeMapsRef.current.set(plan.id, taskToNode)
       nodeScopedRunCancellationRef.current.trackPlan(plan.id, [

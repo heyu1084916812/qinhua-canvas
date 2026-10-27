@@ -155,7 +155,7 @@ describe('Agent 会话 · 待执行任务队列', () => {
     expect(saved?.queuedTurns.map((item) => item.id)).toEqual(['1'])
   })
 
-  it('FIFO 取队首；删除单项只影响指定任务', async () => {
+  it('FIFO 原子领取队首；完成前任务仍在库里', async () => {
     const s = store()
     const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
     await s.enqueueTurn(a.id, turn('1'))
@@ -163,11 +163,21 @@ describe('Agent 会话 · 待执行任务队列', () => {
     await s.enqueueTurn(a.id, turn('3'))
 
     await s.removeQueuedTurn(a.id, '2')
-    const first = await s.takeNextQueuedTurn(a.id)
+    const first = await s.claimNextQueuedTurn(a.id)
     expect(first?.turn.id).toBe('1')
-    expect(first?.session.queuedTurns.map((item) => item.id)).toEqual(['3'])
-    expect((await s.takeNextQueuedTurn(a.id))?.turn.id).toBe('3')
-    expect(await s.takeNextQueuedTurn(a.id)).toBeNull()
+    expect(first?.session.activeTurnId).toBe('1')
+    expect(first?.session.queuedTurns.map((item) => item.id)).toEqual(['1', '3'])
+    expect(await s.claimNextQueuedTurn(a.id)).toBeNull()
+
+    const kept = await s.finishActiveQueuedTurn(a.id, '1', false)
+    expect(kept?.queuedTurns.map((item) => item.id)).toEqual(['1', '3'])
+    expect(kept?.activeTurnId).toBeUndefined()
+
+    const again = await s.claimNextQueuedTurn(a.id)
+    expect(again?.turn.id).toBe('1')
+    const completed = await s.finishActiveQueuedTurn(a.id, '1', true)
+    expect(completed?.queuedTurns.map((item) => item.id)).toEqual(['3'])
+    expect((await s.claimNextQueuedTurn(a.id))?.turn.id).toBe('3')
   })
 
   it('后台回合只清理已发送的素材引用，不误删运行中后来附加的素材', async () => {
@@ -176,5 +186,48 @@ describe('Agent 会话 · 待执行任务队列', () => {
     await s.save({ ...a, pendingAssetIds: ['sent', 'new'] })
     const next = await s.clearPendingAssetIds(a.id, ['sent'])
     expect(next?.pendingAssetIds).toEqual(['new'])
+  })
+
+  it('★★ 字段级更新不会用旧 UI 快照覆盖消息和队列', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1'))
+    await s.saveMessages(a.id, [{ role: 'user', content: '已存在消息' }])
+
+    const next = await s.updateFields(a.id, { model: 'm2', imageModel: 'image-2' })
+    expect(next).toMatchObject({
+      model: 'm2',
+      imageModel: 'image-2',
+      messages: [{ role: 'user', content: '已存在消息' }],
+    })
+    expect(next?.queuedTurns.map((item) => item.id)).toEqual(['1'])
+  })
+
+  it('进程中断恢复只释放活动标记，队首任务仍保留', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1'))
+    const claimed = await s.claimNextQueuedTurn(a.id)
+    expect(claimed?.session.activeTurnId).toBe('1')
+
+    const recovered = await s.releaseActiveTurn(a.id)
+    expect(recovered?.activeTurnId).toBeUndefined()
+    expect(recovered?.queuedTurns.map((item) => item.id)).toEqual(['1'])
+    expect((await s.claimNextQueuedTurn(a.id))?.turn.id).toBe('1')
+  })
+
+  it('待确认工具调用随会话读回，恢复后仍能重新生成确认卡', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.updateFields(a.id, {
+      pendingConfirmation: { callId: 'call-1', name: 'runNode', args: { nodeIds: ['n1'] } },
+    })
+    const reopened = createAgentSessionStore(storage)
+    expect((await reopened.get(a.id))?.pendingConfirmation).toEqual({
+      callId: 'call-1',
+      name: 'runNode',
+      args: { nodeIds: ['n1'] },
+    })
   })
 })

@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react'
 import type { Channel } from '../../../domain/project/channel'
+import { applyRoutePlanToRequest } from '../../../domain/project/generationRouting'
+import type { RoutePlanResult } from '../../../domain/project/routePlan'
 import type { RunRecord } from '../../../domain/shared/execution/runRecord'
 import { createRunRecord } from '../../../domain/shared/execution/runRecord'
 import type { StoryboardRunPlan, StoryboardRunTask } from '../../../domain/storyboard/runTypes'
@@ -70,6 +72,11 @@ export interface StoryboardExecutionProviderProps {
   documents: StoryboardDocumentPort
   generation: GenerationClient
   channels: () => readonly Channel[]
+  planRoute?: (opts: {
+    category: 'image' | 'video'
+    logicalModel: string
+    explicitChannelId?: string
+  }) => Promise<RoutePlanResult>
   children?: ReactNode
 }
 
@@ -96,6 +103,7 @@ export function StoryboardExecutionProvider({
   documents,
   generation,
   channels,
+  planRoute,
   children,
 }: StoryboardExecutionProviderProps) {
   const placement = useMemo(() => createStoryboardPlacement(projectId), [projectId])
@@ -140,12 +148,14 @@ export function StoryboardExecutionProvider({
     recordScope: (_plan, task) => storyboardRunRecordScopeOfTask(task),
     channelResolver: (request, planId) => {
       const attempt = request.routingAttempt ?? 0
+      const routeCandidate = request.routeCandidates?.[attempt]
       const groupId =
+        routeCandidate?.credentialGroupId ??
         request.credentialGroupIds?.[attempt] ??
         request.credentialGroupId
       const adapter = adaptersRef.current.get(planId)?.get(
         storyboardAdapterKey({
-          channelId: request.channelId,
+          channelId: routeCandidate?.channelId ?? request.channelId,
           credentialGroupId: groupId,
           kind: request.kind,
         }),
@@ -203,6 +213,29 @@ export function StoryboardExecutionProvider({
       beginStoryboardExecutionPlan(projectId, plan)
 
       try {
+        for (const task of plan.tasks) {
+          if (task.request.kind !== 'image' && task.request.kind !== 'video') {
+            continue
+          }
+          if (!planRoute) continue
+          const route = await planRoute({
+            category: task.request.kind,
+            logicalModel: task.request.logicalModel ?? task.request.model,
+            explicitChannelId: task.request.channelId,
+          })
+          if (!route.ok) {
+            throw new Error(
+              route.reason === 'policy_excluded'
+                ? `漫剧渠道不在当前路由范围内：${task.request.channelId}`
+                : `漫剧渠道没有可用于本次生成的模型或 Key：${task.request.channelId}`,
+            )
+          }
+          task.request = applyRoutePlanToRequest(
+            task.request,
+            route.plan,
+            `${plan.id}:${task.id}:route`,
+          )
+        }
         let prepared: Awaited<ReturnType<typeof prepareStoryboardAdapters>>
         try {
           prepared = await prepareStoryboardAdapters({
@@ -265,7 +298,12 @@ export function StoryboardExecutionProvider({
         adaptersRef.current.set(plan.id, prepared.adapters)
         registerGuardedChannelRun(plan.id, {
           taskChannels: new Map(
-            plan.tasks.map((task) => [task.id, task.request.channelId]),
+            plan.tasks.map((task) => [
+              task.id,
+              task.request.routeCandidates?.length
+                ? [...new Set(task.request.routeCandidates.map((candidate) => candidate.channelId))]
+                : task.request.channelId,
+            ]),
           ),
           cancel: () => execution.cancelRun(plan.id),
           onInterrupted: () => {},
@@ -290,7 +328,7 @@ export function StoryboardExecutionProvider({
         finishStoryboardExecutionPlan(projectId, plan.id)
       }
     },
-    [channels, execution, generation, markPreflightFailed, projectId],
+    [channels, execution, generation, markPreflightFailed, planRoute, projectId],
   )
 
   const api = useMemo<StoryboardExecutionApi>(

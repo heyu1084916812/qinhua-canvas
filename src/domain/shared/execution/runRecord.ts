@@ -19,6 +19,44 @@ export interface RunRecordScope {
   parentRunId?: string
 }
 
+/** 一次真实渠道尝试；用于解释“最终为什么发到这个分组”。 */
+export interface RunAttemptRecord {
+  attempt: number
+  channelId: string
+  credentialGroupId?: string
+  requestedModel: string
+  sentModel: string
+  status: 'succeeded' | 'failed' | 'canceled'
+  startedAt: number
+  finishedAt: number
+  durationMs: number
+  errorKind?: string
+  httpStatus?: number
+  sendPhase?: 'not-sent' | 'accepted' | 'unknown' | 'rejected'
+  errorText?: string
+}
+
+export function routeAttemptSummaryOf(
+  attempts: readonly RunAttemptRecord[] | undefined,
+): { count: number; title: string } | null {
+  if (!attempts || attempts.length <= 1) return null
+  return {
+    count: attempts.length,
+    title: attempts
+      .map((attempt) => {
+        const group = attempt.credentialGroupId ? ` / ${attempt.credentialGroupId}` : ''
+        return `第 ${attempt.attempt} 次：${attempt.channelId}${group} · ${
+          attempt.status === 'succeeded'
+            ? '成功'
+            : attempt.status === 'canceled'
+              ? '取消'
+              : attempt.errorText ?? '失败'
+        }`
+      })
+      .join('\n'),
+  }
+}
+
 export type ScopedRunRecord<TParams = unknown> = RunRecord<TParams> &
   Required<
     Pick<
@@ -77,6 +115,12 @@ export interface RunRecord<TParams = unknown> {
   sentChannelId?: string
   /** 本次**实际发出**的模型 ID（该渠道映射后的上游 ID），与 `sentChannelId` 成对 */
   sentModel?: string
+  /** 本轮选择的 Key 分组；无分组渠道为空。 */
+  credentialGroupId?: string
+  /** 生成计划 id；同一次 RunPlan 的多个任务可据此聚合。 */
+  routePlanId?: string
+  /** 每次真实提交 / 换组尝试。超时与结果未知也如实记录，不据此自动重发。 */
+  routeAttempts?: RunAttemptRecord[]
   /**
    * 本次向渠道**请求**的像素（§6.18 日志面板「请求1024x1024」）。
    * 由渠道层翻译比例后回填（`GeneratedAsset.requestedWidth/Height`）；
@@ -141,6 +185,9 @@ export function createRunRecord<TParams>(args: {
   cost?: number
   sentChannelId?: string
   sentModel?: string
+  credentialGroupId?: string
+  routePlanId?: string
+  routeAttempts?: RunAttemptRecord[]
   requestedWidth?: number
   requestedHeight?: number
   errorText?: string

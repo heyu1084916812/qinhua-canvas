@@ -6,6 +6,7 @@ import {
 import type { RunRequest } from '../../../domain/shared/execution/types'
 import {
   createRunRecord,
+  type RunAttemptRecord,
   type RunRecord,
   type RunRecordScope,
   type ScopedRunRecord,
@@ -255,11 +256,69 @@ function callChannel(
  * 注意这里是**执行期**行为，不改 plan：指纹与 RunRecord.inputs 仍按真实输入记录，
  * 序号只是发给渠道的请求修饰（渠道侧会把它当作素材差异化依据）。
  */
-function applyCallOrdinal(task: RunTask): RunRequest {
+function applyCallOrdinal(task: RunTask, request = task.request): RunRequest {
   const seq = task.seq ?? 0
-  if (seq <= 0) return task.request
+  if (seq <= 0) return request
   const mark = task.collectionItemId ? `第 ${seq + 1} 项` : `第 ${seq + 1} 次`
-  return { ...task.request, prompt: `${task.request.prompt}（${mark}）` }
+  return { ...request, prompt: `${request.prompt}（${mark}）` }
+}
+
+function credentialGroupAt(request: RunRequest, attempt: number): string | undefined {
+  return request.credentialGroupIds?.[attempt] ?? request.credentialGroupId
+}
+
+function requestAtAttempt(request: RunRequest, attempt: number): RunRequest {
+  const candidate = request.routeCandidates?.[attempt]
+  if (!candidate) return request
+  return {
+    ...request,
+    channelId: candidate.channelId,
+    model: candidate.model,
+    logicalModel: request.logicalModel ?? request.model,
+    ...(candidate.credentialGroupId
+      ? { credentialGroupId: candidate.credentialGroupId }
+      : { credentialGroupId: undefined }),
+    credentialGroupIds: undefined,
+  }
+}
+
+function routeTargetCount(request: RunRequest): number {
+  return request.routeCandidates?.length || request.credentialGroupIds?.length || 0
+}
+
+function requestedModelOf(task: RunTask, request = task.request): string {
+  if (request.logicalModel?.trim()) return request.logicalModel.trim()
+  if (task.params && typeof task.params === 'object') {
+    const model = (task.params as { model?: unknown }).model
+    if (typeof model === 'string' && model.trim()) return model
+  }
+  return request.model
+}
+
+function attemptErrorMeta(
+  error: AppError,
+  callStarted: boolean,
+): Pick<RunAttemptRecord, 'errorKind' | 'httpStatus' | 'sendPhase'> {
+  if (error.kind === 'network') {
+    return {
+      errorKind: error.kind,
+      sendPhase: error.sendPhase ?? 'unknown',
+    }
+  }
+  if (error.kind === 'http') {
+    return {
+      errorKind: error.kind,
+      httpStatus: error.status,
+      sendPhase: 'rejected',
+    }
+  }
+  if (error.kind === 'execution') {
+    return { errorKind: error.kind, sendPhase: 'accepted' }
+  }
+  return {
+    errorKind: error.kind,
+    sendPhase: callStarted ? 'unknown' : 'not-sent',
+  }
 }
 
 export async function runEngine<TTask extends RunTask, TCommand>(
@@ -368,8 +427,10 @@ export async function runEngine<TTask extends RunTask, TCommand>(
   }: StartedTask): Promise<{
     state: RunTaskState
     assets: GeneratedAsset[]
+    attempts: RunAttemptRecord[]
   }> => {
     let attempt = 0
+    const attempts: RunAttemptRecord[] = []
     let state: RunTaskState = {
       kind: 'failed',
       error: { kind: 'parse', raw: 'unreachable' },
@@ -378,17 +439,55 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     let assets: GeneratedAsset[] = []
 
     for (;;) {
+      const attemptStartedAt = now()
+      const attemptRequest = requestAtAttempt(task.request, attempt)
+      const credentialGroupId =
+        attemptRequest === task.request
+          ? credentialGroupAt(task.request, attempt)
+          : attemptRequest.credentialGroupId
+      const requestedModel = requestedModelOf(task, attemptRequest)
+      let callStarted = false
       try {
         const adapter = deps.channelResolver({
-          ...task.request,
+          ...attemptRequest,
           routingAttempt: attempt,
         })
-        const callRequest = applyCallOrdinal(task)
+        const callRequest = applyCallOrdinal(task, attemptRequest)
+        callStarted = true
         assets = await callChannel(adapter, callRequest, deps.signal)
+        const attemptFinishedAt = now()
         if (deps.signal.aborted) {
+          attempts.push({
+            attempt: attempt + 1,
+            channelId: attemptRequest.channelId,
+            ...(credentialGroupId
+              ? { credentialGroupId }
+              : {}),
+            requestedModel,
+            sentModel: attemptRequest.model,
+            status: 'canceled',
+            sendPhase: callStarted ? 'unknown' : 'not-sent',
+            startedAt: attemptStartedAt,
+            finishedAt: attemptFinishedAt,
+            durationMs: Math.max(0, attemptFinishedAt - attemptStartedAt),
+          })
           state = { kind: 'canceled' }
           break
         }
+        attempts.push({
+          attempt: attempt + 1,
+          channelId: attemptRequest.channelId,
+          ...(credentialGroupId
+            ? { credentialGroupId }
+            : {}),
+          requestedModel,
+          sentModel: attemptRequest.model,
+          status: 'succeeded',
+          sendPhase: 'accepted',
+          startedAt: attemptStartedAt,
+          finishedAt: attemptFinishedAt,
+          durationMs: Math.max(0, attemptFinishedAt - attemptStartedAt),
+        })
         state = {
           kind: 'succeeded',
           result: assets,
@@ -397,15 +496,34 @@ export async function runEngine<TTask extends RunTask, TCommand>(
         break
       } catch (e) {
         const error = normalizeError(e)
+        const attemptFinishedAt = now()
+        const canceled = deps.signal.aborted
+        attempts.push({
+          attempt: attempt + 1,
+          channelId: attemptRequest.channelId,
+          ...(credentialGroupId
+            ? { credentialGroupId }
+            : {}),
+          requestedModel,
+          sentModel: attemptRequest.model,
+          status: canceled ? 'canceled' : 'failed',
+          startedAt: attemptStartedAt,
+          finishedAt: attemptFinishedAt,
+          durationMs: Math.max(0, attemptFinishedAt - attemptStartedAt),
+          ...attemptErrorMeta(error, callStarted),
+          ...(canceled ? {} : { errorText: describeError(error) }),
+        })
         if (deps.signal.aborted) {
           state = { kind: 'canceled' }
           break
         }
-        const hasNextCredentialGroup =
-          attempt + 1 < (task.request.credentialGroupIds?.length ?? 0)
-        const shouldRetry =
-          (isRetryable(error, policy) && attempt < policy.maxRetries) ||
-          (hasNextCredentialGroup && isGroupSwitchable(error))
+        const targetCount = routeTargetCount(task.request)
+        const hasNextRoute = attempt + 1 < targetCount
+        const shouldRetry = hasNextRoute
+          ? isGroupSwitchable(error)
+          : targetCount === 0 &&
+            isRetryable(error, policy) &&
+            attempt < policy.maxRetries
         if (shouldRetry) {
           attempt += 1
           await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
@@ -420,13 +538,14 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       }
     }
 
-    return { state, assets }
+    return { state, assets, attempts }
   }
 
   const finishTask = (
     started: StartedTask,
     state: RunTaskState,
     assets: GeneratedAsset[],
+    attempts: RunAttemptRecord[],
   ): void => {
     const { task, targetId, startedAt, scope } = started
     const status: RunRecord['status'] =
@@ -453,6 +572,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       state.kind === 'succeeded' ? assets : [],
       finishedAt - startedAt,
       state.kind === 'failed' ? describeError(state.error) : undefined,
+      task.request.routePlanId ?? plan.id,
+      attempts,
     )
     const recordCommand = placement.record(task, targetId, record)
     if (recordCommand !== null) write([recordCommand])
@@ -467,8 +588,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
 
   const launchTask = (started: StartedTask): void => {
     const settlement = (async () => {
-      const { state, assets } = await executeTask(started)
-      finishTask(started, state, assets)
+      const { state, assets, attempts } = await executeTask(started)
+      finishTask(started, state, assets, attempts)
     })().finally(() => {
       activeSettlements.delete(settlement)
     })
@@ -628,7 +749,10 @@ function makeRecord(
   durationMs: number,
   /** 失败时的人话原因（对账 #469：日志里必须能读到"为什么没出图"） */
   errorText?: string,
+  routePlanId?: string,
+  attempts: RunAttemptRecord[] = [],
 ): ScopedRunRecord {
+  const lastAttempt = attempts.at(-1)
   return createRunRecord({
     id: createId('rec'),
     nodeId: targetId,
@@ -645,8 +769,13 @@ function makeRecord(
      * 后者是节点上的意图（逻辑名）。留痕只记意图的话，日志会显示一个
      * 从未被请求过的名字，排查直接跑偏。
      */
-    sentChannelId: task.request.channelId,
-    sentModel: task.request.model,
+    sentChannelId: lastAttempt?.channelId ?? task.request.channelId,
+    sentModel: lastAttempt?.sentModel ?? task.request.model,
+    ...(lastAttempt?.credentialGroupId
+      ? { credentialGroupId: lastAttempt.credentialGroupId }
+      : {}),
+    ...(routePlanId ? { routePlanId } : {}),
+    ...(attempts.length > 0 ? { routeAttempts: attempts } : {}),
     outputHashes: assets.map((a) => a.hash),
     fingerprint: task.fingerprint,
     taskId: task.id,

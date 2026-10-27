@@ -88,6 +88,15 @@ describe('runEngine / 回调参数契约', () => {
       subjectId: CARRIER,
       scopeId: 'plan:plan_1',
       operationId: 'plan_1',
+      routePlanId: 'plan_1',
+      routeAttempts: [
+        {
+          attempt: 1,
+          status: 'failed',
+          errorKind: 'network',
+          sendPhase: 'unknown',
+        },
+      ],
     })
   })
 
@@ -169,10 +178,17 @@ describe('runEngine / 回调参数契约', () => {
 
     expect(calls).toBe(1)
     expect(summary.failed).toBe(1)
+    expect(summary.records[0]?.routeAttempts).toMatchObject([
+      {
+        attempt: 1,
+        status: 'failed',
+      },
+    ])
   })
 
   it('★ 同渠道多 Key 分组遇到 403 按优先级换组；只换到下一组一次', async () => {
     const plan = makePlan()
+    plan.tasks[0]!.params = { model: 'GPT Logical' }
     plan.tasks[0]!.request.credentialGroupIds = ['chat-primary', 'chat-backup']
     const attempts: number[] = []
     let calls = 0
@@ -212,7 +228,146 @@ describe('runEngine / 回调参数契约', () => {
       subjectId: CARRIER,
       scopeId: 'plan:plan_1',
       operationId: 'plan_1',
+      routePlanId: 'plan_1',
+      credentialGroupId: 'chat-backup',
+      routeAttempts: [
+        {
+          attempt: 1,
+          credentialGroupId: 'chat-primary',
+          requestedModel: 'GPT Logical',
+          sentModel: 'm',
+          status: 'failed',
+          errorKind: 'http',
+          httpStatus: 403,
+          sendPhase: 'rejected',
+        },
+        {
+          attempt: 2,
+          credentialGroupId: 'chat-backup',
+          requestedModel: 'GPT Logical',
+          sentModel: 'm',
+          status: 'succeeded',
+          sendPhase: 'accepted',
+        },
+      ],
     })
+  })
+
+  it('★ RoutePlan 跨渠道遇到 403 后按候选顺序切到下一渠道，并使用该渠道自己的上游模型', async () => {
+    const plan = makePlan()
+    const task = plan.tasks[0]!
+    task.request = {
+      ...task.request,
+      routePlanId: 'route_plan_1',
+      logicalModel: 'GPT Image 2',
+      routeCandidates: [
+        { channelId: 'relay-a', credentialGroupId: 'a1', model: 'upstream-a' },
+        { channelId: 'relay-b', credentialGroupId: 'b1', model: 'upstream-b' },
+      ],
+    }
+    const seen: { channelId: string; model: string; group?: string }[] = []
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: (request) => {
+        seen.push({
+          channelId: request.channelId,
+          model: request.model,
+          ...(request.credentialGroupId
+            ? { group: request.credentialGroupId }
+            : {}),
+        })
+        return {
+          protocol: 'mock',
+          async generateImage() {
+            if (request.channelId === 'relay-a') {
+              throw { kind: 'http', status: 403 }
+            }
+            return [{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array([1]) }]
+          },
+        } as never
+      },
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(seen).toEqual([
+      { channelId: 'relay-a', model: 'upstream-a', group: 'a1' },
+      { channelId: 'relay-b', model: 'upstream-b', group: 'b1' },
+    ])
+    expect(summary.succeeded).toBe(1)
+    expect(summary.records[0]).toMatchObject({
+      routePlanId: 'route_plan_1',
+      sentChannelId: 'relay-b',
+      sentModel: 'upstream-b',
+      credentialGroupId: 'b1',
+      routeAttempts: [
+        {
+          attempt: 1,
+          channelId: 'relay-a',
+          requestedModel: 'GPT Image 2',
+          sentModel: 'upstream-a',
+          status: 'failed',
+          httpStatus: 403,
+        },
+        {
+          attempt: 2,
+          channelId: 'relay-b',
+          requestedModel: 'GPT Image 2',
+          sentModel: 'upstream-b',
+          status: 'succeeded',
+        },
+      ],
+    })
+  })
+
+  it('★★ RoutePlan 有后续候选时，网络超时仍只提交一次', async () => {
+    const plan = makePlan()
+    plan.tasks[0]!.request = {
+      ...plan.tasks[0]!.request,
+      routeCandidates: [
+        { channelId: 'relay-a', model: 'upstream-a' },
+        { channelId: 'relay-b', model: 'upstream-b' },
+      ],
+    }
+    let calls = 0
+    const summary = await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      recordScope: scopeOf,
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          async generateImage() {
+            calls += 1
+            throw { kind: 'network', detail: 'timeout' }
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: () => ({ targetId: CARRIER, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      policy: { maxRetries: 2, backoffBase: 1 },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
   })
 
   it('★★ 多分组时网络超时仍不换组，避免付费请求重复提交', async () => {

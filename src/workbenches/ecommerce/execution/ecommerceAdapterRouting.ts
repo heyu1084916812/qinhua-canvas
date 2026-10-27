@@ -12,8 +12,13 @@ export function ecommerceAdapterKey(
 }
 
 export function ecommerceCredentialGroupForAttempt(
-  request: Pick<RunRequest, 'credentialGroupId' | 'credentialGroupIds' | 'routingAttempt'>,
+  request: Pick<
+    RunRequest,
+    'credentialGroupId' | 'credentialGroupIds' | 'routingAttempt' | 'routeCandidates'
+  >,
 ): string | undefined {
+  const routed = request.routeCandidates?.[request.routingAttempt ?? 0]
+  if (routed) return routed.credentialGroupId
   const groupIds = request.credentialGroupIds ?? []
   if (groupIds.length > 0) {
     return groupIds[Math.min(request.routingAttempt ?? 0, groupIds.length - 1)]
@@ -26,13 +31,15 @@ export function resolveEcommerceAdapter(
   planId: string,
   request: RunRequest,
 ): ChannelAdapter {
+  const routed = request.routeCandidates?.[request.routingAttempt ?? 0]
   const groupId = ecommerceCredentialGroupForAttempt(request)
+  const channelId = routed?.channelId ?? request.channelId
   const adapter = adapters?.get(
-    ecommerceAdapterKey(request.channelId, groupId, request.kind),
+    ecommerceAdapterKey(channelId, groupId, request.kind),
   )
   if (!adapter) {
     throw new Error(
-      `[ecommerce] 计划 ${planId} 的渠道适配器还没准备好（${request.channelId} / ${request.model}）`,
+      `[ecommerce] 计划 ${planId} 的渠道适配器还没准备好（${channelId} / ${request.model}）`,
     )
   }
   return adapter

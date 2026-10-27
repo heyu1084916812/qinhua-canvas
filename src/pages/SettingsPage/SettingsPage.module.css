@@ -77,6 +77,7 @@
 }
 
 .layoutEmbedded .globalRoute,
+.layoutEmbedded .routeScopePanel,
 .layoutEmbedded .workarea {
   max-width: none;
 }
@@ -126,6 +127,127 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.globalRouteControls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.routeScopeButton,
+.routeScopeReset {
+  min-height: 32px;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.routeScopeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.routeScopeButton span {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.routeScopeButton:hover,
+.routeScopeButtonOpen,
+.routeScopeReset:hover {
+  background: var(--bg-hover);
+}
+
+.routeScopeReset:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.routeScopePanel {
+  width: 100%;
+  max-width: 1120px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-node);
+  background: var(--bg-subtle);
+}
+
+.routeScopeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.routeScopeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.routeScopeOption {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.routeScopeOption:hover {
+  background: var(--bg-hover);
+}
+
+.routeScopeOption input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.routeScopeOptionText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.routeScopeOptionText b,
+.routeScopeOptionText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeScopeOptionText b {
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+
+.routeScopeOptionText small,
+.routeScopeEmpty {
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+.routeScopeEmpty {
+  margin: 0;
 }
 
 /*

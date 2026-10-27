@@ -81,6 +81,15 @@ export interface AgentSession {
    * 队列随会话落库，切走会话或关闭面板不会丢；任务真正开始时才取队首。
    */
   queuedTurns: QueuedAgentTurn[]
+  /** 已被队列泵领取、尚未最终完成的队首任务。 */
+  activeTurnId?: string
+  activeTurnStartedAt?: number
+  /** 重启后仍需恢复的确认卡。工具参数只存结构副本，不存执行结果。 */
+  pendingConfirmation?: {
+    callId: string
+    name: string
+    args: unknown
+  }
   /** **全部历史**（展示与回溯）。发给模型的是它的窗口，见 `contextFor` */
   messages: ChatMessage[]
   createdAt: number
@@ -107,6 +116,11 @@ export interface AgentSessionStore {
     skillId?: string
   }): Promise<AgentSession>
   save(session: AgentSession): Promise<void>
+  /** 字段级更新；不会用 UI 的旧快照覆盖消息或队列。 */
+  updateFields(
+    id: string,
+    patch: Partial<Omit<AgentSession, 'id' | 'projectId' | 'messages' | 'queuedTurns' | 'createdAt'>>,
+  ): Promise<AgentSession | null>
   /**
    * 只更新历史消息。
    *
@@ -120,7 +134,16 @@ export interface AgentSessionStore {
     turn: QueuedAgentTurn,
   ): Promise<{ ok: true; session: AgentSession } | { ok: false; reason: 'missing' | 'empty' | 'full' }>
   removeQueuedTurn(id: string, turnId: string): Promise<AgentSession | null>
-  takeNextQueuedTurn(id: string): Promise<{ session: AgentSession; turn: QueuedAgentTurn } | null>
+  /** 原子领取队首；任务仍留在队列，避免进程在启动前丢任务。 */
+  claimNextQueuedTurn(id: string): Promise<{ session: AgentSession; turn: QueuedAgentTurn } | null>
+  /** 结束已领取任务；完成时移出队列，失败 / 中断时保留供手动继续。 */
+  finishActiveQueuedTurn(
+    id: string,
+    turnId: string,
+    completed: boolean,
+  ): Promise<AgentSession | null>
+  /** 恢复时清掉进程中断留下的活动标记，不删除队列任务。 */
+  releaseActiveTurn(id: string): Promise<AgentSession | null>
   rename(id: string, title: string): Promise<void>
   remove(id: string): Promise<void>
   /**
@@ -151,6 +174,24 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
       : {}),
     queuedTurns: normalizeQueuedTurns(row.queuedTurns),
+    ...(typeof row.activeTurnId === 'string' && row.activeTurnId
+      ? { activeTurnId: row.activeTurnId }
+      : {}),
+    ...(typeof row.activeTurnStartedAt === 'number' && row.activeTurnStartedAt > 0
+      ? { activeTurnStartedAt: row.activeTurnStartedAt }
+      : {}),
+    ...(row.pendingConfirmation &&
+    typeof row.pendingConfirmation === 'object' &&
+    typeof (row.pendingConfirmation as { callId?: unknown }).callId === 'string' &&
+    typeof (row.pendingConfirmation as { name?: unknown }).name === 'string'
+      ? {
+          pendingConfirmation: {
+            callId: String((row.pendingConfirmation as { callId: string }).callId),
+            name: String((row.pendingConfirmation as { name: string }).name),
+            args: (row.pendingConfirmation as { args?: unknown }).args,
+          },
+        }
+      : {}),
     messages: asMessages(row.messages),
     createdAt: Number(row.createdAt ?? 0),
     updatedAt: Number(row.updatedAt ?? 0),
@@ -196,12 +237,24 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       )
     },
 
+    async updateFields(id, patch) {
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const next = { ...toSession(rows[0]), ...patch, updatedAt: Date.now() }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return next
+      })
+    },
+
     async saveMessages(id, messages) {
-      const latest = await find(id)
-      if (!latest) return null
-      const next = { ...latest, messages, updatedAt: Date.now() }
-      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
-      return next
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const next = { ...toSession(rows[0]), messages, updatedAt: Date.now() }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return next
+      })
     },
 
     async clearPendingAssetIds(id, assetIds) {
@@ -240,14 +293,56 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       return next
     },
 
-    async takeNextQueuedTurn(id) {
+    async claimNextQueuedTurn(id) {
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const latest = toSession(rows[0])
+        if (latest.activeTurnId) return null
+        const turn = takeNextAgentTurn(latest.queuedTurns).turn
+        if (!turn) return null
+        const session = {
+          ...latest,
+          activeTurnId: turn.id,
+          activeTurnStartedAt: Date.now(),
+          updatedAt: Date.now(),
+        }
+        await tx.put('agentSessions', session as unknown as RowOf<'agentSessions'>)
+        return { session, turn }
+      })
+    },
+
+    async finishActiveQueuedTurn(id, turnId, completed) {
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const latest = toSession(rows[0])
+        if (latest.activeTurnId !== turnId) return latest
+        const next = {
+          ...latest,
+          queuedTurns: completed
+            ? removeAgentTurn(latest.queuedTurns, turnId)
+            : latest.queuedTurns,
+          activeTurnId: undefined,
+          activeTurnStartedAt: undefined,
+          updatedAt: Date.now(),
+        }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return next
+      })
+    },
+
+    async releaseActiveTurn(id) {
       const latest = await find(id)
-      if (!latest) return null
-      const next = takeNextAgentTurn(latest.queuedTurns)
-      if (!next.turn) return null
-      const session = { ...latest, queuedTurns: next.turns, updatedAt: Date.now() }
-      await storage.put('agentSessions', session as unknown as RowOf<'agentSessions'>)
-      return { session, turn: next.turn }
+      if (!latest?.activeTurnId) return latest
+      const next = {
+        ...latest,
+        activeTurnId: undefined,
+        activeTurnStartedAt: undefined,
+        updatedAt: Date.now(),
+      }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return next
     },
 
     async rename(id, title) {

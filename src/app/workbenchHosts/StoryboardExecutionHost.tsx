@@ -48,6 +48,7 @@ export function StoryboardExecutionHost({
         documents={documents}
         generation={generation}
         channels={() => channels.getState().channels}
+        planRoute={(opts) => channels.planGenerationRoute(opts)}
       >
         {children}
       </StoryboardExecutionProvider>

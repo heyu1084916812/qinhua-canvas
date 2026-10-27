@@ -40,4 +40,28 @@ describe('resolveEcommerceAdapter', () => {
       }),
     ).toBe(groupBAdapter)
   })
+
+  it('★ RoutePlan 跨渠道时按 attempt 切到候选自己的适配器', () => {
+    const first = { id: 'adapter-first' } as unknown as ChannelAdapter
+    const second = { id: 'adapter-second' } as unknown as ChannelAdapter
+    const adapters = new Map([
+      [ecommerceAdapterKey('channel-a', 'group-a', 'image'), first],
+      [ecommerceAdapterKey('channel-b', 'group-b', 'image'), second],
+    ])
+    const routed: RunRequest = {
+      ...request,
+      routeCandidates: [
+        { channelId: 'channel-a', credentialGroupId: 'group-a', model: 'model-a' },
+        { channelId: 'channel-b', credentialGroupId: 'group-b', model: 'model-b' },
+      ],
+    }
+
+    expect(resolveEcommerceAdapter(adapters, 'plan-a', routed)).toBe(first)
+    expect(
+      resolveEcommerceAdapter(adapters, 'plan-a', {
+        ...routed,
+        routingAttempt: 1,
+      }),
+    ).toBe(second)
+  })
 })
