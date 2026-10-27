@@ -60,6 +60,7 @@ describe('工具声明', () => {
       'readAsset',
       'readGraph',
       'readResult',
+      'rememberMemory',
       'resizeNodes',
       'runFrom',
       'runNode',
@@ -68,6 +69,47 @@ describe('工具声明', () => {
       'updateNode',
     ])
     for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
+  })
+
+  it('★ rememberMemory 把当前项目 / 会话补进候选并交给记忆存储', async () => {
+    const rememberMemory = vi.fn(async () => ({
+      ok: true,
+      memoryId: 'memory-1',
+      text: '以后主色都用深绿',
+    }))
+    const ctx = {
+      store: setup().store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(),
+      memoryContext: {
+        workbench: 'canvas' as const,
+        projectId: 'p1',
+        sessionId: 's1',
+      },
+      rememberMemory,
+    } satisfies AgentToolContext
+    const result = await executeConfirmedTool(
+      'rememberMemory',
+      {
+        text: '以后这个项目主色都用深绿',
+        kind: 'fact',
+        scope: 'project',
+        key: 'brand.primaryColor',
+      },
+      ctx,
+    )
+    expect(result).toEqual({
+      ok: true,
+      memoryId: 'memory-1',
+      text: '以后主色都用深绿',
+    })
+    expect(rememberMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: 'project',
+        projectId: 'p1',
+        key: 'brand.primarycolor',
+      }),
+    )
   })
 })
 

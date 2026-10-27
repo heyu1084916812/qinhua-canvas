@@ -234,6 +234,16 @@ class QinghuaDB extends Dexie {
       projectContextBindings:
         'id, projectId, kitId, kitVersion, mode, updatedAt, [projectId+kitId]',
     })
+    /**
+     * v20：个人记忆从“全局 / 工作台”扩为 global / workbench / project / session。
+     * 新增索引只加速查询，不重写旧行；旧记录仍按 workbench 缺省推导作用域。
+     */
+    this.version(20).stores({
+      contextMemories:
+        'id, scope, kind, workbench, projectId, sessionId, enabled, currentRevision, updatedAt, [scope+projectId], [scope+sessionId]',
+      contextMemoryRevisions:
+        'id, memoryId, revision, scope, kind, workbench, projectId, sessionId, createdAt, [memoryId+revision]',
+    })
   }
 }
 

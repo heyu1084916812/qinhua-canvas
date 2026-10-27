@@ -44,7 +44,14 @@ const WRITE_TOOLS = new Set([
   'splitGrid',
 ])
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom', 'deleteEdges', 'deleteNodes'])
+const CONFIRM_TOOLS = new Set([
+  'updateNode',
+  'runNode',
+  'runFrom',
+  'deleteEdges',
+  'deleteNodes',
+  'rememberMemory',
+])
 
 export interface AgentToolRequest {
   callId: string

@@ -73,6 +73,107 @@ describe('context repository', () => {
     ])
   })
 
+  it('★★ 记忆持久化作用域、来源、过期时间和修订', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    const memory = await repo.createMemory({
+      kind: 'fact',
+      text: '项目主色是深绿',
+      scope: 'project',
+      projectId: 'p1',
+      key: 'brand.primarycolor',
+      source: 'agent',
+      confidence: 0.86,
+      expiresAt: 50_000,
+    })
+    expect(memory.scope).toBe('project')
+    expect(memory.projectId).toBe('p1')
+    expect(memory.source).toBe('agent')
+    expect(memory.confidence).toBe(0.86)
+    expect(memory.expiresAt).toBe(50_000)
+    const [revision] = await repo.listMemoryRevisions(memory.id)
+    expect(revision).toMatchObject({
+      scope: 'project',
+      projectId: 'p1',
+      key: 'brand.primarycolor',
+      source: 'agent',
+      confidence: 0.86,
+    })
+  })
+
+  it('★★ 密钥、令牌、密码和 Cookie 不能写进记忆', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    await expect(
+      repo.createMemory({ kind: 'fact', text: 'api_key=sk-1234567890abcdef' }),
+    ).rejects.toThrow('不能保存')
+    await expect(
+      repo.createMemory({ kind: 'fact', text: 'password: 123456' }),
+    ).rejects.toThrow('不能保存')
+  })
+
+  it('★★ 同作用域同主题冲突必须显式替换，重复正文直接去重', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    const first = await repo.createMemory({
+      kind: 'fact',
+      text: '主色是深绿',
+      scope: 'project',
+      projectId: 'p1',
+      key: 'brand.primaryColor',
+    })
+    const duplicate = await repo.createMemory({
+      kind: 'fact',
+      text: '主色是深绿',
+      scope: 'project',
+      projectId: 'p1',
+      key: 'brand.primaryColor',
+    })
+    expect(duplicate.id).toBe(first.id)
+    await expect(
+      repo.createMemory({
+        kind: 'fact',
+        text: '主色是黑色',
+        scope: 'project',
+        projectId: 'p1',
+        key: 'brand.primaryColor',
+      }),
+    ).rejects.toThrow('请确认是否替换')
+    const replaced = await repo.createMemory({
+      kind: 'fact',
+      text: '主色是黑色',
+      scope: 'project',
+      projectId: 'p1',
+      key: 'brand.primaryColor',
+      replaceMemoryId: first.id,
+    })
+    expect(replaced.id).toBe(first.id)
+    expect(replaced.text).toBe('主色是黑色')
+    expect(replaced.currentRevision).toBe(2)
+  })
+
+  it('★ 过期记忆可批量清理，未过期与不同项目记忆不受影响', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    const expired = await repo.createMemory({
+      kind: 'fact',
+      text: '旧项目尺寸',
+      scope: 'project',
+      projectId: 'p1',
+      expiresAt: 100,
+    })
+    const active = await repo.createMemory({
+      kind: 'fact',
+      text: '新项目尺寸',
+      scope: 'project',
+      projectId: 'p2',
+      expiresAt: 500,
+    })
+    expect(await repo.purgeExpiredMemories(200)).toBe(1)
+    expect((await repo.listMemories()).map((memory) => memory.id)).toEqual([active.id])
+    expect(await repo.listMemoryRevisions(expired.id)).toEqual([])
+  })
+
   it('★ 品牌套件保存 Logo、颜色和字体分区，并兼容旧版本', async () => {
     const platform = createMemoryPlatform()
     const repo = createContextRepository(platform.storage)

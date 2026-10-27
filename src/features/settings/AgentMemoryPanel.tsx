@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import {
+  contextMemoryScopeOf,
   normalizeContextMemoryKind,
   type ContextMemory,
   type ContextMemoryKind,
 } from '../../domain/shared/context'
 import { WORKBENCHES, type WorkbenchId } from '../../domain/shared/workbench'
+import { activeWorkbenchId } from '../../state/project/activeCanvas'
 import { createContextRepository } from '../../state/shared/contextRepository'
+import { ChoicePicker } from '../shared/choicePicker/ChoicePicker'
 import { MemoryGraph } from './MemoryGraph'
 import styles from './AgentMemoryPanel.module.css'
 
@@ -18,6 +21,50 @@ const MEMORY_KINDS: { value: ContextMemoryKind; label: string }[] = [
 ]
 
 type MemoryScope = 'all' | WorkbenchId
+type MemoryScopeMode = 'global' | 'workbench' | 'project' | 'session'
+
+interface ProjectOption {
+  id: string
+  name: string
+}
+
+interface SessionOption {
+  id: string
+  projectId: string
+  title: string
+}
+
+const SCOPE_MODES: { value: MemoryScopeMode; label: string }[] = [
+  { value: 'global', label: '全部工作台' },
+  { value: 'workbench', label: '工作台' },
+  { value: 'project', label: '项目' },
+  { value: 'session', label: '会话' },
+]
+
+const EXPIRY_OPTIONS = [
+  { value: '', label: '长期有效' },
+  { value: '7', label: '7 天' },
+  { value: '30', label: '30 天' },
+  { value: '90', label: '90 天' },
+]
+
+function scopeLabel(
+  memory: ContextMemory,
+  projects: readonly ProjectOption[],
+  sessions: readonly SessionOption[],
+): string {
+  const scope = contextMemoryScopeOf(memory)
+  if (scope === 'workbench') {
+    return memory.workbench ? WORKBENCHES[memory.workbench].label : '工作台'
+  }
+  if (scope === 'project') {
+    return `项目 · ${projects.find((project) => project.id === memory.projectId)?.name ?? memory.projectId ?? '未知'}`
+  }
+  if (scope === 'session') {
+    return `会话 · ${sessions.find((session) => session.id === memory.sessionId)?.title ?? memory.sessionId ?? '未知'}`
+  }
+  return '全部工作台'
+}
 
 export function AgentMemoryPanel() {
   const platform = usePlatform()
@@ -26,28 +73,112 @@ export function AgentMemoryPanel() {
   const [text, setText] = useState('')
   const [kind, setKind] = useState<ContextMemoryKind>('preference')
   const [scope, setScope] = useState<MemoryScope>('all')
+  const [scopeMode, setScopeMode] = useState<MemoryScopeMode>('global')
+  const [projectId, setProjectId] = useState('')
+  const [sessionId, setSessionId] = useState('')
+  const [memoryKey, setMemoryKey] = useState('')
+  const [expiryDays, setExpiryDays] = useState('')
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [sessions, setSessions] = useState<SessionOption[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
 
-  const refresh = async () => setMemories(await repo.listMemories())
+  const refresh = async () => {
+    await repo.purgeExpiredMemories()
+    setMemories(await repo.listMemories())
+  }
   useEffect(() => {
     void refresh()
   }, [repo])
 
+  useEffect(() => {
+    let alive = true
+    void Promise.all([
+      platform.storage.query('projects', {}),
+      platform.storage.query('agentSessions', {}),
+    ])
+      .then(([projectRows, sessionRows]) => {
+        if (!alive) return
+        const nextProjects = projectRows
+          .filter((row) => !row.deletedAt)
+          .map((row) => ({
+            id: String(row.id),
+            name: String(row.name ?? '').trim() || '未命名项目',
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+        const nextSessions = sessionRows
+          .map((row) => ({
+            id: String(row.id),
+            projectId: String(row.projectId ?? ''),
+            title: String(row.title ?? '').trim() || '未命名会话',
+          }))
+          .filter((row) => row.projectId)
+          .sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'))
+        setProjects(nextProjects)
+        setSessions(nextSessions)
+        const activeProject =
+          activeWorkbenchId('canvas') ??
+          activeWorkbenchId('ecommerce') ??
+          activeWorkbenchId('storyboard')
+        setProjectId(
+          (current) =>
+            current ||
+            (activeProject && nextProjects.some((project) => project.id === activeProject)
+              ? activeProject
+              : nextProjects[0]?.id ?? ''),
+        )
+      })
+      .catch((error) => {
+        if (alive) {
+          setStatus(error instanceof Error ? error.message : '项目或会话读取失败')
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [platform])
+
+  const projectSessions = useMemo(
+    () => sessions.filter((item) => item.projectId === projectId),
+    [projectId, sessions],
+  )
+
+  useEffect(() => {
+    if (scopeMode !== 'session') return
+    setSessionId((current) =>
+      projectSessions.some((item) => item.id === current)
+        ? current
+        : projectSessions[0]?.id ?? '',
+    )
+  }, [projectSessions, scopeMode])
+
   const add = async () => {
     const value = text.trim()
     if (!value || busy) return
+    if (scopeMode === 'workbench' && scope === 'all') return
+    if ((scopeMode === 'project' || scopeMode === 'session') && !projectId) return
+    if (scopeMode === 'session' && !sessionId) return
     setBusy(true)
     setStatus('')
     try {
       await repo.createMemory({
         kind,
         text: value,
-        ...(scope === 'all' ? {} : { workbench: scope }),
+        scope: scopeMode,
+        ...(scopeMode === 'workbench' && scope !== 'all' ? { workbench: scope } : {}),
+        ...(scopeMode === 'project' || scopeMode === 'session' ? { projectId } : {}),
+        ...(scopeMode === 'session' ? { sessionId } : {}),
+        ...(memoryKey.trim() ? { key: memoryKey.trim() } : {}),
+        ...(expiryDays
+          ? { expiresAt: Date.now() + Number(expiryDays) * 86_400_000 }
+          : {}),
+        source: 'user',
+        confidence: 1,
       })
       setText('')
+      setMemoryKey('')
       await refresh()
       setStatus('记忆已保存')
     } catch (error) {
@@ -102,6 +233,12 @@ export function AgentMemoryPanel() {
     }
   }
 
+  const targetReady =
+    scopeMode === 'global' ||
+    (scopeMode === 'workbench' && scope !== 'all') ||
+    (scopeMode === 'project' && Boolean(projectId)) ||
+    (scopeMode === 'session' && Boolean(projectId) && Boolean(sessionId))
+
   return (
     <div className={styles.panel} data-agent-memory-panel>
       <section className={styles.section}>
@@ -136,32 +273,102 @@ export function AgentMemoryPanel() {
         <div className={styles.choiceRow}>
           <span className={styles.choiceLabel}>作用范围</span>
           <div className={styles.segmented}>
-            <button
-              type="button"
-              className={scope === 'all' ? styles.choiceOn : styles.choice}
-              aria-pressed={scope === 'all'}
-              onClick={() => setScope('all')}
-            >
-              全部工作台
-            </button>
-            {(Object.keys(WORKBENCHES) as WorkbenchId[]).map((id) => (
+            {SCOPE_MODES.map((item) => (
               <button
-                key={id}
+                key={item.value}
                 type="button"
-                className={scope === id ? styles.choiceOn : styles.choice}
-                aria-pressed={scope === id}
-                onClick={() => setScope(id)}
+                className={scopeMode === item.value ? styles.choiceOn : styles.choice}
+                data-agent-memory-scope={item.value}
+                aria-pressed={scopeMode === item.value}
+                onClick={() => setScopeMode(item.value)}
               >
-                {WORKBENCHES[id].label}
+                {item.label}
               </button>
             ))}
           </div>
+        </div>
+        {scopeMode === 'workbench' ? (
+          <div className={styles.choiceRow}>
+            <span className={styles.choiceLabel}>工作台</span>
+            <div className={styles.segmented}>
+              {(Object.keys(WORKBENCHES) as WorkbenchId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={scope === id ? styles.choiceOn : styles.choice}
+                  aria-pressed={scope === id}
+                  onClick={() => setScope(id)}
+                >
+                  {WORKBENCHES[id].label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {scopeMode === 'project' || scopeMode === 'session' ? (
+          <div className={styles.fieldRow}>
+            <span className={styles.choiceLabel}>项目</span>
+            <ChoicePicker
+              name="agent-memory-project"
+              className={styles.fieldControl}
+              value={projectId}
+              onChange={(next) => {
+                setProjectId(next)
+                setSessionId('')
+              }}
+              options={projects.map((project) => ({
+                value: project.id,
+                label: project.name,
+              }))}
+              placeholder={projects.length ? '选择项目' : '还没有项目'}
+              ariaLabel="记忆所属项目"
+            />
+          </div>
+        ) : null}
+        {scopeMode === 'session' ? (
+          <div className={styles.fieldRow}>
+            <span className={styles.choiceLabel}>会话</span>
+            <ChoicePicker
+              name="agent-memory-session"
+              className={styles.fieldControl}
+              value={sessionId}
+              onChange={setSessionId}
+              options={projectSessions.map((session) => ({
+                value: session.id,
+                label: session.title,
+              }))}
+              placeholder={projectSessions.length ? '选择会话' : '该项目还没有会话'}
+              ariaLabel="记忆所属会话"
+            />
+          </div>
+        ) : null}
+        <div className={styles.fieldRow}>
+          <span className={styles.choiceLabel}>主题</span>
+          <input
+            className={styles.fieldInput}
+            value={memoryKey}
+            placeholder="可选，如 brand.primaryColor"
+            data-agent-memory-key
+            onChange={(event) => setMemoryKey(event.target.value)}
+          />
+        </div>
+        <div className={styles.fieldRow}>
+          <span className={styles.choiceLabel}>有效期</span>
+          <ChoicePicker
+            name="agent-memory-expiry"
+            className={styles.fieldControl}
+            value={expiryDays}
+            onChange={setExpiryDays}
+            options={EXPIRY_OPTIONS}
+            placeholder="长期有效"
+            ariaLabel="记忆有效期"
+          />
         </div>
         <div className={styles.actions}>
           <button
             type="button"
             className={styles.primary}
-            disabled={!text.trim() || busy}
+            disabled={!text.trim() || !targetReady || busy}
             data-agent-memory-add
             onClick={() => void add()}
           >
@@ -204,12 +411,17 @@ export function AgentMemoryPanel() {
                     {MEMORY_KINDS.find((item) => item.value === memory.kind)?.label ??
                       memory.kind}
                   </span>
-                  <span className={styles.scope}>
-                    {memory.workbench
-                      ? WORKBENCHES[memory.workbench].label
-                      : '全部工作台'}
+                  <span className={styles.scope}>{scopeLabel(memory, projects, sessions)}</span>
+                  <span className={styles.source}>
+                    {memory.source === 'agent' ? 'Agent 提议' : '手动保存'}
                   </span>
+                  {memory.key ? <span className={styles.key}>{memory.key}</span> : null}
                   <span className={styles.revision}>修订 {memory.currentRevision}</span>
+                  {memory.expiresAt ? (
+                    <span className={styles.revision}>
+                      有效至 {new Date(memory.expiresAt).toLocaleDateString('zh-CN')}
+                    </span>
+                  ) : null}
                   <label className={styles.toggle}>
                     <input
                       type="checkbox"
@@ -260,9 +472,10 @@ export function AgentMemoryPanel() {
                         type="button"
                         className={styles.danger}
                         disabled={busy}
+                        title="删除这条记忆，之后不会再进入 Agent 上下文"
                         onClick={() => void remove(memory)}
                       >
-                        删除
+                        忘记
                       </button>
                     </div>
                   </>

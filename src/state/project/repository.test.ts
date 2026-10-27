@@ -73,6 +73,29 @@ describe('ProjectRepository（内存存储）', () => {
     const p = await repo.create({ name: 'X' })
     await storage.put('nodes', { id: 'n1', projectId: p.id })
     await storage.put('edges', { id: 'e1', projectId: p.id })
+    await storage.put('contextMemories', {
+      id: 'memory-project',
+      projectId: p.id,
+      scope: 'project',
+      kind: 'fact',
+      text: '项目事实',
+      enabled: true,
+      currentRevision: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await storage.put('contextMemoryRevisions', {
+      id: 'memory-revision-project',
+      memoryId: 'memory-project',
+      projectId: p.id,
+      scope: 'project',
+      revision: 1,
+      kind: 'fact',
+      text: '项目事实',
+      source: 'user',
+      confidence: 1,
+      createdAt: 1,
+    })
 
     await repo.remove(p.id)
 
@@ -86,6 +109,8 @@ describe('ProjectRepository（内存存储）', () => {
     expect(await storage.query('projects', {})).toHaveLength(0)
     expect(await storage.query('nodes', { projectId: p.id })).toHaveLength(0)
     expect(await storage.query('edges', { projectId: p.id })).toHaveLength(0)
+    expect(await storage.query('contextMemories', { projectId: p.id })).toHaveLength(0)
+    expect(await storage.query('contextMemoryRevisions', { projectId: p.id })).toHaveLength(0)
   })
 
   /**
@@ -348,5 +373,62 @@ describe('ProjectRepository（内存存储）', () => {
     })
     expect(copied[0].id).not.toBe('bind-1')
     expect(await storage.query('projectContextBindings', { projectId: p.id })).toHaveLength(1)
+  })
+
+  it('★★ duplicate 复制项目记忆及修订，但不会复制会话记忆', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const p = await repo.create({ name: '记忆项目' })
+    await storage.put('contextMemories', {
+      id: 'memory-project',
+      projectId: p.id,
+      scope: 'project',
+      kind: 'fact',
+      text: '项目主色是深绿',
+      enabled: true,
+      currentRevision: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await storage.put('contextMemoryRevisions', {
+      id: 'revision-project',
+      memoryId: 'memory-project',
+      projectId: p.id,
+      scope: 'project',
+      revision: 1,
+      kind: 'fact',
+      text: '项目主色是深绿',
+      source: 'user',
+      confidence: 1,
+      createdAt: 1,
+    })
+    await storage.put('contextMemories', {
+      id: 'memory-session',
+      projectId: p.id,
+      sessionId: 'session-1',
+      scope: 'session',
+      kind: 'decision',
+      text: '本次采用蓝色',
+      enabled: true,
+      currentRevision: 1,
+      createdAt: 2,
+      updatedAt: 2,
+    })
+
+    const copy = await repo.duplicate(p.id)
+    const copied = await storage.query('contextMemories', { projectId: copy.id })
+    expect(copied).toHaveLength(1)
+    expect(copied[0]).toMatchObject({
+      scope: 'project',
+      kind: 'fact',
+      text: '项目主色是深绿',
+    })
+    expect(copied[0].id).not.toBe('memory-project')
+    const revisions = await storage.query('contextMemoryRevisions', {
+      projectId: copy.id,
+    })
+    expect(revisions).toHaveLength(1)
+    expect(revisions[0].memoryId).toBe(copied[0].id)
+    expect(revisions[0].id).not.toBe('revision-project')
   })
 })

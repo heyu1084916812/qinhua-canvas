@@ -212,4 +212,107 @@ describe('ContextBundle', () => {
     expect(text).toContain('品牌 A v1')
     expect(text).toContain('先分析主色')
   })
+
+  it('★★ 记忆按会话、项目、工作台和全局分层，并且过期项不进入上下文', () => {
+    const bundle = assembleContextBundle({
+      request: '继续做图',
+      scope: { workbench: 'canvas', projectId: 'p1', sessionId: 's1' },
+      memories: [
+        memory({ id: 'global', text: '全局偏好' }),
+        memory({ id: 'workbench', scope: 'workbench', workbench: 'canvas', text: '画布偏好' }),
+        memory({ id: 'project', scope: 'project', projectId: 'p1', text: '项目事实', kind: 'fact' }),
+        memory({
+          id: 'session',
+          scope: 'session',
+          sessionId: 's1',
+          text: '本会话采用蓝色',
+          kind: 'decision',
+        }),
+        memory({
+          id: 'expired',
+          scope: 'project',
+          projectId: 'p1',
+          text: '过期事实',
+          kind: 'fact',
+          expiresAt: 1,
+        }),
+        memory({
+          id: 'other-project',
+          scope: 'project',
+          projectId: 'p2',
+          text: '别的项目',
+          kind: 'fact',
+        }),
+      ],
+      memoryRevisions: [],
+      kits: [],
+      kitVersions: [],
+      bindings: [],
+    })
+    expect(bundle.softPreferences).toEqual(['画布偏好', '全局偏好'])
+    expect(bundle.facts).toEqual(['项目事实'])
+    expect(bundle.sessionDecisions).toEqual(['本会话采用蓝色'])
+    expect(bundle.memoryRefs.map((item) => item.id)).toEqual([
+      'session',
+      'project',
+      'workbench',
+      'global',
+    ])
+  })
+
+  it('★★ 同作用域同主题的记忆冲突会带出来源，不会静默覆盖', () => {
+    const bundle = assembleContextBundle({
+      request: '出图',
+      scope: { workbench: 'ecommerce', projectId: 'p1' },
+      memories: [
+        memory({
+          id: 'memory-a',
+          kind: 'fact',
+          key: 'brand.primaryColor',
+          text: '主色 #14532D',
+          scope: 'project',
+          projectId: 'p1',
+        }),
+        memory({
+          id: 'memory-b',
+          kind: 'fact',
+          key: 'brand.primaryColor',
+          text: '主色 #000000',
+          scope: 'project',
+          projectId: 'p1',
+        }),
+      ],
+      memoryRevisions: [],
+      kits: [],
+      kitVersions: [],
+      bindings: [],
+    })
+    expect(bundle.conflicts).toHaveLength(1)
+    expect(bundle.conflicts[0]?.values).toEqual(['主色 #000000', '主色 #14532D'])
+    expect(bundle.conflicts[0]?.message).toContain('存在冲突')
+  })
+
+  it('★ 预算先保留硬约束和事实，只省略低优先级偏好', () => {
+    const bundle = assembleContextBundle({
+      request: '出图',
+      scope: { workbench: 'canvas', projectId: 'p1' },
+      memories: [
+        memory({ id: 'constraint', kind: 'constraint', text: '必须保留完整文字' }),
+        memory({ id: 'fact', kind: 'fact', text: '品牌名是青禾' }),
+        memory({ id: 'short', text: '短偏好', updatedAt: now + 3 }),
+        memory({ id: 'long', text: '很长的偏好'.repeat(20), updatedAt: now + 2 }),
+      ],
+      memoryRevisions: [],
+      kits: [],
+      kitVersions: [],
+      bindings: [],
+      memoryCharBudget: 20,
+    })
+    expect(bundle.hardConstraints).toEqual(['必须保留完整文字'])
+    expect(bundle.facts).toEqual(['品牌名是青禾'])
+    expect(bundle.softPreferences).toEqual(['短偏好'])
+    expect(bundle.budget.omittedMemoryRefs).toEqual([
+      { id: 'long', revision: 1, reason: 'memory_budget' },
+    ])
+  })
 })

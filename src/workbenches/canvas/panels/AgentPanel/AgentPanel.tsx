@@ -6,6 +6,7 @@ import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage, NodeInput } from '../../../../domain/shared/execution/types'
 import { formatContextBundleForPrompt } from '../../../../domain/shared/context'
+import { memoryCandidateFromText } from '../../../../domain/shared/memoryOrganizer'
 import {
   AGENT_CONTEXT_WINDOW,
   createAgentSessionStore,
@@ -738,6 +739,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       sessionId: string = current?.id ?? '',
     ): AgentToolContext => ({
       store,
+      memoryContext: {
+        workbench: 'canvas',
+        projectId: store.getSnapshot().projectId,
+        ...(sessionId ? { sessionId } : {}),
+      },
       origin,
       selectedIds: () => selection,
       selectedModelOf,
@@ -911,6 +917,35 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       },
       splitGrid: (nodeId, rows, cols) =>
         splitNodeToGrid({ platform, store }, { nodeId, rows, cols }),
+      rememberMemory: async (candidate) => {
+        try {
+          const memory = await contextRepo.createMemory({
+            kind: candidate.kind,
+            text: candidate.text,
+            scope: candidate.scope,
+            ...(candidate.workbench ? { workbench: candidate.workbench } : {}),
+            ...(candidate.projectId ? { projectId: candidate.projectId } : {}),
+            ...(candidate.sessionId ? { sessionId: candidate.sessionId } : {}),
+            ...(candidate.key ? { key: candidate.key } : {}),
+            ...(candidate.expiresAt ? { expiresAt: candidate.expiresAt } : {}),
+            ...(candidate.replaceMemoryId
+              ? { replaceMemoryId: candidate.replaceMemoryId }
+              : {}),
+            source: 'agent',
+            confidence: candidate.confidence,
+          })
+          return {
+            ok: true,
+            memoryId: memory.id,
+            text: memory.text,
+          }
+        } catch (error) {
+          return {
+            ok: false,
+            reason: error instanceof Error ? error.message : errText(error),
+          }
+        }
+      },
     }),
     [
       store,
@@ -923,6 +958,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       selectedModelOf,
       sessions,
       platform,
+      contextRepo,
     ],
   )
 
@@ -1321,11 +1357,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     autoRunRef.current.set(session.id, session.autoRun === true)
 
     let contextPrompt = ''
+    const cleanRequest = stripMentionMarkup(text)
     try {
       const bundle = await contextRepo.bundleForProject({
         projectId: store.getSnapshot().projectId,
         workbench: 'canvas',
-        request: stripMentionMarkup(text),
+        request: cleanRequest,
         sessionId: session.id,
       })
       contextTraceRef.current.set(session.id, {
@@ -1358,6 +1395,25 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         return
       }
       contextPrompt = formatContextBundleForPrompt(bundle)
+      const memoryCandidate = memoryCandidateFromText(cleanRequest, {
+        workbench: 'canvas',
+        projectId: store.getSnapshot().projectId,
+        sessionId: session.id,
+      })
+      if (memoryCandidate) {
+        contextPrompt +=
+          `\n\n## 检测到长期记忆候选\n` +
+          `用户本轮可能要求长期记住以下内容。若要保存，必须调用 rememberMemory 交给系统确认，不能直接在回复里声称已记住。\n` +
+          JSON.stringify({
+            text: memoryCandidate.text,
+            kind: memoryCandidate.kind,
+            scope: memoryCandidate.scope,
+            ...(memoryCandidate.key ? { key: memoryCandidate.key } : {}),
+            ...(memoryCandidate.expiresAt
+              ? { expiresInDays: Math.max(1, Math.ceil((memoryCandidate.expiresAt - Date.now()) / 86_400_000)) }
+              : {}),
+          })
+      }
     } catch (error) {
       contextTraceRef.current.delete(session.id)
       store.notify(
@@ -1936,15 +1992,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (confirmingRef.current.has(current.id)) return
     confirmingRef.current.add(current.id)
     const { request } = status
+    const confirmationIsMemory = request.name === 'rememberMemory'
     try {
       abortRefs.current.set(current.id, new AbortController())
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
       await transitionSessionJob(
         current.id,
-        'waiting_generation',
-        'generation_started',
+        confirmationIsMemory ? 'planning' : 'waiting_generation',
+        confirmationIsMemory ? 'confirmation_resolved' : 'generation_started',
         { pendingCallId: request.callId },
-        { tool: request.name },
+        { tool: request.name, approved: true },
       )
       setStatusFor(current.id, { kind: 'executing' })
       const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
@@ -1957,13 +2014,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         toolModeRef.current.get(current.id) ?? 'native',
         imageNodeIds,
       )
-      await transitionSessionJob(
-        current.id,
-        'planning',
-        'generation_finished',
-        { pendingCallId: undefined },
-        { tool: request.name },
-      )
+      if (!confirmationIsMemory) {
+        await transitionSessionJob(
+          current.id,
+          'planning',
+          'generation_finished',
+          { pendingCallId: undefined },
+          { tool: request.name },
+        )
+      }
       setStatusFor(current.id, { kind: 'thinking' })
       const outcome = await resumeAgentTurn(
         messages,
@@ -3762,6 +3821,33 @@ function previewOf(
       title: '要把这条下游流程跑完？',
       lines: [`将运行 ${resolved.ids.length} 个节点：${names.join(' → ')}`, '会花钱'],
       action: '批准运行',
+    }
+  }
+  if (name === 'rememberMemory') {
+    const kindLabels: Record<string, string> = {
+      preference: '偏好',
+      fact: '事实',
+      constraint: '硬约束',
+      decision: '已确认决定',
+    }
+    const scopeLabels: Record<string, string> = {
+      global: '全部工作台',
+      workbench: '当前工作台',
+      project: '当前项目',
+      session: '当前会话',
+    }
+    const text = typeof a.text === 'string' ? a.text : ''
+    return {
+      tool: name,
+      title: '要把这条内容记成长期记忆？',
+      lines: [
+        text,
+        `类型：${kindLabels[String(a.kind)] ?? String(a.kind)}`,
+        `作用范围：${scopeLabels[String(a.scope)] ?? String(a.scope)}`,
+        ...(typeof a.key === 'string' && a.key ? [`主题：${a.key}`] : []),
+        '一次性要求不会被保存；以后可在“全局设置 → Agent 与记忆”修改或忘记。',
+      ].filter(Boolean),
+      action: '保存记忆',
     }
   }
   if (name === 'updateNode') {

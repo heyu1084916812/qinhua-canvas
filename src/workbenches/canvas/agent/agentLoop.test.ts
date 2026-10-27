@@ -100,6 +100,23 @@ describe('runAgentTurn · 确认之前的预检', () => {
     const r = await runAgentTurn(user('建个流程'), deps)
     expect(r.kind).toBe('confirm')
   })
+
+  it('★★ rememberMemory 也必须先让用户确认，不能由模型直接落库', async () => {
+    const call = {
+      toolCalls: [
+        {
+          id: 'memory-call',
+          name: 'rememberMemory',
+          args: '{"text":"以后主色都用深绿","kind":"fact","scope":"project"}',
+        },
+      ],
+    }
+    const { deps, executeWrite } = depsWith([call])
+    const r = await runAgentTurn(user('记住以后主色都用深绿'), deps)
+    expect(r.kind).toBe('confirm')
+    if (r.kind === 'confirm') expect(r.request.name).toBe('rememberMemory')
+    expect(executeWrite).not.toHaveBeenCalled()
+  })
 })
 
 describe('runAgentTurn · 基本往复', () => {

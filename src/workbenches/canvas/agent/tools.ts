@@ -23,6 +23,11 @@ import {
   snapshotRects,
 } from './agentGeometry'
 import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import {
+  memoryCandidateProblems,
+  normalizeMemoryCandidate,
+  type MemoryCandidate,
+} from '../../../domain/shared/memoryOrganizer'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -201,6 +206,42 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
       type: 'object',
       properties: { nodeIds: { type: 'array', items: { type: 'string' } } },
       required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'rememberMemory',
+    description:
+      '把用户明确要求长期记住的偏好、事实、硬约束或已确认决定整理成一条候选记忆。' +
+      '只在用户说“记住 / 以后 / 每次 / 长期”或明确确认项目规则时使用；' +
+      '一次性要求不要保存。系统会先把整理结果给用户确认，批准后才写入。' +
+      '禁止保存密钥、令牌、密码、Cookie 或整段隐私数据。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '精炼后的单条记忆，最多 800 字' },
+        kind: {
+          type: 'string',
+          enum: ['preference', 'fact', 'constraint', 'decision'],
+        },
+        scope: {
+          type: 'string',
+          enum: ['global', 'workbench', 'project', 'session'],
+          description:
+            '稳定个人偏好用 global；当前工作台用 workbench；本项目用 project；仅当前会话用 session。',
+        },
+        key: {
+          type: 'string',
+          description:
+            '可选稳定主题键，例如 brand.primaryColor / brand.font / project.size；用于冲突检测。',
+        },
+        expiresInDays: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 3650,
+          description: '可选有效天数；不确定就省略，表示长期有效。',
+        },
+      },
+      required: ['text', 'kind', 'scope'],
     },
   },
   {
@@ -649,6 +690,12 @@ export function readResults(store: CanvasStore, nodeIds: unknown) {
 
 export interface AgentToolContext {
   store: CanvasStore
+  /** 记忆候选的默认目标；Agent 无权改当前项目 / 会话。 */
+  memoryContext?: {
+    workbench: 'canvas' | 'ecommerce' | 'storyboard'
+    projectId: string
+    sessionId?: string
+  }
   /** 新节点的落点（§6：优先视口中心偏左） */
   origin: { x: number; y: number }
   /** 跑节点 —— 由执行层注入：agent 自己不直接发渠道请求 */
@@ -732,6 +779,9 @@ export interface AgentToolContext {
     rows: number,
     cols: number,
   ) => Promise<{ ok: boolean; nodeIds?: string[]; reason?: string }>
+  rememberMemory?: (
+    candidate: MemoryCandidate,
+  ) => Promise<{ ok: boolean; memoryId?: string; text?: string; reason?: string }>
 }
 
 /**
@@ -1397,6 +1447,25 @@ export async function executeConfirmedTool(
       if (!resolved.ok) return resolved
       const outcomes = await ctx.runNodes(resolved.ids, ctx.signal)
       return { ok: outcomes.every((o) => o.ok), outcomes }
+    }
+    case 'rememberMemory': {
+      if (!ctx.rememberMemory) {
+        return { ok: false, reason: '当前会话没有接入个人记忆存储' }
+      }
+      const candidate = normalizeMemoryCandidate(a, {
+        ...(ctx.memoryContext?.workbench
+          ? { workbench: ctx.memoryContext.workbench }
+          : {}),
+        ...(ctx.memoryContext?.projectId
+          ? { projectId: ctx.memoryContext.projectId }
+          : {}),
+        ...(ctx.memoryContext?.sessionId
+          ? { sessionId: ctx.memoryContext.sessionId }
+          : {}),
+      })
+      const problems = memoryCandidateProblems(candidate)
+      if (problems.length > 0) return { ok: false, reason: problems.join('；') }
+      return ctx.rememberMemory(candidate)
     }
     case 'moveNodes':
       return moveNodesInStore(ctx.store, a)

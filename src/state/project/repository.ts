@@ -95,6 +95,8 @@ const PROJECT_CASCADE_TABLES: TableName[] = [
   'ecommerceResults',
   'assetSaveQueue',
   'ecommerceCanvasItems',
+  'contextMemories',
+  'contextMemoryRevisions',
   'projectContextBindings',
 ]
 
@@ -458,6 +460,31 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const contextBindingRows = await storage.query('projectContextBindings', {
         projectId: id,
       })
+      const contextMemoryRows = (
+        await storage.query('contextMemories', { projectId: id })
+      ).filter((row) => row.scope === 'project')
+      const memoryIdMap = new Map<string, string>()
+      const newContextMemories = contextMemoryRows.map((memory) => {
+        const memoryId = createId('memory')
+        memoryIdMap.set(String(memory.id), memoryId)
+        return {
+          ...memory,
+          id: memoryId,
+          projectId: copy.id,
+          createdAt: now,
+          updatedAt: now,
+        }
+      })
+      const contextMemoryRevisionRows = (
+        await storage.query('contextMemoryRevisions', { projectId: id })
+      ).filter((revision) => memoryIdMap.has(String(revision.memoryId)))
+      const newContextMemoryRevisions = contextMemoryRevisionRows.map((revision) => ({
+        ...revision,
+        id: createId('memrev'),
+        memoryId: memoryIdMap.get(String(revision.memoryId))!,
+        projectId: copy.id,
+        createdAt: now,
+      }))
       const taskIdMap = new Map<string, string>()
       const batchIdMap = new Map<string, string>()
       for (const task of taskRows) {
@@ -536,6 +563,8 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           'ecommerceTasks',
           'ecommerceResults',
           'ecommerceCanvasItems',
+          'contextMemories',
+          'contextMemoryRevisions',
           'projectContextBindings',
         ],
         async (tx) => {
@@ -557,6 +586,12 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           }
           for (const binding of newContextBindings) {
             await tx.put('projectContextBindings', binding as never)
+          }
+          for (const memory of newContextMemories) {
+            await tx.put('contextMemories', memory as never)
+          }
+          for (const revision of newContextMemoryRevisions) {
+            await tx.put('contextMemoryRevisions', revision as never)
           }
         },
       )

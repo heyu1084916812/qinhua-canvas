@@ -1,8 +1,12 @@
 import {
   assembleContextBundle,
   contextKitVersionChecksum,
+  contextMemoryScopeOf,
+  contextMemorySecretReason,
   normalizeContextKitKind,
   normalizeContextMemoryKind,
+  normalizeContextMemoryKey,
+  normalizeContextMemoryScope,
   type ContextBundle,
   type ContextKit,
   type ContextKitAsset,
@@ -14,6 +18,8 @@ import {
   type ContextMemory,
   type ContextMemoryKind,
   type ContextMemoryRevision,
+  type ContextMemoryScope,
+  type ContextMemorySource,
   type ProjectContextBinding,
 } from '../../domain/shared/context'
 import { isWorkbenchId, type WorkbenchId } from '../../domain/shared/workbench'
@@ -26,18 +32,34 @@ export interface ContextRepository {
   createMemory(input: {
     kind: ContextMemoryKind
     text: string
+    scope?: ContextMemoryScope
     workbench?: WorkbenchId
+    projectId?: string
+    sessionId?: string
+    key?: string
+    expiresAt?: number
+    source?: ContextMemorySource
+    confidence?: number
+    replaceMemoryId?: string
   }): Promise<ContextMemory>
   updateMemory(
     id: string,
     patch: {
       kind?: ContextMemoryKind
       text?: string
+      scope?: ContextMemoryScope
       workbench?: WorkbenchId | null
+      projectId?: string | null
+      sessionId?: string | null
+      key?: string | null
+      expiresAt?: number | null
+      source?: ContextMemorySource
+      confidence?: number
     },
   ): Promise<ContextMemory | null>
   setMemoryEnabled(id: string, enabled: boolean): Promise<ContextMemory | null>
   removeMemory(id: string): Promise<void>
+  purgeExpiredMemories(now?: number): Promise<number>
   listKits(kind?: ContextKitKind): Promise<ContextKit[]>
   createKit(input: {
     kind: ContextKitKind
@@ -78,6 +100,7 @@ export interface ContextRepository {
     sessionId?: string
     taskId?: string
     skill?: { name: string; content: string }
+    memoryCharBudget?: number
   }): Promise<ContextBundle>
 }
 
@@ -85,8 +108,34 @@ function textOf(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function confidenceOf(value: unknown): number {
+  const number = finiteNumber(value)
+  return number === undefined ? 1 : Math.min(1, Math.max(0, number))
+}
+
 function workbenchOf(value: unknown): WorkbenchId | undefined {
   return typeof value === 'string' && isWorkbenchId(value) ? value : undefined
+}
+
+function memoryScopeFields(
+  value: Record<string, unknown>,
+): Pick<ContextMemory, 'scope' | 'workbench' | 'projectId' | 'sessionId'> {
+  const workbench = workbenchOf(value.workbench)
+  const projectId = textOf(value.projectId)
+  const sessionId = textOf(value.sessionId)
+  const scope = normalizeContextMemoryScope(
+    value.scope ?? (sessionId ? 'session' : projectId ? 'project' : workbench ? 'workbench' : 'global'),
+  )
+  return {
+    scope,
+    ...(workbench ? { workbench } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+  }
 }
 
 function factsOf(value: unknown): ContextKitFact[] {
@@ -167,13 +216,20 @@ function fontsOf(value: unknown): ContextKitFont[] {
 }
 
 function memoryOf(row: RowOf<'contextMemories'>): ContextMemory {
+  const expiresAt = finiteNumber(row.expiresAt)
+  const source = row.source === 'agent' ? 'agent' : 'user'
+  const confidence = confidenceOf(row.confidence)
   return {
     id: String(row.id),
     kind: normalizeContextMemoryKind(row.kind),
     text: textOf(row.text),
-    ...(workbenchOf(row.workbench)
-      ? { workbench: workbenchOf(row.workbench) }
+    ...memoryScopeFields(row),
+    ...(normalizeContextMemoryKey(row.key)
+      ? { key: normalizeContextMemoryKey(row.key) }
       : {}),
+    ...(expiresAt !== undefined && expiresAt > 0 ? { expiresAt } : {}),
+    source,
+    confidence,
     enabled: row.enabled !== false,
     currentRevision:
       typeof row.currentRevision === 'number' && row.currentRevision > 0
@@ -187,6 +243,7 @@ function memoryOf(row: RowOf<'contextMemories'>): ContextMemory {
 function memoryRevisionOf(
   row: RowOf<'contextMemoryRevisions'>,
 ): ContextMemoryRevision {
+  const expiresAt = finiteNumber(row.expiresAt)
   return {
     id: String(row.id),
     memoryId: String(row.memoryId ?? ''),
@@ -196,14 +253,13 @@ function memoryRevisionOf(
         : 1,
     kind: normalizeContextMemoryKind(row.kind),
     text: textOf(row.text),
-    ...(workbenchOf(row.workbench)
-      ? { workbench: workbenchOf(row.workbench) }
+    ...memoryScopeFields(row),
+    ...(normalizeContextMemoryKey(row.key)
+      ? { key: normalizeContextMemoryKey(row.key) }
       : {}),
+    ...(expiresAt !== undefined && expiresAt > 0 ? { expiresAt } : {}),
     source: row.source === 'agent' ? 'agent' : 'user',
-    confidence:
-      typeof row.confidence === 'number' && Number.isFinite(row.confidence)
-        ? Math.min(1, Math.max(0, row.confidence))
-        : 1,
+    confidence: confidenceOf(row.confidence),
     createdAt: Number(row.createdAt ?? 0),
   }
 }
@@ -299,6 +355,243 @@ export function createContextRepository(storage: StoragePort): ContextRepository
       .map(bindingOf)
       .sort((left, right) => right.updatedAt - left.updatedAt)
 
+  const scopedMemoryFields = (input: {
+    scope?: ContextMemoryScope
+    workbench?: WorkbenchId | null
+    projectId?: string | null
+    sessionId?: string | null
+  }): Pick<ContextMemory, 'scope' | 'workbench' | 'projectId' | 'sessionId'> => {
+    const scope = normalizeContextMemoryScope(
+      input.scope ??
+        (input.sessionId
+          ? 'session'
+          : input.projectId
+            ? 'project'
+            : input.workbench
+              ? 'workbench'
+              : 'global'),
+    )
+    if (scope === 'global') return { scope }
+    if (scope === 'workbench') {
+      const workbench = workbenchOf(input.workbench)
+      if (!workbench) throw new Error('工作台记忆必须指定工作台')
+      return { scope, workbench }
+    }
+    if (scope === 'project') {
+      const projectId = textOf(input.projectId)
+      if (!projectId) throw new Error('项目记忆必须指定项目')
+      return { scope, projectId }
+    }
+    const sessionId = textOf(input.sessionId)
+    if (!sessionId) throw new Error('会话记忆必须指定会话')
+    const projectId = textOf(input.projectId)
+    const workbench = workbenchOf(input.workbench)
+    return {
+      scope,
+      sessionId,
+      ...(projectId ? { projectId } : {}),
+      ...(workbench ? { workbench } : {}),
+    }
+  }
+
+  const sameMemoryTarget = (left: ContextMemory, right: ContextMemory): boolean => {
+    const leftScope = contextMemoryScopeOf(left)
+    return (
+      leftScope === contextMemoryScopeOf(right) &&
+      (leftScope !== 'workbench' || left.workbench === right.workbench) &&
+      (leftScope !== 'project' || left.projectId === right.projectId) &&
+      (leftScope !== 'session' || left.sessionId === right.sessionId)
+    )
+  }
+
+  const updateMemoryImpl = async (
+    id: string,
+    patch: Parameters<ContextRepository['updateMemory']>[1],
+  ): Promise<ContextMemory | null> =>
+    storage.transaction(
+      ['contextMemories', 'contextMemoryRevisions'],
+      async (tx) => {
+        const rows = await tx.query('contextMemories', { id })
+        if (!rows[0]) return null
+        const current = memoryOf(rows[0])
+        const text =
+          patch.text !== undefined ? patch.text.trim() : current.text
+        if (!text) throw new Error('记忆正文不能为空')
+        const secret = contextMemorySecretReason(text)
+        if (secret) throw new Error(`记忆里不能保存${secret}`)
+        const scopeFields =
+          patch.scope !== undefined ||
+          patch.workbench !== undefined ||
+          patch.projectId !== undefined ||
+          patch.sessionId !== undefined
+            ? scopedMemoryFields({
+                scope: patch.scope ?? contextMemoryScopeOf(current),
+                workbench:
+                  patch.workbench !== undefined
+                    ? patch.workbench
+                    : current.workbench,
+                projectId:
+                  patch.projectId !== undefined
+                    ? patch.projectId
+                    : current.projectId,
+                sessionId:
+                  patch.sessionId !== undefined
+                    ? patch.sessionId
+                    : current.sessionId,
+              })
+            : {
+                scope: contextMemoryScopeOf(current),
+                ...(current.workbench ? { workbench: current.workbench } : {}),
+                ...(current.projectId ? { projectId: current.projectId } : {}),
+                ...(current.sessionId ? { sessionId: current.sessionId } : {}),
+              }
+        const next: ContextMemory = {
+          ...current,
+          ...scopeFields,
+          ...(patch.kind ? { kind: normalizeContextMemoryKind(patch.kind) } : {}),
+          text,
+          ...(patch.key !== undefined
+            ? normalizeContextMemoryKey(patch.key)
+              ? { key: normalizeContextMemoryKey(patch.key) }
+              : { key: undefined }
+            : {}),
+          ...(patch.expiresAt !== undefined
+            ? finiteNumber(patch.expiresAt) && Number(patch.expiresAt) > 0
+              ? { expiresAt: Math.trunc(Number(patch.expiresAt)) }
+              : { expiresAt: undefined }
+            : {}),
+          ...(patch.source ? { source: patch.source } : {}),
+          ...(patch.confidence !== undefined
+            ? { confidence: confidenceOf(patch.confidence) }
+            : {}),
+          updatedAt: Date.now(),
+          currentRevision: current.currentRevision + 1,
+        }
+        const existingMemories = (await tx.query('contextMemories', {})).map(memoryOf)
+        const conflict = existingMemories.find(
+          (memory) =>
+            memory.id !== id &&
+            memory.enabled &&
+            Boolean(next.key) &&
+            normalizeContextMemoryKey(memory.key) === next.key &&
+            sameMemoryTarget(memory, next) &&
+            memory.text.trim().toLowerCase() !== next.text.trim().toLowerCase(),
+        )
+        if (conflict) {
+          throw new Error(`同一作用域已有记忆「${conflict.text}」，请替换原记忆或换一个主题键`)
+        }
+        const revision: ContextMemoryRevision = {
+          id: createId('memrev'),
+          memoryId: next.id,
+          revision: next.currentRevision,
+          kind: next.kind,
+          text: next.text,
+          ...scopeFields,
+          ...(next.key ? { key: next.key } : {}),
+          ...(next.expiresAt ? { expiresAt: next.expiresAt } : {}),
+          source: next.source ?? 'user',
+          confidence: next.confidence ?? 1,
+          createdAt: next.updatedAt,
+        }
+        await tx.put('contextMemories', next as never)
+        await tx.put('contextMemoryRevisions', revision as never)
+        return next
+      },
+    )
+
+  const createMemoryImpl: ContextRepository['createMemory'] = async (input) => {
+    const value = input.text.trim()
+    if (!value) throw new Error('记忆正文不能为空')
+    const secret = contextMemorySecretReason(value)
+    if (secret) throw new Error(`记忆里不能保存${secret}`)
+    const scopeFields = scopedMemoryFields(input)
+    const kind = normalizeContextMemoryKind(input.kind)
+    const key = normalizeContextMemoryKey(input.key)
+    const existing = (await listMemories()).find(
+      (memory) =>
+        memory.enabled &&
+        memory.kind === kind &&
+        sameMemoryTarget(memory, { ...memory, ...scopeFields }) &&
+        memory.text.trim().toLowerCase() === value.toLowerCase(),
+    )
+    if (existing) return existing
+    if (key) {
+      const conflict = (await listMemories()).find(
+        (memory) =>
+          memory.enabled &&
+          normalizeContextMemoryKey(memory.key) === key &&
+          sameMemoryTarget(memory, { ...memory, ...scopeFields }),
+      )
+      if (conflict) {
+        if (input.replaceMemoryId !== conflict.id) {
+          throw new Error(`同一作用域已有记忆「${conflict.text}」，请确认是否替换`)
+        }
+        const replaced = await updateMemoryImpl(conflict.id, {
+          kind,
+          text: value,
+          ...scopeFields,
+          key,
+          ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+          source: input.source ?? 'user',
+          confidence: confidenceOf(input.confidence),
+        })
+        if (!replaced) throw new Error('要替换的记忆已不存在')
+        return replaced
+      }
+    }
+    if (input.replaceMemoryId) {
+      const replaced = await updateMemoryImpl(input.replaceMemoryId, {
+        kind,
+        text: value,
+        ...scopeFields,
+        key,
+        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+        source: input.source ?? 'user',
+        confidence: confidenceOf(input.confidence),
+      })
+      if (!replaced) throw new Error('要替换的记忆已不存在')
+      return replaced
+    }
+    const at = Date.now()
+    const memory: ContextMemory = {
+      id: createId('memory'),
+      kind,
+      text: value,
+      ...scopeFields,
+      ...(key ? { key } : {}),
+      ...(input.expiresAt !== undefined && input.expiresAt > 0
+        ? { expiresAt: Math.trunc(input.expiresAt) }
+        : {}),
+      source: input.source ?? 'user',
+      confidence: confidenceOf(input.confidence),
+      enabled: true,
+      currentRevision: 1,
+      createdAt: at,
+      updatedAt: at,
+    }
+    const revision: ContextMemoryRevision = {
+      id: createId('memrev'),
+      memoryId: memory.id,
+      revision: 1,
+      kind: memory.kind,
+      text: memory.text,
+      ...scopeFields,
+      ...(memory.key ? { key: memory.key } : {}),
+      ...(memory.expiresAt ? { expiresAt: memory.expiresAt } : {}),
+      source: memory.source ?? 'user',
+      confidence: memory.confidence ?? 1,
+      createdAt: at,
+    }
+    await storage.transaction(
+      ['contextMemories', 'contextMemoryRevisions'],
+      async (tx) => {
+        await tx.put('contextMemories', memory as never)
+        await tx.put('contextMemoryRevisions', revision as never)
+      },
+    )
+    return memory
+  }
+
   return {
     listMemories,
     listMemoryRevisions,
@@ -306,78 +599,9 @@ export function createContextRepository(storage: StoragePort): ContextRepository
     listKitVersions,
     listProjectBindings,
 
-    async createMemory({ kind, text, workbench }) {
-      const value = text.trim()
-      if (!value) throw new Error('记忆正文不能为空')
-      const at = Date.now()
-      const memory: ContextMemory = {
-        id: createId('memory'),
-        kind: normalizeContextMemoryKind(kind),
-        text: value,
-        ...(workbench ? { workbench } : {}),
-        enabled: true,
-        currentRevision: 1,
-        createdAt: at,
-        updatedAt: at,
-      }
-      const revision: ContextMemoryRevision = {
-        id: createId('memrev'),
-        memoryId: memory.id,
-        revision: 1,
-        kind: memory.kind,
-        text: memory.text,
-        ...(memory.workbench ? { workbench: memory.workbench } : {}),
-        source: 'user',
-        confidence: 1,
-        createdAt: at,
-      }
-      await storage.transaction(
-        ['contextMemories', 'contextMemoryRevisions'],
-        async (tx) => {
-          await tx.put('contextMemories', memory as never)
-          await tx.put('contextMemoryRevisions', revision as never)
-        },
-      )
-      return memory
-    },
+    createMemory: createMemoryImpl,
 
-    async updateMemory(id, patch) {
-      return storage.transaction(
-        ['contextMemories', 'contextMemoryRevisions'],
-        async (tx) => {
-          const rows = await tx.query('contextMemories', { id })
-          if (!rows[0]) return null
-          const current = memoryOf(rows[0])
-          const next: ContextMemory = {
-            ...current,
-            ...(patch.kind ? { kind: normalizeContextMemoryKind(patch.kind) } : {}),
-            ...(patch.text !== undefined ? { text: patch.text.trim() } : {}),
-            ...(patch.workbench !== undefined
-              ? patch.workbench
-                ? { workbench: patch.workbench }
-                : { workbench: undefined }
-              : {}),
-            currentRevision: current.currentRevision + 1,
-            updatedAt: Date.now(),
-          }
-          if (!next.text) throw new Error('记忆正文不能为空')
-          const revision: ContextMemoryRevision = {
-            id: createId('memrev'),
-            memoryId: next.id,
-            revision: next.currentRevision,
-            kind: next.kind,
-            text: next.text,
-            ...(next.workbench ? { workbench: next.workbench } : {}),
-            source: 'user',
-            confidence: 1,
-            createdAt: next.updatedAt,
-          }
-          await tx.put('contextMemories', next as never)
-          await tx.put('contextMemoryRevisions', revision as never)
-          return next
-        },
-      )
-    },
+    updateMemory: updateMemoryImpl,
 
     async setMemoryEnabled(id, enabled) {
       const rows = await storage.query('contextMemories', { id })
@@ -398,6 +622,27 @@ export function createContextRepository(storage: StoragePort): ContextRepository
           await tx.delete('contextMemories', id)
         },
       )
+    },
+
+    async purgeExpiredMemories(now = Date.now()) {
+      const expired = (await listMemories()).filter(
+        (memory) => memory.expiresAt !== undefined && memory.expiresAt <= now,
+      )
+      for (const memory of expired) {
+        await storage.transaction(
+          ['contextMemories', 'contextMemoryRevisions'],
+          async (tx) => {
+            const revisions = await tx.query('contextMemoryRevisions', {
+              memoryId: memory.id,
+            })
+            for (const revision of revisions) {
+              await tx.delete('contextMemoryRevisions', revision.id)
+            }
+            await tx.delete('contextMemories', memory.id)
+          },
+        )
+      }
+      return expired.length
     },
 
     async createKit(input) {
@@ -579,6 +824,9 @@ export function createContextRepository(storage: StoragePort): ContextRepository
         kitVersions: versions,
         bindings,
         ...(input.skill ? { skill: input.skill } : {}),
+        ...(input.memoryCharBudget !== undefined
+          ? { memoryCharBudget: input.memoryCharBudget }
+          : {}),
       })
     },
   }

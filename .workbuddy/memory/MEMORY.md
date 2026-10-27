@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### 个人记忆作用域、Agent 确认与预算（2026-10-27 → 对账 #779）
+
+- **记忆不是聊天自动沉淀**：Agent 只能用 `rememberMemory` 提议候选，用户点确认后才由
+  `createMemory(source:'agent')` 落库。一次性要求、密钥 / 令牌 / 密码 / Cookie、超长文本在
+  规则层直接拒绝；不要为了“更智能”绕过确认卡。
+- **作用域是数据字段，不是 UI 文案**：`global / workbench / project / session` 必须参与
+  ContextBundle 过滤。旧行没有 `scope` 时按 `workbench` 或 global 推导；session 记忆要保留
+  projectId，项目永久删除时才能可靠级联。
+- **事实和决定不能混进软偏好**：ContextBundle 分 `facts / projectDecisions /
+  sessionDecisions / softPreferences`；硬约束、事实与项目决定优先保留，低优先级偏好才受
+  `memoryCharBudget` 裁剪，`memoryRefs` 只能记录真正注入的项。
+- **同主题冲突必须在付费前停**：只有带稳定 `key` 的同作用域记忆才比较冲突；主题键统一
+  lowercase。重复正文直接去重，不同值必须由用户明确替换。
+- **验证**：定向 **147/147**、全量 Vitest **3464 passed / 1 skipped**；真实页面创建项目记忆后显示来源 / 项目 / 主题并成功忘记；
+  1440×900 / 1024×700、明暗主题无横向溢出。
+
 ### LibTV 正文漏映射恢复（2026-10-27 → 对账 #778）
 
 - **成功导出不等于成功发布**：原始 `_manifest.json` 记录 `saved: 759`，旧 public catalog 只映射

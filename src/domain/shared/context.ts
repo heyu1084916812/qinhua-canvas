@@ -2,13 +2,24 @@ import { fingerprintHex } from './hash'
 import type { WorkbenchId } from './workbench'
 
 export type ContextMemoryKind = 'preference' | 'fact' | 'constraint' | 'decision'
+export type ContextMemoryScope = 'global' | 'workbench' | 'project' | 'session'
+export type ContextMemorySource = 'user' | 'agent'
 
 export interface ContextMemory {
   id: string
   kind: ContextMemoryKind
   text: string
+  /** 新记录显式保存作用域；旧记录缺省时按 workbench / global 推导。 */
+  scope?: ContextMemoryScope
   /** 缺省 = 三个工作台都可读取。 */
   workbench?: WorkbenchId
+  projectId?: string
+  sessionId?: string
+  /** 用于冲突检测的稳定主题键，例如 brand.primaryColor。 */
+  key?: string
+  expiresAt?: number
+  source?: ContextMemorySource
+  confidence?: number
   enabled: boolean
   currentRevision: number
   createdAt: number
@@ -21,8 +32,13 @@ export interface ContextMemoryRevision {
   revision: number
   kind: ContextMemoryKind
   text: string
+  scope?: ContextMemoryScope
   workbench?: WorkbenchId
-  source: 'user' | 'agent'
+  projectId?: string
+  sessionId?: string
+  key?: string
+  expiresAt?: number
+  source: ContextMemorySource
   confidence: number
   createdAt: number
 }
@@ -104,7 +120,9 @@ export interface ContextBundle {
   request: string
   scope: ContextBundleScope
   hardConstraints: string[]
+  facts: string[]
   softPreferences: string[]
+  projectDecisions: string[]
   procedures: string[]
   sessionDecisions: string[]
   exclusions: string[]
@@ -113,6 +131,11 @@ export interface ContextBundle {
   kitVersionRefs: { kitId: string; version: number }[]
   /** 当前项目绑定版本引用的素材；字节仍在 assets，由执行层读取。 */
   assetHashes: string[]
+  budget: {
+    maxMemoryChars: number
+    usedMemoryChars: number
+    omittedMemoryRefs: { id: string; revision: number; reason: string }[]
+  }
   digest: string
 }
 
@@ -121,6 +144,70 @@ export interface ContextConflict {
   values: string[]
   sources: string[]
   message: string
+}
+
+export function normalizeContextMemoryScope(value: unknown): ContextMemoryScope {
+  return value === 'workbench' || value === 'project' || value === 'session' || value === 'global'
+    ? value
+    : 'global'
+}
+
+export function contextMemoryScopeOf(
+  memory: Pick<ContextMemory, 'scope' | 'workbench' | 'projectId' | 'sessionId'>,
+): ContextMemoryScope {
+  if (memory.scope) return normalizeContextMemoryScope(memory.scope)
+  if (memory.sessionId) return 'session'
+  if (memory.projectId) return 'project'
+  if (memory.workbench) return 'workbench'
+  return 'global'
+}
+
+export function normalizeContextMemoryKey(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '.')
+        .replace(/[^a-z0-9._-]+/g, '')
+        .replace(/^\.+|\.+$/g, '')
+    : ''
+}
+
+export function contextMemorySecretReason(text: string): string | null {
+  if (/\bsk-[a-z0-9_-]{16,}\b/i.test(text)) return '疑似 API Key'
+  if (/\bBearer\s+[a-z0-9._~+/=-]{16,}\b/i.test(text)) return '疑似 Bearer Token'
+  if (
+    /\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|passwd|cookie)\s*[:=]/i.test(
+      text,
+    )
+  ) {
+    return '疑似密钥、令牌、密码或 Cookie'
+  }
+  return null
+}
+
+export function contextMemoryScopeMatches(
+  memory: ContextMemory,
+  scope: ContextBundleScope,
+  now = Date.now(),
+): boolean {
+  if (!memory.enabled) return false
+  if (memory.expiresAt !== undefined && memory.expiresAt <= now) return false
+  const memoryScope = contextMemoryScopeOf(memory)
+  if (memoryScope === 'global') return true
+  if (memoryScope === 'workbench') return memory.workbench === scope.workbench
+  if (memoryScope === 'project') {
+    return (
+      memory.projectId === scope.projectId &&
+      (!memory.workbench || memory.workbench === scope.workbench)
+    )
+  }
+  return (
+    Boolean(scope.sessionId) &&
+    memory.sessionId === scope.sessionId &&
+    (!memory.projectId || memory.projectId === scope.projectId) &&
+    (!memory.workbench || memory.workbench === scope.workbench)
+  )
 }
 
 export function normalizeContextMemoryKind(value: unknown): ContextMemoryKind {
@@ -227,23 +314,35 @@ export function contextConflictsOf(
   versions: readonly ContextKitVersion[],
   kitNameOf: (kitId: string) => string = (kitId) => kitId,
 ): ContextConflict[] {
+  return conflictsFromEntries(
+    versions.flatMap((version) =>
+      version.facts.map((fact) => ({
+        key: fact.key,
+        value: fact.value,
+        source: `${kitNameOf(version.kitId)} v${version.version}`,
+      })),
+    ),
+  )
+}
+
+function conflictsFromEntries(
+  entries: readonly { key: string; value: string; source: string }[],
+): ContextConflict[] {
   const byKey = new Map<
     string,
     { values: Set<string>; sources: Set<string> }
   >()
-  for (const version of versions) {
-    for (const fact of version.facts) {
-      const key = fact.key.trim().toLowerCase()
-      const value = fact.value.trim()
-      if (!key || !value) continue
-      const entry = byKey.get(key) ?? {
-        values: new Set<string>(),
-        sources: new Set<string>(),
-      }
-      entry.values.add(value)
-      entry.sources.add(`${kitNameOf(version.kitId)} v${version.version}`)
-      byKey.set(key, entry)
+  for (const candidate of entries) {
+    const key = candidate.key.trim().toLowerCase()
+    const value = candidate.value.trim()
+    if (!key || !value) continue
+    const entry = byKey.get(key) ?? {
+      values: new Set<string>(),
+      sources: new Set<string>(),
     }
+    entry.values.add(value)
+    entry.sources.add(candidate.source)
+    byKey.set(key, entry)
   }
   return [...byKey.entries()]
     .filter(([, entry]) => entry.values.size > 1)
@@ -253,6 +352,31 @@ export function contextConflictsOf(
       sources: [...entry.sources].sort(),
       message: `${key} 存在冲突：${[...entry.values].sort().join(' / ')}`,
     }))
+}
+
+function memoryConflictsOf(
+  memories: readonly { memory: ContextMemory; text: string }[],
+): ContextConflict[] {
+  return conflictsFromEntries(
+    memories.flatMap(({ memory, text }) => {
+      const key = normalizeContextMemoryKey(memory.key)
+      if (!key) return []
+      const scope = contextMemoryScopeOf(memory)
+      return [{
+        key,
+        value: text,
+        source: `个人记忆 · ${scope} · ${memory.source ?? 'user'}`,
+      }]
+    }),
+  )
+}
+
+const DEFAULT_MEMORY_CHAR_BUDGET = 12_000
+const SCOPE_RANK: Record<ContextMemoryScope, number> = {
+  session: 4,
+  project: 3,
+  workbench: 2,
+  global: 1,
 }
 
 export function assembleContextBundle(input: {
@@ -265,6 +389,7 @@ export function assembleContextBundle(input: {
   bindings: readonly ProjectContextBinding[]
   skill?: { name: string; content: string }
   exclusions?: readonly string[]
+  memoryCharBudget?: number
 }): ContextBundle {
   const revisionByIdentity = new Map(
     input.memoryRevisions.map((revision) => [
@@ -272,27 +397,62 @@ export function assembleContextBundle(input: {
       revision,
     ]),
   )
+  const now = Date.now()
   const activeMemories = input.memories
-    .filter(
-      (memory) =>
-        memory.enabled &&
-        (!memory.workbench || memory.workbench === input.scope.workbench),
+    .filter((memory) => contextMemoryScopeMatches(memory, input.scope, now))
+    .sort(
+      (left, right) =>
+        SCOPE_RANK[contextMemoryScopeOf(right)] -
+          SCOPE_RANK[contextMemoryScopeOf(left)] ||
+        right.updatedAt - left.updatedAt,
     )
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+  const resolvedMemories = activeMemories
+    .flatMap((memory) => {
+      const revision =
+        revisionByIdentity.get(`${memory.id}\u0000${memory.currentRevision}`) ?? null
+      const text = (revision?.text ?? memory.text).trim()
+      return text ? [{ memory, text }] : []
+    })
   const hardConstraints: string[] = []
+  const facts: string[] = []
   const softPreferences: string[] = []
+  const projectDecisions: string[] = []
   const sessionDecisions: string[] = []
   const memoryRefs: ContextBundle['memoryRefs'] = []
+  const omittedMemoryRefs: ContextBundle['budget']['omittedMemoryRefs'] = []
+  const maxMemoryChars =
+    typeof input.memoryCharBudget === 'number' &&
+    Number.isFinite(input.memoryCharBudget) &&
+    input.memoryCharBudget > 0
+      ? Math.trunc(input.memoryCharBudget)
+      : DEFAULT_MEMORY_CHAR_BUDGET
+  let usedMemoryChars = 0
 
-  for (const memory of activeMemories) {
-    const revision =
-      revisionByIdentity.get(`${memory.id}\u0000${memory.currentRevision}`) ?? null
-    const text = (revision?.text ?? memory.text).trim()
-    if (!text) continue
+  for (const { memory, text } of resolvedMemories) {
+    const memoryScope = contextMemoryScopeOf(memory)
+    const mustKeep =
+      memory.kind === 'constraint' ||
+      memory.kind === 'fact' ||
+      memoryScope === 'project'
+    if (!mustKeep && usedMemoryChars + text.length > maxMemoryChars) {
+      omittedMemoryRefs.push({
+        id: memory.id,
+        revision: memory.currentRevision,
+        reason: 'memory_budget',
+      })
+      continue
+    }
+    usedMemoryChars += text.length
     memoryRefs.push({ id: memory.id, revision: memory.currentRevision })
     if (memory.kind === 'constraint') hardConstraints.push(text)
-    else if (memory.kind === 'decision') sessionDecisions.push(text)
-    else softPreferences.push(text)
+    else if (memory.kind === 'fact') facts.push(text)
+    else if (memory.kind === 'decision' && memoryScope === 'session') {
+      sessionDecisions.push(text)
+    } else if (memory.kind === 'decision' && memoryScope === 'project') {
+      projectDecisions.push(text)
+    } else if (memory.kind === 'decision') {
+      hardConstraints.push(`已确认决定：${text}`)
+    } else softPreferences.push(text)
   }
 
   const kitById = new Map(input.kits.map((kit) => [kit.id, kit]))
@@ -334,10 +494,29 @@ export function assembleContextBundle(input: {
     }
   }
 
-  const conflicts = contextConflictsOf(
-    selectedVersions,
-    (kitId) => kitById.get(kitId)?.name ?? kitId,
-  )
+  const conflicts = conflictsFromEntries([
+    ...contextConflictsOf(
+      selectedVersions,
+      (kitId) => kitById.get(kitId)?.name ?? kitId,
+    ).flatMap((conflict) =>
+      conflict.values.flatMap((value) =>
+        conflict.sources.map((source) => ({
+          key: conflict.key,
+          value,
+          source,
+        })),
+      ),
+    ),
+    ...memoryConflictsOf(resolvedMemories).flatMap((conflict) =>
+      conflict.values.flatMap((value) =>
+        conflict.sources.map((source) => ({
+          key: conflict.key,
+          value,
+          source,
+        })),
+      ),
+    ),
+  ])
   if (conflicts.length > 0) {
     exclusions.push(...conflicts.map((conflict) => conflict.message))
   }
@@ -349,7 +528,9 @@ export function assembleContextBundle(input: {
     request: input.request.trim(),
     scope: input.scope,
     hardConstraints,
+    facts,
     softPreferences,
+    projectDecisions,
     procedures,
     sessionDecisions,
     exclusions,
@@ -362,6 +543,11 @@ export function assembleContextBundle(input: {
     assetHashes: [
       ...new Set(selectedVersions.flatMap((version) => version.assetHashes)),
     ],
+    budget: {
+      maxMemoryChars,
+      usedMemoryChars,
+      omittedMemoryRefs,
+    },
   }
   return {
     ...stable,
@@ -374,11 +560,17 @@ export function formatContextBundleForPrompt(bundle: ContextBundle): string {
   if (bundle.hardConstraints.length > 0) {
     parts.push(['## 硬约束（不得违反）', ...bundle.hardConstraints.map((item) => `- ${item}`)].join('\n'))
   }
+  if (bundle.facts.length > 0) {
+    parts.push(['## 已确认事实', ...bundle.facts.map((item) => `- ${item}`)].join('\n'))
+  }
   if (bundle.softPreferences.length > 0) {
     parts.push(['## 个人偏好（可优先采用）', ...bundle.softPreferences.map((item) => `- ${item}`)].join('\n'))
   }
+  if (bundle.projectDecisions.length > 0) {
+    parts.push(['## 项目决定', ...bundle.projectDecisions.map((item) => `- ${item}`)].join('\n'))
+  }
   if (bundle.sessionDecisions.length > 0) {
-    parts.push(['## 已确认决定', ...bundle.sessionDecisions.map((item) => `- ${item}`)].join('\n'))
+    parts.push(['## 本会话已确认决定', ...bundle.sessionDecisions.map((item) => `- ${item}`)].join('\n'))
   }
   if (bundle.procedures.length > 0) {
     parts.push(['## 工作流程', ...bundle.procedures].join('\n'))
@@ -402,6 +594,11 @@ export function formatContextBundleForPrompt(bundle: ContextBundle): string {
   }
   if (bundle.exclusions.length > 0) {
     parts.push(['## 未采用的上下文', ...bundle.exclusions.map((item) => `- ${item}`)].join('\n'))
+  }
+  if (bundle.budget.omittedMemoryRefs.length > 0) {
+    parts.push(
+      `另有 ${bundle.budget.omittedMemoryRefs.length} 条低优先级记忆因上下文预算未载入。`,
+    )
   }
   return parts.join('\n\n')
 }

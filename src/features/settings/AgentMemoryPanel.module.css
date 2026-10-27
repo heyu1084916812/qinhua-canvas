@@ -55,10 +55,36 @@
   margin-top: 12px;
 }
 
+.fieldRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .choiceLabel {
   flex: 0 0 auto;
   color: var(--text-2);
   font-size: var(--fs-label);
+}
+
+.fieldControl {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fieldInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-body);
+  box-sizing: border-box;
 }
 
 .segmented {
@@ -164,9 +190,18 @@
 
 .badge,
 .scope,
+.source,
+.key,
 .revision {
   color: var(--text-2);
   font-size: var(--fs-chip);
+}
+
+.key {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .badge {
@@ -203,9 +238,15 @@
 }
 
 @media (max-width: 760px) {
-  .choiceRow {
+  .choiceRow,
+  .fieldRow {
     align-items: flex-start;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .fieldControl,
+  .fieldInput {
+    width: 100%;
   }
 }
