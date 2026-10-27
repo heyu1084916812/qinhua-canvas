@@ -24,6 +24,8 @@ function seed() {
       runRecords: [{ id: 'r1', projectId: 'p1', createdAt: 5, outputHashes: [] }],
       tasks: [{ id: 't1', projectId: 'p1' }],
       agentSessions: [{ id: 's1', projectId: 'p1' }],
+      agentJobs: [{ id: 'aj1', sessionId: 's1', projectId: 'p1', turnId: 'turn-1' }],
+      agentEvents: [{ id: 'ae1', jobId: 'aj1', sessionId: 's1', projectId: 'p1' }],
       ecommerceTasks: [{ id: 'et1', projectId: 'p1', createdAt: 5 }],
       ecommerceResults: [{ id: 'er1', projectId: 'p1', taskId: 'et1', createdAt: 5 }],
     },
@@ -52,6 +54,8 @@ describe('回收站 · 软删与还原', () => {
     expect(await platform.storage.query('runRecords', { projectId: 'p1' })).toHaveLength(1)
     expect(await platform.storage.query('tasks', { projectId: 'p1' })).toHaveLength(1)
     expect(await platform.storage.query('agentSessions', { projectId: 'p1' })).toHaveLength(1)
+    expect(await platform.storage.query('agentJobs', { projectId: 'p1' })).toHaveLength(1)
+    expect(await platform.storage.query('agentEvents', { projectId: 'p1' })).toHaveLength(1)
     expect(await platform.storage.query('ecommerceTasks', { projectId: 'p1' })).toHaveLength(1)
     expect(await platform.storage.query('ecommerceResults', { projectId: 'p1' })).toHaveLength(1)
   })
@@ -170,6 +174,8 @@ describe('回收站 · 清理 N 天前', () => {
     expect(await platform.storage.query('edges', { projectId: 'p1' })).toHaveLength(0)
     expect(await platform.storage.query('runRecords', { projectId: 'p1' })).toHaveLength(0)
     expect(await platform.storage.query('agentSessions', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('agentJobs', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('agentEvents', { projectId: 'p1' })).toHaveLength(0)
     expect(await platform.storage.query('ecommerceTasks', { projectId: 'p1' })).toHaveLength(0)
     expect(await platform.storage.query('ecommerceResults', { projectId: 'p1' })).toHaveLength(0)
     /** 没超期那条原封不动 */

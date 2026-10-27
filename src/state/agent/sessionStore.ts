@@ -392,7 +392,16 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     },
 
     async remove(id) {
-      await storage.delete('agentSessions', id)
+      await storage.transaction(
+        ['agentSessions', 'agentJobs', 'agentEvents'],
+        async (tx) => {
+          const jobs = await tx.query('agentJobs', { sessionId: id })
+          const events = await tx.query('agentEvents', { sessionId: id })
+          for (const event of events) await tx.delete('agentEvents', event.id)
+          for (const job of jobs) await tx.delete('agentJobs', job.id)
+          await tx.delete('agentSessions', id)
+        },
+      )
     },
 
     async contextFor(id, window = AGENT_CONTEXT_WINDOW) {

@@ -71,6 +71,8 @@ export const BACKUP_EXCLUDED = [
   'credentials',
   'builtinSkills',
   'agentSessions',
+  'agentJobs',
+  'agentEvents',
   'assetSaveQueue',
 ] as const
 

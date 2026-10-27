@@ -40330,6 +40330,50 @@ async function g769(browser) {
       createdAt: now,
       updatedAt: now,
     })
+    await sharedBulkPut(page, 'agentJobs', [
+      {
+        id: 'g769-job-1',
+        sessionId,
+        projectId,
+        turnId: 'turn-1',
+        status: 'queued',
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'g769-job-2',
+        sessionId,
+        projectId,
+        turnId: 'turn-2',
+        status: 'queued',
+        revision: 0,
+        createdAt: now + 1,
+        updatedAt: now + 1,
+      },
+    ])
+    await sharedBulkPut(page, 'agentEvents', [
+      {
+        id: 'g769-event-1',
+        jobId: 'g769-job-1',
+        sessionId,
+        projectId,
+        seq: 1,
+        type: 'created',
+        createdAt: now,
+        payload: {},
+      },
+      {
+        id: 'g769-event-2',
+        jobId: 'g769-job-2',
+        sessionId,
+        projectId,
+        seq: 1,
+        type: 'created',
+        createdAt: now + 1,
+        payload: {},
+      },
+    ])
 
     await page.goto(`${BASE}/canvas/${projectId}`, { waitUntil: 'domcontentloaded' })
     await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
@@ -40345,8 +40389,9 @@ async function g769(browser) {
     rec(
       g,
       '★★ 进程中断留下的活动标记被释放，队首仍保留',
-      recoveredSession?.activeTurnId === undefined &&
+      recoveredSession?.activeTurnId == null &&
         recoveredSession?.queuedTurns?.length === 2,
+      `activeTurnId=${recoveredSession?.activeTurnId ?? 'none'} queued=${recoveredSession?.queuedTurns?.length ?? 0}`,
     )
 
     await page.locator('[data-agent-queue-toggle]').click()
@@ -40366,11 +40411,18 @@ async function g769(browser) {
       )
       .catch(() => {})
     const afterRemove = await sharedRow(page, 'agentSessions', sessionId)
+    const cancelledJob = await sharedRow(page, 'agentJobs', 'g769-job-1')
     rec(
       g,
       '★★ 单项移出立即落库，另一条不动',
       afterRemove?.queuedTurns?.length === 1 && afterRemove.queuedTurns[0]?.id === 'turn-2',
       `剩余=${afterRemove?.queuedTurns?.map((turn) => turn.id).join(',') ?? '无'}`,
+    )
+    rec(
+      g,
+      '★★ 移出排队项同时取消对应 AgentJob',
+      cancelledJob?.status === 'canceled',
+      `status=${cancelledJob?.status ?? 'missing'}`,
     )
 
     await page.screenshot({ path: `${OUT}/769-agent-queue.png` })
@@ -40573,6 +40625,10 @@ async function g769(browser) {
     rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   } finally {
     await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
+    await sharedDelete(page, 'agentJobs', 'g769-job-1').catch(() => {})
+    await sharedDelete(page, 'agentJobs', 'g769-job-2').catch(() => {})
+    await sharedDelete(page, 'agentEvents', 'g769-event-1').catch(() => {})
+    await sharedDelete(page, 'agentEvents', 'g769-event-2').catch(() => {})
     await sharedDelete(page, 'runRecords', routeRunId).catch(() => {})
     await sharedDelete(page, 'projects', projectId).catch(() => {})
     await ctx.close()

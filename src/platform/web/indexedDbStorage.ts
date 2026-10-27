@@ -206,6 +206,18 @@ class QinghuaDB extends Dexie {
       runRecords:
         'id, nodeId, projectId, version, createdAt, workbench, status, action, subjectId, scopeId, operationId, parentRunId, [projectId+createdAt], [projectId+workbench+createdAt]',
     })
+    /**
+     * v18：Agent 任务与事件。
+     *
+     * 任务按 session+updatedAt 查活动项，按 session+turnId 做幂等创建；
+     * 事件按 job+seq 稳定排序，恢复时不需要扫描整张事件表。
+     */
+    this.version(18).stores({
+      agentJobs:
+        'id, sessionId, projectId, turnId, status, createdAt, updatedAt, [sessionId+updatedAt], [sessionId+turnId]',
+      agentEvents:
+        'id, jobId, sessionId, projectId, seq, type, createdAt, [jobId+seq], [sessionId+createdAt]',
+    })
   }
 }
 

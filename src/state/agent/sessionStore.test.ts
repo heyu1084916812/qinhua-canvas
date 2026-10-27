@@ -252,4 +252,29 @@ describe('Agent 会话 · 待执行任务队列', () => {
       queuedTurnId: 'turn-1',
     })
   })
+
+  it('★ 删除会话同时清理 AgentJob 与事件，不留孤立任务', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const session = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await storage.put('agentJobs', {
+      id: 'job-1',
+      sessionId: session.id,
+      projectId: 'p1',
+      turnId: 'turn-1',
+      status: 'completed',
+    })
+    await storage.put('agentEvents', {
+      id: 'event-1',
+      jobId: 'job-1',
+      sessionId: session.id,
+      projectId: 'p1',
+      seq: 1,
+      type: 'created',
+    })
+
+    await s.remove(session.id)
+    expect(await storage.query('agentJobs', { sessionId: session.id })).toEqual([])
+    expect(await storage.query('agentEvents', { sessionId: session.id })).toEqual([])
+  })
 })

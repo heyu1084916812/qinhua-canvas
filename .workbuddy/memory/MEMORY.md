@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### AgentJob / AgentEvent（2026-10-27 → 对账 #769）
+
+- **会话队列不是任务状态机**：`queuedTurns` 只回答下一句话何时跑；`agentJobs` 才保存
+  queued / planning / waiting_confirmation / waiting_generation / paused /
+  needs_attention / terminal，以及 revision、checkpoint、operationId、pendingCallId。
+  `agentEvents` 按 `jobId + seq` 原子追加不可变审计流水。
+- **重启恢复必须保守**：planning 只能回到 paused；waiting_generation 可能已经提交付费请求，
+  只能进入 needs_attention，绝不自动重发；queued 保留，waiting_confirmation 保持等待。
+- **一个会话只能有一个活动 Job**：queued 可有多条，planning 及之后的非终态同一时刻只能一个。
+  恢复旧脏数据时 `payload.recovery=true` 可跳过冲突检查，把历史多活动项各自收敛到安全停点。
+- **UI `.tsx` 只接业务状态，不改渲染**：AgentPanel 本轮只增加 Job 创建/状态迁移调用，没有改
+  JSX 结构、类名、文案或样式；新增表已同时加入 Dexie v18、TableName、Rust TABLE_NAMES、
+  项目级联与会话删除清理，备份仍排除这些短期运行态。
+- **验证证据**：Vitest **3411 passed / 1 skipped**，Rust **34/34**，check/build 通过；
+  G769 **13/13** 在 V1 JSON 与 V2 SQLite 隔离库各通过一次。测试库目录已删除。
+
 ### 全局设置字号累乘与 UI 门禁（2026-10-27 → 对账 #770）
 
 - **字号缩放不能拿当前内联值继续乘**：`FontProvider` 在 HMR / Provider 重挂时若只维护

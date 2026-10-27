@@ -10,6 +10,13 @@ import {
   createAgentSessionStore,
   type AgentSession,
 } from '../../../../state/agent/sessionStore'
+import { createAgentJobStore } from '../../../../state/agent/jobStore'
+import type {
+  AgentEventType,
+  AgentJob,
+  AgentJobPatch,
+  AgentJobStatus,
+} from '../../../../domain/agent/job'
 import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
@@ -183,6 +190,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const skills = useSkillsOptional()
 
   const sessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
+  const jobs = useMemo(() => createAgentJobStore(platform.storage), [platform])
   const presets = useMemo(() => createPresetStore(platform.storage), [platform])
   /**
    * 素材库（用户 2026-10-03：「加素材…分两个功能，点击后本地上传和素材库添加」）。
@@ -223,6 +231,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   }, [])
   const [queueExpanded, setQueueExpanded] = useState(false)
   const queuePumpingRef = useRef(new Set<string>())
+  const jobIdsRef = useRef(new Map<string, string>())
   const confirmingRef = useRef(new Set<string>())
   const queuePumpRef = useRef<(sessionId: string) => void>(() => {})
   /**
@@ -447,9 +456,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const refresh = useCallback(async () => {
     let rows = await sessions.list(projectId)
     for (const row of rows) {
-      if (row.activeTurnId && !isSessionActivityActive(row.id)) {
+      const liveHere = isSessionActivityActive(row.id)
+      if (row.activeTurnId && !liveHere) {
         await sessions.releaseActiveTurn(row.id)
       }
+      if (!liveHere) await jobs.recoverSession(row.id)
       if (row.pendingConfirmation) {
         setStatusFor(row.id, {
           kind: 'awaitingConfirm',
@@ -465,7 +476,60 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     rows = await sessions.list(projectId)
     setList(rows)
     return rows
-  }, [sessions, projectId, setStatusFor])
+  }, [sessions, jobs, projectId, setStatusFor])
+
+  const ensureAgentJob = useCallback(
+    async (session: AgentSession, turnId: string): Promise<AgentJob> => {
+      const mappedId = jobIdsRef.current.get(session.id)
+      if (mappedId) {
+        const mapped = await jobs.get(mappedId)
+        if (mapped) return mapped
+        jobIdsRef.current.delete(session.id)
+      }
+      const existing =
+        (await jobs.forTurn(session.id, turnId)) ??
+        (await jobs.active(session.id))
+      const job =
+        existing ??
+        (await jobs.create({
+          sessionId: session.id,
+          projectId,
+          turnId,
+        })).job
+      jobIdsRef.current.set(session.id, job.id)
+      return job
+    },
+    [jobs, projectId],
+  )
+
+  const transitionSessionJob = useCallback(
+    async (
+      sessionId: string,
+      to: AgentJobStatus,
+      eventType: AgentEventType = 'status_changed',
+      patch: AgentJobPatch = {},
+      payload: Record<string, unknown> = {},
+    ) => {
+      let id = jobIdsRef.current.get(sessionId)
+      if (!id) {
+        const active = await jobs.active(sessionId)
+        if (active) {
+          id = active.id
+          jobIdsRef.current.set(sessionId, id)
+        }
+      }
+      if (!id) return null
+      const result = await jobs.transition(id, to, eventType, patch, payload)
+      if (
+        result &&
+        (to === 'completed' || to === 'failed' || to === 'canceled')
+      ) {
+        jobIdsRef.current.delete(sessionId)
+      }
+      return result
+    },
+    [jobs],
+  )
 
   useEffect(() => {
     let alive = true
@@ -959,6 +1023,49 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         pendingConfirmation,
         continuation,
       })
+      if (!jobIdsRef.current.has(session.id)) {
+        const active = await jobs.active(session.id)
+        if (active) jobIdsRef.current.set(session.id, active.id)
+      }
+      if (outcome.kind === 'confirm') {
+        await transitionSessionJob(
+          session.id,
+          'waiting_confirmation',
+          'confirmation_requested',
+          { pendingCallId: outcome.request.callId },
+          { tool: outcome.request.name },
+        )
+      } else if (outcome.kind === 'stopped' && outcome.checkpoint) {
+        await transitionSessionJob(
+          session.id,
+          'paused',
+          'checkpoint_saved',
+          {
+            checkpoint: {
+              kind: outcome.checkpoint.kind,
+              maxSteps: outcome.checkpoint.maxSteps,
+              completedSteps: outcome.checkpoint.completedSteps,
+              savedAt: Date.now(),
+            },
+          },
+        )
+      } else if (outcome.kind === 'message') {
+        await transitionSessionJob(session.id, 'completed', 'completed')
+      } else {
+        await transitionSessionJob(
+          session.id,
+          'failed',
+          'failed',
+          {
+            lastError:
+              outcome.kind === 'error' ? outcome.message : outcome.reason,
+          },
+          {
+            reason:
+              outcome.kind === 'error' ? outcome.message : outcome.reason,
+          },
+        )
+      }
       if (latest) {
         setList((prev) => prev.map((item) => (item.id === latest.id ? latest : item)))
         if (currentIdRef.current === latest.id) setCurrent(latest)
@@ -977,7 +1084,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         setStatusFor(session.id, { kind: 'error', message: outcome.reason })
       } else setStatusFor(session.id, { kind: 'error', message: outcome.message })
     },
-    [persist, sessions, setStatusFor],
+    [jobs, persist, sessions, setStatusFor, transitionSessionJob],
   )
 
   const applySessionSnapshot = useCallback((next: AgentSession) => {
@@ -995,6 +1102,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     text: string,
     session: AgentSession,
     queuedSession?: AgentSession,
+    turnId?: string,
   ) => {
     if (!session.model) {
       setStatusFor(session.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
@@ -1009,6 +1117,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       return
     }
     const operationId = createId('op')
+    await ensureAgentJob(session, turnId ?? createId('turnmsg'))
+    await transitionSessionJob(
+      session.id,
+      'planning',
+      'status_changed',
+      { operationId },
+    )
     const controller = new AbortController()
     abortRefs.current.set(session.id, controller)
     setStatusFor(session.id, { kind: 'thinking' })
@@ -1230,6 +1345,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       autoSteps < AUTO_RUN_LIMIT
     ) {
       autoSteps += 1
+      await transitionSessionJob(
+        session.id,
+        'waiting_generation',
+        'generation_started',
+        { pendingCallId: outcome.request.callId },
+        { tool: outcome.request.name, auto: true },
+      )
       setStatusFor(session.id, { kind: 'executing' })
       const done = await executeConfirmedTool(
         outcome.request.name,
@@ -1237,6 +1359,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         toolCtx(originOf(viewport)),
       )
       if (currentIdRef.current === session.id) setMessages(withHidden(outcome.messages))
+      await transitionSessionJob(
+        session.id,
+        'planning',
+        'generation_finished',
+        { pendingCallId: undefined },
+        { tool: outcome.request.name, auto: true },
+      )
       outcome = await resumeAgentTurn(
         outcome.messages,
         outcome.request.callId,
@@ -1260,6 +1389,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     resolveChatRoute,
     sessions,
     generationAvailability,
+    ensureAgentJob,
+    transitionSessionJob,
   ])
 
   const sendText = useCallback(async (
@@ -1273,7 +1404,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (!opts.preclaimed && !claimSessionActivity(session.id, opts.queueTurnId)) return undefined
     let outcome: AgentLoopOutcome | undefined
     try {
-      outcome = await runSendText(text, session, queuedSession)
+      outcome = await runSendText(
+        text,
+        session,
+        queuedSession,
+        opts.queueTurnId,
+      )
       if (!outcome) return undefined
       const paused =
         outcome.kind === 'stopped' && outcome.checkpoint !== undefined
@@ -1293,6 +1429,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
     } catch (error) {
       const aborted = abortRefs.current.get(session.id)?.signal.aborted === true
+      await transitionSessionJob(
+        session.id,
+        aborted ? 'canceled' : 'failed',
+        aborted ? 'interrupted' : 'failed',
+        aborted ? {} : { lastError: errText(error) },
+        { phase: 'run_send_text' },
+      )
       setStatusFor(
         session.id,
         aborted ? IDLE_STATUS : { kind: 'error', message: errText(error) },
@@ -1304,7 +1447,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       releaseSessionActivity(session.id, opts.queueTurnId)
     }
     return outcome
-  }, [applySessionSnapshot, current, runSendText, sessions, setStatusFor])
+  }, [
+    applySessionSnapshot,
+    current,
+    runSendText,
+    sessions,
+    setStatusFor,
+    transitionSessionJob,
+  ])
 
   const queueText = useCallback(async (raw: string) => {
     if (!current) return false
@@ -1335,19 +1485,40 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       return false
     }
+    const job = await jobs.create({
+      sessionId: current.id,
+      projectId,
+      turnId: turn.id,
+    })
+    if (job.created) {
+      await jobs.appendEvent(job.job.id, 'message_queued', {
+        turnId: turn.id,
+        textLength: text.length,
+      })
+    }
     requestQueueDrain(current.id)
     applySessionSnapshot(queued.session)
     if (currentIdRef.current === current.id) {
       setDraft((value) => (value.trim() === text ? '' : value))
     }
     return true
-  }, [applySessionSnapshot, current, sessions, setStatusFor, store])
+  }, [applySessionSnapshot, current, jobs, projectId, sessions, setStatusFor, store])
 
   const removeQueued = useCallback(async (turnId: string) => {
     if (!current) return
+    const queuedJob = await jobs.forTurn(current.id, turnId)
+    if (queuedJob?.status === 'queued') {
+      await jobs.transition(
+        queuedJob.id,
+        'canceled',
+        'canceled',
+        {},
+        { reason: 'queued_turn_removed' },
+      )
+    }
     const next = await sessions.removeQueuedTurn(current.id, turnId)
     if (next) applySessionSnapshot(next)
-  }, [applySessionSnapshot, current, sessions])
+  }, [applySessionSnapshot, current, jobs, sessions])
 
   const pumpQueuedTurn = useCallback(async (sessionId: string) => {
     if (queuePumpingRef.current.has(sessionId)) return
@@ -1458,6 +1629,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const { request } = status
     try {
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
+      await transitionSessionJob(
+        current.id,
+        'waiting_generation',
+        'generation_started',
+        { pendingCallId: request.callId },
+        { tool: request.name },
+      )
       setStatusFor(current.id, { kind: 'executing' })
       const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
       const imageNodeIds = [...new Set(
@@ -1468,6 +1646,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         createId('op'),
         toolModeRef.current.get(current.id) ?? 'native',
         imageNodeIds,
+      )
+      await transitionSessionJob(
+        current.id,
+        'planning',
+        'generation_finished',
+        { pendingCallId: undefined },
+        { tool: request.name },
       )
       setStatusFor(current.id, { kind: 'thinking' })
       const outcome = await resumeAgentTurn(
@@ -1481,6 +1666,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       await settleSessionOutcome(current.id, outcome)
     } catch (error) {
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
+      await transitionSessionJob(
+        current.id,
+        'failed',
+        'failed',
+        { lastError: errText(error) },
+        { phase: 'confirmed_tool' },
+      )
       await settleSessionOutcome(current.id, { kind: 'error' })
     } finally {
       confirmingRef.current.delete(current.id)
@@ -1496,6 +1688,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     settleSessionOutcome,
     sessions,
     setStatusFor,
+    transitionSessionJob,
   ])
 
   /** 取消也要回填 —— 不回填模型会以为自己已经建好了（设计文档 §4） */
@@ -1506,6 +1699,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const { request } = status
     try {
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
+      await transitionSessionJob(
+        current.id,
+        'planning',
+        'confirmation_resolved',
+        { pendingCallId: undefined },
+        { tool: request.name, approved: false },
+      )
       setStatusFor(current.id, { kind: 'thinking' })
       const imageNodeIds = [...messages]
         .reverse()
@@ -1527,6 +1727,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       await settleSessionOutcome(current.id, outcome)
     } catch (error) {
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
+      await transitionSessionJob(
+        current.id,
+        'failed',
+        'failed',
+        { lastError: errText(error) },
+        { phase: 'confirmation' },
+      )
       await settleSessionOutcome(current.id, { kind: 'error' })
     } finally {
       confirmingRef.current.delete(current.id)
@@ -1540,6 +1747,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     settleSessionOutcome,
     sessions,
     setStatusFor,
+    transitionSessionJob,
   ])
 
   /** 轮数预算暂停后继续；工具结果已在 messages 中，不会重放已完成的调用。 */
@@ -1569,6 +1777,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       toolModeRef.current.get(current.id) ?? 'native',
       imageNodeIds,
     )
+    await transitionSessionJob(
+      current.id,
+      'planning',
+      'status_changed',
+      { pendingCallId: undefined },
+      { resumedFromCheckpoint: true },
+    )
     setStatusFor(current.id, { kind: 'thinking' })
     try {
       const outcome = await runAgentTurn(messages, currentLoopDeps)
@@ -1588,11 +1803,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusFor,
     handleOutcome,
     settleSessionOutcome,
+    transitionSessionJob,
   ])
 
   const stop = useCallback(() => {
     if (!current) return
     clearQueueDrain(current.id)
+    void transitionSessionJob(
+      current.id,
+      'canceled',
+      'interrupted',
+      {},
+      { reason: 'user_stopped' },
+    )
     const queueTurnId = activeQueueTurnOf(current.id)
     if (queueTurnId) {
       void sessions.finishActiveQueuedTurn(current.id, queueTurnId, false).then((next) => {
@@ -1610,7 +1833,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if ((current.queuedTurns?.length ?? 0) > 0) {
       store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
     }
-  }, [applySessionSnapshot, current, sessions, setStatusFor, store])
+  }, [
+    applySessionSnapshot,
+    current,
+    sessions,
+    setStatusFor,
+    store,
+    transitionSessionJob,
+  ])
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()

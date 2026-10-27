@@ -1,8 +1,8 @@
 # 轻画：路由、Agent Runtime、记忆与套件统一规划
 
-> 状态：v1.4，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
-> Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 的轮数检查点续跑已完成。
-> AgentJob/Event、运行中 Steer/Interrupt、文本路由与记忆/套件仍待后续。
+> 状态：v1.5，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
+> Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 的 AgentJob/AgentEvent 核心
+> 与轮数检查点续跑已完成。运行中 Steer/Interrupt、文本路由与记忆/套件仍待后续。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -292,11 +292,12 @@ ContextBundle {
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。
 
-2026-10-27 当前证据：全量 Vitest **3400 passed / 1 skipped**；`npm run check`、
-`npm run build` 通过；真实页面 G769 **12/12**，覆盖队列持久化、中断恢复、确认卡恢复、
-路由尝试日志、模型服务路由范围候选与全屏边界，以及轮数检查点重载。
-这只证明生成路由闭环和轮数检查点可用，不证明 DirectRun 尝试转存、文本 Agent 同策略、
-完整 Job 状态机、运行中 Steer/Interrupt 或长期记忆完成。
+2026-10-27 当前证据：全量 Vitest **3411 passed / 1 skipped**，Rust **34/34**；
+`npm run check`、`npm run build` 通过；真实页面 G769 **13/13**，覆盖队列持久化、
+AgentJob 取消、中断恢复、确认卡恢复、路由尝试日志、路由范围候选与全屏边界、轮数检查点，
+并在 V1 JSON / V2 SQLite 隔离库各跑一遍。
+这只证明生成路由闭环、任务状态机和轮数检查点可用，不证明 DirectRun 尝试转存、文本 Agent
+同策略、运行中 Steer/Interrupt 或长期记忆完成。
 
 ## 10. 验收矩阵
 
@@ -381,6 +382,12 @@ ContextBundle {
 - 工具结果和完整消息已经落库；`continuation` 只存恢复意图、步数和原队列项 id。
 - 页面关闭重开后恢复“继续任务”卡；继续会复用已有历史，不重放已完成工具。
 - 队列任务暂停时保留 `activeTurn` 领取和队首项；最终完成或用户停止后才释放。
+- `agentJobs` 保存任务状态、revision、operationId、checkpoint 与 pending call；
+  `agentEvents` 按 jobId + seq 原子追加 created / status / confirmation / generation /
+  recovered / terminal 事件。
+- 会话内只允许一个活动 Job；queued Job 可排队。重启恢复时 planning → paused，
+  waiting_generation → needs_attention，已提交结果不明不会自动重发。
+- 移出排队项会把对应 Job 标为 canceled；删除会话或项目会级联清理 Job 与事件。
 
-仍待完成：DirectRun 尝试转存、文本 Agent 使用同一轮询策略、AgentJob/Event 全生命周期、
-运行中 Steer/Interrupt、个人记忆与品牌/角色/产品套件。
+仍待完成：运行中 Steer/Interrupt 的模型调用级中断、DirectRun 尝试转存、文本 Agent 使用
+同一轮询策略、个人记忆与品牌/角色/产品套件。

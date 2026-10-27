@@ -35,6 +35,10 @@ export type TableName =
    * 那是 UI 偏好表，而会话历史会一直增长，混进去会把偏好表撑大。
    */
   | 'agentSessions'
+  /** Agent 任务生命周期；与消息历史分开，避免用会话行冒充任务状态机。 */
+  | 'agentJobs'
+  /** Agent 任务不可变事件流水；按 jobId + seq 追加。 */
+  | 'agentEvents'
   /**
    * 用户自定义界面字体（用户 2026-10-09）。
    *
