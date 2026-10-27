@@ -115,12 +115,29 @@ export function SkillsBrowser({
   )
   const mineCount = mineCountOf(userSkills, otherBuiltins)
   const categoryCounts = useMemo(() => libtvCategoryCounts(libtvSkills), [libtvSkills])
+  const visibleCategories = useMemo(
+    () =>
+      LIBTV_CATEGORIES.filter(
+        (item) => item === '全部' || (categoryCounts.get(item) ?? 0) > 0,
+      ),
+    [categoryCounts],
+  )
 
   const cards = useMemo<SkillCardPick[]>(() => {
     if (source === 'libtv') {
-      return libtvSkills.filter((skill) => libtvCategoryOf(skill) === category)
+      return libtvSkills
+        .filter((skill) => category === '全部' || libtvCategoryOf(skill) === category)
         .filter((skill) =>
-          searchHit([skill.name, skill.description, skill.useScenario, ...skill.tags], query),
+          searchHit(
+            [
+              skill.name,
+              skill.description,
+              skill.useScenario,
+              skill.category ?? '',
+              ...skill.tags,
+            ],
+            query,
+          ),
         )
         .map((skill) => ({ kind: 'libtv' as const, skill }))
     }
@@ -217,7 +234,7 @@ export function SkillsBrowser({
       <div className={styles.browserBar}>
         {source === 'libtv' ? (
           <div className={styles.filters} role="tablist" aria-label="LibTV 分类">
-            {LIBTV_CATEGORIES.map((item) => (
+            {visibleCategories.map((item) => (
               <button
                 key={item}
                 type="button"

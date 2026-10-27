@@ -53,6 +53,7 @@ export function libtvCategoryCounts(
   skills: readonly LibtvSkill[],
 ): Map<LibtvCategory, number> {
   const counts = new Map<LibtvCategory, number>(LIBTV_CATEGORIES.map((category) => [category, 0]))
+  counts.set('全部', skills.length)
   for (const skill of skills) {
     const category = libtvCategoryOf(skill)
     counts.set(category, (counts.get(category) ?? 0) + 1)

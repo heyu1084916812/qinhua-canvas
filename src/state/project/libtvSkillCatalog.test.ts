@@ -17,6 +17,7 @@ const items = [
     outputContent: '',
     resultType: 1,
     coverUrl: null,
+    category: '影视剧情',
     tags: ['专业影视'],
     recommended: true,
     cases: [],
@@ -32,6 +33,7 @@ const items = [
     outputContent: '',
     resultType: 2,
     coverUrl: 'https://x.test/cover.png',
+    category: '电商品牌',
     tags: ['商业广告'],
     recommended: false,
     cases: [{ canvasCaseUrl: 'https://x.test/canvas/chat-share?shareId=abc' }],
@@ -76,7 +78,7 @@ describe('LibTV 目录异步加载', () => {
     vi.unstubAllGlobals()
   })
 
-  it('从 public 静态 JSON 加载，按推荐 / 分类 / 发现归桶', async () => {
+  it('从 public 静态 JSON 加载，按 v2 内容分类归桶，旧标签不参与分类', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response(catalogRaw, { status: 200 })),
@@ -85,9 +87,10 @@ describe('LibTV 目录异步加载', () => {
     expect(skills).toHaveLength(3)
     expect(skills.some((skill) => skill.id === 'libtv:no-body')).toBe(false)
     const counts = libtvCategoryCounts(skills)
-    expect(counts.get('推荐')).toBe(1)
-    expect(counts.get('商业广告')).toBe(1)
-    expect(counts.get('发现')).toBe(1)
+    expect(counts.get('全部')).toBe(3)
+    expect(counts.get('影视剧情')).toBe(1)
+    expect(counts.get('电商品牌')).toBe(1)
+    expect(counts.get('其他')).toBe(1)
   })
 
   it('正文按 public URL 懒加载，无 bodyFile 时不发请求', async () => {

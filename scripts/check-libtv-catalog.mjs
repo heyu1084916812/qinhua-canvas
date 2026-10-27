@@ -7,10 +7,35 @@ const bodyDir = path.join(root, 'public', 'libtv-skills', 'bodies')
 const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'))
 const items = Array.isArray(catalog.items) ? catalog.items : []
 const withBody = items.filter((item) => typeof item.bodyFile === 'string' && item.bodyFile)
+const categories = [
+  '图像创作',
+  '视频创作',
+  '人物角色',
+  '电商品牌',
+  '影视剧情',
+  '动漫游戏',
+  '音频音乐',
+  '文案策划',
+  '后期工具',
+  '其他',
+]
 
 if (items.length !== 1472) throw new Error(`LibTV 目录应为 1472 条，实际 ${items.length}`)
 if (catalog.bodyCount !== 764) throw new Error(`LibTV 正文计数应为 764，实际 ${catalog.bodyCount}`)
 if (withBody.length !== 764) throw new Error(`带正文的目录应为 764 条，实际 ${withBody.length}`)
+if (catalog.categoryVersion !== 2) {
+  throw new Error(`LibTV 分类版本应为 2，实际 ${catalog.categoryVersion}`)
+}
+const allowedCategories = new Set(categories)
+const invalidCategory = items.filter((item) => !allowedCategories.has(item.category))
+if (invalidCategory.length) {
+  throw new Error(
+    `LibTV v2 分类缺失或非法 ${invalidCategory.length} 条：${invalidCategory
+      .slice(0, 5)
+      .map((item) => item.name)
+      .join('、')}`,
+  )
+}
 
 if (!existsSync(bodyDir)) throw new Error('缺少 LibTV 正文分片目录')
 const bodyKeys = new Set()

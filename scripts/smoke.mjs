@@ -15863,25 +15863,26 @@ async function g82(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter')))
   rec(
     g,
-    '★★ LibTV 分类沿用参考图的 7 类，并补推荐 / 发现',
+    '★★ LibTV 使用 v2 内容分类，不再出现旧分类',
     JSON.stringify(categories) ===
       JSON.stringify([
-        '推荐',
-        '专业影视',
-        '商业广告',
-        '短剧漫剧',
+        '全部',
+        '图像创作',
+        '视频创作',
+        '人物角色',
+        '电商品牌',
+        '影视剧情',
         '动漫游戏',
-        '音乐MV',
-        '自媒体创作',
-        '通用技能',
-        '发现',
+        '音频音乐',
+        '文案策划',
+        '后期工具',
       ]),
     categories.join(','),
   )
   const categoryRows = await page
     .locator('[data-skills-filter]')
     .evaluateAll((els) => new Set(els.map((el) => Math.round(el.getBoundingClientRect().top))).size)
-  rec(g, '★★ 分类在宽屏下保持单行，不被搜索框挤压', categoryRows === 1, `行数=${categoryRows}`)
+  rec(g, '★★ 分类在宽屏下不超过两行且不被搜索框挤压', categoryRows <= 2, `行数=${categoryRows}`)
 
   const libtvCards = page.locator('[data-skill-source="libtv"]')
   rec(g, '★★ LibTV 首批卡片真实出现', (await libtvCards.count()) >= 3, `cards=${await libtvCards.count()}`)
@@ -15911,8 +15912,8 @@ async function g82(browser) {
     `opacity=${actionOpacity}`,
   )
 
-  // 找一条确定有正文、且带画布案例的推荐 Skill。
-  await page.locator('[data-skills-filter="发现"]').click()
+  // 找一条确定有正文、且带画布案例的影视 Skill。
+  await page.locator('[data-skills-filter="影视剧情"]').click()
   await page.locator('[data-skills-search]').fill('分镜升镜师')
   await sleep(350)
   const detailCard = page.locator('[data-skill-source="libtv"]', { hasText: '分镜升镜师' }).first()
@@ -15949,6 +15950,7 @@ async function g82(browser) {
   )
 
   await page.locator('[data-skill-detail-close]').click()
+  await page.locator('[data-skills-filter]').first().click()
   await page.locator('[data-skills-search]').fill('AIGC TVC Dir')
   await sleep(350)
   const multiFileCard = page.locator('[data-skill-source="libtv"]', { hasText: 'AIGC TVC Dir' }).first()
@@ -16109,7 +16111,7 @@ async function g82(browser) {
   await sleep(350)
 
   await page.locator('[data-skills-source-tab="libtv"]').click()
-  await page.locator('[data-skills-filter="推荐"]').click()
+  await page.locator('[data-skills-filter="全部"]').click()
   await page.setViewportSize({ width: 1024, height: 700 })
   await sleep(350)
   const responsive = await page.evaluate(() => ({

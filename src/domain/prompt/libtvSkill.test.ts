@@ -31,10 +31,16 @@ function skill(overrides: Partial<LibtvSkill> = {}): LibtvSkill {
 }
 
 describe('LibTV Skill 领域规则', () => {
-  it('推荐优先，其次分类，未归类落发现', () => {
-    expect(libtvCategoryOf(skill({ recommended: true, tags: ['专业影视'] }))).toBe('推荐')
-    expect(libtvCategoryOf(skill({ tags: ['专业影视'] }))).toBe('专业影视')
-    expect(libtvCategoryOf(skill({ tags: ['不存在的分类'] }))).toBe('发现')
+  it('只认 v2 内容分类，忽略旧标签与推荐位；旧目录缺字段落其他', () => {
+    expect(
+      libtvCategoryOf(
+        skill({ category: '影视剧情', recommended: true, tags: ['专业影视'] }),
+      ),
+    ).toBe('影视剧情')
+    expect(
+      libtvCategoryOf(skill({ category: '电商品牌', tags: ['商业广告'] })),
+    ).toBe('电商品牌')
+    expect(libtvCategoryOf(skill({ tags: ['专业影视'] }))).toBe('其他')
   })
 
   it('媒体类型由 resultType 稳定映射', () => {

@@ -5,17 +5,22 @@
  * 没有正文的条目仍然可浏览和收藏，但不能伪装成可执行技能。
  */
 
-export const LIBTV_CATEGORIES = [
-  '推荐',
-  '专业影视',
-  '商业广告',
-  '短剧漫剧',
+export const LIBTV_CONTENT_CATEGORIES = [
+  '图像创作',
+  '视频创作',
+  '人物角色',
+  '电商品牌',
+  '影视剧情',
   '动漫游戏',
-  '音乐MV',
-  '自媒体创作',
-  '通用技能',
-  '发现',
+  '音频音乐',
+  '文案策划',
+  '后期工具',
+  '其他',
 ] as const
+
+export type LibtvContentCategory = (typeof LIBTV_CONTENT_CATEGORIES)[number]
+
+export const LIBTV_CATEGORIES = ['全部', ...LIBTV_CONTENT_CATEGORIES] as const
 
 export type LibtvCategory = (typeof LIBTV_CATEGORIES)[number]
 
@@ -36,6 +41,9 @@ export interface LibtvSkill {
   outputContent: string
   resultType: 1 | 2 | 3 | 4
   coverUrl?: string | null
+  /** v2 内容分类；旧目录没有该字段时回落「其他」。 */
+  category?: LibtvContentCategory
+  categoryVersion?: number
   tags: string[]
   recommended: boolean
   cases: LibtvCase[]
@@ -61,9 +69,7 @@ const MEDIA_LABEL: Record<LibtvSkill['resultType'], string> = {
   4: '音频',
 }
 
-const VALID_CATEGORY = new Set<string>(
-  LIBTV_CATEGORIES.filter((category) => category !== '推荐' && category !== '发现'),
-)
+const VALID_CATEGORY = new Set<string>(LIBTV_CONTENT_CATEGORIES)
 
 export function libtvMediaKind(resultType: LibtvSkill['resultType']): MediaKind {
   if (resultType === 2) return 'image'
@@ -76,14 +82,11 @@ export function libtvMediaLabel(resultType: LibtvSkill['resultType']): string {
   return MEDIA_LABEL[resultType] ?? '文本'
 }
 
-/**
- * 「推荐」优先级最高；其次取目录自带分类；其余全部落「发现」。
- * 这条规则只决定列表归属，不覆写原始 tags。
- */
+/** v2 只读目录里的内容分类；旧目录没有 category 时回落「其他」。 */
 export function libtvCategoryOf(skill: LibtvSkill): LibtvCategory {
-  if (skill.recommended) return '推荐'
-  const category = skill.tags.find((tag) => VALID_CATEGORY.has(tag))
-  return (category as LibtvCategory | undefined) ?? '发现'
+  return skill.category && VALID_CATEGORY.has(skill.category)
+    ? skill.category
+    : '其他'
 }
 
 function kindFromUrl(url: string): LibtvPreview['kind'] | null {

@@ -6,6 +6,7 @@ import { presetTextEntries } from '../../domain/prompt/presetText'
 import type { BuiltinSkill, UserSkill } from '../../domain/prompt/skill'
 import {
   libtvAgentContentOf,
+  libtvCategoryOf,
   libtvHasBody,
   type LibtvCategory,
   type LibtvSourceGroup,
@@ -30,7 +31,7 @@ export function SkillsPage() {
 
   const [level, setLevel] = useState<'browse' | 'edit' | 'presets'>('browse')
   const [source, setSource] = useState<LibtvSourceGroup>('libtv')
-  const [category, setCategory] = useState<LibtvCategory>('推荐')
+  const [category, setCategory] = useState<LibtvCategory>('全部')
   const [query, setQuery] = useState('')
   const [favorites, setFavorites] = useState<string[]>([])
   const [detail, setDetail] = useState<SkillCardPick | null>(null)
@@ -119,7 +120,7 @@ export function SkillsPage() {
             description: pick.skill.description,
             content,
             inputMode: 'any',
-            tags: pick.skill.tags,
+            tags: [libtvCategoryOf(pick.skill)],
             image: pick.skill.coverUrl ?? undefined,
             libtvId: pick.skill.id,
           })
