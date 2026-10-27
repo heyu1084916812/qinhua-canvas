@@ -15,7 +15,6 @@ import {
   DEFAULT_APPEARANCE,
   letterSpacingValue,
   readAppearance,
-  uiScaleFactor,
   writeAppearance,
   type AppearancePrefs,
   type AccentId,
@@ -31,6 +30,7 @@ import {
   type UserFont,
 } from '../../domain/ui/fonts'
 import { useTheme } from '../ThemeProvider'
+import { applyUiFontScale } from './fontScale'
 
 /**
  * 自定义字体 + 界面外观的运行时（用户 2026-10-09）。
@@ -48,11 +48,10 @@ import { useTheme } from '../ThemeProvider'
  * - **组件 CSS 一行不改**：组件全都通过令牌取值，所以这里改变量就够了；
  * - **字体不出本机**：字节从本地库读、blob 只在内存里，卸载时统一释放。
  *
- * ## 为什么字号用"基准 × 系数"而不是读当前值
+ * ## 为什么字号每次都从设计令牌重新算
  *
- * 读当前计算值会**逐次累积**（改三次字号就偏了一大截）。这里维护
- * 「上一次用的系数」，每次用 `当前值 ÷ 上次系数 × 新系数` 反推基准，
- * 因此来回切换永远回到同一个值（与令牌里的设计值一致）。
+ * 若拿当前计算值继续乘，热更新 / Provider 重挂会让上一档再次参与缩放，
+ * 多刷几次后全局设置会变成两倍字号。这里先移除内联覆盖，再读 tokens.css 的基准值。
  */
 
 /** 参与缩放的令牌：与 `ui/tokens.css` 的 `--fs-*` 一一对应 */
@@ -110,8 +109,6 @@ export function FontProvider({ children }: { children?: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [appearance, setAppearance] = useState<AppearancePrefs>(() => readAppearance())
 
-  /** 上一次应用的缩放系数（用于反推基准字号，见文件头注释） */
-  const lastFactor = useRef(1)
   /** 已创建的 blob URL，按字体 id 索引；替换或卸载时要 revoke */
   const blobUrls = useRef(new Map<string, string>())
 
@@ -189,18 +186,13 @@ export function FontProvider({ children }: { children?: ReactNode }) {
     const root = document.documentElement
     root.style.setProperty('--font-sans', fontStackFor(appearance.font, fonts))
 
-    const factor = uiScaleFactor(appearance.scale)
-    const previous = lastFactor.current
-    const computed = getComputedStyle(root)
-    // 先把当前值全部读出来，再写回去 —— 边写边读会让同一个元素上的读取看到中间态
-    const currents = SCALED_TOKENS.map((token) => parseFloat(computed.getPropertyValue(token)))
-    SCALED_TOKENS.forEach((token, index) => {
-      const current = currents[index]
-      if (!Number.isFinite(current) || current <= 0) return
-      const base = current / previous
-      root.style.setProperty(token, `${Math.round(base * factor * 100) / 100}px`)
+    applyUiFontScale({
+      root,
+      tokens: SCALED_TOKENS,
+      scale: appearance.scale,
+      readComputed: (token) =>
+        getComputedStyle(root).getPropertyValue(token),
     })
-    lastFactor.current = factor
 
     root.style.setProperty('--ls-body', letterSpacingValue(appearance.letterSpacing))
     root.dataset.uiScale = appearance.scale

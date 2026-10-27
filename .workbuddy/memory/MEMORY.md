@@ -1,5 +1,19 @@
 # CanvasFlow（轻画）项目记忆
 
+### 全局设置字号累乘与 UI 门禁（2026-10-27 → 对账 #770）
+
+- **字号缩放不能拿当前内联值继续乘**：`FontProvider` 在 HMR / Provider 重挂时若只维护
+  “上次系数”，根节点上已经缩放过的内联值会再次成为基准，几次后全局设置会变成约两倍。
+  正确做法是先 `removeProperty` 清掉本 Provider 的字号覆盖，再从 `tokens.css` 的计算基准
+  重新应用档位。`fontScale.ts` 单测钉住 comfortable → standard 必须回到 14px。
+- **UI 文件不是业务改动的顺手区**：不涉及 UI 的需求禁止修改 JSX / CSS / 令牌 / 图标 /
+  文案 / 布局；必须经过 `.tsx` 的逻辑改动也不得改渲染结构。涉及 UI 时先看真实页面，
+  改后在 1440×900、1024×700、明暗主题取样，跑相关冒烟与主题/对比度/几何门禁，提交前
+  用 `git diff --name-only` 复核 UI 文件。
+- **本次证据**：深色 + 舒适字号下 `--fs-body / --fs-nav = 15.12px`；1440 面板 1120×720、
+  1024 面板 992×668，横向溢出 0。截图 `.playwright-verify/ui-settings-fixed-dark-1440.png`、
+  `ui-settings-fixed-dark-1024.png`；Impeccable detector 返回空。
+
 ### 生成路由闭环（2026-10-27 → 对账 #769）
 
 - **RoutePlan 真正执行时，`channelId / model` 只是首选，不是唯一目标**：
