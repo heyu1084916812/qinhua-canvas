@@ -1,5 +1,12 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-27：确认取消与任务停止收口（对账 #785）。** 写操作批准必须按
+> `waiting_confirmation → planning → waiting_generation` 两步入生成；`rememberMemory`
+> 只回到 `planning`。确认卡“取消”是结束当前 Job，不是继续规划：系统只补一条配对的
+> `tool(canceled)` 结果交还控制权，不调用 `resumeAgentTurn`，也不会换方案新增节点。
+> “停止”同时清持久确认卡、检查点、引导和队列活动锁；迟到的旧回合必须用当前
+> AbortController 做身份校验，不能重新写回确认卡或运行态。
+
 > **2026-10-27：视觉验收与只读子代理已交付（对账 #783）。** Agent 新增
 > `visualReview` 只读工具。它读取目标图片的真实字节、MIME 和像素，同时附上项目绑定的
 > 品牌 / 产品 / 角色 / 自定义套件素材与 ContextBundle 约束，由独立系统提示词的视觉子代理

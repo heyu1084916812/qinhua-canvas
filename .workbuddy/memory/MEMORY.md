@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 确认取消与停止（2026-10-27 → 对账 #785）
+
+- **确认状态不能跨步**：`waiting_confirmation` 只能先进 `planning`，写操作再从 `planning`
+  进 `waiting_generation`；直接跳会抛 AgentJob 状态错误。统一入口在
+  `domain/agent/confirmation#confirmationApprovalSteps`。
+- **取消不是继续规划**：确认卡“取消”只补一条配对 `tool(canceled)` 历史并结束 Job；
+  不调用 `resumeAgentTurn`，否则模型会换方案继续建节点，表现为“取消后反而多节点”。
+- **停止必须清持久卡**：取消 / 停止共用 `settleInterruptedSession`，同时清
+  `pendingConfirmation / continuation / pendingSteers / activeTurnId` 与内存活动锁。
+- **迟到结果不能复活任务**：`handleOutcome` 必须校验当前 `AbortController`；停止后旧结果
+  可以落对话消息，但不能重新写确认卡、检查点或运行态。
+
 ### LibTV v2 内容分类（2026-10-27 → 对账 #784）
 
 - **旧分类已退役**：`推荐 / 专业影视 / 商业广告 / 短剧漫剧 / 动漫游戏 / 音乐MV /

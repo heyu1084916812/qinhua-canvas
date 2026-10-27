@@ -3,6 +3,18 @@
 > `MEMORY.md` 放不下，本文件是完整版。**改动 canvas / comic 内部前必读**（由 MEMORY.md 顶部指引到此）。
 > 排序：canvas 通用 → 结果组/容器 → 生成与执行 → 复制粘贴 → 渠道与协议 → comic。
 
+## Agent · 确认与停止
+
+- **确认批准固定两步**：`waiting_confirmation → planning → waiting_generation`。写操作不能
+  直接从等待确认跳到等待生成；`rememberMemory` 只回到 `planning`。唯一迁移表在
+  `domain/agent/confirmation#confirmationApprovalSteps`。
+- **取消不续跑**：确认卡取消只补配对 `tool(canceled)` 结果并结束当前 AgentJob，不得调用
+  `resumeAgentTurn`，否则模型会换方案继续建节点。
+- **停止是一次完整收口**：先 abort，再清 `pendingConfirmation / continuation / pendingSteers`、
+  取消 Job、结束队列活动锁；重开 Agent 或刷新后旧确认卡不能复活。
+- **迟到回写必须有身份校验**：`handleOutcome` 只接受创建本轮时的同一个 AbortController；
+  停止后的旧结果不能重新写确认卡、检查点或运行态。
+
 ## 全局设置 · 模型服务
 
 - **左栏是三个固定区**：搜索（漏斗和三档筛选在框内）、独立滚动列表、固定底部“添加服务商”。

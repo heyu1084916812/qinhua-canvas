@@ -40301,7 +40301,9 @@ async function g735(browser) {
  */
 async function g769(browser) {
   const g = 'G769 Agent 持久队列'
-  const ctx = await newCtx(browser)
+  const ctx = await newCtx(browser, {
+    viewport: { width: 1440, height: 900 },
+  })
   const page = await ctx.newPage()
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
@@ -40405,6 +40407,19 @@ async function g769(browser) {
       (await page.locator('[data-agent-queue]').getAttribute('data-agent-queue-count')) === '2' &&
         (await page.locator('[data-agent-message="user"]').count()) === 0,
     )
+    const wide = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - innerWidth,
+      panel: document.querySelector('[data-agent-panel]')?.getBoundingClientRect(),
+    }))
+    rec(
+      g,
+      '★ 1440×900 下 Agent 面板与队列不横向溢出',
+      wide.overflow <= 0 &&
+        !!wide.panel &&
+        wide.panel.left >= 0 &&
+        wide.panel.right <= 1440 + 1,
+      JSON.stringify(wide),
+    )
     const recoveredSession = await sharedRow(page, 'agentSessions', sessionId)
     rec(
       g,
@@ -40445,7 +40460,7 @@ async function g769(browser) {
       `status=${cancelledJob?.status ?? 'missing'}`,
     )
 
-    await page.screenshot({ path: `${OUT}/769-agent-queue.png` })
+    await page.screenshot({ path: `${OUT}/769-agent-queue-1440.png` })
     await page.locator('[data-agent-close]').click()
     await page.locator('[data-canvas-agent]').waitFor({ state: 'visible', timeout: 5000 })
     await page.locator('[data-canvas-agent]').click()
@@ -40512,6 +40527,32 @@ async function g769(browser) {
       .then(() => true)
       .catch(() => false)
     rec(g, '★★ 待确认工具调用在页面重载后仍能恢复确认卡', restoredConfirm)
+    const nodesBeforeCancel = await page.locator('[data-node-id]').count()
+    await page.locator('[data-agent-cancel]').click()
+    await page
+      .waitForFunction(
+        () => document.querySelector('[data-agent-preview]') === null,
+        null,
+        { timeout: 10000 },
+      )
+      .catch(() => {})
+    const afterCancel = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 取消确认卡只结束当前任务，不续跑也不新增节点',
+      (await page.locator('[data-agent-preview]').count()) === 0 &&
+        (await page.locator('[data-node-id]').count()) === nodesBeforeCancel &&
+        afterCancel?.pendingConfirmation == null,
+      `preview=${await page.locator('[data-agent-preview]').count()} nodes=${await page.locator('[data-node-id]').count()}`,
+    )
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    rec(
+      g,
+      '★★ 取消后重开 Agent 不会复活旧确认卡',
+      (await page.locator('[data-agent-preview]').count()) === 0,
+    )
 
     await sharedPut(page, 'runRecords', {
       id: routeRunId,

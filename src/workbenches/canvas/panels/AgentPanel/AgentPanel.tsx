@@ -26,6 +26,10 @@ import type {
   AgentJobPatch,
   AgentJobStatus,
 } from '../../../../domain/agent/job'
+import {
+  confirmationApprovalSteps,
+  confirmationSettlementMessages,
+} from '../../../../domain/agent/confirmation'
 import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
@@ -275,6 +279,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const queuePumpingRef = useRef(new Set<string>())
   const jobIdsRef = useRef(new Map<string, string>())
   const confirmingRef = useRef(new Set<string>())
+  const stoppingRef = useRef(new Set<string>())
+  /** 已批准、正在执行的确认工具；停止时要给这条 tool_call 补一个中断结果。 */
+  const inFlightConfirmationRef = useRef(new Map<string, AgentToolRequest>())
   const queuePumpRef = useRef<(sessionId: string) => void>(() => {})
   /**
    * 「现在显示的是哪个会话」。
@@ -1317,6 +1324,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       outcome: AgentLoopOutcome,
       hidden: readonly ChatMessage[] = [],
     ) => {
+      const outcomeController = abortRefs.current.get(session.id)
+      const outcomeIsCurrent = () =>
+        outcomeController !== undefined &&
+        abortRefs.current.get(session.id) === outcomeController &&
+        !outcomeController.signal.aborted
+      if (!outcomeIsCurrent()) return
       /**
        * 消息只写回**它自己那个会话的界面**：用户可能已经切走去看别的会话了，
        * 这时候把 A 的消息盖到 B 的对话流上就是串味（§8.2）。
@@ -1334,8 +1347,32 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               ...outcome.messages.slice(1),
             ]
           : outcome.messages
+      const settleStaleOutcome = async () => {
+        if (outcome.kind === 'confirm') {
+          await sessions
+            .saveMessages(
+              session.id,
+              confirmationSettlementMessages(
+                full,
+                outcome.request,
+                'interrupted',
+              ),
+            )
+            .catch(() => null)
+        }
+        await sessions
+          .updateFields(session.id, {
+            pendingConfirmation: undefined,
+            continuation: undefined,
+          })
+          .catch(() => null)
+      }
       if (currentIdRef.current === session.id) setMessages(full)
       await persist(session, full)
+      if (!outcomeIsCurrent()) {
+        await settleStaleOutcome()
+        return
+      }
       const pendingConfirmation =
         outcome.kind === 'confirm'
           ? {
@@ -1359,6 +1396,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         pendingConfirmation,
         continuation,
       })
+      if (!outcomeIsCurrent()) {
+        await settleStaleOutcome()
+        return
+      }
       const deliveredSteerIds = [
         ...(deliveredSteersRef.current.get(session.id) ?? []),
       ]
@@ -1408,6 +1449,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               outcome.kind === 'error' ? outcome.message : outcome.reason,
           },
         )
+      }
+      if (!outcomeIsCurrent()) {
+        await settleStaleOutcome()
+        return
       }
       if (
         outcome.kind === 'message' ||
@@ -2110,22 +2155,126 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
   }, [])
 
+  /**
+   * 用户主动取消 / 停止时唯一的收口。
+   *
+   * 必须先 abort，再清持久化确认卡：否则迟到的 handleOutcome 可能在停止后
+   * 又把 pendingConfirmation 写回来。这里只结束当前任务，不续跑模型。
+   */
+  const settleInterruptedSession = useCallback(
+    async (
+      session: AgentSession,
+      request: AgentToolRequest | undefined,
+      result: 'canceled' | 'interrupted',
+    ) => {
+      const queueTurnId = activeQueueTurnOf(session.id)
+      const settledMessages = request
+        ? confirmationSettlementMessages(messages, request, result)
+        : messages
+      let latest: AgentSession | null = null
+      let cleanupError: unknown
+
+      abortRefs.current.get(session.id)?.abort()
+      clearQueueDrain(session.id)
+
+      const attempt = async (work: () => Promise<void>) => {
+        try {
+          await work()
+        } catch (error) {
+          cleanupError ??= error
+        }
+      }
+
+      await attempt(async () => {
+        latest =
+          (await sessions.updateFields(session.id, {
+            pendingConfirmation: undefined,
+            continuation: undefined,
+          })) ?? latest
+      })
+      await attempt(async () => {
+        await transitionSessionJob(
+          session.id,
+          'canceled',
+          'interrupted',
+          { pendingCallId: undefined },
+          {
+            reason:
+              result === 'canceled'
+                ? 'user_canceled_confirmation'
+                : 'user_stopped',
+          },
+        )
+      })
+      await attempt(async () => {
+        if (request) {
+          latest =
+            (await sessions.saveMessages(session.id, settledMessages)) ?? latest
+        }
+      })
+      await attempt(async () => {
+        if (session.pendingSteers.length > 0) {
+          latest =
+            (await sessions.removeSteers(
+              session.id,
+              session.pendingSteers.map((steer) => steer.id),
+            )) ?? latest
+        }
+      })
+      await attempt(async () => {
+        if (queueTurnId) {
+          latest =
+            (await sessions.finishActiveQueuedTurn(
+              session.id,
+              queueTurnId,
+              false,
+            )) ?? latest
+        }
+      })
+      if (cleanupError) {
+        store.notify(
+          `停止任务时清理状态失败：${errText(cleanupError)}`,
+          'error',
+        )
+      }
+      releaseSessionActivity(session.id, queueTurnId)
+      abortRefs.current.delete(session.id)
+      deliveredSteersRef.current.delete(session.id)
+      inFlightConfirmationRef.current.delete(session.id)
+      if (latest) applySessionSnapshot(latest)
+      if (currentIdRef.current === session.id) {
+        setMessages(settledMessages)
+      }
+      setStatusFor(session.id, IDLE_STATUS)
+    },
+    [
+      applySessionSnapshot,
+      messages,
+      sessions,
+      setStatusFor,
+      store,
+      transitionSessionJob,
+    ],
+  )
+
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
     if (confirmingRef.current.has(current.id)) return
     confirmingRef.current.add(current.id)
     const { request } = status
-    const confirmationIsMemory = request.name === 'rememberMemory'
     try {
       abortRefs.current.set(current.id, new AbortController())
+      inFlightConfirmationRef.current.set(current.id, request)
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
-      await transitionSessionJob(
-        current.id,
-        confirmationIsMemory ? 'planning' : 'waiting_generation',
-        confirmationIsMemory ? 'confirmation_resolved' : 'generation_started',
-        { pendingCallId: request.callId },
-        { tool: request.name, approved: true },
-      )
+      for (const step of confirmationApprovalSteps(request)) {
+        await transitionSessionJob(
+          current.id,
+          step.to,
+          step.eventType,
+          step.patch,
+          { tool: request.name, approved: true },
+        )
+      }
       setStatusFor(current.id, { kind: 'executing' })
       const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
       const imageNodeIds = [...new Set(
@@ -2137,7 +2286,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         toolModeRef.current.get(current.id) ?? 'native',
         imageNodeIds,
       )
-      if (!confirmationIsMemory) {
+      if (request.name !== 'rememberMemory') {
         await transitionSessionJob(
           current.id,
           'planning',
@@ -2157,6 +2306,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       await handleOutcome(current, outcome)
       await settleSessionOutcome(current.id, outcome)
     } catch (error) {
+      if (abortRefs.current.get(current.id)?.signal.aborted) return
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
       await transitionSessionJob(
         current.id,
@@ -2168,6 +2318,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       await settleSessionOutcome(current.id, { kind: 'error' })
     } finally {
       confirmingRef.current.delete(current.id)
+      if (
+        inFlightConfirmationRef.current.get(current.id)?.callId === request.callId
+      ) {
+        inFlightConfirmationRef.current.delete(current.id)
+      }
     }
   }, [
     status,
@@ -2183,64 +2338,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     transitionSessionJob,
   ])
 
-  /** 取消也要回填 —— 不回填模型会以为自己已经建好了（设计文档 §4） */
+  /**
+   * 确认卡上的「取消」= 结束当前任务，交还控制权。
+   *
+   * 不回填工具结果会让历史里留下悬空 tool_call；自动续跑又会让模型换个方案
+   * 继续建节点。两者都不是用户点“取消”的意思，所以只补取消结果、不续跑。
+   */
   const cancel = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
     if (confirmingRef.current.has(current.id)) return
     confirmingRef.current.add(current.id)
     const { request } = status
     try {
-      abortRefs.current.set(current.id, new AbortController())
-      await sessions.updateFields(current.id, { pendingConfirmation: undefined })
-      await transitionSessionJob(
-        current.id,
-        'planning',
-        'confirmation_resolved',
-        { pendingCallId: undefined },
-        { tool: request.name, approved: false },
-      )
-      setStatusFor(current.id, { kind: 'thinking' })
-      const imageNodeIds = [...messages]
-        .reverse()
-        .find((message) => message.role === 'user')?.imageNodeIds ?? []
-      const currentLoopDeps = loopDeps(
-        current,
-        createId('op'),
-        toolModeRef.current.get(current.id) ?? 'native',
-        imageNodeIds,
-      )
-      const outcome = await resumeAgentTurn(
-        messages,
-        request.callId,
-        { ok: false, error: '用户取消了这次操作' },
-        currentLoopDeps,
-        request.name,
-      )
-      await handleOutcome(current, outcome)
-      await settleSessionOutcome(current.id, outcome)
-    } catch (error) {
-      setStatusFor(current.id, { kind: 'error', message: errText(error) })
-      await transitionSessionJob(
-        current.id,
-        'failed',
-        'failed',
-        { lastError: errText(error) },
-        { phase: 'confirmation' },
-      )
-      await settleSessionOutcome(current.id, { kind: 'error' })
+      await settleInterruptedSession(current, request, 'canceled')
+      store.notify('已取消；本次没有执行工具，也不会自动新增节点', 'info')
     } finally {
       confirmingRef.current.delete(current.id)
     }
   }, [
     status,
     current,
-    messages,
-    loopDeps,
-    handleOutcome,
-    settleSessionOutcome,
-    sessions,
-    setStatusFor,
-    transitionSessionJob,
+    settleInterruptedSession,
+    store,
   ])
 
   /** 轮数预算暂停后继续；工具结果已在 messages 中，不会重放已完成的调用。 */
@@ -2300,41 +2419,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     transitionSessionJob,
   ])
 
-  const stop = useCallback(() => {
-    if (!current) return
-    clearQueueDrain(current.id)
-    void transitionSessionJob(
-      current.id,
-      'canceled',
-      'interrupted',
-      {},
-      { reason: 'user_stopped' },
-    )
-    const queueTurnId = activeQueueTurnOf(current.id)
-    if (queueTurnId) {
-      void sessions.finishActiveQueuedTurn(current.id, queueTurnId, false).then((next) => {
-        if (next) applySessionSnapshot(next)
-      })
+  const stop = useCallback(async () => {
+    if (!current || stoppingRef.current.has(current.id)) return
+    stoppingRef.current.add(current.id)
+    const session = current
+    const request =
+      inFlightConfirmationRef.current.get(session.id) ??
+      (status.kind === 'awaitingConfirm' ? status.request : undefined)
+    try {
+      await settleInterruptedSession(session, request, 'interrupted')
+      if ((session.queuedTurns?.length ?? 0) > 0) {
+        store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
+      }
+    } finally {
+      stoppingRef.current.delete(session.id)
     }
-    releaseSessionActivity(current.id, queueTurnId)
-    abortRefs.current.get(current.id)?.abort()
-    void sessions
-      .updateFields(current.id, { continuation: undefined })
-      .then((next) => {
-        if (next) applySessionSnapshot(next)
-      })
-    setStatusFor(current.id, IDLE_STATUS)
-    if ((current.queuedTurns?.length ?? 0) > 0) {
-      store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
-    }
-  }, [
-    applySessionSnapshot,
-    current,
-    sessions,
-    setStatusFor,
-    store,
-    transitionSessionJob,
-  ])
+  }, [current, settleInterruptedSession, status, store])
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
@@ -3813,7 +3913,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             <button
               type="button"
               className={`${styles.send} ${styles.sendBusy}`}
-              onClick={stop}
+              onClick={() => void stop()}
               title="停止"
               data-agent-stop
             >

@@ -124,4 +124,36 @@ describe('AgentJobStore', () => {
     const resumed = await jobs.transition(job.id, 'planning')
     expect(resumed?.job.status).toBe('planning')
   })
+
+  it('等待确认可以取消，并清掉挂起的调用 id', async () => {
+    const jobs = store()
+    const { job } = await jobs.create({
+      sessionId: 's1',
+      projectId: 'p1',
+      turnId: 'turn-1',
+    })
+    await jobs.transition(job.id, 'planning')
+    await jobs.transition(job.id, 'waiting_confirmation', 'confirmation_requested', {
+      pendingCallId: 'call-1',
+    })
+
+    const canceled = await jobs.transition(
+      job.id,
+      'canceled',
+      'interrupted',
+      { pendingCallId: undefined },
+      { reason: 'user_canceled_confirmation' },
+    )
+
+    expect(canceled).toMatchObject({
+      job: {
+        status: 'canceled',
+        pendingCallId: undefined,
+      },
+      event: {
+        type: 'canceled',
+        payload: { reason: 'user_canceled_confirmation' },
+      },
+    })
+  })
 })

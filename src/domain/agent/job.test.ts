@@ -62,4 +62,17 @@ describe('AgentJob 状态机', () => {
     const current = job({ status: 'planning', startedAt: 20, revision: 3 })
     expect(transitionAgentJob(current, 'planning', 30)).toBe(current)
   })
+
+  it('等待确认不能直接进入等待生成', () => {
+    expect(
+      canTransitionAgentJob('waiting_confirmation', 'waiting_generation'),
+    ).toBe(false)
+    expect(() =>
+      transitionAgentJob(
+        job({ status: 'waiting_confirmation' }),
+        'waiting_generation',
+        40,
+      ),
+    ).toThrow('waiting_confirmation')
+  })
 })
