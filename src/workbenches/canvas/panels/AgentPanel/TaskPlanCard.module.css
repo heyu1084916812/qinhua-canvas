@@ -1,0 +1,245 @@
+.plan {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  background: var(--bg-subtle);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.head:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: 2px;
+}
+
+.titleBlock {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kicker {
+  display: block;
+  overflow: hidden;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+}
+
+.chevron,
+.chevronOpen {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transition: transform 140ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+}
+
+.fill,
+.fillDone {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 220ms ease;
+}
+
+.fillDone {
+  background: var(--success);
+}
+
+.steps {
+  min-width: 0;
+  max-height: 206px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 6px 0;
+}
+
+.step + .step {
+  border-top: 1px solid var(--stroke);
+}
+
+.markDone,
+.markFailed,
+.markActive,
+.markPending {
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.markDone {
+  border: 1px solid transparent;
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.markFailed {
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.markActive {
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.markPending {
+  border: 1px solid var(--stroke);
+  color: var(--text-3);
+}
+
+.spinner {
+  animation: task-plan-spin 900ms linear infinite;
+}
+
+.stepBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stepTitle,
+.stepTitleDone {
+  overflow-wrap: anywhere;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.4;
+}
+
+.stepTitleDone {
+  color: var(--text-2);
+}
+
+.detail,
+.note {
+  overflow-wrap: anywhere;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.45;
+}
+
+.note {
+  color: var(--text-2);
+}
+
+.confirmTag,
+.softTag {
+  align-self: start;
+  padding: 2px 5px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.confirmTag {
+  border-color: var(--stroke-focus);
+  color: var(--text-1);
+}
+
+@keyframes task-plan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron,
+  .chevronOpen,
+  .fill,
+  .fillDone,
+  .spinner {
+    animation: none;
+    transition: none;
+  }
+}

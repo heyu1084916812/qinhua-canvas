@@ -22,6 +22,7 @@ export interface VisualReviewIssue {
   severity: VisualReviewSeverity
   category: VisualReviewCategory
   nodeId?: string
+  nodeTitle?: string
   problem: string
   suggestion: string
   evidence?: string
@@ -33,6 +34,8 @@ export interface VisualReviewResult {
   summary: string
   issues: VisualReviewIssue[]
   targetNodeIds: string[]
+  referenceAssetCount?: number
+  suiteContextAvailable?: boolean
   limitations: string[]
   rawText?: string
 }
@@ -57,8 +60,10 @@ export const VISUAL_REVIEW_SYSTEM_PROMPT = [
   '你是轻画的只读视觉验收子代理。',
   '你只能检查随消息附上的图片并输出问题清单，不能修改画布、不能创建或删除节点、',
   '不能调用生成、不能假设已经重新出图。',
-  '先核对品牌、产品、角色、自定义套件中的标志、结构、身份、颜色、字体和参考素材，',
-  '再检查文字可读性、错字、裁切、构图、清晰度、明显瑕疵与同一套图的视觉一致性。',
+  '只有在本次明确附上品牌、产品、角色或自定义套件参考素材时，才按这些参考核对。',
+  '没有提供套件上下文或参考素材时，不要检查、推断或提及套件与品牌库，也不要输出“套件未提供”类限制。',
+  '有参考素材时核对标志、结构、身份、颜色、字体和参考素材；同时检查文字可读性、',
+  '错字、裁切、构图、清晰度、明显瑕疵与同一套图的视觉一致性。',
   '不要用“感觉不好看”作为结论；每个问题都要指出画面证据和可执行修改建议。',
   '无法确认的内容必须写进 limitations，不能猜。',
   '只输出一个 JSON 对象，不要 Markdown、代码围栏或额外说明。',
@@ -66,7 +71,7 @@ export const VISUAL_REVIEW_SYSTEM_PROMPT = [
   '{"verdict":"pass|needs_changes|unreviewable","summary":"一句话结论",',
   '"issues":[{"severity":"blocking|warning|suggestion",',
   '"category":"brand|product|role|text|layout|quality|consistency|other",',
-  '"nodeId":"可选的目标节点 id","problem":"看到的具体问题",',
+  '"target":"目标图片名称（从上表抄）","problem":"看到的具体问题",',
   '"suggestion":"可执行修改建议","evidence":"可选画面证据"}],',
   '"limitations":["无法确认或本次未检查的项目"]}',
 ].join('\n')
@@ -156,19 +161,27 @@ export function buildVisualReviewPrompt(input: {
   checklist?: string
   context?: string
   referenceAssetCount?: number
+  suiteContextAvailable?: boolean
 }): string {
+  const referenceAssetCount = Math.max(0, input.referenceAssetCount ?? 0)
+  const suiteContextAvailable =
+    input.suiteContextAvailable ?? referenceAssetCount > 0
   const lines = [
     '## 本次验收目标',
-    `目标图片 ${input.targets.length} 张，套件参考素材 ${Math.max(0, input.referenceAssetCount ?? 0)} 张。`,
-    ...input.targets.map((target) => {
-      const name = target.title?.trim() || target.nodeId
+    `目标图片 ${input.targets.length} 张。`,
+    ...input.targets.map((target, index) => {
+      const name = target.title?.trim() || `目标图片 ${index + 1}`
       const size =
         target.width && target.height ? `，${target.width}×${target.height}` : ''
       const mime = target.mime ? `，${target.mime}` : ''
-      return `- ${target.nodeId}｜${name}${size}${mime}`
+      return `- ${name}${size}${mime}`
     }),
     '',
-    '请把随消息附上的目标图片作为被验收作品；套件参考素材用于核对品牌、产品结构、角色身份和视觉规范。',
+    suiteContextAvailable
+      ? referenceAssetCount > 0
+        ? `本次附有项目套件参考素材 ${referenceAssetCount} 张，用于核对品牌、产品结构、角色身份和视觉规范。`
+        : '本次附有项目套件的文本规范，用于核对品牌、产品结构、角色身份和视觉规范；没有套件图片时不得推断图片级一致性。'
+      : '本次没有附品牌、产品、角色或自定义套件参考素材；不要检查或提及这些套件。',
   ]
   const checklist = input.checklist?.trim()
   if (checklist) {
@@ -189,8 +202,27 @@ export function buildVisualReviewPrompt(input: {
 
 export function parseVisualReviewText(
   rawText: string,
-  targetNodeIds: readonly string[] = [],
+  targetsOrIds: readonly (string | VisualReviewTarget)[] = [],
 ): VisualReviewResult {
+  const targets: VisualReviewTarget[] = targetsOrIds.map((target, index) =>
+    typeof target === 'string'
+      ? { nodeId: target, title: `目标图片 ${index + 1}` }
+      : {
+          ...target,
+          ...(target.title?.trim()
+            ? { title: target.title.trim() }
+            : { title: `目标图片 ${index + 1}` }),
+        },
+  )
+  const targetNodeIds = targets.map((target) => target.nodeId)
+  const titleToNodeId = new Map<string, string>()
+  const titleById = new Map<string, string>()
+  for (const target of targets) {
+    const title = target.title?.trim()
+    if (!title) continue
+    titleById.set(target.nodeId, title)
+    if (!titleToNodeId.has(title)) titleToNodeId.set(title, target.nodeId)
+  }
   const parsed = jsonObjectFrom(rawText)
   if (!parsed) {
     return {
@@ -211,7 +243,16 @@ export function parseVisualReviewText(
       const problem = textOf(row.problem)
       const suggestion = textOf(row.suggestion)
       if (!problem) return []
-      const nodeId = textOf(row.nodeId, 200)
+      const explicitNodeId = textOf(row.nodeId, 200)
+      const targetName =
+        textOf(row.target, 200) ||
+        textOf(row.targetTitle, 200) ||
+        textOf(row.title, 200)
+      const nodeId =
+        explicitNodeId ||
+        (targetName ? titleToNodeId.get(targetName) ?? '' : '')
+      const nodeTitle =
+        (nodeId ? titleById.get(nodeId) : undefined) || targetName
       return [
         {
           severity: severityOf(row.severity),
@@ -219,6 +260,7 @@ export function parseVisualReviewText(
           ...(nodeId && (allowedTargets.size === 0 || allowedTargets.has(nodeId))
             ? { nodeId }
             : {}),
+          ...(nodeTitle ? { nodeTitle: nodeTitle.slice(0, 200) } : {}),
           problem,
           suggestion: suggestion || '请根据问题定位并修正这一处，其他内容保持不动。',
           ...(textOf(row.evidence) ? { evidence: textOf(row.evidence) } : {}),
@@ -244,5 +286,68 @@ export function parseVisualReviewText(
     issues,
     targetNodeIds: [...targetNodeIds],
     limitations,
+  }
+}
+
+function withoutInternalNodeIds(value: string, fallback = '目标图片'): string {
+  return value.replace(/node_[a-z0-9_-]+/gi, fallback)
+}
+
+/**
+ * 把模型原始结果收敛成用户能读、且符合本项目绑定状态的验收结果。
+ *
+ * 未提供套件上下文时，品牌类问题、套件限制和“套件为 0”的总结都不属于本次
+ * 验收范围；如果去掉这些后已经没有问题，verdict 必须同步回到 pass，不能留下
+ * “需要修改 + 空问题列表”的矛盾卡。
+ */
+export function finalizeVisualReviewResult(
+  result: VisualReviewResult,
+  options: { suiteContextAvailable: boolean },
+): VisualReviewResult {
+  const suiteContextAvailable = options.suiteContextAvailable
+  const issues = (suiteContextAvailable
+    ? result.issues
+    : result.issues.filter((issue) => issue.category !== 'brand')
+  ).map((issue) => {
+    const fallback = issue.nodeTitle ? `「${issue.nodeTitle}」` : '目标图片'
+    return {
+      ...issue,
+      problem: withoutInternalNodeIds(issue.problem, fallback),
+      suggestion: withoutInternalNodeIds(issue.suggestion, fallback),
+      ...(issue.evidence
+        ? { evidence: withoutInternalNodeIds(issue.evidence, fallback) }
+        : {}),
+    }
+  })
+  const limitations = (suiteContextAvailable
+    ? result.limitations
+    : result.limitations.filter(
+        (item) => !/套件|品牌库|参考素材/.test(item),
+      )
+  ).map((item) => withoutInternalNodeIds(item))
+  const verdict =
+    issues.length > 0
+      ? 'needs_changes'
+      : result.verdict === 'unreviewable'
+        ? 'unreviewable'
+        : 'pass'
+  const rawSummary = withoutInternalNodeIds(result.summary)
+  const summary =
+    !suiteContextAvailable &&
+    /套件|品牌库|参考素材/.test(rawSummary)
+      ? verdict === 'pass'
+        ? '未发现需要修改的问题'
+        : verdict === 'needs_changes'
+          ? '发现需要修改的问题'
+          : '本次目标图片无法完成验收'
+      : rawSummary
+  return {
+    ...result,
+    ok: verdict !== 'unreviewable',
+    verdict,
+    summary,
+    issues,
+    limitations,
+    suiteContextAvailable,
   }
 }

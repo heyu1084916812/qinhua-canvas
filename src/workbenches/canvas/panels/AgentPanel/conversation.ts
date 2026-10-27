@@ -36,6 +36,9 @@ const TOOL_LABEL: Record<string, string> = {
   readAsset: '已读素材',
   readResult: '已读结果',
   visualReview: '视觉验收完成',
+  proposeTaskPlan: '执行计划已确认',
+  updateTaskStep: '计划进度已更新',
+  requestTaskConfirmation: '阶段确认已通过',
   applyPlan: '工作流已创建',
   updateNode: '已改节点参数',
   runNode: '已运行生成',
@@ -63,6 +66,9 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
   readAsset: '读素材失败',
   readResult: '读结果失败',
   visualReview: '视觉验收没完成',
+  proposeTaskPlan: '执行计划未确认',
+  updateTaskStep: '计划进度没更新',
+  requestTaskConfirmation: '阶段确认未通过',
   applyPlan: '工作流没建成',
   updateNode: '改参数失败',
   runNode: '生成失败',
@@ -146,33 +152,129 @@ export function describeToolResult(
     }
     case 'visualReview': {
       const issues = asArray(r.issues).map(asRecord)
+      const referenceAssetCount = Number(r.referenceAssetCount ?? 0)
+      const suiteContextAvailable =
+        r.suiteContextAvailable === true || referenceAssetCount > 0
+      const visibleIssues =
+        !suiteContextAvailable
+          ? issues.filter((issue) => String(issue.category) !== 'brand')
+          : issues
       const verdict =
         r.verdict === 'pass'
           ? '通过'
           : r.verdict === 'needs_changes'
             ? '需要修改'
             : '无法验收'
+      const categoryLabels: Record<string, string> = {
+        brand: '品牌',
+        product: '产品',
+        role: '角色',
+        text: '文字',
+        layout: '排版',
+        quality: '画质',
+        consistency: '一致性',
+        other: '其他',
+      }
+      const categoryOrder = [
+        'brand',
+        'product',
+        'role',
+        'text',
+        'layout',
+        'quality',
+        'consistency',
+        'other',
+      ]
+      const severityLabels: Record<string, string> = {
+        blocking: '阻塞',
+        warning: '警告',
+        suggestion: '建议',
+      }
+      const cleanVisible = (value: unknown, fallback = '目标图片') =>
+        String(value ?? '').replace(/node_[a-z0-9_-]+/gi, fallback)
       const lines = [
-        `${verdict}：${String(r.summary ?? '没有结论')}`,
-        ...issues.map((issue) => {
-          const severity =
-            issue.severity === 'blocking'
-              ? '阻塞'
-              : issue.severity === 'suggestion'
-                ? '建议'
-                : '警告'
-          const node = typeof issue.nodeId === 'string' ? `（${issue.nodeId}）` : ''
-          return `${severity}${node}：${String(issue.problem ?? '')} → ${String(
-            issue.suggestion ?? '',
-          )}`
+        `${verdict}：${cleanVisible(r.summary ?? '没有结论')}`,
+        !suiteContextAvailable
+          ? '验收范围：文字、排版、画质与画面内部一致性'
+          : referenceAssetCount > 0
+            ? `验收范围：项目套件 ${referenceAssetCount} 张参考素材 + 画面质量`
+            : '验收范围：项目套件文本规范 + 画面质量',
+        ...categoryOrder.flatMap((category) => {
+          const rows = visibleIssues.filter(
+            (issue) => String(issue.category) === category,
+          )
+          if (rows.length === 0) return []
+          return [
+            `【${categoryLabels[category]}】`,
+            ...rows.map((issue) => {
+              const severity =
+                severityLabels[String(issue.severity)] ?? '警告'
+              const nodeTitle =
+                typeof issue.nodeTitle === 'string'
+                  ? issue.nodeTitle.trim()
+                  : ''
+              const target = nodeTitle ? `「${nodeTitle}」` : ''
+              return `${severity}${target}：${cleanVisible(
+                issue.problem,
+                nodeTitle ? `「${nodeTitle}」` : '目标图片',
+              )} → ${cleanVisible(
+                issue.suggestion,
+                nodeTitle ? `「${nodeTitle}」` : '目标图片',
+              )}`
+            }),
+          ]
         }),
-        ...asArray(r.limitations).map((item) => `未检查：${String(item)}`),
+        ...asArray(r.limitations)
+          .map(String)
+          .filter(
+            (item) =>
+              suiteContextAvailable ||
+              !/套件|品牌库|参考素材/.test(item),
+          )
+          .map((item) => `未检查：${cleanVisible(item)}`),
       ]
       return {
         lines,
-        nodeIds: [...new Set(issues.flatMap((issue) =>
+        nodeIds: [...new Set(visibleIssues.flatMap((issue) =>
           typeof issue.nodeId === 'string' ? [issue.nodeId] : [],
         ))],
+        failed,
+      }
+    }
+    case 'proposeTaskPlan': {
+      const plan = asRecord(r.plan)
+      const steps = asArray(plan.steps)
+      return {
+        lines: failed
+          ? problems
+          : [
+              `计划：${String(plan.title ?? '执行计划')}`,
+              `共 ${steps.length} 步`,
+            ],
+        nodeIds: [],
+        failed,
+      }
+    }
+    case 'updateTaskStep': {
+      const plan = asRecord(r.plan)
+      const stepId = typeof asRecord(r.plan).currentStepId === 'string'
+        ? String(asRecord(r.plan).currentStepId)
+        : ''
+      const step = asArray(plan.steps)
+        .map(asRecord)
+        .find((item) => String(item.id) === stepId)
+      return {
+        lines: failed
+          ? problems
+          : [step ? `当前：${String(step.title)}` : '计划进度已保存'],
+        nodeIds: [],
+        failed,
+      }
+    }
+    case 'requestTaskConfirmation': {
+      return {
+        lines: failed ? problems : [String(r.question ?? '用户已确认继续')],
+        nodeIds: [],
         failed,
       }
     }
@@ -309,6 +411,11 @@ export function describeToolResult(
 export function toConversation(messages: readonly ChatMessage[]): ConversationItem[] {
   const out: ConversationItem[] = []
   const stepAt = new Map<string, number>()
+  const planUiTools = new Set([
+    'proposeTaskPlan',
+    'updateTaskStep',
+    'requestTaskConfirmation',
+  ])
 
   for (const m of messages) {
     if (m.role === 'system') continue
@@ -336,6 +443,7 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
         out.push({ kind: 'text', text: m.content })
       }
       for (const call of m.toolCalls ?? []) {
+        if (planUiTools.has(call.name)) continue
         stepAt.set(call.id, out.length)
         out.push({
           kind: 'step',

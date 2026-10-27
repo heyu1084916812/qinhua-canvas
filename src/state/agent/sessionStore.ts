@@ -14,6 +14,10 @@ import {
   removeAgentSteers,
   type AgentSteer,
 } from '../../domain/agent/steering'
+import {
+  normalizeStoredTaskPlan,
+  type AgentTaskPlan,
+} from '../../domain/agent/taskPlan'
 
 /**
  * Agent 会话存储（设计文档 §8 / §12）。
@@ -98,6 +102,8 @@ export interface AgentSession {
     name: string
     args: unknown
   }
+  /** 当前会话最近一次获批的多阶段执行计划。 */
+  taskPlan?: AgentTaskPlan
   /**
    * 可继续的长任务检查点。
    *
@@ -186,7 +192,9 @@ export interface AgentSessionStore {
 const asMessages = (v: unknown): ChatMessage[] => (Array.isArray(v) ? (v as ChatMessage[]) : [])
 
 export function createAgentSessionStore(storage: StoragePort): AgentSessionStore {
-  const toSession = (row: RowOf<'agentSessions'>): AgentSession => ({
+  const toSession = (row: RowOf<'agentSessions'>): AgentSession => {
+    const taskPlan = normalizeStoredTaskPlan(row.taskPlan)
+    return {
     id: String(row.id),
     projectId: String(row.projectId ?? ''),
     title: String(row.title ?? '新对话'),
@@ -246,10 +254,12 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
           },
         }
       : {}),
+    ...(taskPlan ? { taskPlan } : {}),
     messages: asMessages(row.messages),
     createdAt: Number(row.createdAt ?? 0),
     updatedAt: Number(row.updatedAt ?? 0),
-  })
+    }
+  }
 
   const find = async (id: string): Promise<AgentSession | null> => {
     const rows = await storage.query('agentSessions', { id })

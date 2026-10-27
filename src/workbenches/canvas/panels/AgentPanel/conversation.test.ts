@@ -112,11 +112,13 @@ describe('工具结果 → 人话', () => {
         ok: true,
         verdict: 'needs_changes',
         summary: 'Logo 和标题需要调整',
+        referenceAssetCount: 0,
         issues: [
           {
             severity: 'blocking',
             category: 'text',
             nodeId: 'n1',
+            nodeTitle: '作品集封面',
             problem: '标题有错字',
             suggestion: '把“己”改成“已”',
           },
@@ -124,6 +126,7 @@ describe('工具结果 → 人话', () => {
             severity: 'suggestion',
             category: 'layout',
             nodeId: 'n1',
+            nodeTitle: '作品集封面',
             problem: '标题离边缘过近',
             suggestion: '增加安全边距',
           },
@@ -135,13 +138,48 @@ describe('工具结果 → 人话', () => {
     expect(d.failed).toBe(false)
     expect(d.nodeIds).toEqual(['n1'])
     expect(d.lines.join('\n')).toContain('需要修改：Logo 和标题需要调整')
-    expect(d.lines.join('\n')).toContain('阻塞（n1）：标题有错字 → 把“己”改成“已”')
+    expect(d.lines.join('\n')).toContain('【文字】')
+    expect(d.lines.join('\n')).toContain('阻塞「作品集封面」：标题有错字')
+    expect(d.lines.join('\n')).not.toContain('n1')
+    expect(d.lines.join('\n')).toContain('文字、排版、画质与画面内部一致性')
+    expect(d.lines.join('\n')).not.toContain('套件')
     expect(d.lines.join('\n')).toContain('未检查：小字是否符合平台规范无法确认')
+  })
+
+  it('未绑定套件时过滤模型臆测的“套件参考素材为 0”', () => {
+    const d = describeToolResult(
+      'visualReview',
+      JSON.stringify({
+        ok: true,
+        verdict: 'pass',
+        referenceAssetCount: 0,
+        issues: [],
+        limitations: ['套件参考素材为 0，无法核对品牌库'],
+      }),
+    )
+    expect(d.lines.join('\n')).not.toContain('套件参考素材为 0')
+    expect(d.lines.join('\n')).not.toContain('品牌库')
   })
 
   it('★ 没登记的工具给兜底标题，不假装认识', () => {
     expect(toolLabel('runNode')).toBe('已运行生成')
     expect(toolLabel('someFutureTool')).toContain('someFutureTool')
+  })
+
+  it('★ 计划工具由进度卡承接，不重复刷一屏步骤', () => {
+    const items = toConversation([
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          { id: 'plan', name: 'proposeTaskPlan', args: '{}' },
+          { id: 'step', name: 'updateTaskStep', args: '{}' },
+        ],
+      },
+      { role: 'tool', toolCallId: 'plan', content: '{"ok":true}' },
+      { role: 'tool', toolCallId: 'step', content: '{"ok":true}' },
+    ])
+    expect(items).toEqual([])
   })
 
   it('★★ result and asset tool cards prefer node titles over raw ids', () => {

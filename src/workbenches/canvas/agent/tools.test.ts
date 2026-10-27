@@ -57,16 +57,19 @@ describe('工具声明', () => {
       'deleteEdges',
       'deleteNodes',
       'moveNodes',
+      'proposeTaskPlan',
       'readAsset',
       'readGraph',
       'readResult',
       'rememberMemory',
+      'requestTaskConfirmation',
       'resizeNodes',
       'runFrom',
       'runNode',
       'sliceImage',
       'splitGrid',
       'updateNode',
+      'updateTaskStep',
       'visualReview',
     ])
     for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
@@ -111,6 +114,61 @@ describe('工具声明', () => {
         key: 'brand.primarycolor',
       }),
     )
+  })
+
+  it('★★ 任务计划先提出、批准后保存，再按 stepId 推进中间确认', async () => {
+    let current: import('../../../domain/agent/taskPlan').AgentTaskPlan | undefined
+    const save = vi.fn(async (plan: import('../../../domain/agent/taskPlan').AgentTaskPlan) => {
+      current = plan
+      return plan
+    })
+    const ctx = {
+      ...setup().ctx,
+      taskPlan: {
+        get: async () => current,
+        save,
+      },
+    } satisfies AgentToolContext
+
+    const proposed = (await executeConfirmedTool(
+      'proposeTaskPlan',
+      {
+        title: '品牌视觉套件',
+        steps: [
+          { id: 'research', title: '梳理品牌输入' },
+          { id: 'visual', title: '生成视觉规范', requiresConfirmation: true },
+          { id: 'deliver', title: '制作应用物料' },
+        ],
+      },
+      ctx,
+    )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
+    expect(proposed.ok).toBe(true)
+    expect(proposed.plan.currentStepId).toBe('research')
+
+    const updated = (await executeConfirmedTool(
+      'updateTaskStep',
+      { stepId: 'research', status: 'done', note: '已整理 4 项输入' },
+      ctx,
+    )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
+    expect(updated.ok).toBe(true)
+    expect(updated.plan.currentStepId).toBe('visual')
+    expect(updated.plan.steps[0]).toMatchObject({
+      status: 'done',
+      note: '已整理 4 项输入',
+    })
+
+    expect(
+      await executeConfirmedTool(
+        'requestTaskConfirmation',
+        { stepId: 'visual', question: '主色用偏砖红还是正朱红？' },
+        ctx,
+      ),
+    ).toMatchObject({
+      ok: true,
+      approved: true,
+      stepId: 'visual',
+    })
+    expect(save).toHaveBeenCalledTimes(2)
   })
 })
 

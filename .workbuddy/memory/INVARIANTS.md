@@ -5,6 +5,14 @@
 
 ## Agent · 确认与停止
 
+- **计划是一份持久数据**：复杂任务用 `AgentSession.taskPlan` 保存稳定 stepId、当前步骤与状态；
+  `proposeTaskPlan` 必须用户确认，`updateTaskStep` 才是进度真相源，正文不能代替进度卡。
+- **计划与中途确认不可自动代点**：自动生成模式也只自动扣费确认，不得越过
+  `proposeTaskPlan / requestTaskConfirmation` 的用户批准。
+- **验收步骤可打勾但验收后仍只读**：`visualReview` 后只允许 `updateTaskStep` 收口计划；
+  其他写画布和付费工具必须停止同一轮自动执行。
+- **未绑定套件不做套件验收**：无 `suiteContextAvailable` 时，品牌问题、套件 limitations、
+  相关摘要都要过滤并重算 verdict；用户可见字段不得出现 `node_...`，无标题目标用“目标图片 N”。
 - **确认批准固定两步**：`waiting_confirmation → planning → waiting_generation`。写操作不能
   直接从等待确认跳到等待生成；`rememberMemory` 只回到 `planning`。唯一迁移表在
   `domain/agent/confirmation#confirmationApprovalSteps`。

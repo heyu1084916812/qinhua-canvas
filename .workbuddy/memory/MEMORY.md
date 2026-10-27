@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 任务计划与验收可读性（2026-10-28 → 对账 #786）
+
+- **复杂任务先问再做计划**：缺品牌名、受众、产品、Logo、文案、尺寸等会改变结果的关键输入时，
+  先用普通文字问用户；信息足够后 `proposeTaskPlan` 提交 2～16 步计划，用户确认后才保存。
+- **计划必须持久化**：`AgentSession.taskPlan` 保存稳定 stepId、当前步骤与各步状态；
+  `updateTaskStep` 在工具循环内即时更新，不能用正文口头进度替代。计划卡头部必须始终显示
+  当前步骤，长列表的当前状态不能只藏在滚动区。
+- **计划确认不可自动代点**：`proposeTaskPlan` / `requestTaskConfirmation` 即使在自动生成模式
+  也必须等用户操作；`updateTaskStep` 可在视觉验收后执行，用于把验收步骤收口。
+- **验收用户文案不暴露内部 id**：目标无标题时用“目标图片 N”。summary、problem、suggestion、
+  evidence、limitations 都清洗 `node_...`；机器字段里的 nodeId 仍可保留用于连线。
+- **未绑定套件不进入验收范围**：`suiteContextAvailable=false` 时过滤品牌问题、套件限制，
+  检查残留结果后重新计算 verdict/summary。不能留下“需要修改 + 空问题列表”。
+- **Agent 图片可放大**：步骤产物缩略图是按钮，点击 `store.openLightbox(hash)`，与画布灯箱
+  共用同一预览、缩放、下载链路。
+
 ### Agent 确认取消与停止（2026-10-27 → 对账 #785）
 
 - **确认状态不能跨步**：`waiting_confirmation` 只能先进 `planning`，写操作再从 `planning`

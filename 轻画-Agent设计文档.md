@@ -1,5 +1,12 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-28：持久任务计划与中途确认（对账 #786）。** 复杂任务先分析必需输入；缺关键输入
+> 时先问用户，信息足够后调用 `proposeTaskPlan`，计划必须由用户确认。批准后计划写入
+> `AgentSession.taskPlan`，每一步用 `updateTaskStep` 报告 `in_progress / done / failed /
+> skipped`，面板顶部进度卡据此显示当前步骤与勾选。关键阶段用 `requestTaskConfirmation`
+> 暂停等待判断；计划与中途确认都不受自动生成模式代点。视觉验收后允许把“验收”步骤打勾，
+> 但仍禁止同一轮自动改图或重跑。Agent 产物缩略图统一走画布灯箱放大。
+
 > **2026-10-27：确认取消与任务停止收口（对账 #785）。** 写操作批准必须按
 > `waiting_confirmation → planning → waiting_generation` 两步入生成；`rememberMemory`
 > 只回到 `planning`。确认卡“取消”是结束当前 Job，不是继续规划：系统只补一条配对的

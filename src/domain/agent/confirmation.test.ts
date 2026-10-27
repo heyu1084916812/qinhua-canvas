@@ -3,6 +3,8 @@ import type { ChatMessage } from '../shared/execution/types'
 import { transitionAgentJob, type AgentJob } from './job'
 import {
   confirmationApprovalSteps,
+  confirmationRequiresExplicitApproval,
+  confirmationRunsGeneration,
   confirmationSettlementMessages,
 } from './confirmation'
 
@@ -53,6 +55,16 @@ describe('Agent 确认卡', () => {
         patch: { pendingCallId: undefined },
       },
     ])
+  })
+
+  it('任务计划与中途确认只推进规划，且自动模式也必须让用户亲自确认', () => {
+    for (const name of ['proposeTaskPlan', 'requestTaskConfirmation']) {
+      expect(confirmationRunsGeneration(name)).toBe(false)
+      expect(confirmationRequiresExplicitApproval(name)).toBe(true)
+      expect(confirmationApprovalSteps({ ...request, name })).toHaveLength(1)
+    }
+    expect(confirmationRunsGeneration('runNode')).toBe(true)
+    expect(confirmationRequiresExplicitApproval('runNode')).toBe(false)
   })
 
   it('取消只补齐配对的工具结果，不产生下一次模型回复', () => {

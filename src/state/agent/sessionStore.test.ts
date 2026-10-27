@@ -258,6 +258,37 @@ describe('Agent 会话 · 待执行任务队列', () => {
     expect((await reopened.get(a.id))?.continuation).toBeUndefined()
   })
 
+  it('任务计划随会话持久化，重开后仍是同一个当前步骤', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.updateFields(a.id, {
+      taskPlan: {
+        id: 'plan-1',
+        title: '品牌套件',
+        steps: [
+          { id: 'research', title: '整理品牌输入', status: 'done' },
+          { id: 'system', title: '建立视觉规范', status: 'in_progress' },
+          { id: 'deliver', title: '生成应用物料', status: 'pending' },
+        ],
+        currentStepId: 'system',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    })
+
+    const reopened = createAgentSessionStore(storage)
+    expect((await reopened.get(a.id))?.taskPlan).toMatchObject({
+      id: 'plan-1',
+      currentStepId: 'system',
+      steps: [
+        { id: 'research', status: 'done' },
+        { id: 'system', status: 'in_progress' },
+        { id: 'deliver', status: 'pending' },
+      ],
+    })
+  })
+
   it('★ 长任务检查点随会话读回，并保留原来的队列项 id', async () => {
     const storage = createMemoryPlatform().storage
     const s = createAgentSessionStore(storage)

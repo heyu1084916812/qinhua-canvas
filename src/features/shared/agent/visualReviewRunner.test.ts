@@ -72,7 +72,7 @@ describe('视觉验收素材准备', () => {
     expect(prepared.referenceAssetCount).toBe(1)
     expect(prepared.limitations).toEqual([
       '「视频」不是图片，不能做视觉验收',
-      '套件参考素材 missing-ref 不可读',
+      '已绑定套件中的一张参考素材不可读',
     ])
   })
 
@@ -88,7 +88,24 @@ describe('视觉验收素材准备', () => {
     expect(prepared.targetInputs).toEqual([])
     expect(prepared.limitations).toEqual([
       '「空节点」还没有图片产物',
-      '节点 gone 不存在',
+      '「目标图片 1」不存在',
     ])
+  })
+
+  it('★ 目标没有标题时用“目标图片 N”展示，不把内部 id 交给界面', async () => {
+    const prepared = await prepareVisualReviewImages({
+      graph: {
+        nodes: [
+          {
+            id: 'node_internal_secret',
+            data: { assetHash: 'target', assetMime: 'image/png' },
+          } as never,
+        ],
+      },
+      nodeIds: ['node_internal_secret'],
+      readAsset: async () => ({ bytes: pngBytes(12, 8), mime: 'image/png' }),
+    })
+    expect(prepared.targets[0]?.title).toBe('目标图片 1')
+    expect(prepared.limitations.join('\n')).not.toContain('node_internal_secret')
   })
 })

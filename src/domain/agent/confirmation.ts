@@ -16,6 +16,22 @@ export interface ConfirmationJobStep {
   patch: AgentJobPatch
 }
 
+const PLANNING_ONLY_CONFIRMATIONS = new Set([
+  'rememberMemory',
+  'proposeTaskPlan',
+  'requestTaskConfirmation',
+])
+
+/** 这些确认只推进工作流本身，不进入“等待生成”状态。 */
+export function confirmationRunsGeneration(name: string): boolean {
+  return !PLANNING_ONLY_CONFIRMATIONS.has(name)
+}
+
+/** 计划与中途判断必须由用户亲自确认，自动生成模式也不能代点。 */
+export function confirmationRequiresExplicitApproval(name: string): boolean {
+  return name === 'proposeTaskPlan' || name === 'requestTaskConfirmation'
+}
+
 /**
  * 用户批准确认卡之后的合法状态链。
  *
@@ -30,7 +46,7 @@ export function confirmationApprovalSteps(
     eventType: 'confirmation_resolved',
     patch: { pendingCallId: undefined },
   }
-  if (request.name === 'rememberMemory') return [resolved]
+  if (!confirmationRunsGeneration(request.name)) return [resolved]
   return [
     resolved,
     {

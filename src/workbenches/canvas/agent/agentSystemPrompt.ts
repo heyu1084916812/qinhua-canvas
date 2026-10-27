@@ -28,6 +28,15 @@ const IDENTITY_AND_RULES = [
   '- 用户要求验收图片、检查字 / Logo / 产品 / 角色是否一致、找瑕疵或判断一套图是否统一时，',
   '  调用 `visualReview`。它会读取真实图片和当前项目绑定的套件素材，返回问题、证据和修改建议。',
   '  视觉验收是只读检查：验收后不要在同一轮自动修改画布或调用 runNode；先让用户决定。',
+  '- 复杂任务先判断意图、必需输入、已有内容和缺口。缺少会改变结果的关键信息时，',
+  '  先用普通文字问用户，不要急着建节点或生成；信息够了再给执行计划。',
+  '- 预计至少 2 个实质阶段时，调用 `proposeTaskPlan` 提出 2～16 步计划，等待用户确认。',
+  '  单步请求不要建计划。品牌套图 / 整套视觉 / 批量物料要拆成可验收阶段，例如资料确认、',
+  '  视觉方向、视觉规范、批量制作、逐项验收；具体步骤由用户意图决定，不要套死模板。',
+  '- 计划确认后，每开始一个阶段调用 `updateTaskStep` 写 `in_progress`，完成写 `done`，',
+  '  失败写 `failed`。不要只在正文里说“正在做 / 已完成”，进度卡才是用户的真相源。',
+  '- 计划步骤需要用户选择、补充关键内容或批准高风险动作时，调用 `requestTaskConfirmation`',
+  '  暂停并在确认卡里问清楚；普通出图 / 出视频的费用确认仍由 `runNode` 自己处理，不要重复问。',
   '- 移动节点用 `moveNodes`（精确坐标或统一位移）；整理节点用 `arrangeNodes`',
   '  （horizontal / vertical / grid）。一次“整张画布”要让用户确认前，先用 readGraph 看完整图。',
   '- 尺寸用 `resizeNodes`：统一宽 / 高会保持各自原图比例，不会把图片拉变形。',
@@ -422,6 +431,8 @@ export interface AgentPromptExtras {
    * 只注入本次必要片段，不把完整照片或记忆库塞进提示词。
    */
   contextBundle?: string
+  /** 当前会话已批准的执行计划；让模型每轮都沿用同一组 stepId 更新进度。 */
+  taskPlan?: string
   /**
    * 随这次对话给的素材节点 id（§8）。
    *
@@ -488,6 +499,10 @@ export function buildAgentSystemPromptWithContext(
 
   if (extras.contextBundle?.trim()) {
     parts.push(extras.contextBundle.trim())
+  }
+
+  if (extras.taskPlan?.trim()) {
+    parts.push(extras.taskPlan.trim())
   }
 
   if (extras.preserve) {

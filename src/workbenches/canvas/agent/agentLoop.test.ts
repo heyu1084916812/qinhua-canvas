@@ -322,6 +322,38 @@ describe('runAgentTurn · 基本往复', () => {
     expect(executeWrite).not.toHaveBeenCalled()
   })
 
+  it('★★ 视觉验收后允许计划步骤收口，但仍禁止顺手改画布或重跑', async () => {
+    const { deps, executeWrite } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'review',
+            name: 'visualReview',
+            args: '{"nodeIds":["n1"]}',
+          },
+          {
+            id: 'step',
+            name: 'updateTaskStep',
+            args: '{"stepId":"review","status":"done"}',
+          },
+          {
+            id: 'run',
+            name: 'runNode',
+            args: '{"nodeIds":["n1"]}',
+          },
+        ],
+      },
+    ])
+    const r = await runAgentTurn(user('验完并记录结果'), deps)
+
+    expect(executeWrite).toHaveBeenCalledTimes(1)
+    expect(executeWrite).toHaveBeenCalledWith('updateTaskStep', {
+      stepId: 'review',
+      status: 'done',
+    })
+    expect(r.kind).toBe('stopped')
+  })
+
   it('★★ 确认后用 resumeAgentTurn 把结果喂回去，模型能看到自己做过什么', async () => {
     const { deps } = depsWith([
       { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] },

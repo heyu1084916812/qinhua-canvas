@@ -48,11 +48,13 @@ export async function prepareVisualReviewImages(input: {
   const targetInputs: NodeInput[] = []
   const seenHashes = new Set<string>()
   for (const nodeId of targetNodeIds) {
+    const fallbackTitle = `目标图片 ${targets.length + 1}`
     const node = input.graph.nodes.find((item) => item.id === nodeId)
     if (!node) {
-      limitations.push(`节点 ${nodeId} 不存在`)
+      limitations.push(`「${fallbackTitle}」不存在`)
       continue
     }
+    const displayTitle = node.title?.trim() || fallbackTitle
     const data = (node.data ?? {}) as {
       assetHash?: unknown
       assetMime?: unknown
@@ -61,7 +63,7 @@ export async function prepareVisualReviewImages(input: {
     const hash =
       typeof data.assetHash === 'string' ? data.assetHash.trim() : ''
     if (!hash) {
-      limitations.push(`「${node.title || nodeId}」还没有图片产物`)
+      limitations.push(`「${displayTitle}」还没有图片产物`)
       continue
     }
     const mime =
@@ -69,12 +71,12 @@ export async function prepareVisualReviewImages(input: {
         ? data.assetMime
         : 'image/png'
     if (!mime.startsWith('image/')) {
-      limitations.push(`「${node.title || nodeId}」不是图片，不能做视觉验收`)
+      limitations.push(`「${displayTitle}」不是图片，不能做视觉验收`)
       continue
     }
     const payload = await input.readAsset(hash).catch(() => null)
     if (!payload?.bytes.length) {
-      limitations.push(`「${node.title || nodeId}」的图片字节不可读`)
+      limitations.push(`「${displayTitle}」的图片字节不可读`)
       continue
     }
     const recordedWidth = Number(data.naturalSize?.width)
@@ -85,7 +87,7 @@ export async function prepareVisualReviewImages(input: {
         : imageSizeFromHeader(payload.bytes)
     targets.push({
       nodeId,
-      ...(node.title?.trim() ? { title: node.title.trim() } : {}),
+      title: displayTitle,
       ...(measured && measured.width > 0 && measured.height > 0
         ? { width: measured.width, height: measured.height }
         : {}),
@@ -110,7 +112,7 @@ export async function prepareVisualReviewImages(input: {
     if (!asset.mime.startsWith('image/') || seenHashes.has(asset.hash)) continue
     const payload = await input.readAsset(asset.hash).catch(() => null)
     if (!payload?.bytes.length) {
-      limitations.push(`套件参考素材 ${asset.hash} 不可读`)
+      limitations.push('已绑定套件中的一张参考素材不可读')
       continue
     }
     const size = imageSizeFromHeader(payload.bytes)

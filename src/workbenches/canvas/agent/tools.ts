@@ -29,6 +29,12 @@ import {
   type MemoryCandidate,
 } from '../../../domain/shared/memoryOrganizer'
 import type { VisualReviewResult } from '../../../domain/agent/visualReview'
+import {
+  AGENT_TASK_STEP_STATUSES,
+  normalizeTaskPlanProposal,
+  updateAgentTaskPlanStep,
+  type AgentTaskPlan,
+} from '../../../domain/agent/taskPlan'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -168,6 +174,76 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
         data: { type: 'object' },
       },
       required: ['data'],
+    },
+  },
+  {
+    name: 'proposeTaskPlan',
+    description:
+      '为需要多个阶段的长任务提出执行计划，系统会先让用户确认，批准后才保存。' +
+      '只在任务预计至少 2 个实质阶段时使用；单步请求不要建计划。' +
+      '提出前先分析用户意图、必需输入和缺失信息；关键信息缺失时先用普通文字向用户提问。' +
+      '品牌套图、整套视觉、批量物料、复杂画布改造应拆成可验收的阶段。',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '计划标题，最多 80 字' },
+        summary: { type: 'string', description: '一句话说明目标与交付物' },
+        steps: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 16,
+          items: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: '稳定步骤 id，后续 updateTaskStep 用它',
+              },
+              title: { type: 'string', description: '用户能看懂的阶段名' },
+              detail: { type: 'string', description: '可选：本阶段产出' },
+              requiresConfirmation: {
+                type: 'boolean',
+                description: '本阶段开始前是否需要用户做选择或批准',
+              },
+            },
+            required: ['id', 'title'],
+          },
+        },
+      },
+      required: ['title', 'steps'],
+    },
+  },
+  {
+    name: 'updateTaskStep',
+    description:
+      '更新已批准执行计划中的一个步骤。真正开始该阶段时写 in_progress，' +
+      '完成后写 done，失败写 failed，不适用写 skipped。不要只在回复正文里说进度。',
+    parameters: {
+      type: 'object',
+      properties: {
+        stepId: { type: 'string', description: '计划里的稳定步骤 id' },
+        status: {
+          type: 'string',
+          enum: [...AGENT_TASK_STEP_STATUSES],
+        },
+        note: { type: 'string', description: '可选：实际产出、数量或失败原因' },
+      },
+      required: ['stepId', 'status'],
+    },
+  },
+  {
+    name: 'requestTaskConfirmation',
+    description:
+      '执行计划中的某个阶段确实需要用户选择、提供关键信息或批准高风险动作时，' +
+      '暂停任务并让用户确认。普通生成扣费仍由 runNode 自己的确认卡处理，不要重复询问。',
+    parameters: {
+      type: 'object',
+      properties: {
+        stepId: { type: 'string', description: '当前计划步骤 id' },
+        question: { type: 'string', description: '要让用户决定的具体问题' },
+        detail: { type: 'string', description: '可选：选项、影响或建议' },
+      },
+      required: ['question'],
     },
   },
   {
@@ -718,6 +794,11 @@ export interface AgentToolContext {
     workbench: 'canvas' | 'ecommerce' | 'storyboard'
     projectId: string
     sessionId?: string
+  }
+  /** 任务计划由会话仓储持有；工具层只经这个端口读写。 */
+  taskPlan?: {
+    get: () => Promise<AgentTaskPlan | undefined>
+    save: (plan: AgentTaskPlan) => Promise<AgentTaskPlan | null>
   }
   /** 新节点的落点（§6：优先视口中心偏左） */
   origin: { x: number; y: number }
@@ -1334,6 +1415,54 @@ export async function executeConfirmedTool(
 ): Promise<unknown> {
   const a = asRecord(args)
   switch (name) {
+    case 'proposeTaskPlan': {
+      if (!ctx.taskPlan) {
+        return { ok: false, problems: ['当前会话没有接入任务计划存储'] }
+      }
+      const normalized = normalizeTaskPlanProposal(a, {
+        id: createId('taskplan'),
+        now: Date.now(),
+      })
+      if (!normalized.ok) return normalized
+      const saved = await ctx.taskPlan.save(normalized.plan)
+      return saved
+        ? { ok: true, plan: saved }
+        : { ok: false, problems: ['任务计划保存失败'] }
+    }
+    case 'updateTaskStep': {
+      if (!ctx.taskPlan) {
+        return { ok: false, problems: ['当前会话没有接入任务计划存储'] }
+      }
+      const current = await ctx.taskPlan.get()
+      if (!current) {
+        return {
+          ok: false,
+          problems: ['当前没有已批准的执行计划；复杂任务先调用 proposeTaskPlan'],
+        }
+      }
+      const updated = updateAgentTaskPlanStep(current, a, Date.now())
+      if (!updated.ok) return updated
+      const saved = await ctx.taskPlan.save(updated.plan)
+      return saved
+        ? { ok: true, plan: saved }
+        : { ok: false, problems: ['任务计划进度保存失败'] }
+    }
+    case 'requestTaskConfirmation': {
+      const question = typeof a.question === 'string' ? a.question.trim() : ''
+      if (!question) return { ok: false, problems: ['缺少需要用户确认的问题'] }
+      const stepId = typeof a.stepId === 'string' ? a.stepId.trim() : ''
+      const current = ctx.taskPlan ? await ctx.taskPlan.get() : undefined
+      if (stepId && current && !current.steps.some((step) => step.id === stepId)) {
+        return { ok: false, problems: [`找不到计划步骤：${stepId}`] }
+      }
+      return {
+        ok: true,
+        approved: true,
+        question,
+        ...(stepId ? { stepId } : {}),
+        message: '用户已确认，可以继续执行当前计划步骤。',
+      }
+    }
     case 'applyPlan': {
       const existing = ctx.store.getSnapshot().nodes.map((n) => n.id)
       const { problems, plan } = planProblems(a, existing)

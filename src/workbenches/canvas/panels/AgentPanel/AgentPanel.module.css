@@ -468,6 +468,22 @@
   object-fit: cover;
   display: block;
 }
+
+.thumbButton {
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.thumbButton:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: -1px;
+}
+
 .thumbEmpty {
   width: 100%;
   height: 100%;
@@ -478,6 +494,17 @@
   border: none;
   background: transparent;
   padding: var(--space-1) 0;
+}
+
+.previewCard .stepLines {
+  box-sizing: border-box;
+  max-height: 156px;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.previewCard .row {
+  flex-wrap: wrap;
 }
 
 .previewTitle {

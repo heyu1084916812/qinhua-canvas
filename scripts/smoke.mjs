@@ -40310,6 +40310,14 @@ async function g769(browser) {
   const projectId = 'p-agent-queue'
   const sessionId = 'chat-agent-queue'
   const routeRunId = 'g769-route-attempt'
+  const thumbNodeId = 'node-g769-thumb'
+  const thumbHash = 'hash-g769-thumb'
+  const thumbBytes = Uint8Array.from(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  )
   const now = Date.now()
 
   try {
@@ -40495,7 +40503,7 @@ async function g769(browser) {
       JSON.stringify(narrow),
     )
     await page.screenshot({ path: `${OUT}/769-agent-queue-1024.png` })
-    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.setViewportSize({ width: 1440, height: 900 })
     await sleep(250)
 
     await page.locator('[data-agent-queue-remove]').click()
@@ -40553,6 +40561,148 @@ async function g769(browser) {
       '★★ 取消后重开 Agent 不会复活旧确认卡',
       (await page.locator('[data-agent-preview]').count()) === 0,
     )
+
+    const planSeed = await sharedRow(page, 'agentSessions', sessionId)
+    await sharedPut(page, 'assets', {
+      id: thumbHash,
+      projectId,
+      mime: 'image/png',
+      bytes: thumbBytes,
+      createdAt: now,
+    })
+    await sharedPut(page, 'nodes', {
+      id: thumbNodeId,
+      projectId,
+      type: 'generation',
+      parentId: null,
+      x: 80,
+      y: 80,
+      w: 260,
+      h: 220,
+      title: '作品集封面',
+      disabled: false,
+      data: {
+        mode: 'image',
+        count: 1,
+        ratio: '1:1',
+        assetHash: thumbHash,
+        assetMime: 'image/png',
+        naturalSize: { width: 1, height: 1 },
+        prompt: '作品集封面',
+        model: 'GPT Image 2',
+      },
+    })
+    await sharedPut(page, 'agentSessions', {
+      ...planSeed,
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'call-g769-thumb', name: 'runNode', args: '{}' }],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'call-g769-thumb',
+          toolName: 'runNode',
+          content: JSON.stringify({
+            ok: true,
+            outcomes: [{ nodeId: thumbNodeId, title: '作品集封面', ok: true }],
+          }),
+        },
+      ],
+      pendingConfirmation: {
+        callId: 'call-plan-confirm',
+        name: 'requestTaskConfirmation',
+        args: {
+          stepId: 'visual',
+          question: '视觉方向用偏砖红还是正朱红？',
+          detail: '确认后会继续生成整套视觉规范。',
+        },
+      },
+      taskPlan: {
+        id: 'task-plan-g769',
+        title: '品牌视觉套件',
+        summary: '先定视觉方向，再制作应用物料',
+        steps: [
+          { id: 'research', title: '梳理品牌输入', status: 'done' },
+          {
+            id: 'visual',
+            title: '建立视觉规范',
+            status: 'in_progress',
+            requiresConfirmation: true,
+          },
+          { id: 'deliver', title: '生成应用物料', status: 'pending' },
+        ],
+        currentStepId: 'visual',
+        createdAt: now,
+        updatedAt: Date.now(),
+      },
+      updatedAt: Date.now(),
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page
+      .locator('[data-agent-task-plan="task-plan-g769"]')
+      .waitFor({ state: 'visible', timeout: 10000 })
+    rec(
+      g,
+      '★★ 计划卡显示总进度、当前步骤与中途确认',
+      (await page
+        .locator('[data-agent-task-plan="task-plan-g769"]')
+        .getAttribute('data-agent-task-plan-progress')) === '1/3' &&
+        (await page
+          .locator('[data-agent-task-plan="task-plan-g769"]')
+          .innerText()).includes('当前：建立视觉规范') &&
+        (await page
+          .locator('[data-agent-task-step="visual"]')
+          .getAttribute('data-agent-task-step-status')) ===
+          'awaiting_confirmation' &&
+        (await page.locator('[data-agent-preview="requestTaskConfirmation"]').count()) === 1 &&
+        (await page.locator('[data-agent-confirm]').innerText()).includes('确认并继续'),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
+    await page.setViewportSize({ width: 1024, height: 700 })
+    await sleep(300)
+    const narrowPlan = await page.evaluate(() => {
+      const plan = document
+        .querySelector('[data-agent-task-plan="task-plan-g769"]')
+        ?.getBoundingClientRect()
+      const panel = document.querySelector('[data-agent-panel]')?.getBoundingClientRect()
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        fits:
+          !!plan &&
+          !!panel &&
+          plan.left >= panel.left - 1 &&
+          plan.right <= panel.right + 1 &&
+          plan.top >= panel.top - 1 &&
+          plan.bottom <= panel.bottom + 1,
+      }
+    })
+    rec(
+      g,
+      '★ 1024×700 下计划卡不溢出 Agent 面板',
+      narrowPlan.overflow <= 0 && narrowPlan.fits,
+      JSON.stringify(narrowPlan),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-task-plan-1024.png` })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await sleep(250)
+    await page.locator('[data-agent-step-detail="runNode"]').first().click()
+    await page
+      .locator(`[data-agent-thumb-open="${thumbHash}"]`)
+      .waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator(`[data-agent-thumb-open="${thumbHash}"]`).click()
+    await page.locator('[data-lightbox]').waitFor({ state: 'visible', timeout: 10000 })
+    rec(
+      g,
+      '★★ Agent 产物缩略图可点击打开灯箱放大',
+      (await page.locator('[data-lightbox-shown-hash]').getAttribute('data-lightbox-shown-hash')) ===
+        thumbHash,
+    )
+    await page.locator('[data-lightbox-close]').click()
+    await page.locator('[data-lightbox]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
 
     await sharedPut(page, 'runRecords', {
       id: routeRunId,
@@ -40725,6 +40875,8 @@ async function g769(browser) {
     await sharedDelete(page, 'agentEvents', 'g769-event-1').catch(() => {})
     await sharedDelete(page, 'agentEvents', 'g769-event-2').catch(() => {})
     await sharedDelete(page, 'runRecords', routeRunId).catch(() => {})
+    await sharedDelete(page, 'nodes', thumbNodeId).catch(() => {})
+    await sharedDelete(page, 'assets', thumbHash).catch(() => {})
     await sharedDelete(page, 'projects', projectId).catch(() => {})
     await ctx.close()
   }

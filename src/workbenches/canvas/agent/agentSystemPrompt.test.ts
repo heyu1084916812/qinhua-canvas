@@ -127,11 +127,16 @@ describe('组装', () => {
       'compareNodes',
       'sliceImage',
       'splitGrid',
+      'proposeTaskPlan',
+      'updateTaskStep',
+      'requestTaskConfirmation',
       'visualReview',
     ]) {
       expect(p).toContain(tool)
     }
     expect(p).toContain('视觉验收是只读检查')
+    expect(p).toContain('缺少会改变结果的关键信息时')
+    expect(p).toContain('不要只在正文里说')
   })
 })
 
@@ -174,6 +179,19 @@ describe('素材段与技能段', () => {
     expect(p).toContain('JSON 模式')
     expect(p).toContain('{"tool":"工具名","args":{...}}')
     expect(p).toContain('applyPlan')
+  })
+
+  it('★★ 已批准计划会带 stepId 和进度更新约束进入下一轮', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      taskPlan: [
+        '## 当前任务计划',
+        '计划：品牌套件（1/3）',
+        '- system｜建立视觉规范｜in_progress｜需要用户确认',
+      ].join('\n'),
+    })
+    expect(p).toContain('品牌套件（1/3）')
+    expect(p).toContain('system｜建立视觉规范｜in_progress')
+    expect(p).toContain('需要用户确认')
   })
 
   it('★★ 随对话给的素材：逐个报节点 id，并要求 attach 复用、不要重复建', () => {

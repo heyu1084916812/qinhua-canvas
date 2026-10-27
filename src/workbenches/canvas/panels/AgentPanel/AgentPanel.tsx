@@ -9,6 +9,7 @@ import { formatContextBundleForPrompt } from '../../../../domain/shared/context'
 import {
   VISUAL_REVIEW_SYSTEM_PROMPT,
   buildVisualReviewPrompt,
+  finalizeVisualReviewResult,
   parseVisualReviewText,
   type VisualReviewResult,
 } from '../../../../domain/agent/visualReview'
@@ -28,8 +29,15 @@ import type {
 } from '../../../../domain/agent/job'
 import {
   confirmationApprovalSteps,
+  confirmationRequiresExplicitApproval,
+  confirmationRunsGeneration,
   confirmationSettlementMessages,
 } from '../../../../domain/agent/confirmation'
+import {
+  agentTaskPlanProgress,
+  normalizeTaskPlanProposal,
+  taskPlanPrompt,
+} from '../../../../domain/agent/taskPlan'
 import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
@@ -139,6 +147,7 @@ import {
   IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
+import { TaskPlanCard } from './TaskPlanCard'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
@@ -759,6 +768,25 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         projectId: store.getSnapshot().projectId,
         ...(sessionId ? { sessionId } : {}),
       },
+      ...(sessionId
+        ? {
+            taskPlan: {
+              get: async () => (await sessions.get(sessionId))?.taskPlan,
+              save: async (plan) => {
+                const next = await sessions.updateFields(sessionId, {
+                  taskPlan: plan,
+                })
+                if (next) {
+                  setList((prev) =>
+                    prev.map((item) => (item.id === next.id ? next : item)),
+                  )
+                  if (currentIdRef.current === next.id) setCurrent(next)
+                }
+                return next?.taskPlan ?? null
+              },
+            },
+          }
+        : {}),
       origin,
       selectedIds: () => selection,
       selectedModelOf,
@@ -1096,6 +1124,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             summary: '当前回合没有可用的视觉验收模型路由',
             issues: [],
             targetNodeIds,
+            referenceAssetCount: 0,
+            suiteContextAvailable: false,
             limitations: [...limitations, '请确认对话模型已配置并且支持图片输入'],
           }
         }
@@ -1108,6 +1138,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           readAsset: (hash) => platform.assets.read(hash),
         })
         limitations.push(...prepared.limitations)
+        const suiteContextAvailable =
+          (trace?.kitVersionRefs.length ?? 0) > 0 ||
+          prepared.referenceAssetCount > 0
 
         if (prepared.targets.length === 0) {
           return {
@@ -1116,6 +1149,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             summary: '没有可读取的目标图片，未执行视觉验收',
             issues: [],
             targetNodeIds,
+            referenceAssetCount: prepared.referenceAssetCount,
+            suiteContextAvailable,
             limitations,
           }
         }
@@ -1125,6 +1160,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ...(review.checklist ? { checklist: review.checklist } : {}),
           ...(trace?.brief ? { context: trace.brief } : {}),
           referenceAssetCount: prepared.referenceAssetCount,
+          suiteContextAvailable,
         })
         const reviewInputs = [...prepared.targetInputs, ...prepared.contextInputs]
         try {
@@ -1163,10 +1199,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             onRecordWarning,
             onRouteSucceeded,
           })
-          const parsed = parseVisualReviewText(reviewed.text, targetNodeIds)
+          const parsed = parseVisualReviewText(reviewed.text, prepared.targets)
+          const finalized = finalizeVisualReviewResult(parsed, {
+            suiteContextAvailable,
+          })
           return {
-            ...parsed,
-            limitations: [...limitations, ...parsed.limitations],
+            ...finalized,
+            referenceAssetCount: prepared.referenceAssetCount,
+            limitations: [...limitations, ...finalized.limitations],
           }
         } catch (error) {
           return {
@@ -1175,6 +1215,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             summary: `视觉验收请求失败：${errText(error)}`,
             issues: [],
             targetNodeIds,
+            referenceAssetCount: prepared.referenceAssetCount,
+            suiteContextAvailable,
             limitations,
           }
         }
@@ -1213,6 +1255,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 循环自己的指纹刹车会把这一轮停下来。
        */
       precheck: (name: string, args: unknown) => {
+        if (name === 'proposeTaskPlan') {
+          const normalized = normalizeTaskPlanProposal(args, {
+            id: 'precheck-plan',
+            now: Date.now(),
+          })
+          return normalized.ok
+            ? { ok: true as const }
+            : {
+                ok: false as const,
+                result: { ok: false, problems: normalized.problems },
+              }
+        }
         if (name !== 'runNode' && name !== 'runFrom') return { ok: true as const }
         /** 节点不在画布、没渠道 / 模型 / 提示词时，别让用户点「批准运行」 */
         const args2 = (args ?? {}) as { nodeIds?: unknown }
@@ -1503,6 +1557,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setStatusFor(session.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
       return
     }
+    if (
+      session.taskPlan &&
+      agentTaskPlanProgress(session.taskPlan).status !== 'active'
+    ) {
+      const cleared = await sessions.updateFields(session.id, {
+        taskPlan: undefined,
+      })
+      if (cleared) {
+        setList((prev) =>
+          prev.map((item) => (item.id === cleared.id ? cleared : item)),
+        )
+        if (currentIdRef.current === cleared.id) setCurrent(cleared)
+      }
+    }
     const prepared = await prepareChatRoute(session, true)
     if (!prepared.ok) {
       setStatusFor(session.id, { kind: 'error', message: prepared.message })
@@ -1756,6 +1824,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
         generationAvailability,
         ...(contextPrompt ? { contextBundle: contextPrompt } : {}),
+        ...(session.taskPlan ? { taskPlan: taskPlanPrompt(session.taskPlan) } : {}),
         /** JSON 降级时要把工具声明列进提示词，模型才知道 tool 能填什么（路线 B） */
         ...(toolMode === 'json' ? { jsonToolFallback: true, tools: AGENT_TOOLS } : {}),
       },
@@ -1825,6 +1894,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     while (
       outcome.kind === 'confirm' &&
       autoRunRef.current.get(session.id) === true &&
+      !confirmationRequiresExplicitApproval(outcome.request.name) &&
       autoSteps < AUTO_RUN_LIMIT
     ) {
       autoSteps += 1
@@ -2286,7 +2356,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         toolModeRef.current.get(current.id) ?? 'native',
         imageNodeIds,
       )
-      if (request.name !== 'rememberMemory') {
+      if (confirmationRunsGeneration(request.name)) {
         await transitionSessionJob(
           current.id,
           'planning',
@@ -3019,6 +3089,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const pendingPlan = previewOf(status, store)
+  const pendingTaskStepId =
+    status.kind === 'awaitingConfirm' &&
+    status.request.name === 'requestTaskConfirmation'
+      ? (() => {
+          const args = (status.request.args ?? {}) as Record<string, unknown>
+          return typeof args.stepId === 'string' ? args.stepId : undefined
+        })()
+      : undefined
 
   return (
     <aside
@@ -3176,6 +3254,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         )}
       </header>
 
+      {current?.taskPlan && (
+        <TaskPlanCard
+          plan={current.taskPlan}
+          pendingConfirmationStepId={pendingTaskStepId}
+          running={
+            status.kind === 'thinking' ||
+            status.kind === 'toolRunning' ||
+            status.kind === 'executing'
+          }
+        />
+      )}
+
       <div className={styles.messages} ref={scrollRef} data-agent-messages>
         {items.length === 0 && (
           <p className={styles.hint}>
@@ -3317,7 +3407,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         确认过之后它留在原地（能看到「批准过」），而不是整个消失。
       */}
       {pendingPlan && (
-        <div className={styles.step} data-agent-preview={pendingPlan.tool}>
+        <div
+          className={`${styles.step} ${styles.previewCard}`}
+          data-agent-preview={pendingPlan.tool}
+        >
           <div className={styles.stepHead}>
             <span className={styles.stepLabel}>{pendingPlan.title}</span>
           </div>
@@ -3961,8 +4054,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 /** 步骤卡里嵌的一张小图：直接用画布那套「按 hash 取素材」的钩子，不另写一条取图链路 */
 function StepThumb({ hash }: { hash: string }) {
   const url = useAsset(hash)
+  const store = useCanvasStore()
   if (!url) return <span className={styles.thumbEmpty} />
-  return <img className={styles.thumbImg} src={url} alt="这一步的产物" />
+  return (
+    <button
+      type="button"
+      className={styles.thumbButton}
+      onClick={() => store.openLightbox(hash)}
+      title="放大查看这张图"
+      aria-label="放大查看这张图"
+      data-agent-thumb-open={hash}
+    >
+      <img className={styles.thumbImg} src={url} alt="这一步的产物" />
+    </button>
+  )
 }
 
 /** 素材库里的一个缩略图：同样走 `useAsset`，不另写一条取图链路 */
@@ -4010,6 +4115,47 @@ function previewOf(
   if (status.kind !== 'awaitingConfirm') return null
   const { name, args } = status.request
   const a = (args ?? {}) as Record<string, unknown>
+  if (name === 'proposeTaskPlan') {
+    const title = typeof a.title === 'string' ? a.title.trim() : '执行计划'
+    const summary = typeof a.summary === 'string' ? a.summary.trim() : ''
+    const steps = Array.isArray(a.steps)
+      ? a.steps.flatMap((value, index) => {
+          if (!value || typeof value !== 'object') return []
+          const row = value as Record<string, unknown>
+          const stepTitle = typeof row.title === 'string' ? row.title.trim() : ''
+          if (!stepTitle) return []
+          return [
+            `${index + 1}. ${stepTitle}${
+              row.requiresConfirmation === true ? '（中途确认）' : ''
+            }`,
+          ]
+        })
+      : []
+    return {
+      tool: name,
+      title: '确认这套执行计划？',
+      lines: [
+        title,
+        ...(summary ? [summary] : []),
+        ...steps,
+        '确认后才会开始执行；每一步的状态会显示在上方进度卡。',
+      ],
+      action: '确认计划',
+    }
+  }
+  if (name === 'requestTaskConfirmation') {
+    const question =
+      typeof a.question === 'string' && a.question.trim()
+        ? a.question.trim()
+        : '这一步需要你确认'
+    const detail = typeof a.detail === 'string' ? a.detail.trim() : ''
+    return {
+      tool: name,
+      title: question,
+      lines: detail ? [detail] : [],
+      action: '确认并继续',
+    }
+  }
   /**
    * ⚠️ 这里**没有 `applyPlan` 分支**：建图已经不等确认了（`agentLoop` 的
    * `WRITE_TOOLS`），所以那种确认卡根本不会出现。别为了「万一」把它加回来 ——

@@ -36,6 +36,7 @@ const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult', 'visualRevie
  */
 const WRITE_TOOLS = new Set([
   'applyPlan',
+  'updateTaskStep',
   'moveNodes',
   'arrangeNodes',
   'compareNodes',
@@ -45,6 +46,8 @@ const WRITE_TOOLS = new Set([
 ])
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
 const CONFIRM_TOOLS = new Set([
+  'proposeTaskPlan',
+  'requestTaskConfirmation',
   'updateNode',
   'runNode',
   'runFrom',
@@ -246,7 +249,8 @@ export async function runAgentTurn(
        */
       if (
         visualReviewRan &&
-        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name))
+        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name)) &&
+        call.name !== 'updateTaskStep'
       ) {
         return {
           kind: 'stopped',
