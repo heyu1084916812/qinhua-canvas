@@ -504,9 +504,14 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
   it('★★ runNode 走注入的执行层（agent 自己不直接发渠道请求）', async () => {
     const { store, ctx, runNodes } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })
-    const r = (await executeConfirmedTool('runNode', { nodeIds: [id] }, ctx)) as { ok: boolean }
+    const signal = new AbortController().signal
+    const r = (await executeConfirmedTool(
+      'runNode',
+      { nodeIds: [id] },
+      { ...ctx, signal },
+    )) as { ok: boolean }
     expect(r.ok).toBe(true)
-    expect(runNodes).toHaveBeenCalledWith([id])
+    expect(runNodes).toHaveBeenCalledWith([id], signal)
   })
 
   it('★★ runNode 用本轮 applyPlan 的 localId 别名时，会确定性解析成真实节点 id', async () => {
@@ -521,7 +526,7 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
       },
     )) as { ok: boolean; outcomes: { nodeId: string }[] }
     expect(r.ok).toBe(true)
-    expect(runNodes).toHaveBeenCalledWith([id])
+    expect(runNodes).toHaveBeenCalledWith([id], undefined)
     expect(r.outcomes[0]?.nodeId).toBe(id)
   })
 
@@ -587,7 +592,7 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     }
 
     expect(r.ok).toBe(true)
-    expect(runNodes).toHaveBeenCalledWith([start, end])
+    expect(runNodes).toHaveBeenCalledWith([start, end], undefined)
     expect(r.outcomes.map((o) => o.nodeId)).toEqual([start, end])
   })
 })

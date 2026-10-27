@@ -659,6 +659,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       origin,
       selectedIds: () => selection,
       selectedModelOf,
+      ...(abortRefs.current.get(sessionId)?.signal
+        ? { signal: abortRefs.current.get(sessionId)!.signal }
+        : {}),
       /**
        * 用 **ref** 而不是闭包变量：这个回调在发消息那一刻创建、在用户点「批准」时才真正执行
        * （中间隔着一次确认），闭包里的旧值必然过期。ref 读的是**最新一次发消息**算出来的判断。
@@ -668,7 +671,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         const aliases = planAliasesRef.current.get(sessionId)
         return ids.map((id) => aliases?.get(id) ?? id)
       },
-      runNodes: async (ids) => {
+      runNodes: async (ids, signal) => {
         /**
          * **互不依赖的节点同时跑**（用户 2026-10-05 第 2 条：「我并行的要求没有给我实现，
          * 应该是同时生成的，但是他是先生成一个再生成另外一个」）。
@@ -708,7 +711,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           const thrown = await Promise.all(
             wave.map(async (id) => {
               try {
-                await execution.runNode(id)
+                await execution.runNode(id, {
+                  signal:
+                    signal ?? abortRefs.current.get(sessionId)?.signal,
+                })
                 return null
               } catch (e) {
                 return {
@@ -1065,6 +1071,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               outcome.kind === 'error' ? outcome.message : outcome.reason,
           },
         )
+      }
+      if (
+        outcome.kind === 'message' ||
+        outcome.kind === 'error' ||
+        (outcome.kind === 'stopped' && !outcome.checkpoint)
+      ) {
+        abortRefs.current.delete(session.id)
       }
       if (latest) {
         setList((prev) => prev.map((item) => (item.id === latest.id ? latest : item)))
@@ -1628,6 +1641,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     confirmingRef.current.add(current.id)
     const { request } = status
     try {
+      abortRefs.current.set(current.id, new AbortController())
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
       await transitionSessionJob(
         current.id,
@@ -1698,6 +1712,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     confirmingRef.current.add(current.id)
     const { request } = status
     try {
+      abortRefs.current.set(current.id, new AbortController())
       await sessions.updateFields(current.id, { pendingConfirmation: undefined })
       await transitionSessionJob(
         current.id,
@@ -1771,6 +1786,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const imageNodeIds = [...messages]
       .reverse()
       .find((message) => message.role === 'user')?.imageNodeIds ?? []
+    abortRefs.current.set(current.id, new AbortController())
     const currentLoopDeps = loopDeps(
       current,
       createId('op'),

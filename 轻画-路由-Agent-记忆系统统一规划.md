@@ -2,7 +2,8 @@
 
 > 状态：v1.5，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
 > Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 的 AgentJob/AgentEvent 核心
-> 与轮数检查点续跑已完成。运行中 Steer/Interrupt、文本路由与记忆/套件仍待后续。
+> 与轮数检查点续跑已完成；Interrupt 已穿透到节点执行。运行中 Steer、文本路由与
+> 记忆/套件仍待后续。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -292,7 +293,7 @@ ContextBundle {
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。
 
-2026-10-27 当前证据：全量 Vitest **3411 passed / 1 skipped**，Rust **34/34**；
+2026-10-27 当前证据：全量 Vitest **3413 passed / 1 skipped**，Rust **34/34**；
 `npm run check`、`npm run build` 通过；真实页面 G769 **13/13**，覆盖队列持久化、
 AgentJob 取消、中断恢复、确认卡恢复、路由尝试日志、路由范围候选与全屏边界、轮数检查点，
 并在 V1 JSON / V2 SQLite 隔离库各跑一遍。
@@ -388,6 +389,8 @@ AgentJob 取消、中断恢复、确认卡恢复、路由尝试日志、路由�
 - 会话内只允许一个活动 Job；queued Job 可排队。重启恢复时 planning → paused，
   waiting_generation → needs_attention，已提交结果不明不会自动重发。
 - 移出排队项会把对应 Job 标为 canceled；删除会话或项目会级联清理 Job 与事件。
+- Agent 回合的 AbortSignal 会传到 `completeText` 和确认后的 `runNode/runFrom`；
+  停止时取消已启动的 RunPlan，不再只把界面文字改成“已停止”。
 
-仍待完成：运行中 Steer/Interrupt 的模型调用级中断、DirectRun 尝试转存、文本 Agent 使用
+仍待完成：运行中 Steer 的下一模型调用边界注入、DirectRun 尝试转存、文本 Agent 使用
 同一轮询策略、个人记忆与品牌/角色/产品套件。

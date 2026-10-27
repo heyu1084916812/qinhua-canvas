@@ -13,7 +13,10 @@
 - **UI `.tsx` 只接业务状态，不改渲染**：AgentPanel 本轮只增加 Job 创建/状态迁移调用，没有改
   JSX 结构、类名、文案或样式；新增表已同时加入 Dexie v18、TableName、Rust TABLE_NAMES、
   项目级联与会话删除清理，备份仍排除这些短期运行态。
-- **验证证据**：Vitest **3411 passed / 1 skipped**，Rust **34/34**，check/build 通过；
+- **停止必须穿到执行层**：Agent 回合的 AbortSignal 既给模型调用，也通过 AgentToolContext
+  传给确认后的 `runNode/runFrom`；CanvasExecutionProvider 用 `bindAbortToCancel` 取消对应
+  RunPlan。只改界面状态不算停止。
+- **验证证据**：Vitest **3413 passed / 1 skipped**，Rust **34/34**，check/build 通过；
   G769 **13/13** 在 V1 JSON 与 V2 SQLite 隔离库各通过一次。测试库目录已删除。
 
 ### 全局设置字号累乘与 UI 门禁（2026-10-27 → 对账 #770）

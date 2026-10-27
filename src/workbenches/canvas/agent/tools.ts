@@ -652,7 +652,12 @@ export interface AgentToolContext {
   /** 新节点的落点（§6：优先视口中心偏左） */
   origin: { x: number; y: number }
   /** 跑节点 —— 由执行层注入：agent 自己不直接发渠道请求 */
-  runNodes: (nodeIds: string[]) => Promise<AgentRunOutcome[]>
+  runNodes: (
+    nodeIds: string[],
+    signal?: AbortSignal,
+  ) => Promise<AgentRunOutcome[]>
+  /** Agent 回合取消信号；确认后执行的付费/写操作也必须跟随停止。 */
+  signal?: AbortSignal
   /** 把本轮 applyPlan 产生的 localId 别名解析成真实节点 id（确定性兜底） */
   resolveNodeIds?: (nodeIds: readonly string[]) => string[]
   /** 当前选中的节点 —— `readGraph` 的 `selection` 范围要用；不给就按全图算 */
@@ -1382,7 +1387,7 @@ export async function executeConfirmedTool(
       const rawIds = asStringArray(a.nodeIds)
       const ids = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
       if (ids.length === 0) return { ok: false, problems: ['没有指定要跑的节点'] }
-      const outcomes = await ctx.runNodes(ids)
+      const outcomes = await ctx.runNodes(ids, ctx.signal)
       return { ok: outcomes.every((o) => o.ok), outcomes }
     }
     case 'runFrom': {
@@ -1390,7 +1395,7 @@ export async function executeConfirmedTool(
       const ids = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
       const resolved = runFromNodeIds(ctx.store, ids)
       if (!resolved.ok) return resolved
-      const outcomes = await ctx.runNodes(resolved.ids)
+      const outcomes = await ctx.runNodes(resolved.ids, ctx.signal)
       return { ok: outcomes.every((o) => o.ok), outcomes }
     }
     case 'moveNodes':

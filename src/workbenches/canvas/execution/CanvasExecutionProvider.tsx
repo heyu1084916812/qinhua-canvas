@@ -37,6 +37,7 @@ import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
 import { trimProjectTasks } from '../../../features/shared/execution/taskLog'
+import { bindAbortToCancel } from '../../../features/shared/execution/abortToCancel'
 import type { RunSummary, RunTaskState } from '../../../features/shared/execution/runEngine'
 import {
   registerGuardedChannelRun,
@@ -106,7 +107,10 @@ export interface CanvasExecutionApi {
    * - `inPlace`：**原地替换** —— 产物写回源节点自己（电商结果的「原地换掉」，对账 #413）。
    *   只在这条计划一共一次调用时生效（N>1 会互相覆盖，见 `buildRunPlan` 的说明）。
    */
-  runNode(nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }): Promise<void>
+  runNode(
+    nodeId: string,
+    opts?: { alt?: boolean; inPlace?: boolean; signal?: AbortSignal },
+  ): Promise<void>
   /** 把一个分组的成员作为一个子图规划并运行；不会逐节点绕过上游依赖。 */
   runGroup(memberIds: readonly string[]): Promise<void>
   /** Cancel only the active plan(s) attached to this node. */
@@ -462,7 +466,12 @@ export function CanvasExecutionProvider({
 
   /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行 */
   const launch = useCallback(
-    async (plan: ReturnType<typeof buildRunPlan>, originNodeId: string | undefined) => {
+    async (
+      plan: ReturnType<typeof buildRunPlan>,
+      originNodeId: string | undefined,
+      signal?: AbortSignal,
+    ) => {
+      if (signal?.aborted) return
       /**
        * M7-3：执行前**按策略选路**并解析模型映射（§7.4.1）。
        *
@@ -784,7 +793,12 @@ export function CanvasExecutionProvider({
       // 批量进度的分母：这条计划有几个任务（单任务时 progressNotice 会自己闭嘴）
       planProgressRef.current.set(plan.id, { done: 0, total: plan.tasks.length })
 
-      await startRun(plan)
+      const unbindAbort = bindAbortToCancel(signal, () => cancelRun(plan.id))
+      try {
+        await startRun(plan)
+      } finally {
+        unbindAbort()
+      }
 
       /**
        * 配方记忆**不再挂在这里**（用户 2026-09-23 修订口径）。
@@ -1297,7 +1311,10 @@ export function CanvasExecutionProvider({
   )
 
   const runNode = useCallback(
-    async (nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }) => {
+    async (
+      nodeId: string,
+      opts?: { alt?: boolean; inPlace?: boolean; signal?: AbortSignal },
+    ) => {
       let graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === nodeId)
 
@@ -1495,7 +1512,7 @@ export function CanvasExecutionProvider({
         explainEmptyPlan(nodeId)
         return
       }
-      await launch(plan, nodeId)
+      await launch(plan, nodeId, opts?.signal)
     },
     [
       store,
