@@ -35,6 +35,7 @@ describe('buildEcommerceRunPlan', () => {
 
     expect(plan.id).toBe('ecommerce:ect_1:run')
     expect(plan.tasks).toHaveLength(2)
+    expect(plan.tasks.every((task) => task.dependsOn.length === 0)).toBe(true)
     expect(plan.tasks[0]).toMatchObject({
       id: 'ect_1:task:1',
       nodeId: 'ecsubject_1',

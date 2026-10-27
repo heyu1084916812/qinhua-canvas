@@ -106,6 +106,8 @@ export interface EcommerceResultItem {
   /** 电商结果表的真实 id；工作台操作按它回查。 */
   resultId?: string
   status: 'running' | 'done' | 'failed'
+  /** 模型已成功但素材没有保存成功；只能重试保存，不能自动重发付费请求。 */
+  recovery?: 'retry-save'
   /** 产物 MIME；视频结果据此使用播放器而不是 img。 */
   mime?: string
   /** 失败原因（`status === 'failed'` 时必须有 —— 不许静默） */
@@ -142,6 +144,8 @@ export interface EcommerceResultItem {
    * 失败的那张尤其需要它（失败原因就写在旁边，重试不必回头改参数）。
    */
   onRerun?: () => Promise<void> | void
+  /** 从内部恢复队列重写同一份产物，不调用模型。 */
+  onRetrySave?: () => Promise<void> | void
   /** 失败结果专用：移除这条失败记录，不动同批次成功结果。 */
   onRemoveFailed?: () => void
   /**
@@ -355,10 +359,11 @@ export function ResultStatusOverlay({ item }: { item: EcommerceResultItem }) {
   }, [running])
 
   if (item.status === 'failed') {
+    const retrySave = item.recovery === 'retry-save'
     return (
       <div
         className={`${styles.resultOverlay} ${styles.resultOverlayError}`}
-        data-ecommerce-result-overlay="failed"
+        data-ecommerce-result-overlay={retrySave ? 'retry-save' : 'failed'}
         role="alert"
       >
         <span className={styles.resultFailure}>
@@ -377,13 +382,17 @@ export function ResultStatusOverlay({ item }: { item: EcommerceResultItem }) {
             <path d="M12 7.5v5.5" />
             <path d="M12 16.8h.01" />
           </svg>
-          <span className={styles.resultFailureTitle}>生成失败</span>
+          <span className={styles.resultFailureTitle}>
+            {retrySave ? '已生成，待保存' : '生成失败'}
+          </span>
           <span
             className={styles.resultFailureText}
             data-ecommerce-result-error
             title={item.error}
           >
-            {item.error ?? '没有收到失败原因，请查看画布运行日志'}
+            {retrySave
+              ? item.error ?? '素材没有保存成功，可点“重试保存”重新写入本地库。'
+              : item.error ?? '没有收到失败原因，请查看画布运行日志'}
           </span>
         </span>
       </div>
@@ -2539,7 +2548,17 @@ export function EcommerceStudio({
                     <span className={styles.cellError}>
                       {r.error ?? '失败（没有原因记录）'}
                     </span>
-                    {r.onRerun ? (
+                    {r.recovery === 'retry-save' && r.onRetrySave ? (
+                      <button
+                        type="button"
+                        className={styles.cellRetry}
+                        data-ecommerce-retry-save={r.nodeId}
+                        disabled={running}
+                        onClick={() => void r.onRetrySave?.()}
+                      >
+                        重试保存
+                      </button>
+                    ) : r.onRerun ? (
                       <button
                         type="button"
                         className={styles.cellRetry}

@@ -20,6 +20,22 @@ describe('ecommerce result status overlay', () => {
     expect(html).toContain('令牌无效')
   })
 
+  it('★★ retry-save 明确显示素材待保存，不再冒充生成失败', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResultStatusOverlay, {
+        item: {
+          nodeId: 'gen_retry_save',
+          status: 'failed',
+          recovery: 'retry-save',
+          error: '素材写入本地库失败',
+        },
+      }),
+    )
+    expect(html).toContain('data-ecommerce-result-overlay="retry-save"')
+    expect(html).toContain('已生成，待保存')
+    expect(html).toContain('素材写入本地库失败')
+  })
+
   it('renders the shared orbit indicator and running timer', () => {
     const html = renderToStaticMarkup(
       createElement(ResultStatusOverlay, {

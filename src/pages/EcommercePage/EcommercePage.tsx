@@ -696,11 +696,26 @@ function StudioHost({ projectId }: { projectId: string }) {
     [canvasRepo, platform, projectId, taskRepo],
   )
 
+  async function retrySaveWorkbenchResult(resultId: string) {
+    const outcome = await taskRepo.retrySave(resultId)
+    await refreshWorkbench()
+    if (!outcome.ok) {
+      platform.logger.log('warn', '[ecommerce] 重试保存仍未成功', {
+        resultId,
+        error: outcome.errorText ?? 'unknown',
+      })
+    }
+  }
+
   async function retryWorkbenchResult(resultId: string) {
     const row =
       workbenchResults.find((result) => result.id === resultId) ??
       resultRows.find((result) => result.id === resultId)
     if (!row) return
+    if (row.recovery === 'retry-save') {
+      await retrySaveWorkbenchResult(resultId)
+      return
+    }
     await runStoredResult(row, { inPlace: true })
   }
 
@@ -1858,6 +1873,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           nodeId: row.nodeId,
           resultId: row.id,
           status,
+          ...(row.recovery ? { recovery: row.recovery } : {}),
           imageHash: hash,
           ...(row.mime ? { mime: row.mime } : {}),
           pixelSize: width !== undefined && height !== undefined ? { width, height } : null,
@@ -1897,11 +1913,17 @@ function StudioHost({ projectId }: { projectId: string }) {
            * 用户点击后看到的仍是失败卡，无法判断请求是否真的发出。
            */
           onRerun:
-            row.status === 'failed' || row.status === 'canceled'
+            row.recovery === 'retry-save'
+              ? undefined
+              : row.status === 'failed' || row.status === 'canceled'
               ? () => retryWorkbenchResult(row.id)
               : rerunnable
                 ? () => rerun(false)
                 : undefined,
+          onRetrySave:
+            row.recovery === 'retry-save'
+              ? () => retrySaveWorkbenchResult(row.id)
+              : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
           onRemoveFailed:
             row.status === 'failed'

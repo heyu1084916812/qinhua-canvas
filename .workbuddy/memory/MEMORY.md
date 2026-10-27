@@ -1,5 +1,16 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商 retry-save 与中断收口（2026-10-27 → 对账 #780）
+
+- **模型成功不等于素材已保存**：`recovery:'retry-save'` 只能显示“已生成，待保存”，
+  重试走 `taskRepo.retrySave(resultId)`，绝不能走 `runStoredResult` / 生成适配器。
+  否则用户会为同一份产物再付一次模型费用。
+- **批次顺序不是依赖**：`buildEcommerceRunPlan` 的每个结果 task 必须 `dependsOn: []`，
+  runEngine 同波并发；数组顺序只负责稳定结算。不要再把“上一项完成”写成隐式依赖。
+- **重启恢复必须看 lease**：只有无活动 lease 的旧 running 批次才由
+  `interruptUnfinished` 收口为“上次生成被中断”；有活动 lease 的任务不能被另一个页面误杀。
+- **验证**：定向 **36/36**，覆盖 retry-save overlay、保存队列重试、零依赖并发契约与中断收口。
+
 ### 个人记忆作用域、Agent 确认与预算（2026-10-27 → 对账 #779）
 
 - **记忆不是聊天自动沉淀**：Agent 只能用 `rememberMemory` 提议候选，用户点确认后才由

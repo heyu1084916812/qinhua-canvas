@@ -1126,7 +1126,10 @@ export function EcommerceWorkbench({
   const selectedResultStatus = selectedResult ? displayStatusOf(selectedResult) : null
   const selectedActions = [
     ...(selectedResultStatus === 'failed'
-      ? ([['retry', '重新生成']] as const)
+      ? ([[
+          'retry',
+          selectedResult?.recovery === 'retry-save' ? '重试保存' : '重新生成',
+        ]] as const)
       : []),
     ...(selectedAssetHash
       ? ([
