@@ -56,6 +56,9 @@ const version = (patch: Partial<ContextKitVersion> = {}): ContextKitVersion => (
   guide: '主色使用深绿，视觉保持克制。',
   facts: [{ key: '主色', value: '#14532D' }],
   assetHashes: ['asset-logo'],
+  resources: [{ hash: 'asset-logo', role: 'logo', name: '主 Logo' }],
+  colors: [{ id: 'color-primary', name: '主色', value: '#14532d' }],
+  fonts: [{ id: 'font-title', name: '思源黑体', detail: '标题 700' }],
   checksum: 'checksum',
   createdAt: now,
   ...patch,
@@ -121,6 +124,9 @@ describe('ContextBundle', () => {
     expect(bundle.kitVersionRefs).toEqual([{ kitId: 'kit-brand', version: 1 }])
     expect(bundle.assetHashes).toEqual(['asset-logo'])
     expect(bundle.hardConstraints.join('\n')).toContain('深绿')
+    expect(bundle.hardConstraints.join('\n')).toContain('颜色 主色：#14532d')
+    expect(bundle.hardConstraints.join('\n')).toContain('字体 思源黑体：标题 700')
+    expect(bundle.hardConstraints.join('\n')).toContain('Logo 1 张')
     expect(bundle.hardConstraints.join('\n')).not.toContain('新版品牌要求')
   })
 
@@ -159,6 +165,31 @@ describe('ContextBundle', () => {
         ...base,
         facts: [...base.facts].reverse(),
         assetHashes: ['a', 'b'],
+      }),
+    )
+  })
+
+  it('★ 套件版本 checksum 包含颜色、字体和素材角色', () => {
+    const base = {
+      kitId: 'kit-brand',
+      version: 1,
+      guide: '',
+      facts: [],
+      assetHashes: ['logo'],
+      resources: [{ hash: 'logo', role: 'logo' as const, name: '主 Logo' }],
+      colors: [{ id: 'c1', name: '主色', value: '#14532d' }],
+      fonts: [{ id: 'f1', name: '思源黑体', detail: '标题' }],
+    }
+    expect(contextKitVersionChecksum(base)).not.toBe(
+      contextKitVersionChecksum({
+        ...base,
+        resources: [{ hash: 'logo', role: 'reference', name: '主 Logo' }],
+      }),
+    )
+    expect(contextKitVersionChecksum(base)).not.toBe(
+      contextKitVersionChecksum({
+        ...base,
+        colors: [{ id: 'c1', name: '主色', value: '#ffffff' }],
       }),
     )
   })

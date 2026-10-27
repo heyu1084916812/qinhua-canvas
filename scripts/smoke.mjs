@@ -27051,8 +27051,10 @@ async function g115(browser) {
   )
 
   const defaultNodeCard = await nodeCardColor()
-  await page.locator('[data-node-hex-input]').fill('FFF4E6')
-  await page.locator('[data-node-hex-apply]').click()
+  await page.locator('[data-node-custom-color]').click()
+  const nodeColorPicker = page.locator('[data-color-picker-target="node"]')
+  await nodeColorPicker.locator('[data-color-hex-input]').fill('FFF4E6')
+  await nodeColorPicker.locator('[data-color-confirm]').click()
   await sleep(300)
   const customNodeCard = await nodeCardColor()
   rec(
@@ -27074,8 +27076,11 @@ async function g115(browser) {
     `节点=${await nodeCardColor()}`,
   )
 
-  /* 任意背景色：原生颜色工具改值，画布与派生网格线当帧更新 */
-  await page.locator('[data-canvas-custom-color]').fill('#123456')
+  /* 任意背景色：统一取色器改值，画布与派生网格线当帧更新 */
+  await page.locator('[data-canvas-custom-color]').click()
+  const canvasColorPicker = page.locator('[data-color-picker-target="canvas"]')
+  await canvasColorPicker.locator('[data-color-hex-input]').fill('123456')
+  await canvasColorPicker.locator('[data-color-confirm]').click()
   await sleep(350)
   const customBg = await surfaceColor()
   const customGrid = await surfaceVar('--canvas-grid-line')
@@ -27089,19 +27094,20 @@ async function g115(browser) {
       customGrid !== grid0,
     `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${customBg} 网格=${customGrid}`,
   )
-  await page.locator('[data-canvas-hex-input]').fill('1234')
-  await page.locator('[data-canvas-hex-input]').press('Enter')
+  await page.locator('[data-canvas-custom-color]').click()
+  await canvasColorPicker.locator('[data-color-hex-input]').fill('1234')
+  await canvasColorPicker.locator('[data-color-hex-input]').press('Enter')
   await sleep(150)
   rec(
     g,
     '★ 非法 HEX 不清空当前颜色，并给出 3 / 6 位提示',
-    (await page.locator('[data-canvas-hex-input]').getAttribute('aria-invalid')) === 'true' &&
-      (await page.locator('[data-canvas-look-panel]').getByText('请输入 3 位或 6 位十六进制色值').count()) === 1 &&
+    (await canvasColorPicker.locator('[data-color-hex-input]').getAttribute('aria-invalid')) === 'true' &&
+      (await canvasColorPicker.getByText('请输入 3 位或 6 位十六进制色值').count()) === 1 &&
       (await surfaceColor()) === customBg,
-    `invalid=${await page.locator('[data-canvas-hex-input]').getAttribute('aria-invalid')} color=${await surfaceColor()}`,
+    `invalid=${await canvasColorPicker.locator('[data-color-hex-input]').getAttribute('aria-invalid')} color=${await surfaceColor()}`,
   )
-  await page.locator('[data-canvas-hex-input]').fill('ABCDEF')
-  await page.locator('[data-canvas-hex-apply]').click()
+  await canvasColorPicker.locator('[data-color-hex-input]').fill('ABCDEF')
+  await canvasColorPicker.locator('[data-color-confirm]').click()
   await sleep(300)
   const hexColor = await surfaceColor()
   rec(
@@ -27262,9 +27268,12 @@ async function g115(browser) {
   // 再选一次任意颜色，验证它也随项目落库，而不是只改运行时 CSS
   await page.locator('[data-sidebar-settings]').click()
   await page.locator('[data-global-settings-tab="canvasLook"]').click()
-  await page.locator('[data-canvas-custom-color]').fill('#654321')
-  await page.locator('[data-node-hex-input]').fill('FFF4E6')
-  await page.locator('[data-node-hex-apply]').click()
+  await page.locator('[data-canvas-custom-color]').click()
+  await page.locator('[data-color-picker-target="canvas"] [data-color-hex-input]').fill('654321')
+  await page.locator('[data-color-picker-target="canvas"] [data-color-confirm]').click()
+  await page.locator('[data-node-custom-color]').click()
+  await page.locator('[data-color-picker-target="node"] [data-color-hex-input]').fill('FFF4E6')
+  await page.locator('[data-color-picker-target="node"] [data-color-confirm]').click()
   await sleep(300)
   await page.keyboard.press('Escape')
   await sleep(250)
@@ -39498,13 +39507,16 @@ async function g164(browser) {
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-retouch${themeSuffix}.png` })
   await page.locator('[data-ecommerce-mode="product-recolor"]').click()
-  await page.locator('[data-ecommerce-color-hex]').fill('#123456')
+  await page.locator('[data-ecommerce-color]').click()
+  const ecommerceColorPicker = page.locator('[data-color-picker-target="ecommerce-recolor"]')
+  await ecommerceColorPicker.locator('[data-color-hex-input]').fill('123456')
+  await ecommerceColorPicker.locator('[data-color-confirm]').click()
   rec(
     g,
     '★ 产品换色保留颜色与容差参数',
     (await page.locator('[data-ecommerce-color]').count()) === 1 &&
       (await page.locator('[data-ecommerce-color-tolerance]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-color-hex]').inputValue()) === '#123456' &&
+      (await page.locator('[data-ecommerce-color-hex]').innerText()).trim() === '#123456' &&
       (await page.locator('[data-param-section="selling"]').count()) === 0,
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-recolor${themeSuffix}.png` })

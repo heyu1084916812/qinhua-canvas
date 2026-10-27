@@ -44,6 +44,26 @@ export interface ContextKitFact {
   value: string
 }
 
+export type ContextKitAssetRole = 'logo' | 'reference'
+
+export interface ContextKitAsset {
+  hash: string
+  role: ContextKitAssetRole
+  name: string
+}
+
+export interface ContextKitColor {
+  id: string
+  name: string
+  value: string
+}
+
+export interface ContextKitFont {
+  id: string
+  name: string
+  detail: string
+}
+
 export interface ContextKitVersion {
   id: string
   kitId: string
@@ -51,6 +71,9 @@ export interface ContextKitVersion {
   guide: string
   facts: ContextKitFact[]
   assetHashes: string[]
+  resources: ContextKitAsset[]
+  colors: ContextKitColor[]
+  fonts: ContextKitFont[]
   checksum: string
   createdAt: number
 }
@@ -117,6 +140,9 @@ export function contextKitVersionChecksum(input: {
   guide: string
   facts: readonly ContextKitFact[]
   assetHashes: readonly string[]
+  resources?: readonly ContextKitAsset[]
+  colors?: readonly ContextKitColor[]
+  fonts?: readonly ContextKitFont[]
 }): string {
   return fingerprintHex(
     JSON.stringify({
@@ -128,6 +154,30 @@ export function contextKitVersionChecksum(input: {
         .filter((fact) => fact.key && fact.value)
         .sort((left, right) => left.key.localeCompare(right.key)),
       assetHashes: [...new Set(input.assetHashes.filter(Boolean))].sort(),
+      resources: (input.resources ?? [])
+        .map((resource) => ({
+          hash: resource.hash.trim(),
+          role: resource.role,
+          name: resource.name.trim(),
+        }))
+        .filter((resource) => resource.hash)
+        .sort((left, right) => left.role.localeCompare(right.role) || left.hash.localeCompare(right.hash)),
+      colors: (input.colors ?? [])
+        .map((color) => ({
+          id: color.id.trim(),
+          name: color.name.trim(),
+          value: color.value.trim().toLowerCase(),
+        }))
+        .filter((color) => color.id && color.value)
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      fonts: (input.fonts ?? [])
+        .map((font) => ({
+          id: font.id.trim(),
+          name: font.name.trim(),
+          detail: font.detail.trim(),
+        }))
+        .filter((font) => font.id && font.name)
+        .sort((left, right) => left.id.localeCompare(right.id)),
     }),
   )
 }
@@ -140,6 +190,30 @@ function normalizedFactLines(version: ContextKitVersion): string[] {
     }))
     .filter((fact) => fact.key && fact.value)
     .map((fact) => `${fact.key}：${fact.value}`)
+}
+
+function normalizedStructuredLines(version: ContextKitVersion): string[] {
+  const lines = [
+    ...version.colors
+      .filter((color) => color.name.trim() && /^#[0-9a-f]{6}$/i.test(color.value))
+      .map((color) => `颜色 ${color.name.trim()}：${color.value.toLowerCase()}`),
+    ...version.fonts
+      .filter((font) => font.name.trim())
+      .map(
+        (font) =>
+          `字体 ${font.name.trim()}：${font.detail.trim() || font.name.trim()}`,
+      ),
+  ]
+  const logoCount = version.resources.filter((resource) => resource.role === 'logo').length
+  const referenceCount = version.resources.filter(
+    (resource) => resource.role === 'reference',
+  ).length
+  if (logoCount > 0 || referenceCount > 0) {
+    lines.push(
+      `品牌素材：Logo ${logoCount} 张，参考素材 ${referenceCount} 张`,
+    )
+  }
+  return lines
 }
 
 export function contextConflictsOf(
@@ -246,6 +320,10 @@ export function assembleContextBundle(input: {
     const lines = normalizedFactLines(version)
     if (lines.length > 0) {
       hardConstraints.push(`【${name} v${version.version}】${lines.join('；')}`)
+    }
+    const structuredLines = normalizedStructuredLines(version)
+    if (structuredLines.length > 0) {
+      hardConstraints.push(`【${name} v${version.version}】${structuredLines.join('；')}`)
     }
   }
 

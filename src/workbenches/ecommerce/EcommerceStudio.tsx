@@ -67,6 +67,7 @@ import {
   type EcommerceUpscaleScale,
 } from '../../domain/ecommerce/upscale'
 import { presetOf } from '../../domain/project/modelCatalog'
+import { ColorPickerPopover } from '../../features/shared/colorPicker/ColorPickerPopover'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { EcommerceSelect, type EcommerceSelectOption } from './EcommerceSelect'
 import styles from './EcommerceStudio.module.css'
@@ -808,23 +809,34 @@ function ModeSpecificParameters({
   }
 
   if (modeId === 'product-recolor') {
+    const targetColor = modeOptionString(options, 'targetColor', '#ff6b00')
     return (
       <section className={styles.block} data-ecommerce-mode-params="product-recolor">
         <span className={styles.blockTitle}>目标颜色</span>
         <span className={styles.hint}>选择要替换成的目标颜色</span>
         <div className={styles.colorControl}>
-          <input
-            type="color"
-            value={modeOptionString(options, 'targetColor', '#ff6b00')}
-            data-ecommerce-color
-            onChange={(e) => setOption('targetColor', e.target.value)}
+          <ColorPickerPopover
+            value={targetColor}
+            target="ecommerce-recolor"
+            label="选择商品替换颜色"
+            onCommit={(value) => setOption('targetColor', value)}
+            renderTrigger={({ open, toggle }) => (
+              <button
+                type="button"
+                className={styles.colorWell}
+                aria-label="选择商品替换颜色"
+                aria-haspopup="dialog"
+                aria-expanded={open}
+                data-ecommerce-color
+                onClick={toggle}
+              >
+                <span style={{ background: targetColor }} aria-hidden />
+              </button>
+            )}
           />
-          <input
-            className={styles.input}
-            value={modeOptionString(options, 'targetColor', '#ff6b00')}
-            data-ecommerce-color-hex
-            onChange={(e) => setOption('targetColor', e.target.value)}
-          />
+          <span className={styles.colorValue} data-ecommerce-color-hex>
+            {targetColor.toUpperCase()}
+          </span>
         </div>
         <label className={styles.field}>
           <span className={styles.fieldLabel}>

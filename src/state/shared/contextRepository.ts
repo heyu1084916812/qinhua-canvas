@@ -5,7 +5,10 @@ import {
   normalizeContextMemoryKind,
   type ContextBundle,
   type ContextKit,
+  type ContextKitAsset,
+  type ContextKitColor,
   type ContextKitFact,
+  type ContextKitFont,
   type ContextKitKind,
   type ContextKitVersion,
   type ContextMemory,
@@ -43,6 +46,9 @@ export interface ContextRepository {
     guide?: string
     facts?: readonly ContextKitFact[]
     assetHashes?: readonly string[]
+    resources?: readonly ContextKitAsset[]
+    colors?: readonly ContextKitColor[]
+    fonts?: readonly ContextKitFont[]
   }): Promise<{ kit: ContextKit; version: ContextKitVersion }>
   saveKitVersion(
     kitId: string,
@@ -50,6 +56,9 @@ export interface ContextRepository {
       guide?: string
       facts?: readonly ContextKitFact[]
       assetHashes?: readonly string[]
+      resources?: readonly ContextKitAsset[]
+      colors?: readonly ContextKitColor[]
+      fonts?: readonly ContextKitFont[]
       description?: string
     },
   ): Promise<{ kit: ContextKit; version: ContextKitVersion } | null>
@@ -95,6 +104,51 @@ function hashesOf(value: unknown): string[] {
   return Array.isArray(value)
     ? [...new Set(value.map(textOf).filter(Boolean))]
     : []
+}
+
+function resourcesOf(value: unknown, assetHashes: readonly string[]): ContextKitAsset[] {
+  const parsed = Array.isArray(value)
+    ? value.flatMap((item): ContextKitAsset[] => {
+        if (!item || typeof item !== 'object') return []
+        const row = item as Record<string, unknown>
+        const hash = textOf(row.hash)
+        const role = row.role === 'logo' ? 'logo' : row.role === 'reference' ? 'reference' : null
+        if (!hash || !role) return []
+        return [{ hash, role, name: textOf(row.name) }]
+      })
+    : []
+  const seen = new Set(parsed.map((item) => item.hash))
+  for (const hash of assetHashes) {
+    if (seen.has(hash)) continue
+    parsed.push({ hash, role: 'reference', name: '' })
+    seen.add(hash)
+  }
+  return parsed
+}
+
+function colorsOf(value: unknown): ContextKitColor[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ContextKitColor[] => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const id = textOf(row.id)
+    const name = textOf(row.name)
+    const raw = textOf(row.value)
+    if (!id || !/^#[0-9a-f]{6}$/i.test(raw)) return []
+    return [{ id, name, value: raw.toLowerCase() }]
+  })
+}
+
+function fontsOf(value: unknown): ContextKitFont[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ContextKitFont[] => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const id = textOf(row.id)
+    const name = textOf(row.name)
+    if (!id || !name) return []
+    return [{ id, name, detail: textOf(row.detail) }]
+  })
 }
 
 function memoryOf(row: RowOf<'contextMemories'>): ContextMemory {
@@ -155,6 +209,7 @@ function kitOf(row: RowOf<'contextKits'>): ContextKit {
 }
 
 function kitVersionOf(row: RowOf<'contextKitVersions'>): ContextKitVersion {
+  const assetHashes = hashesOf(row.assetHashes)
   const base = {
     id: String(row.id),
     kitId: String(row.kitId ?? ''),
@@ -164,7 +219,10 @@ function kitVersionOf(row: RowOf<'contextKitVersions'>): ContextKitVersion {
         : 1,
     guide: textOf(row.guide),
     facts: factsOf(row.facts),
-    assetHashes: hashesOf(row.assetHashes),
+    assetHashes,
+    resources: resourcesOf(row.resources, assetHashes),
+    colors: colorsOf(row.colors),
+    fonts: fontsOf(row.fonts),
     createdAt: Number(row.createdAt ?? 0),
   }
   return {
@@ -346,6 +404,9 @@ export function createContextRepository(storage: StoragePort): ContextRepository
         guide: textOf(input.guide),
         facts: factsOf(input.facts),
         assetHashes: hashesOf(input.assetHashes),
+        resources: resourcesOf(input.resources, hashesOf(input.assetHashes)),
+        colors: colorsOf(input.colors),
+        fonts: fontsOf(input.fonts),
       }
       const version: ContextKitVersion = {
         id: createId('kitver'),
@@ -392,6 +453,23 @@ export function createContextRepository(storage: StoragePort): ContextRepository
               input.assetHashes !== undefined
                 ? hashesOf(input.assetHashes)
                 : previous?.assetHashes ?? [],
+            resources:
+              input.resources !== undefined
+                ? resourcesOf(
+                    input.resources,
+                    input.assetHashes !== undefined
+                      ? hashesOf(input.assetHashes)
+                      : input.resources.map((resource) => resource.hash),
+                  )
+                : previous?.resources ?? [],
+            colors:
+              input.colors !== undefined
+                ? colorsOf(input.colors)
+                : previous?.colors ?? [],
+            fonts:
+              input.fonts !== undefined
+                ? fontsOf(input.fonts)
+                : previous?.fonts ?? [],
           }
           const version: ContextKitVersion = {
             id: createId('kitver'),

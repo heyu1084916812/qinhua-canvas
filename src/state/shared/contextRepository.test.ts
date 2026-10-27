@@ -73,6 +73,70 @@ describe('context repository', () => {
     ])
   })
 
+  it('★ 品牌套件保存 Logo、颜色和字体分区，并兼容旧版本', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    const created = await repo.createKit({
+      kind: 'brand',
+      name: '品牌 B',
+      guide: '克制的网格系统',
+      facts: [{ key: '自定义说明', value: '保留旧事实' }],
+      assetHashes: ['logo-hash', 'reference-hash'],
+      resources: [
+        { hash: 'logo-hash', role: 'logo', name: '主 Logo' },
+        { hash: 'reference-hash', role: 'reference', name: '空间参考' },
+      ],
+      colors: [{ id: 'color-1', name: '主色', value: '#14532d' }],
+      fonts: [{ id: 'font-1', name: '思源黑体', detail: '标题 700' }],
+    })
+
+    expect(created.version.resources).toEqual([
+      { hash: 'logo-hash', role: 'logo', name: '主 Logo' },
+      { hash: 'reference-hash', role: 'reference', name: '空间参考' },
+    ])
+    expect(created.version.colors).toEqual([
+      { id: 'color-1', name: '主色', value: '#14532d' },
+    ])
+    expect(created.version.fonts).toEqual([
+      { id: 'font-1', name: '思源黑体', detail: '标题 700' },
+    ])
+
+    await repo.saveKitVersion(created.kit.id, { guide: '新指南' })
+    const [latest] = await repo.listKitVersions(created.kit.id)
+    expect(latest?.resources).toEqual(created.version.resources)
+    expect(latest?.colors).toEqual(created.version.colors)
+    expect(latest?.fonts).toEqual(created.version.fonts)
+  })
+
+  it('★ 旧版套件没有资源角色字段时，素材仍按参考素材读回', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    await platform.storage.put('contextKits', {
+      id: 'legacy-kit',
+      kind: 'brand',
+      name: '旧品牌',
+      currentVersion: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await platform.storage.put('contextKitVersions', {
+      id: 'legacy-version',
+      kitId: 'legacy-kit',
+      version: 1,
+      guide: '旧指南',
+      facts: [],
+      assetHashes: ['legacy-logo'],
+      createdAt: 1,
+    })
+
+    const [version] = await repo.listKitVersions('legacy-kit')
+    expect(version?.resources).toEqual([
+      { hash: 'legacy-logo', role: 'reference', name: '' },
+    ])
+    expect(version?.colors).toEqual([])
+    expect(version?.fonts).toEqual([])
+  })
+
   it('★ 解绑和删除项目绑定只影响当前项目', async () => {
     const platform = createMemoryPlatform()
     const repo = createContextRepository(platform.storage)
