@@ -1,5 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### LibTV 正文漏映射恢复（2026-10-27 → 对账 #778）
+
+- **成功导出不等于成功发布**：原始 `_manifest.json` 记录 `saved: 759`，旧 public catalog 只映射
+  `704` 条。原因是用技能名、净化文件名和正文相等去猜源文件，遇到名称净化、重名或相似正文会漏。
+- **恢复唯一键必须是 UUID**：`templateUuid/sourceId` 对应 `_manifest.json` 的
+  `file + primaryPath + extraFiles`；主文件映射 `SKILL.md`，附件只剥掉 `<技能名>_附件/` 前缀。
+  不允许再用名称或内容相似度。当前 759 条清单正文 + 5 条清单外现存正文 = **764 条**。
+- **不能伪造公开信息条目的正文**：剩余 708 条源站 detail 本身没有主正文，继续 `bodyFile:null`；
+  将来只有源站提供正文或用户提供合法导出时才重导。
+- **验证**：`node scripts/import-libtv-body-source.mjs` 可重放；
+  `node scripts/check-libtv-catalog.mjs` 固定校验 1472 目录 / 764 正文 / 2212 个 Markdown /
+  200 个多文件技能 / 16 分片，所有正文非空。
+
 ### Agent 与记忆的写入边界及输入框盒模型（2026-10-27 → 对账 #777）
 
 - **个人记忆不是自动聊天记忆**：`contextMemories` 只在用户主动输入并点击“保存记忆”后写入；

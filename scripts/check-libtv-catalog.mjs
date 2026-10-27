@@ -9,8 +9,8 @@ const items = Array.isArray(catalog.items) ? catalog.items : []
 const withBody = items.filter((item) => typeof item.bodyFile === 'string' && item.bodyFile)
 
 if (items.length !== 1472) throw new Error(`LibTV 目录应为 1472 条，实际 ${items.length}`)
-if (catalog.bodyCount !== 704) throw new Error(`LibTV 正文计数应为 704，实际 ${catalog.bodyCount}`)
-if (withBody.length !== 704) throw new Error(`带正文的目录应为 704 条，实际 ${withBody.length}`)
+if (catalog.bodyCount !== 764) throw new Error(`LibTV 正文计数应为 764，实际 ${catalog.bodyCount}`)
+if (withBody.length !== 764) throw new Error(`带正文的目录应为 764 条，实际 ${withBody.length}`)
 
 if (!existsSync(bodyDir)) throw new Error('缺少 LibTV 正文分片目录')
 const bodyKeys = new Set()

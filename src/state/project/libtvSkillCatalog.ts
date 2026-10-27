@@ -15,14 +15,14 @@ interface LibtvCatalogFile {
   items: LibtvSkill[]
 }
 
-export const LIBTV_CATALOG_TOTAL = 704
-export const LIBTV_BODY_TOTAL = 704
+export const LIBTV_CATALOG_TOTAL = 764
+export const LIBTV_BODY_TOTAL = 764
 
 let catalogPromise: Promise<LibtvSkill[]> | null = null
 
 /**
  * 目录和正文都在 `public/libtv-skills/`，不能在启动模块里 import 2MB JSON
- * 或 704 份 Markdown。开发期那样会让 Vite 把整个目录图卷进首屏转换，
+ * 或 764 份 Markdown。开发期那样会让 Vite 把整个目录图卷进首屏转换，
  * 表现为技能页打开很慢、CPU 满载；桌面壳随后可能被连带拖死。
  */
 export async function loadLibtvCatalog(): Promise<LibtvSkill[]> {
