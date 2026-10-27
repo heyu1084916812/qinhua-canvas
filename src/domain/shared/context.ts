@@ -304,7 +304,7 @@ function normalizedStructuredLines(version: ContextKitVersion): string[] {
   ).length
   if (logoCount > 0 || referenceCount > 0) {
     lines.push(
-      `品牌素材：Logo ${logoCount} 张，参考素材 ${referenceCount} 张`,
+      `套件素材：主素材 ${logoCount} 张，参考素材 ${referenceCount} 张`,
     )
   }
   return lines
@@ -579,8 +579,8 @@ export function formatContextBundleForPrompt(bundle: ContextBundle): string {
     parts.push(
       [
         '## 套件参考素材',
-        `本轮附带 ${bundle.assetHashes.length} 张品牌 / 产品参考素材。`,
-        '先用这些素材核对 Logo、产品结构和视觉身份，再写生成提示词。',
+        `本轮附带 ${bundle.assetHashes.length} 张品牌 / 产品 / 角色 / 自定义套件素材。`,
+        '先用这些素材核对标志、产品结构、角色身份和视觉规范，再写生成提示词。',
       ].join('\n'),
     )
   }

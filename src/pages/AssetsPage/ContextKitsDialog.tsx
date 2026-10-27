@@ -33,10 +33,52 @@ import {
 } from '../../domain/ui/fonts'
 import styles from './ContextKitsDialog.module.css'
 
-const KIT_KINDS: { value: Extract<ContextKitKind, 'brand' | 'product'>; label: string }[] = [
+const KIT_KINDS: { value: ContextKitKind; label: string }[] = [
   { value: 'brand', label: '品牌套件' },
   { value: 'product', label: '产品套件' },
+  { value: 'role', label: '角色套件' },
+  { value: 'custom', label: '自定义套件' },
 ]
+
+const KIT_COPY: Record<
+  ContextKitKind,
+  {
+    namePlaceholder: string
+    guideLabel: string
+    guidePlaceholder: string
+    primaryAssetLabel: string
+    primaryAssetHint: string
+  }
+> = {
+  brand: {
+    namePlaceholder: '未命名品牌套件',
+    guideLabel: '品牌设计指南',
+    guidePlaceholder: '写下品牌语气、版式原则、使用场景和明确的禁区。',
+    primaryAssetLabel: 'Logo',
+    primaryAssetHint: '添加品牌标志或字标',
+  },
+  product: {
+    namePlaceholder: '未命名产品套件',
+    guideLabel: '产品资料',
+    guidePlaceholder: '写下产品结构、材质、外观特征和不可改变的关键细节。',
+    primaryAssetLabel: '产品标志',
+    primaryAssetHint: '添加产品标志或关键识别图',
+  },
+  role: {
+    namePlaceholder: '未命名角色套件',
+    guideLabel: '角色设定',
+    guidePlaceholder: '写下身份、外观、服装、体型和跨画面必须保持一致的细节。',
+    primaryAssetLabel: '角色主图',
+    primaryAssetHint: '添加角色定妆图或身份基准图',
+  },
+  custom: {
+    namePlaceholder: '未命名自定义套件',
+    guideLabel: '套件指南',
+    guidePlaceholder: '写下这套内容需要长期保持的规范、事实和视觉约束。',
+    primaryAssetLabel: '主素材',
+    primaryAssetHint: '添加这套内容的主参考图',
+  },
+}
 
 const MAX_ASSET_BYTES = 20 * 1024 * 1024
 const COLOR_FACT_PREFIX = '颜色/'
@@ -157,7 +199,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
   const fontLibrary = useFonts()
   const contextRepo = useMemo(() => createContextRepository(platform.storage), [platform])
   const projectRepo = useMemo(() => createProjectRepository(platform.storage), [platform])
-  const [kind, setKind] = useState<'brand' | 'product'>('brand')
+  const [kind, setKind] = useState<ContextKitKind>('brand')
   const [kits, setKits] = useState<ContextKit[]>([])
   const [versions, setVersions] = useState<Record<string, ContextKitVersion[]>>({})
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
@@ -212,6 +254,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
   }, [contextRepo, projectId])
 
   const visibleKits = kits.filter((kit) => kit.kind === kind)
+  const copy = KIT_COPY[kind]
   const selectedKit = visibleKits.find((kit) => kit.id === selectedId) ?? null
   const boundVersion = selectedKit ? bindings[selectedKit.id] : undefined
   const logoResources = draft.resources.filter((resource) => resource.role === 'logo')
@@ -238,7 +281,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
     setRenamingFontId(null)
   }
 
-  const changeKind = (nextKind: 'brand' | 'product') => {
+  const changeKind = (nextKind: ContextKitKind) => {
     setKind(nextKind)
     resetDraft()
   }
@@ -621,7 +664,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
                 <input
                   className={styles.nameInput}
                   value={draft.name}
-                  placeholder={kind === 'brand' ? '未命名品牌套件' : '未命名产品套件'}
+                  placeholder={copy.namePlaceholder}
                   aria-label="套件名称"
                   data-context-kit-name
                   disabled={Boolean(selectedKit)}
@@ -657,7 +700,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
 
             <p className={styles.usageHint}>
               本项目内的 Agent 和文本生成会读取固定版本：设计指南、颜色和字体作为约束，
-              Logo 与参考图片作为真实视觉输入。
+              主素材与参考图片作为真实视觉输入。
             </p>
 
             <div
@@ -708,7 +751,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
                 <div className={styles.urlRow}>
                   <input
                     value={urlDraft}
-                    placeholder="https://example.com/brand.jpg"
+                    placeholder="https://example.com/reference.jpg"
                     aria-label="图片网址"
                     onChange={(event) => setUrlDraft(event.target.value)}
                     onKeyDown={(event) => {
@@ -729,12 +772,12 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
 
             <section className={styles.section}>
               <div className={styles.sectionHead}>
-                <h3>设计指南</h3>
+                <h3>{copy.guideLabel}</h3>
               </div>
               <textarea
                 className={styles.guide}
                 value={draft.guide}
-                placeholder="写下品牌语气、版式原则、使用场景和明确的禁区。这里是一份可执行的视觉说明。"
+                placeholder={copy.guidePlaceholder}
                 data-context-kit-guide
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, guide: event.target.value }))
@@ -744,7 +787,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
 
             <section className={styles.section}>
               <div className={styles.sectionHead}>
-                <h3>Logo</h3>
+                <h3>{copy.primaryAssetLabel}</h3>
                 <button
                   type="button"
                   className={styles.addButton}
@@ -766,7 +809,7 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               ) : (
-                <div className={styles.sectionEmpty}>添加品牌标志或字标</div>
+                <div className={styles.sectionEmpty}>{copy.primaryAssetHint}</div>
               )}
             </section>
 

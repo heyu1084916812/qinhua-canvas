@@ -658,13 +658,18 @@ export function createContextRepository(storage: StoragePort): ContextRepository
         createdAt: at,
         updatedAt: at,
       }
+      const assetHashes = hashesOf(input.assetHashes)
+      const resources = resourcesOf(input.resources, assetHashes)
+      const versionAssetHashes = [
+        ...new Set([...assetHashes, ...resources.map((resource) => resource.hash)]),
+      ]
       const versionBase = {
         kitId: kit.id,
         version: 1,
         guide: textOf(input.guide),
         facts: factsOf(input.facts),
-        assetHashes: hashesOf(input.assetHashes),
-        resources: resourcesOf(input.resources, hashesOf(input.assetHashes)),
+        assetHashes: versionAssetHashes,
+        resources,
         colors: colorsOf(input.colors),
         fonts: fontsOf(input.fonts),
       }
@@ -698,6 +703,20 @@ export function createContextRepository(storage: StoragePort): ContextRepository
             .sort((left, right) => right.version - left.version)[0]
           const at = Date.now()
           const versionNumber = current.currentVersion + 1
+          const inputAssetHashes =
+            input.assetHashes !== undefined
+              ? hashesOf(input.assetHashes)
+              : previous?.assetHashes ?? []
+          const inputResources =
+            input.resources !== undefined
+              ? resourcesOf(input.resources, inputAssetHashes)
+              : previous?.resources ?? []
+          const assetHashes = [
+            ...new Set([
+              ...inputAssetHashes,
+              ...inputResources.map((resource) => resource.hash),
+            ]),
+          ]
           const base = {
             kitId,
             version: versionNumber,
@@ -709,19 +728,8 @@ export function createContextRepository(storage: StoragePort): ContextRepository
               input.facts !== undefined
                 ? factsOf(input.facts)
                 : previous?.facts ?? [],
-            assetHashes:
-              input.assetHashes !== undefined
-                ? hashesOf(input.assetHashes)
-                : previous?.assetHashes ?? [],
-            resources:
-              input.resources !== undefined
-                ? resourcesOf(
-                    input.resources,
-                    input.assetHashes !== undefined
-                      ? hashesOf(input.assetHashes)
-                      : input.resources.map((resource) => resource.hash),
-                  )
-                : previous?.resources ?? [],
+            assetHashes,
+            resources: inputResources,
             colors:
               input.colors !== undefined
                 ? colorsOf(input.colors)

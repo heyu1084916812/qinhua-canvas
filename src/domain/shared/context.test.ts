@@ -126,8 +126,53 @@ describe('ContextBundle', () => {
     expect(bundle.hardConstraints.join('\n')).toContain('深绿')
     expect(bundle.hardConstraints.join('\n')).toContain('颜色 主色：#14532d')
     expect(bundle.hardConstraints.join('\n')).toContain('字体 思源黑体：标题 700')
-    expect(bundle.hardConstraints.join('\n')).toContain('Logo 1 张')
+    expect(bundle.hardConstraints.join('\n')).toContain('主素材 1 张')
     expect(bundle.hardConstraints.join('\n')).not.toContain('新版品牌要求')
+  })
+
+  it('★★ 角色与自定义套件按项目绑定版本进入同一 ContextBundle', () => {
+    const roleKit = kit({ id: 'kit-role', kind: 'role', name: '主角小满' })
+    const customKit = kit({ id: 'kit-custom', kind: 'custom', name: '品牌活动规范' })
+    const roleVersion = version({
+      id: 'role-v1',
+      kitId: roleKit.id,
+      guide: '小满始终穿橙色雨衣，左眉有一颗痣。',
+      facts: [],
+      assetHashes: ['role-reference'],
+      resources: [{ hash: 'role-reference', role: 'reference', name: '小满定妆图' }],
+      colors: [],
+      fonts: [],
+    })
+    const customVersion = version({
+      id: 'custom-v1',
+      kitId: customKit.id,
+      guide: '活动画面统一使用无衬线标题和左侧大留白。',
+      facts: [{ key: '活动名', value: '春日计划' }],
+      assetHashes: [],
+      resources: [],
+      colors: [],
+      fonts: [],
+    })
+    const bundle = assembleContextBundle({
+      request: '继续做第二张',
+      scope: { workbench: 'storyboard', projectId: 'p1' },
+      memories: [],
+      memoryRevisions: [],
+      kits: [roleKit, customKit],
+      kitVersions: [roleVersion, customVersion],
+      bindings: [
+        binding({ id: 'role-binding', kitId: roleKit.id }),
+        binding({ id: 'custom-binding', kitId: customKit.id }),
+      ],
+    })
+
+    expect(bundle.kitVersionRefs).toEqual([
+      { kitId: roleKit.id, version: 1 },
+      { kitId: customKit.id, version: 1 },
+    ])
+    expect(bundle.assetHashes).toEqual(['role-reference'])
+    expect(bundle.hardConstraints.join('\n')).toContain('橙色雨衣')
+    expect(bundle.hardConstraints.join('\n')).toContain('左侧大留白')
   })
 
   it('★ 不同套件里的同名事实冲突会解释来源，不会静默选一个', () => {

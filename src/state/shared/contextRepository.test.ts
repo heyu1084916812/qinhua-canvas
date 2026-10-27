@@ -225,6 +225,51 @@ describe('context repository', () => {
     expect(latest?.fonts).toEqual(created.version.fonts)
   })
 
+  it('★★ 角色与自定义套件可分类创建、读回和绑定项目', async () => {
+    const platform = createMemoryPlatform()
+    const repo = createContextRepository(platform.storage)
+    const role = await repo.createKit({
+      kind: 'role',
+      name: '主角小满',
+      guide: '橙色雨衣，左眉有一颗痣。',
+      resources: [
+        { hash: 'role-main', role: 'logo', name: '角色定妆图' },
+      ],
+    })
+    const custom = await repo.createKit({
+      kind: 'custom',
+      name: '活动规范',
+      guide: '标题使用无衬线字体，画面保持左侧留白。',
+    })
+
+    expect((await repo.listKits('role')).map((kit) => kit.id)).toEqual([role.kit.id])
+    expect((await repo.listKits('custom')).map((kit) => kit.id)).toEqual([custom.kit.id])
+    expect((await repo.listKits('brand')).map((kit) => kit.id)).not.toContain(role.kit.id)
+
+    await repo.bindProject({
+      projectId: 'p1',
+      kitId: role.kit.id,
+      kitVersion: 1,
+    })
+    await repo.bindProject({
+      projectId: 'p1',
+      kitId: custom.kit.id,
+      kitVersion: 1,
+    })
+    const bundle = await repo.bundleForProject({
+      projectId: 'p1',
+      workbench: 'storyboard',
+      request: '继续做下一镜',
+    })
+    expect(bundle.kitVersionRefs).toEqual([
+      { kitId: role.kit.id, version: 1 },
+      { kitId: custom.kit.id, version: 1 },
+    ])
+    expect(bundle.assetHashes).toEqual(['role-main'])
+    expect(bundle.hardConstraints.join('\n')).toContain('橙色雨衣')
+    expect(bundle.hardConstraints.join('\n')).toContain('左侧留白')
+  })
+
   it('★ 旧版套件没有资源角色字段时，素材仍按参考素材读回', async () => {
     const platform = createMemoryPlatform()
     const repo = createContextRepository(platform.storage)
