@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from 'react'
 import { usePlatform } from './PlatformProvider'
-import { createFontStore, type FontStore } from '../../state/project/fontStore'
+import {
+  createFontStore,
+  type AddFontResult,
+  type FontStore,
+} from '../../state/project/fontStore'
 import {
   accentTokens,
   DEFAULT_APPEARANCE,
@@ -81,6 +85,14 @@ export interface FontApi {
     weight?: FontWeight
     family?: string
   }) => Promise<{ ok: true } | { ok: false; reason: string }>
+  /** 只导入字体文件并注册，不自动切换界面字体。品牌套件等处使用。 */
+  importFont: (file: {
+    name: string
+    size: number
+    bytes: ArrayBuffer
+    weight?: FontWeight
+    family?: string
+  }) => Promise<AddFontResult>
   removeFont: (id: string) => Promise<void>
   renameFont: (id: string, name: string) => Promise<void>
   /** 选一个界面字族；字体不存在时调用方应当回落系统（这里也会兜底） */
@@ -213,13 +225,28 @@ export function FontProvider({ children }: { children?: ReactNode }) {
     writeAppearance(next)
   }, [])
 
+  const importFont = useCallback(
+    async (file: {
+      name: string
+      size: number
+      bytes: ArrayBuffer
+      weight?: FontWeight
+      family?: string
+    }): Promise<AddFontResult> => {
+      const result = await store.add(file)
+      if (result.ok) await reload()
+      return result
+    },
+    [reload, store],
+  )
+
   const api = useMemo<FontApi>(
     () => ({
       fonts,
       loading,
       appearance,
       addFont: async (file) => {
-        const result = await store.add(file)
+        const result = await importFont(file)
         if (!result.ok) return result
         const list = await store.list()
         setFonts(list)
@@ -234,6 +261,7 @@ export function FontProvider({ children }: { children?: ReactNode }) {
         persist({ ...appearance, font: { kind: 'custom', fontId: regular.id } })
         return { ok: true }
       },
+      importFont,
       removeFont: async (id) => {
         const target = fonts.find((f) => f.id === id)
         await store.remove(id)
@@ -264,7 +292,7 @@ export function FontProvider({ children }: { children?: ReactNode }) {
       setShowMinimap: (showMinimap) => persist({ ...appearance, showMinimap }),
       reset: () => persist({ ...DEFAULT_APPEARANCE }),
     }),
-    [appearance, fonts, loading, persist, reload, store],
+    [appearance, fonts, importFont, loading, persist, reload, store],
   )
 
   return <FontContext.Provider value={api}>{children}</FontContext.Provider>

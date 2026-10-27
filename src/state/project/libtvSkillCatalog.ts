@@ -1,6 +1,7 @@
 import {
   LIBTV_CATEGORIES,
   libtvCategoryOf,
+  libtvHasBody,
   type LibtvCategory,
   type LibtvSkill,
   type LibtvSkillFile,
@@ -14,7 +15,7 @@ interface LibtvCatalogFile {
   items: LibtvSkill[]
 }
 
-export const LIBTV_CATALOG_TOTAL = 1472
+export const LIBTV_CATALOG_TOTAL = 704
 export const LIBTV_BODY_TOTAL = 704
 
 let catalogPromise: Promise<LibtvSkill[]> | null = null
@@ -32,7 +33,13 @@ export async function loadLibtvCatalog(): Promise<LibtvSkill[]> {
     })
     if (!response.ok) throw new Error(`LibTV 技能目录读取失败（HTTP ${response.status}）`)
     const catalog = (await response.json()) as LibtvCatalogFile
-    return Array.isArray(catalog.items) ? catalog.items : []
+    const items = Array.isArray(catalog.items) ? catalog.items : []
+    /**
+     * 目录里的案例描述不是可执行技能正文。用户要的是“能直接用于 Agent 的
+     * Skill 库”，所以只在浏览层暴露带 `bodyFile` 的条目；原始目录仍保留在
+     * public 资源里，避免删错正文或以后无法追溯。
+     */
+    return items.filter(libtvHasBody)
   })()
   try {
     return await catalogPromise

@@ -1,6 +1,7 @@
 import type { ModelCapability } from '../../domain/shared/capability'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import type { SafeChannelConfig } from '../ports'
+import type { RemoteTextResponse } from '../ports'
 import {
   ChannelError,
   type ChannelAdapter,
@@ -22,6 +23,77 @@ import { prepareModelImageInput } from './chatImageInput'
 
 export interface OpenAiChatConfig extends SafeChannelConfig {
   apiKey: string | null
+}
+
+interface TextHttpResponse {
+  status: number
+  headers: Record<string, string>
+  text(): Promise<string>
+  json<T>(): Promise<T>
+}
+
+function nativeTextResponse(response: RemoteTextResponse): TextHttpResponse {
+  return {
+    status: response.status,
+    headers: response.headers,
+    async text() {
+      return response.text
+    },
+    async json<T>() {
+      return JSON.parse(response.text) as T
+    },
+  }
+}
+
+/**
+ * 聊天 POST 在桌面壳里优先走原生 HTTP。
+ *
+ * 很多自建中转会直接拒绝 OPTIONS（实测 workbuddy 返回 405，且没有 CORS 头），
+ * WebView 因而在预检阶段就失败；这类 POST 又不能像 GET 那样在失败后安全重发，
+ * 否则可能产生第二笔付费请求。故有原生 HTTP 时只走这一条，不在浏览器与壳之间
+ * “失败一次再试一次”。
+ */
+async function postTextRequest(
+  deps: ChannelDeps,
+  request: {
+    url: string
+    headers: Record<string, string>
+    body: Record<string, unknown>
+    timeoutMs: number
+  },
+  signal: AbortSignal,
+): Promise<TextHttpResponse> {
+  if (!deps.remoteBytes?.request) {
+    return deps.network.request(
+      {
+        url: request.url,
+        method: 'POST',
+        headers: request.headers,
+        body: request.body,
+        timeoutMs: request.timeoutMs,
+      },
+      signal,
+    )
+  }
+  if (signal.aborted) {
+    throw new ChannelError({ kind: 'network', detail: 'aborted', sendPhase: 'not-sent' })
+  }
+  try {
+    const response = await deps.remoteBytes.request({
+      url: request.url,
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      timeoutMs: request.timeoutMs,
+    })
+    if (signal.aborted) {
+      throw new ChannelError({ kind: 'network', detail: 'aborted', sendPhase: 'unknown' })
+    }
+    return nativeTextResponse(response)
+  } catch (error) {
+    if (error instanceof ChannelError) throw error
+    throw new ChannelError(classifyError(error).error)
+  }
 }
 
 interface ComflyCatalogModel {
@@ -433,10 +505,10 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       ? request.messages.map((m, i) => toOpenAiMessage(m, i === lastUserIndex))
       : [{ role: 'user', content }]
 
-    const res = await deps.network.request(
+    const res = await postTextRequest(
+      deps,
       {
         url: chatUrl,
-        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
         body: {
           model: request.model,
@@ -485,10 +557,10 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         geminiNativeRequired(res.status, detail)
       ) {
         const root = openAiBaseUrl(config).replace(/\/v\d+$/i, '')
-        const nativeRes = await deps.network.request(
+        const nativeRes = await postTextRequest(
+          deps,
           {
             url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
-            method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
             body: geminiNativeBody(request, parts),
             timeoutMs: request.timeoutMs ?? CHAT_TIMEOUT_MS,

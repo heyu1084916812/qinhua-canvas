@@ -87,7 +87,16 @@ describe('context repository', () => {
         { hash: 'reference-hash', role: 'reference', name: '空间参考' },
       ],
       colors: [{ id: 'color-1', name: '主色', value: '#14532d' }],
-      fonts: [{ id: 'font-1', name: '思源黑体', detail: '标题 700' }],
+      fonts: [
+        {
+          id: 'font-1',
+          name: '思源黑体',
+          detail: '标题 700',
+          fontId: 'font_real_1',
+          format: 'woff2',
+          size: 1024,
+        },
+      ],
     })
 
     expect(created.version.resources).toEqual([
@@ -98,7 +107,14 @@ describe('context repository', () => {
       { id: 'color-1', name: '主色', value: '#14532d' },
     ])
     expect(created.version.fonts).toEqual([
-      { id: 'font-1', name: '思源黑体', detail: '标题 700' },
+      {
+        id: 'font-1',
+        name: '思源黑体',
+        detail: '标题 700',
+        fontId: 'font_real_1',
+        format: 'woff2',
+        size: 1024,
+      },
     ])
 
     await repo.saveKitVersion(created.kit.id, { guide: '新指南' })

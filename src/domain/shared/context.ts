@@ -62,6 +62,10 @@ export interface ContextKitFont {
   id: string
   name: string
   detail: string
+  /** 引用本机 `fonts` 表中的真实字体文件；旧记录可以没有。 */
+  fontId?: string
+  format?: string
+  size?: number
 }
 
 export interface ContextKitVersion {
@@ -175,6 +179,9 @@ export function contextKitVersionChecksum(input: {
           id: font.id.trim(),
           name: font.name.trim(),
           detail: font.detail.trim(),
+          fontId: font.fontId?.trim() ?? '',
+          format: font.format?.trim() ?? '',
+          size: font.size ?? 0,
         }))
         .filter((font) => font.id && font.name)
         .sort((left, right) => left.id.localeCompare(right.id)),

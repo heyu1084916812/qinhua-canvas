@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { useFonts } from '../../app/providers/FontProvider'
 import type {
   ContextKit,
   ContextKitAsset,
@@ -24,6 +25,12 @@ import { ChoicePicker } from '../../features/shared/choicePicker/ChoicePicker'
 import { ColorPickerPopover } from '../../features/shared/colorPicker/ColorPickerPopover'
 import { readableTextColor } from '../../features/shared/colorPicker/colorMath'
 import { useAsset } from '../../features/shared/assets'
+import {
+  FONT_COUNT_MAX,
+  FONT_FORMATS,
+  FONT_SIZE_MAX,
+  type UserFont,
+} from '../../domain/ui/fonts'
 import styles from './ContextKitsDialog.module.css'
 
 const KIT_KINDS: { value: Extract<ContextKitKind, 'brand' | 'product'>; label: string }[] = [
@@ -147,6 +154,7 @@ function ContextAssetThumb({
 
 export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
   const platform = usePlatform()
+  const fontLibrary = useFonts()
   const contextRepo = useMemo(() => createContextRepository(platform.storage), [platform])
   const projectRepo = useMemo(() => createProjectRepository(platform.storage), [platform])
   const [kind, setKind] = useState<'brand' | 'product'>('brand')
@@ -164,10 +172,14 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
   const [urlDraft, setUrlDraft] = useState('')
   const [colorNameDraft, setColorNameDraft] = useState('')
   const [lastColor, setLastColor] = useState('#9acd32')
-  const [fontOpen, setFontOpen] = useState(false)
-  const [fontNameDraft, setFontNameDraft] = useState('')
-  const [fontDetailDraft, setFontDetailDraft] = useState('')
+  const [fontAddOpen, setFontAddOpen] = useState(false)
+  const [fontLibraryOpen, setFontLibraryOpen] = useState(false)
+  const [fontBusy, setFontBusy] = useState(false)
+  const [renamingFontId, setRenamingFontId] = useState<string | null>(null)
+  const [fontRenameDraft, setFontRenameDraft] = useState('')
   const dropDepth = useRef(0)
+  const fontFileRef = useRef<HTMLInputElement | null>(null)
+  const replaceFontIdRef = useRef<string | null>(null)
 
   const refresh = async () => {
     const [nextKits, nextProjects] = await Promise.all([
@@ -211,7 +223,9 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
     setStatus('')
     setUrlOpen(false)
     setUrlDraft('')
-    setFontOpen(false)
+    setFontAddOpen(false)
+    setFontLibraryOpen(false)
+    setRenamingFontId(null)
   }
 
   const selectKit = (kit: ContextKit) => {
@@ -219,7 +233,9 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
     setDraft(draftFromVersion(kit, versions[kit.id]?.[0] ?? null))
     setStatus('')
     setUrlOpen(false)
-    setFontOpen(false)
+    setFontAddOpen(false)
+    setFontLibraryOpen(false)
+    setRenamingFontId(null)
   }
 
   const changeKind = (nextKind: 'brand' | 'product') => {
@@ -433,18 +449,95 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
     setLastColor(value)
   }
 
-  const addFont = () => {
-    const name = fontNameDraft.trim()
-    if (!name) return
-    const font: ContextKitFont = {
-      id: createId('kitfont'),
-      name,
-      detail: fontDetailDraft.trim(),
+  const addFontEntry = (font: UserFont, replaceId?: string) => {
+    const entry: ContextKitFont = {
+      id: replaceId ?? createId('kitfont'),
+      name: font.name,
+      detail: font.weight === 700 ? '粗体 700' : '常规体 400',
+      fontId: font.id,
+      format: font.format,
+      size: font.size,
     }
-    setDraft((current) => ({ ...current, fonts: [...current.fonts, font] }))
-    setFontNameDraft('')
-    setFontDetailDraft('')
-    setFontOpen(false)
+    setDraft((current) => {
+      if (replaceId && current.fonts.some((item) => item.id === replaceId)) {
+        return {
+          ...current,
+          fonts: current.fonts.map((item) => (item.id === replaceId ? entry : item)),
+        }
+      }
+      const duplicate = current.fonts.some(
+        (item) => item.fontId && item.fontId === font.id,
+      )
+      return duplicate ? current : { ...current, fonts: [...current.fonts, entry] }
+    })
+  }
+
+  const addFontFromLibrary = (font: UserFont) => {
+    const duplicate = draft.fonts.some((item) => item.fontId === font.id)
+    if (duplicate) {
+      setStatus('这个字体已经在套件里')
+      return
+    }
+    addFontEntry(font)
+    setFontLibraryOpen(false)
+    setFontAddOpen(false)
+    setStatus(`已从字体库添加「${font.name}」`)
+  }
+
+  const pickFontFile = (replaceId?: string) => {
+    replaceFontIdRef.current = replaceId ?? null
+    fontFileRef.current?.click()
+  }
+
+  const importFontFile = async (file: File | undefined) => {
+    if (!file || fontBusy) return
+    const replaceId = replaceFontIdRef.current ?? undefined
+    setFontBusy(true)
+    setStatus('')
+    try {
+      const bytes = await file.arrayBuffer()
+      const result = await fontLibrary.importFont({
+        name: file.name,
+        size: file.size,
+        bytes,
+      })
+      if (!result.ok) {
+        setStatus(result.reason)
+        return
+      }
+      addFontEntry(result.font, replaceId)
+      setFontLibraryOpen(false)
+      setFontAddOpen(false)
+      setStatus(
+        replaceId
+          ? `已替换为「${result.font.name}」`
+          : `已上传「${result.font.name}」`,
+      )
+    } catch {
+      setStatus('读不到这个字体文件，请重新选择')
+    } finally {
+      setFontBusy(false)
+      replaceFontIdRef.current = null
+      if (fontFileRef.current) fontFileRef.current.value = ''
+    }
+  }
+
+  const beginFontRename = (font: ContextKitFont) => {
+    setRenamingFontId(font.id)
+    setFontRenameDraft(font.name)
+  }
+
+  const commitFontRename = (fontId: string) => {
+    const name = fontRenameDraft.trim()
+    if (!name) return
+    setDraft((current) => ({
+      ...current,
+      fonts: current.fonts.map((font) =>
+        font.id === fontId ? { ...font, name } : font,
+      ),
+    }))
+    setRenamingFontId(null)
+    setFontRenameDraft('')
   }
 
   return (
@@ -561,6 +654,11 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             </div>
+
+            <p className={styles.usageHint}>
+              本项目内的 Agent 和文本生成会读取固定版本：设计指南、颜色和字体作为约束，
+              Logo 与参考图片作为真实视觉输入。
+            </p>
 
             <div
               className={dragging ? styles.dropzoneOn : styles.dropzone}
@@ -755,73 +853,151 @@ export function ContextKitsDialog({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   className={styles.addButton}
-                  aria-expanded={fontOpen}
+                  aria-expanded={fontAddOpen}
                   data-context-font-add
-                  onClick={() => setFontOpen((current) => !current)}
+                  onClick={() => setFontAddOpen((current) => !current)}
                 >
                   <span aria-hidden>+</span> 添加
                 </button>
               </div>
-              {fontOpen ? (
-                <div className={styles.fontForm}>
-                  <input
-                    autoFocus
-                    value={fontNameDraft}
-                    placeholder="字体名称，例如思源黑体"
-                    aria-label="字体名称"
-                    data-context-font-name
-                    onChange={(event) => setFontNameDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') addFont()
-                      if (event.key === 'Escape') setFontOpen(false)
-                    }}
-                  />
-                  <input
-                    value={fontDetailDraft}
-                    placeholder="用途或字重，例如标题 700、正文 400（可选）"
-                    aria-label="字体用途"
-                    data-context-font-detail
-                    onChange={(event) => setFontDetailDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') addFont()
-                      if (event.key === 'Escape') setFontOpen(false)
-                    }}
-                  />
+              <input
+                ref={fontFileRef}
+                type="file"
+                accept={FONT_FORMATS.map((format) => `.${format}`).join(',')}
+                hidden
+                data-context-font-file
+                onChange={(event) => void importFontFile(event.target.files?.[0])}
+              />
+              {fontAddOpen ? (
+                <div className={styles.fontAddChoices} data-context-font-add-menu>
                   <button
                     type="button"
-                    disabled={!fontNameDraft.trim()}
-                    data-context-font-confirm
-                    onClick={addFont}
+                    data-context-font-library
+                    onClick={() => {
+                      setFontLibraryOpen((current) => !current)
+                    }}
                   >
-                    添加
+                    从字体库选择
                   </button>
+                  <button
+                    type="button"
+                    data-context-font-upload
+                    disabled={fontBusy || fontLibrary.fonts.length >= FONT_COUNT_MAX}
+                    onClick={() => pickFontFile()}
+                  >
+                    {fontBusy ? '正在上传…' : '上传字体文件'}
+                  </button>
+                  <span>
+                    支持 {FONT_FORMATS.join(' / ')}，单文件不超过{' '}
+                    {FONT_SIZE_MAX / 1024 / 1024}MB
+                  </span>
+                </div>
+              ) : null}
+              {fontAddOpen && fontLibraryOpen ? (
+                <div className={styles.fontLibrary} data-context-font-library-list>
+                  {fontLibrary.fonts.length === 0 ? (
+                    <p className={styles.sectionEmpty}>字体库还是空的，先上传一个字体文件。</p>
+                  ) : (
+                    fontLibrary.fonts.map((font) => {
+                      const used = draft.fonts.some((item) => item.fontId === font.id)
+                      return (
+                        <button
+                          key={font.id}
+                          type="button"
+                          className={used ? styles.fontLibraryItemOn : styles.fontLibraryItem}
+                          data-context-font-library-item={font.id}
+                          disabled={used}
+                          onClick={() => addFontFromLibrary(font)}
+                        >
+                          <span style={{ fontFamily: `'${font.family}'` }}>Ag</span>
+                          <span>
+                            <b>{font.name}</b>
+                            <small>
+                              {font.format.toUpperCase()} · {used ? '已添加' : '添加到套件'}
+                            </small>
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
                 </div>
               ) : null}
               {draft.fonts.length > 0 ? (
                 <div className={styles.fontGrid}>
-                  {draft.fonts.map((font) => (
-                    <div className={styles.fontCard} key={font.id}>
-                      <div>
-                        <strong>{font.name}</strong>
-                        <span>{font.detail || '未填写用途'}</span>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`移除字体 ${font.name}`}
-                        onClick={() =>
-                          setDraft((current) => ({
-                            ...current,
-                            fonts: current.fonts.filter((item) => item.id !== font.id),
-                          }))
-                        }
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                  {draft.fonts.map((font) => {
+                    const registered = fontLibrary.fonts.find(
+                      (item) => item.id === font.fontId,
+                    )
+                    return (
+                      <article className={styles.fontCard} key={font.id}>
+                        <div
+                          className={styles.fontPreview}
+                          style={
+                            registered
+                              ? { fontFamily: `'${registered.family}'` }
+                              : undefined
+                          }
+                        >
+                          Ag
+                        </div>
+                        {renamingFontId === font.id ? (
+                          <input
+                            className={styles.fontRename}
+                            autoFocus
+                            value={fontRenameDraft}
+                            aria-label={`重命名字体 ${font.name}`}
+                            onChange={(event) => setFontRenameDraft(event.target.value)}
+                            onBlur={() => commitFontRename(font.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') commitFontRename(font.id)
+                              if (event.key === 'Escape') setRenamingFontId(null)
+                            }}
+                          />
+                        ) : (
+                          <strong title={font.name}>{font.name}</strong>
+                        )}
+                        <span>
+                          {font.format?.toUpperCase() ?? '旧记录'}
+                          {font.size
+                            ? ` · ${(font.size / 1024 / 1024).toFixed(1)}MB`
+                            : ''}
+                          {font.detail ? ` · ${font.detail}` : ''}
+                        </span>
+                        <div className={styles.fontCardActions}>
+                          <button
+                            type="button"
+                            data-context-font-edit={font.id}
+                            onClick={() => beginFontRename(font)}
+                          >
+                            编辑
+                          </button>
+                          <button
+                            type="button"
+                            data-context-font-replace={font.id}
+                            disabled={fontBusy}
+                            onClick={() => pickFontFile(font.id)}
+                          >
+                            重新上传
+                          </button>
+                          <button
+                            type="button"
+                            data-context-font-remove={font.id}
+                            onClick={() =>
+                              setDraft((current) => ({
+                                ...current,
+                                fonts: current.fonts.filter((item) => item.id !== font.id),
+                              }))
+                            }
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
                 </div>
               ) : (
-                <div className={styles.sectionEmpty}>记录标题、正文和数字使用的字体</div>
+                <div className={styles.sectionEmpty}>上传字体文件，或从本机字体库选择</div>
               )}
             </section>
 

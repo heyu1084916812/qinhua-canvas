@@ -472,6 +472,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [channelSearch, setChannelSearch] = useState('')
   const [channelFilter, setChannelFilter] = useState<ChannelFilterKey>('all')
   const [routingScopeOpen, setRoutingScopeOpen] = useState(false)
+  const [expandedRoutingChannels, setExpandedRoutingChannels] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false)
   const [profileDrawerBounds, setProfileDrawerBounds] = useState<{
     left: number
@@ -588,6 +591,29 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       })
     })
   }, [channelsList, hasLocalCli])
+  const routingChannelGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        channelId: string
+        channelName: string
+        candidates: typeof routingCandidates
+      }
+    >()
+    for (const candidate of routingCandidates) {
+      const current = groups.get(candidate.ref.channelId)
+      if (current) {
+        current.candidates.push(candidate)
+      } else {
+        groups.set(candidate.ref.channelId, {
+          channelId: candidate.ref.channelId,
+          channelName: candidate.channelName,
+          candidates: [candidate],
+        })
+      }
+    }
+    return [...groups.values()]
+  }, [routingCandidates])
   const allRoutingCandidateKeys = useMemo(
     () => new Set(routingCandidates.map((candidate) => candidate.key)),
     [routingCandidates],
@@ -601,10 +627,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             .filter((key) => allRoutingCandidateKeys.has(key)),
         )
 
-  const toggleRoutingCandidate = (candidateKey: string, checked: boolean) => {
-    const next = new Set(selectedRoutingCandidateKeys)
-    if (checked) next.add(candidateKey)
-    else next.delete(candidateKey)
+  const setRoutingCandidateKeys = (next: Set<string>) => {
     if (next.size === 0) return
     const allowedCandidates =
       next.size === routingCandidates.length
@@ -613,6 +636,34 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             .filter((candidate) => next.has(candidate.key))
             .map((candidate) => candidate.ref)
     void channels.setRoutingPolicy({ allowedCandidates })
+  }
+
+  const toggleRoutingCandidate = (candidateKey: string, checked: boolean) => {
+    const next = new Set(selectedRoutingCandidateKeys)
+    if (checked) next.add(candidateKey)
+    else next.delete(candidateKey)
+    setRoutingCandidateKeys(next)
+  }
+
+  const toggleRoutingChannel = (
+    candidates: typeof routingCandidates,
+    checked: boolean,
+  ) => {
+    const next = new Set(selectedRoutingCandidateKeys)
+    for (const candidate of candidates) {
+      if (checked) next.add(candidate.key)
+      else next.delete(candidate.key)
+    }
+    setRoutingCandidateKeys(next)
+  }
+
+  const toggleRoutingChannelExpanded = (channelId: string) => {
+    setExpandedRoutingChannels((current) => {
+      const next = new Set(current)
+      if (next.has(channelId)) next.delete(channelId)
+      else next.add(channelId)
+      return next
+    })
   }
   /** 抓站点图标要原生 HTTP（对账 #396）：浏览器里跨域读不到，按钮据此如实禁用 */
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
@@ -1404,35 +1455,92 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
             {routingCandidates.length === 0 ? (
               <p className={styles.routeScopeEmpty}>还没有可参与路由的渠道。</p>
             ) : (
-              <div className={styles.routeScopeGrid}>
-                {routingCandidates.map((candidate) => {
-                  const checked = selectedRoutingCandidateKeys.has(candidate.key)
+              <div className={styles.routeScopeChannels}>
+                {routingChannelGroups.map((group) => {
+                  const checkedCount = group.candidates.filter((candidate) =>
+                    selectedRoutingCandidateKeys.has(candidate.key),
+                  ).length
+                  const allChecked = checkedCount === group.candidates.length
+                  const mixed = checkedCount > 0 && !allChecked
+                  const expanded = expandedRoutingChannels.has(group.channelId)
                   return (
-                    <label
-                      key={candidate.key}
-                      className={styles.routeScopeOption}
-                      data-routing-candidate={candidate.key}
-                      data-routing-candidate-checked={checked ? 'true' : 'false'}
+                    <article
+                      key={group.channelId}
+                      className={styles.routeScopeChannel}
+                      data-routing-channel={group.channelId}
+                      data-routing-channel-groups-count={group.candidates.length}
+                      data-routing-channel-checked={
+                        allChecked ? 'true' : mixed ? 'mixed' : 'false'
+                      }
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) =>
-                          toggleRoutingCandidate(candidate.key, event.target.checked)
-                        }
-                      />
-                      <span className={styles.routeScopeOptionText}>
-                        <b>{candidate.channelName}</b>
-                        <small>
-                          {candidate.groupName}
-                          {!candidate.enabled
-                            ? ' · 已停用'
-                            : !candidate.hasToken
-                              ? ' · 未配置 Key'
-                              : ''}
-                        </small>
-                      </span>
-                    </label>
+                      <div className={styles.routeScopeChannelHead}>
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={mixed ? 'mixed' : allChecked}
+                          aria-label={`${group.channelName} 的 Key 分组`}
+                          className={styles.routeScopeChannelCheck}
+                          data-routing-channel-toggle={group.channelId}
+                          onClick={() => toggleRoutingChannel(group.candidates, !allChecked)}
+                        >
+                          {allChecked ? '✓' : mixed ? '−' : ''}
+                        </button>
+                        <span className={styles.routeScopeOptionText}>
+                          <b>{group.channelName}</b>
+                          <small>
+                            {checkedCount}/{group.candidates.length} 个 Key 分组参与路由
+                          </small>
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.routeScopeChannelExpand}
+                          aria-expanded={expanded}
+                          aria-controls={`routing-groups-${group.channelId}`}
+                          data-routing-channel-expand={group.channelId}
+                          onClick={() => toggleRoutingChannelExpanded(group.channelId)}
+                        >
+                          {group.candidates.length} 个分组
+                          <span aria-hidden>{expanded ? '⌃' : '⌄'}</span>
+                        </button>
+                      </div>
+                      {expanded ? (
+                        <div
+                          id={`routing-groups-${group.channelId}`}
+                          className={styles.routeScopeGrid}
+                          data-routing-channel-groups={group.channelId}
+                        >
+                          {group.candidates.map((candidate) => {
+                            const checked = selectedRoutingCandidateKeys.has(candidate.key)
+                            return (
+                              <label
+                                key={candidate.key}
+                                className={styles.routeScopeOption}
+                                data-routing-candidate={candidate.key}
+                                data-routing-candidate-checked={checked ? 'true' : 'false'}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) =>
+                                    toggleRoutingCandidate(candidate.key, event.target.checked)
+                                  }
+                                />
+                                <span className={styles.routeScopeOptionText}>
+                                  <b>{candidate.groupName}</b>
+                                  <small>
+                                    {!candidate.enabled
+                                      ? '已停用'
+                                      : !candidate.hasToken
+                                        ? '未配置 Key'
+                                        : '可用于路由'}
+                                  </small>
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+                    </article>
                   )
                 })}
               </div>

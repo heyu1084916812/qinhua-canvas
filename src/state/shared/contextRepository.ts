@@ -147,7 +147,22 @@ function fontsOf(value: unknown): ContextKitFont[] {
     const id = textOf(row.id)
     const name = textOf(row.name)
     if (!id || !name) return []
-    return [{ id, name, detail: textOf(row.detail) }]
+    const fontId = textOf(row.fontId)
+    const format = textOf(row.format)
+    const size =
+      typeof row.size === 'number' && Number.isFinite(row.size) && row.size > 0
+        ? Math.trunc(row.size)
+        : undefined
+    return [
+      {
+        id,
+        name,
+        detail: textOf(row.detail),
+        ...(fontId ? { fontId } : {}),
+        ...(format ? { format } : {}),
+        ...(size ? { size } : {}),
+      },
+    ]
   })
 }
 

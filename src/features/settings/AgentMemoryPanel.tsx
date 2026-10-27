@@ -7,6 +7,7 @@ import {
 } from '../../domain/shared/context'
 import { WORKBENCHES, type WorkbenchId } from '../../domain/shared/workbench'
 import { createContextRepository } from '../../state/shared/contextRepository'
+import { MemoryGraph } from './MemoryGraph'
 import styles from './AgentMemoryPanel.module.css'
 
 const MEMORY_KINDS: { value: ContextMemoryKind; label: string }[] = [
@@ -172,6 +173,14 @@ export function AgentMemoryPanel() {
             </span>
           ) : null}
         </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <h3>关系图谱</h3>
+          <p>按偏好、事实、硬约束和已确认决定建立关系；停用记忆会变淡。</p>
+        </div>
+        <MemoryGraph memories={memories} />
       </section>
 
       <section className={styles.section}>

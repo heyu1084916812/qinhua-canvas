@@ -383,6 +383,16 @@
   font-size: var(--fs-chip);
 }
 
+.usageHint {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.55;
+}
+
 .dropActions {
   display: flex;
   align-items: center;
@@ -655,51 +665,119 @@
   opacity: 1;
 }
 
-.fontForm {
+.fontAddChoices {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.fontAddChoices button {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: calc(var(--radius-control) - 2px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.fontAddChoices button:hover {
+  background: var(--bg-hover);
+}
+
+.fontAddChoices button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fontAddChoices > span {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.fontLibrary {
   display: grid;
-  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr) auto;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
 
-.fontForm input {
-  height: 36px;
+.fontLibraryItem,
+.fontLibraryItemOn {
   min-width: 0;
-  box-sizing: border-box;
-  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
   border: var(--border);
   border-radius: var(--radius-control);
-  outline: 0;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-1);
   font: inherit;
-  font-size: var(--fs-body);
-}
-
-.fontForm input:focus {
-  border-color: var(--focus-ring);
-}
-
-.fontForm button {
-  height: 36px;
-  padding: 0 var(--space-4);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--control-inverse-bg);
-  color: var(--control-inverse-text);
-  font: inherit;
-  font-size: var(--fs-label);
+  text-align: left;
   cursor: pointer;
 }
 
-.fontForm button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.fontLibraryItem:hover {
+  background: var(--bg-hover);
+}
+
+.fontLibraryItemOn {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.fontLibraryItem > span:first-child,
+.fontLibraryItemOn > span:first-child {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: var(--bg-subtle);
+  font-size: 22px;
+}
+
+.fontLibraryItem > span:last-child,
+.fontLibraryItemOn > span:last-child,
+.fontCard > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fontLibraryItem b,
+.fontLibraryItemOn b,
+.fontCard strong {
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fontLibraryItem small,
+.fontLibraryItemOn small,
+.fontCard > span {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.45;
 }
 
 .fontGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
@@ -707,55 +785,70 @@
 .fontCard {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
   border: var(--border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-node);
   background: var(--bg-subtle);
 }
 
-.fontCard > div {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.fontCard strong {
-  overflow: hidden;
-  font-size: var(--fs-body);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fontCard span {
-  color: var(--text-3);
-  font-size: var(--fs-chip);
-  line-height: 1.45;
-}
-
-.fontCard button {
-  flex: none;
-  width: 24px;
-  height: 24px;
+.fontPreview {
+  aspect-ratio: 1.35;
   display: grid;
   place-items: center;
-  padding: 0;
-  border: 0;
   border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-3);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: 36px;
+}
+
+.fontRename {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: calc(var(--radius-control) - 2px);
+  outline: 0;
+  background: var(--bg-surface);
+  color: var(--text-1);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--fs-label);
+}
+
+.fontRename:focus {
+  border-color: var(--focus-ring);
+}
+
+.fontCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: auto;
+  padding-top: var(--space-1);
+}
+
+.fontCardActions button {
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: calc(var(--radius-control) - 3px);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
   cursor: pointer;
 }
 
-.fontCard button:hover {
+.fontCardActions button:hover {
   background: var(--bg-hover);
   color: var(--text-1);
+}
+
+.fontCardActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .referenceGrid {

@@ -217,6 +217,50 @@ describe('openaiChat adapter / SoonStudio 站点分类', () => {
 })
 
 describe('openaiChat adapter / 多模态（上游图片送进 LLM）', () => {
+  it('★★ 桌面壳有原生 HTTP 时，聊天 POST 直接走原生，不触发浏览器 CORS 预检', async () => {
+    let networkCalls = 0
+    const nativeCalls: { url: string; method?: string; body?: string }[] = []
+    const net = createMemoryNetwork({
+      handler: async () => {
+        networkCalls += 1
+        return resp(500, { error: 'browser fetch should not run' })
+      },
+    })
+    const adapter = createOpenAiChatAdapter(cfg, {
+      network: net,
+      assets: platformWith([]).assets,
+      remoteBytes: {
+        request: async (request) => {
+          nativeCalls.push({
+            url: request.url,
+            method: request.method,
+            body: request.body,
+          })
+          return {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+            text: JSON.stringify({
+              choices: [{ message: { content: 'native ok' }, finish_reason: 'stop' }],
+            }),
+          }
+        },
+      },
+    })
+
+    const result = await adapter.completeText(request([]), signal)
+    expect(result.text).toBe('native ok')
+    expect(networkCalls).toBe(0)
+    expect(nativeCalls).toHaveLength(1)
+    expect(nativeCalls[0]).toMatchObject({
+      url: 'https://x/v1/chat/completions',
+      method: 'POST',
+    })
+    expect(JSON.parse(nativeCalls[0]!.body ?? '{}')).toMatchObject({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: '描述这张图' }],
+    })
+  })
+
   it('纯文本：content 直接是字符串（对中转站兼容性更好）', async () => {
     let body: unknown = null
     const net = createMemoryNetwork({

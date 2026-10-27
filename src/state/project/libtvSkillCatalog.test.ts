@@ -35,7 +35,7 @@ const items = [
     tags: ['商业广告'],
     recommended: false,
     cases: [{ canvasCaseUrl: 'https://x.test/canvas/chat-share?shareId=abc' }],
-    bodyFile: null,
+    bodyFile: 'bodies/tagged.md',
   },
   {
     id: 'libtv:unknown',
@@ -50,11 +50,26 @@ const items = [
     tags: [],
     recommended: false,
     cases: [],
+    bodyFile: 'bodies/unknown.md',
+  },
+  {
+    id: 'libtv:no-body',
+    sourceId: 'no-body',
+    name: '没有正文',
+    description: '',
+    useScenario: '',
+    inputType: '',
+    outputContent: '',
+    resultType: 1,
+    coverUrl: null,
+    tags: [],
+    recommended: false,
+    cases: [],
     bodyFile: null,
   },
 ]
 
-const catalogRaw = JSON.stringify({ total: items.length, bodyCount: 1, items })
+const catalogRaw = JSON.stringify({ total: items.length, bodyCount: 3, items })
 
 describe('LibTV 目录异步加载', () => {
   afterEach(() => {
@@ -68,6 +83,7 @@ describe('LibTV 目录异步加载', () => {
     )
     const skills = await loadLibtvCatalog()
     expect(skills).toHaveLength(3)
+    expect(skills.some((skill) => skill.id === 'libtv:no-body')).toBe(false)
     const counts = libtvCategoryCounts(skills)
     expect(counts.get('推荐')).toBe(1)
     expect(counts.get('商业广告')).toBe(1)
@@ -100,7 +116,9 @@ describe('LibTV 目录异步加载', () => {
       { path: 'SKILL.md', content: '正文内容' },
       { path: 'references/camera-language.md', content: '镜头语言' },
     ])
-    await expect(loadLibtvSkillBody(skills[1]!)).resolves.toBeNull()
+    await expect(
+      loadLibtvSkillBody(items.find((item) => item.id === 'libtv:no-body') as never),
+    ).resolves.toBeNull()
     expect(fetchMock).toHaveBeenCalledTimes(callsAfterShardLoad)
   })
 })

@@ -15885,6 +15885,12 @@ async function g82(browser) {
 
   const libtvCards = page.locator('[data-skill-source="libtv"]')
   rec(g, '★★ LibTV 首批卡片真实出现', (await libtvCards.count()) >= 3, `cards=${await libtvCards.count()}`)
+  rec(
+    g,
+    '★★ LibTV 浏览层只展示带正文的 Skill，不再夹杂目录占位卡',
+    (await page.locator('[data-skill-runnable="false"]').count()) === 0 &&
+      (await page.getByText('暂无正文', { exact: false }).count()) === 0,
+  )
   const firstRowY = await libtvCards.evaluateAll((els) =>
     els.slice(0, 3).map((el) => Math.round(el.getBoundingClientRect().top)),
   )
@@ -16009,7 +16015,7 @@ async function g82(browser) {
   copiedSkillId = await copiedCard.getAttribute('data-skill-item')
   rec(
     g,
-    '★★ LibTV 技能只在「使用」时落到我的技能，不批量写 1472 行',
+    '★★ LibTV 技能只在「使用」时落到我的技能，不批量写 704 行',
     (await copiedCard.count()) === 1,
   )
 
@@ -40606,31 +40612,65 @@ async function g769(browser) {
     await page.locator('[data-routing-scope]').waitFor({ state: 'visible', timeout: 5000 })
     const routingUi = await page.evaluate(() => {
       const panel = document.querySelector('[data-routing-scope]')?.getBoundingClientRect()
-      const candidates = document.querySelectorAll('[data-routing-candidate]')
+      const channels = [
+        ...document.querySelectorAll('[data-routing-channel]'),
+      ]
       return {
         overflow: document.documentElement.scrollWidth - innerWidth,
         panelFits:
           !!panel &&
           panel.left >= 0 &&
           panel.right <= innerWidth + 1,
-        candidateCount: candidates.length,
-        checkedCount: document.querySelectorAll(
-          '[data-routing-candidate][data-routing-candidate-checked="true"]',
+        channelCount: channels.length,
+        activeChannels: channels.filter((channel) =>
+          ['true', 'mixed'].includes(
+            channel.getAttribute('data-routing-channel-checked') ?? '',
+          ),
         ).length,
-        stoppedShown: [...candidates].some((candidate) =>
+        groupCount: channels.reduce(
+          (sum, channel) =>
+            sum + Number(channel.getAttribute('data-routing-channel-groups-count') ?? 0),
+          0,
+        ),
+        visibleGroups: document.querySelectorAll('[data-routing-candidate]').length,
+      }
+    })
+    rec(
+      g,
+      '★★ 路由范围先按渠道折叠，不把同渠道的所有 Key 分组平铺',
+      routingUi.overflow <= 0 &&
+        routingUi.panelFits &&
+        routingUi.channelCount > 0 &&
+        routingUi.activeChannels === routingUi.channelCount &&
+        routingUi.groupCount >= routingUi.channelCount &&
+        routingUi.visibleGroups === 0,
+      JSON.stringify(routingUi),
+    )
+    await page.locator('[data-routing-channel-expand]').first().click()
+    await page.locator('[data-routing-candidate]').first().waitFor({
+      state: 'visible',
+      timeout: 5000,
+    })
+    const expandedRoutingGroups = await page.evaluate(() => {
+      const candidates = [...document.querySelectorAll('[data-routing-candidate]')]
+      return {
+        candidateCount: candidates.length,
+        checkedCount: candidates.filter(
+          (candidate) =>
+            candidate.getAttribute('data-routing-candidate-checked') === 'true',
+        ).length,
+        stoppedShown: candidates.some((candidate) =>
           candidate.textContent?.includes('已停用'),
         ),
       }
     })
     rec(
       g,
-      '★★ 模型服务可展开路由范围，候选勾选与全屏边界一致',
-      routingUi.overflow <= 0 &&
-        routingUi.panelFits &&
-        routingUi.candidateCount > 0 &&
-        routingUi.checkedCount === routingUi.candidateCount &&
-        routingUi.stoppedShown === false,
-      JSON.stringify(routingUi),
+      '★ 展开单个渠道后只显示该渠道的分组，选中态与停用过滤保持正确',
+      expandedRoutingGroups.candidateCount > 0 &&
+        expandedRoutingGroups.checkedCount === expandedRoutingGroups.candidateCount &&
+        expandedRoutingGroups.stoppedShown === false,
+      JSON.stringify(expandedRoutingGroups),
     )
     await page.screenshot({ path: `${OUT}/769-routing-scope.png` })
 

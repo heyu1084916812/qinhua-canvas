@@ -1,5 +1,23 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 原生 POST、Skill 正文与记忆图谱（2026-10-27 → 对账 #776）
+
+- **聊天 POST 不能等 CORS 失败再重发**：中转站 OPTIONS 可能返回 405，WebView 的报错会被
+  `toAppError` 归成 `dns`，看起来像域名错误。桌面壳有 `remoteBytes.request` 时，普通聊天
+  与 Gemini 原生回退 POST 要**直接走原生 HTTP**；POST 不允许浏览器失败后二次发送。
+- **路由候选与显示分组不是一份状态**：`RouteCandidateRef` 仍是一组 Key 分组的真实数据，
+  UI 只按 `channelId` 折叠显示。渠道级 checkbox 对整组候选增删，展开前不得渲染分组卡。
+- **LibTV 的 1472 是案例目录，不是 1472 个可执行技能**：其中 704 条有 `bodyFile`，768 条
+  只有目录描述。浏览器层按 `libtvHasBody` 过滤，不要删除原始 catalog / body 文件。
+- **品牌字体是文件引用，不是文字备注**：`ContextKitFont.fontId` 指向 `fonts` 表；上传走
+  `FontProvider.importFont`，不自动切换界面字体。品牌套件只管理引用，删除字体卡不等于删除
+  全局字体文件。字体文件不得塞进 `assetHashes`，否则会被当成视觉图片输入。
+- **记忆图谱是投影**：`memoryGraphLayout` 只根据 `contextMemories` 计算中心、类型 Hub 和
+  记忆节点，没有新表，也不写用户数据。超过 24 条时优先展示启用且较新的记忆，并明确报告未绘制数量。
+- **验证**：定向 Vitest **40/40**、全量 **3448 passed / 1 skipped**、Rust **35/35**、G769 **14/14**；
+  真实页面 704 个正文 Skill、字体上传/编辑/
+  删除、路由折叠、记忆图谱 1440 明暗和 1024 均通过。临时记忆、上传字体和截图已清理。
+
 ### 品牌套件 UI 与统一取色器（2026-10-27 → 对账 #775）
 
 - **UI 分类不能靠隐藏事实硬凑**：品牌套件显示 `Logo / Color / Font / Reference`，底层保存
