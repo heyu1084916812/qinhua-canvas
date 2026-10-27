@@ -127,9 +127,11 @@ describe('组装', () => {
       'compareNodes',
       'sliceImage',
       'splitGrid',
+      'visualReview',
     ]) {
       expect(p).toContain(tool)
     }
+    expect(p).toContain('视觉验收是只读检查')
   })
 })
 

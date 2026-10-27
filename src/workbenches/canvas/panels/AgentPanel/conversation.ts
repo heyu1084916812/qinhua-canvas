@@ -35,6 +35,7 @@ const TOOL_LABEL: Record<string, string> = {
   readGraph: '已看画布',
   readAsset: '已读素材',
   readResult: '已读结果',
+  visualReview: '视觉验收完成',
   applyPlan: '工作流已创建',
   updateNode: '已改节点参数',
   runNode: '已运行生成',
@@ -61,6 +62,7 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
   readGraph: '看画布失败',
   readAsset: '读素材失败',
   readResult: '读结果失败',
+  visualReview: '视觉验收没完成',
   applyPlan: '工作流没建成',
   updateNode: '改参数失败',
   runNode: '生成失败',
@@ -140,6 +142,38 @@ export function describeToolResult(
         ),
         nodeIds: results.filter((x) => x.status === 'ok').map((x) => String(x.nodeId)),
         failed: false,
+      }
+    }
+    case 'visualReview': {
+      const issues = asArray(r.issues).map(asRecord)
+      const verdict =
+        r.verdict === 'pass'
+          ? '通过'
+          : r.verdict === 'needs_changes'
+            ? '需要修改'
+            : '无法验收'
+      const lines = [
+        `${verdict}：${String(r.summary ?? '没有结论')}`,
+        ...issues.map((issue) => {
+          const severity =
+            issue.severity === 'blocking'
+              ? '阻塞'
+              : issue.severity === 'suggestion'
+                ? '建议'
+                : '警告'
+          const node = typeof issue.nodeId === 'string' ? `（${issue.nodeId}）` : ''
+          return `${severity}${node}：${String(issue.problem ?? '')} → ${String(
+            issue.suggestion ?? '',
+          )}`
+        }),
+        ...asArray(r.limitations).map((item) => `未检查：${String(item)}`),
+      ]
+      return {
+        lines,
+        nodeIds: [...new Set(issues.flatMap((issue) =>
+          typeof issue.nodeId === 'string' ? [issue.nodeId] : [],
+        ))],
+        failed,
       }
     }
     case 'applyPlan': {

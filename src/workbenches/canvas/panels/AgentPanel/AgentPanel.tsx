@@ -6,6 +6,13 @@ import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage, NodeInput } from '../../../../domain/shared/execution/types'
 import { formatContextBundleForPrompt } from '../../../../domain/shared/context'
+import {
+  VISUAL_REVIEW_SYSTEM_PROMPT,
+  buildVisualReviewPrompt,
+  parseVisualReviewText,
+  type VisualReviewResult,
+} from '../../../../domain/agent/visualReview'
+import { prepareVisualReviewImages } from '../../../../features/shared/agent/visualReviewRunner'
 import { memoryCandidateFromText } from '../../../../domain/shared/memoryOrganizer'
 import {
   AGENT_CONTEXT_WINDOW,
@@ -372,6 +379,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         memoryRefs: { id: string; revision: number }[]
         kitVersionRefs: { kitId: string; version: number }[]
         assetRefs: { hash: string; mime: string }[]
+        brief?: string
       }
     >(),
   )
@@ -1056,6 +1064,114 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ),
         ]
       }
+      const runVisualReview = async (review: {
+        nodeIds: readonly string[]
+        checklist?: string
+      }): Promise<VisualReviewResult> => {
+        const graph = store.getSnapshot()
+        const aliases = planAliasesRef.current.get(session.id)
+        const requestedIds = [
+          ...new Set(review.nodeIds.map((id) => aliases?.get(id) ?? id)),
+        ]
+        const targetNodeIds = requestedIds.slice(0, 8)
+        const limitations: string[] = []
+        if (requestedIds.length > targetNodeIds.length) {
+          limitations.push(
+            `本次只验收前 ${targetNodeIds.length} 张，另有 ${
+              requestedIds.length - targetNodeIds.length
+            } 张未提交。`,
+          )
+        }
+        if (!route) {
+          return {
+            ok: false,
+            verdict: 'unreviewable',
+            summary: '当前回合没有可用的视觉验收模型路由',
+            issues: [],
+            targetNodeIds,
+            limitations: [...limitations, '请确认对话模型已配置并且支持图片输入'],
+          }
+        }
+
+        const trace = contextTraceRef.current.get(session.id)
+        const prepared = await prepareVisualReviewImages({
+          graph,
+          nodeIds: targetNodeIds,
+          contextAssets: trace?.assetRefs,
+          readAsset: (hash) => platform.assets.read(hash),
+        })
+        limitations.push(...prepared.limitations)
+
+        if (prepared.targets.length === 0) {
+          return {
+            ok: false,
+            verdict: 'unreviewable',
+            summary: '没有可读取的目标图片，未执行视觉验收',
+            issues: [],
+            targetNodeIds,
+            limitations,
+          }
+        }
+
+        const prompt = buildVisualReviewPrompt({
+          targets: prepared.targets,
+          ...(review.checklist ? { checklist: review.checklist } : {}),
+          ...(trace?.brief ? { context: trace.brief } : {}),
+          referenceAssetCount: prepared.referenceAssetCount,
+        })
+        const reviewInputs = [...prepared.targetInputs, ...prepared.contextInputs]
+        try {
+          const reviewed = await channels.completeWithTools({
+            channelId: route.channelId,
+            model: route.upstreamModel,
+            modelIsUpstream: true,
+            tools: [],
+            messages: [
+              { role: 'system', content: VISUAL_REVIEW_SYSTEM_PROMPT },
+              { role: 'user', content: prompt },
+            ],
+            inputs: reviewInputs,
+            signal:
+              abortRefs.current.get(session.id)?.signal ??
+              new AbortController().signal,
+            routeCandidates: route.candidates,
+            routePlanId: route.routePlanId,
+            trace: directTextTrace({
+              projectId: graph.projectId,
+              workbench: 'canvas',
+              subjectId: session.id,
+              scopeId: `session:${session.id}`,
+              operationId,
+              purpose: 'agent-visual-review',
+              channelId: route.channelId,
+              model: route.upstreamModel,
+              prompt,
+              inputs: reviewInputs,
+              params: {
+                targetNodeIds,
+                referenceAssetCount: prepared.referenceAssetCount,
+                checklist: review.checklist ?? '',
+              },
+            }),
+            onRecordWarning,
+            onRouteSucceeded,
+          })
+          const parsed = parseVisualReviewText(reviewed.text, targetNodeIds)
+          return {
+            ...parsed,
+            limitations: [...limitations, ...parsed.limitations],
+          }
+        } catch (error) {
+          return {
+            ok: false,
+            verdict: 'unreviewable',
+            summary: `视觉验收请求失败：${errText(error)}`,
+            issues: [],
+            targetNodeIds,
+            limitations,
+          }
+        }
+      }
       return {
         adapter: {
           completeText: (req: TextRunRequest, signal: AbortSignal) =>
@@ -1143,8 +1259,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         }
         return result
       },
-      executeRead: (name: string, args: unknown) =>
-        executeReadTool(name, args, toolCtx(originOf(viewport))),
+      executeRead: (name: string, args: unknown) => {
+        const base = toolCtx(originOf(viewport), session.id)
+        return executeReadTool(name, args, {
+          ...base,
+          ...(name === 'visualReview' ? { visualReview: runVisualReview } : {}),
+        })
+      },
       takeSteering: async () => {
         try {
           const latest = await sessions.get(session.id)
@@ -1395,6 +1516,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         return
       }
       contextPrompt = formatContextBundleForPrompt(bundle)
+      const trace = contextTraceRef.current.get(session.id)
+      if (trace) trace.brief = contextPrompt
       const memoryCandidate = memoryCandidateFromText(cleanRequest, {
         workbench: 'canvas',
         projectId: store.getSnapshot().projectId,

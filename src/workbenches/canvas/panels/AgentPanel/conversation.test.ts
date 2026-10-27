@@ -105,6 +105,40 @@ describe('工具结果 → 人话', () => {
     expect(d.lines.join()).toContain('1 条连线')
   })
 
+  it('★★ visualReview：直接列出结论、问题、建议和无法确认项', () => {
+    const d = describeToolResult(
+      'visualReview',
+      JSON.stringify({
+        ok: true,
+        verdict: 'needs_changes',
+        summary: 'Logo 和标题需要调整',
+        issues: [
+          {
+            severity: 'blocking',
+            category: 'text',
+            nodeId: 'n1',
+            problem: '标题有错字',
+            suggestion: '把“己”改成“已”',
+          },
+          {
+            severity: 'suggestion',
+            category: 'layout',
+            nodeId: 'n1',
+            problem: '标题离边缘过近',
+            suggestion: '增加安全边距',
+          },
+        ],
+        limitations: ['小字是否符合平台规范无法确认'],
+      }),
+    )
+    expect(toolLabel('visualReview')).toBe('视觉验收完成')
+    expect(d.failed).toBe(false)
+    expect(d.nodeIds).toEqual(['n1'])
+    expect(d.lines.join('\n')).toContain('需要修改：Logo 和标题需要调整')
+    expect(d.lines.join('\n')).toContain('阻塞（n1）：标题有错字 → 把“己”改成“已”')
+    expect(d.lines.join('\n')).toContain('未检查：小字是否符合平台规范无法确认')
+  })
+
   it('★ 没登记的工具给兜底标题，不假装认识', () => {
     expect(toolLabel('runNode')).toBe('已运行生成')
     expect(toolLabel('someFutureTool')).toContain('someFutureTool')

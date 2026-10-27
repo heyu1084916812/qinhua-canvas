@@ -21,7 +21,7 @@ import { parseJsonAgentAction } from './jsonToolFallback'
 export const AGENT_DEFAULT_MAX_STEPS = 8
 
 /** 读类：循环里直接跑，结果回填给模型 */
-const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult'])
+const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult', 'visualReview'])
 /**
  * 建图类：循环里**直接落地**，不问用户。
  *
@@ -168,6 +168,7 @@ export async function runAgentTurn(
   const messages = [...history]
   const maxSteps = deps.maxSteps ?? AGENT_DEFAULT_MAX_STEPS
   const seenCalls = new Map<string, number>()
+  let visualReviewRan = false
   const pullSteering = async (): Promise<number> => {
     if (!deps.takeSteering) return 0
     const steering = await deps.takeSteering()
@@ -236,6 +237,24 @@ export async function runAgentTurn(
           }),
         )
         continue
+      }
+
+      /**
+       * 视觉验收是只读终点：它只负责交付问题清单。验收后同一轮里若模型继续建图、
+       * 改图或发起生成，就停在这里，把决定权交回用户。子代理本身没有写入口，
+       * 这一道则防止主管 Agent 拿到清单后自动改动或重跑付费请求。
+       */
+      if (
+        visualReviewRan &&
+        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name))
+      ) {
+        return {
+          kind: 'stopped',
+          reason:
+            '视觉验收已完成，问题清单已返回。本轮的视觉验收子代理不会自动修改画布或重新生成；' +
+            '请先查看问题，再由你明确决定是否修改和运行。',
+          messages,
+        }
       }
 
       /**
@@ -311,6 +330,7 @@ export async function runAgentTurn(
         outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
       messages.push(toolResult(call.id, call.name, outcome))
+      if (call.name === 'visualReview') visualReviewRan = true
     }
   }
 

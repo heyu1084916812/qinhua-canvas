@@ -67,6 +67,7 @@ describe('工具声明', () => {
       'sliceImage',
       'splitGrid',
       'updateNode',
+      'visualReview',
     ])
     for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
   })
@@ -191,6 +192,46 @@ describe('读类工具', () => {
     const out = readResults(store, [ok, empty, 'gone'])
     expect(out.map((r) => r.status)).toEqual(['ok', 'empty', 'missing'])
     expect(out[0]).toMatchObject({ title: '三视图设定' })
+  })
+
+  it('★★ visualReview 只调用只读子代理，不改画布，并解析应用层给的节点别名', async () => {
+    const { store, ctx } = setup()
+    const visualReview = vi.fn(async () => ({
+      ok: true as const,
+      verdict: 'needs_changes' as const,
+      summary: '标题需要修改',
+      issues: [
+        {
+          severity: 'blocking' as const,
+          category: 'text' as const,
+          nodeId: 'node-real',
+          problem: '标题有一个错字',
+          suggestion: '修正错字',
+        },
+      ],
+      targetNodeIds: ['node-real'],
+      limitations: [],
+    }))
+    const before = store.getSnapshot()
+    const result = await executeReadTool(
+      'visualReview',
+      { nodeIds: ['g1'], checklist: '检查标题' },
+      {
+        ...ctx,
+        resolveNodeIds: (ids) => ids.map((id) => (id === 'g1' ? 'node-real' : id)),
+        visualReview,
+      },
+    )
+
+    expect(visualReview).toHaveBeenCalledWith({
+      nodeIds: ['node-real'],
+      checklist: '检查标题',
+    })
+    expect(result).toMatchObject({
+      verdict: 'needs_changes',
+      targetNodeIds: ['node-real'],
+    })
+    expect(store.getSnapshot()).toBe(before)
   })
 
   /**

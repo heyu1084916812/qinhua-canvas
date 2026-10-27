@@ -1,5 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### 视觉验收与只读子代理（2026-10-27 → 对账 #783）
+
+- **视觉验收不是写工具**：`visualReview` 只能读取真实图片与套件约束并返回问题清单；
+  不得拿 Store、命令总线、runEngine 或渠道生成入口。需要修改时，交回用户决定。
+- **输入必须是真的图片**：节点有 hash 不等于可读。共享 runner 会检查字节、MIME、图片头尺寸，
+  按 hash 去重目标与套件素材；失败项进 limitations，不能伪装已检查。
+- **验收后防自动重跑**：`agentLoop` 在 `visualReview` 后遇到写类或付费确认类工具必须停止本轮。
+  这是硬门禁，不能只靠系统提示词。
+- **每次验收有留痕**：独立视觉调用写 `purpose='agent-visual-review'` 的 RunRecord，
+  与对话调用分开但仍进同一日志视图。
+- **验证**：定向 **137/137**；Agent 面板 1440×900 / 1024×700 明暗主题无横向溢出；
+  全量 Vitest **3478 passed / 1 skipped**；check/build/Impeccable detector 通过。
+
 ### 角色与自定义套件（2026-10-27 → 对账 #782）
 
 - **套件类型不能只做 UI 标签**：`brand / product / role / custom` 共用同一套版本、

@@ -292,6 +292,36 @@ describe('runAgentTurn · 基本往复', () => {
     expect(executeWrite).not.toHaveBeenCalled()
   })
 
+  it('★★ 视觉验收后禁止同一轮自动写画布或重跑付费请求', async () => {
+    const { deps, executeRead, executeWrite } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'review',
+            name: 'visualReview',
+            args: '{"nodeIds":["n1"],"checklist":"检查文字"}',
+          },
+          {
+            id: 'run',
+            name: 'runNode',
+            args: '{"nodeIds":["n1"]}',
+          },
+        ],
+      },
+    ])
+    const r = await runAgentTurn(user('验收后直接重跑'), deps)
+
+    expect(r.kind).toBe('stopped')
+    if (r.kind === 'stopped') {
+      expect(r.reason).toContain('不会自动修改画布或重新生成')
+    }
+    expect(executeRead).toHaveBeenCalledWith('visualReview', {
+      nodeIds: ['n1'],
+      checklist: '检查文字',
+    })
+    expect(executeWrite).not.toHaveBeenCalled()
+  })
+
   it('★★ 确认后用 resumeAgentTurn 把结果喂回去，模型能看到自己做过什么', async () => {
     const { deps } = depsWith([
       { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] },

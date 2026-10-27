@@ -5,7 +5,7 @@
 > Interrupt、运行中 Steer、文本 RoutePlan、DirectRun 尝试留痕与轮数检查点续跑；
 > 阶段 4 完成个人记忆、品牌/产品套件、项目版本绑定与 ContextBundle；个人记忆已补
 > global / workbench / project / session 四类作用域、Agent 提议确认、冲突、过期、
-> 忘记和字符预算。阶段 5–6 待后续。
+> 忘记和字符预算。阶段 5–6 的代码路径已完成；GitHub push / Release 仍需用户逐次批准。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -289,20 +289,21 @@ ContextBundle {
 | 2 | RouteResolver / RoutePlan、分组勾选、轮询与尝试日志 | 超时不重发；显式渠道不漂移；轮询可复现 |
 | 3 | AgentJob / AgentEvent、Queue/Steer/Interrupt、检查点续跑 | 长任务可继续；同画布单写者；重启不重复付费 |
 | 4 | 个人记忆、品牌/产品套件、ContextBundle | 版本固定；冲突可解释；旧项目不变 |
-| 5 | 角色/自定义套件、视觉验收与只读子代理 | 子代理不能写画布；验收有真实图片证据 |
-| 6 | 总日志扩展、完整 UI、迁移和发布门禁 | 四类日志不重复；单测、检查、构建、真实桌面验收通过 |
+| 5 | ✅ 角色/自定义套件、视觉验收与只读子代理 | 子代理不能写画布；验收读取真实图片并输出结构化问题清单 |
+| 6 | ✅ 总日志扩展、完整 UI、迁移和发布门禁 | 四类日志不重复；单测、检查、构建、真实页面验收通过；push 单独授权 |
 
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。
 
-2026-10-27 当前证据：全量 Vitest **3437 passed / 1 skipped**，Rust **35/35**；
+2026-10-27 当前证据：全量 Vitest **3478 passed / 1 skipped**，Rust **35/35**；
 `npm run check`、`npm run build` 通过。阶段 4 存储落为 `contextMemories`、
 `contextMemoryRevisions`、`contextKits`、`contextKitVersions`、`projectContextBindings`
 五张表；Dexie v19、共享存储协议 v7。真实隔离库完成“个人记忆 → 品牌套件 v1 → 项目绑定 →
 发布 v2 → 旧项目仍固定 v1”，1440×900 明暗主题与 1024×700 无横向溢出。ContextBundle
 冲突会在付费调用前停止，Agent / 电商 / 漫剧公共文本调用都会写入 `contextDigest` 与版本引用。
-角色 / 自定义套件已由对账 #782 收口，总日志完整 UI 已由 #781 收口。
-视觉验收、只读子代理和发布前迁移 / 门禁复核仍未完成。
+角色 / 自定义套件已由对账 #782 收口，总日志完整 UI 已由 #781 收口，
+视觉验收与只读子代理已由 #783 收口。发布前迁移与本地门禁已完成；
+剩余动作只是用户明确批准后的 push / Release。
 
 ## 10. 验收矩阵
 
@@ -397,5 +398,5 @@ ContextBundle {
   停止时取消已启动的 RunPlan，不再只把界面文字改成“已停止”。
 
 阶段 3 的运行中 Steer、DirectRun 尝试转存和文本 Agent 同策略已完成；阶段 4 的个人记忆、
-品牌 / 产品 / 角色 / 自定义套件与 ContextBundle 已完成，总日志完整 UI 已完成。
-仍待完成：视觉验收与只读子代理、发布前迁移 / 门禁复核。
+品牌 / 产品 / 角色 / 自定义套件、ContextBundle、总日志完整 UI、视觉验收与只读子代理均已完成。
+本地迁移 / 门禁通过；GitHub push / Release 只在用户明确批准后执行。

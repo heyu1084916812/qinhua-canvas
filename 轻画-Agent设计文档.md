@@ -1,5 +1,11 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-27：视觉验收与只读子代理已交付（对账 #783）。** Agent 新增
+> `visualReview` 只读工具。它读取目标图片的真实字节、MIME 和像素，同时附上项目绑定的
+> 品牌 / 产品 / 角色 / 自定义套件素材与 ContextBundle 约束，由独立系统提示词的视觉子代理
+> 输出结构化问题清单。视觉验收不写画布、不删除节点、不创建生成任务；同一轮验收后，主管
+> Agent 若继续请求写画布或重跑付费生成，循环会停下并把决定权交回用户。
+
 > 状态：**v1.1（2026-10-01）**。设计已完整且**已按它做完 M0–M4、四项全验**（进度见 §14）。
 > v1.1 改的是 M3 的一个真 bug：agent 落地时漏了「默认配方」，建出来的生成节点
 > 没渠道没模型 —— 点了生成不会有反应（详见 §6 与 §14）。
@@ -182,7 +188,7 @@ interface AgentPlan {
 
 | 类别 | 工具 | 行为 |
 | --- | --- | --- |
-| **读** | `readGraph` / `readAsset` / `readResult` | 循环里**直接执行**，结果回填给模型继续 |
+| **读** | `readGraph` / `readAsset` / `readResult` / `visualReview` | 循环里**直接执行**，结果回填给模型继续；视觉验收仍是只读子代理 |
 | **建图** | `applyPlan` | **循环里直接落，不问** —— 建节点不花钱，整份计划一次原子 dispatch（一次撤销全回退）。拦它只会把「批准建图」和「批准花钱」混成一件事（§9） |
 | **花钱 / 改已有** | `runNode` / `updateNode` | **跳出循环等确认**，且执行前把「要跑几次、走哪个渠道模型」摆给你看（§9） |
 
@@ -235,6 +241,7 @@ interface AgentPlan {
 | `applyPlan` | 落地自检的结果（§6.1）：`{ ok, problems: [...] }` + `localId → 真实 id` 的映射表 |
 | `runNode` | `{ nodeId, status, assetHash?, error? }` |
 | `readResult` | `{ nodeId, status, outputs: [{hash,mime,width,height}] }` |
+| `visualReview` | `{ verdict, summary, issues[], limitations[] }`；问题含严重度、类别、证据和修改建议 |
 
 **失败也用同一格式回填**（`{ ok:false, problems:[...] }`），不写「出错了」这种话 ——
 模型要靠它决定下一步，笼统的描述等于让它猜。
@@ -257,6 +264,7 @@ interface AgentPlan {
 | `runNode` | `runEngine` | 跑节点（**花钱那一步，先确认**） |
 | `runFrom` | `runEngine` + 连线拓扑 | 从起点把整条下游链跑完（**花钱，先确认**）；只执行可发请求的生成 / 融合节点，批量 / 循环仍直接 `runNode` |
 | `readResult` | `runRecords` / 节点 data | 读产物与失败原因 |
+| `visualReview` | 只读视觉子代理 | 读真实目标图与项目套件素材，输出结构化验收清单；不写画布、不重跑付费请求 |
 | `updateNode` | `node.updateData` | 改参数（比例、模型、张数）后重跑 |
 
 > **`updateNode` 只管参数，不许改正文**（用户 2026-10-05 第五批第 4 条：

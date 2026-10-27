@@ -28,6 +28,7 @@ import {
   normalizeMemoryCandidate,
   type MemoryCandidate,
 } from '../../../domain/shared/memoryOrganizer'
+import type { VisualReviewResult } from '../../../domain/agent/visualReview'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -205,6 +206,28 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
     parameters: {
       type: 'object',
       properties: { nodeIds: { type: 'array', items: { type: 'string' } } },
+      required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'visualReview',
+    description:
+      '只读视觉验收。把目标图片和项目当前绑定的品牌 / 产品 / 角色 / 自定义套件素材一起交给视觉子代理，' +
+      '检查标志、产品结构、角色身份、文字、排版、画质与整套一致性，返回可执行的 issue 清单。' +
+      '该工具不会写画布、不会删除节点、不会自动重新生成或重跑付费请求。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要验收的真实画布节点 id，必须已有图片产物。',
+        },
+        checklist: {
+          type: 'string',
+          description: '用户这次点名的验收项；没点名就省略，使用项目套件与默认视觉规范。',
+        },
+      },
       required: ['nodeIds'],
     },
   },
@@ -782,6 +805,11 @@ export interface AgentToolContext {
   rememberMemory?: (
     candidate: MemoryCandidate,
   ) => Promise<{ ok: boolean; memoryId?: string; text?: string; reason?: string }>
+  /** 只读视觉验收；由界面层注入真实视觉模型与素材读取能力。 */
+  visualReview?: (input: {
+    nodeIds: readonly string[]
+    checklist?: string
+  }) => Promise<VisualReviewResult>
 }
 
 /**
@@ -850,6 +878,26 @@ export async function executeReadTool(
       return { assets: readAssetInfo(ctx.store, a.nodeIds) }
     case 'readResult':
       return { results: readResults(ctx.store, a.nodeIds) }
+    case 'visualReview': {
+      const rawIds = asStringArray(a.nodeIds)
+      const nodeIds = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
+      if (!ctx.visualReview) {
+        return {
+          ok: false,
+          verdict: 'unreviewable',
+          summary: '当前会话没有接入视觉验收子代理',
+          issues: [],
+          targetNodeIds: nodeIds,
+          limitations: ['缺少视觉模型或素材读取能力'],
+        }
+      }
+      return ctx.visualReview({
+        nodeIds,
+        ...(typeof a.checklist === 'string' && a.checklist.trim()
+          ? { checklist: a.checklist.trim() }
+          : {}),
+      })
+    }
     default:
       return { ok: false, error: `没有这个读类工具：${name}` }
   }
