@@ -185,6 +185,23 @@ describe('RoutePlan', () => {
     ])
   })
 
+  it('停用渠道即使有关键和模型，也不进入路由候选', () => {
+    const result = buildRoutePlan({
+      channels: [
+        channel({ id: 'enabled', priority: 1 }),
+        channel({ id: 'disabled', priority: 99, enabled: false }),
+      ],
+      logicalModel: 'gpt-5',
+      capability: 'chat',
+      policy: { maxAttempts: 3 },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.plan.candidates.map((candidate) => candidate.channelId)).toEqual([
+      'enabled',
+    ])
+  })
+
   it('渠道级模型映射和旧的无分组路径保持兼容', () => {
     const result = buildRoutePlan({
       channels: [

@@ -558,7 +558,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   /** 桌面壳里才有本机命令（对账 #308）：状态行文案据此区分"本机命令"与"地址" */
   const hasLocalCli = platform.cli != null
   const routingCandidates = useMemo(() => {
-    return channelsList.flatMap((channel) => {
+    return channelsList.filter((channel) => channel.enabled).flatMap((channel) => {
       const tokenless = protocolNeedsNoToken(channel.protocol, hasLocalCli)
       const groups =
         channel.credentialGroups.length > 0
@@ -595,7 +595,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const selectedRoutingCandidateKeys =
     routingPolicy.allowedCandidates.length === 0
       ? allRoutingCandidateKeys
-      : new Set(routingPolicy.allowedCandidates.map(routeCandidateKey))
+      : new Set(
+          routingPolicy.allowedCandidates
+            .map(routeCandidateKey)
+            .filter((key) => allRoutingCandidateKeys.has(key)),
+        )
 
   const toggleRoutingCandidate = (candidateKey: string, checked: boolean) => {
     const next = new Set(selectedRoutingCandidateKeys)

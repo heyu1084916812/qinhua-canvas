@@ -40553,6 +40553,9 @@ async function g769(browser) {
         checkedCount: document.querySelectorAll(
           '[data-routing-candidate][data-routing-candidate-checked="true"]',
         ).length,
+        stoppedShown: [...candidates].some((candidate) =>
+          candidate.textContent?.includes('已停用'),
+        ),
       }
     })
     rec(
@@ -40561,7 +40564,8 @@ async function g769(browser) {
       routingUi.overflow <= 0 &&
         routingUi.panelFits &&
         routingUi.candidateCount > 0 &&
-        routingUi.checkedCount === routingUi.candidateCount,
+        routingUi.checkedCount === routingUi.candidateCount &&
+        routingUi.stoppedShown === false,
       JSON.stringify(routingUi),
     )
     await page.screenshot({ path: `${OUT}/769-routing-scope.png` })
