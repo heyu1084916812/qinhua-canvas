@@ -1,9 +1,9 @@
 # 轻画：路由、Agent Runtime、记忆与套件统一规划
 
-> 状态：v1.6，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
+> 状态：v1.7，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
 > Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 完成 AgentJob/AgentEvent、
-> Interrupt、运行中 Steer、文本 RoutePlan、DirectRun 尝试留痕与轮数检查点续跑。
-> 记忆/套件仍待阶段 4。
+> Interrupt、运行中 Steer、文本 RoutePlan、DirectRun 尝试留痕与轮数检查点续跑；
+> 阶段 4 完成个人记忆、品牌/产品套件、项目版本绑定与 ContextBundle。阶段 5–6 待后续。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -293,11 +293,13 @@ ContextBundle {
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。
 
-2026-10-27 当前证据：全量 Vitest **3424 passed / 1 skipped**；`npm run check`、
-`npm run build` 通过；Agent 面板真实浏览器在 1440×900 / 1024×700、明暗主题下无横向溢出。
-阶段 3 已由定向 **104/104** 覆盖：运行中引导持久化与单次注入、AgentJob 事件、文本 RoutePlan
-轮询游标、DirectRun 单记录尝试链，以及超时/结果未知不换候选。上一轮 G769 **13/13** 继续
-作为队列、取消、恢复与路由尝试日志基线。个人记忆、套件、视觉验收和总日志仍未完成。
+2026-10-27 当前证据：全量 Vitest **3437 passed / 1 skipped**，Rust **35/35**；
+`npm run check`、`npm run build` 通过。阶段 4 存储落为 `contextMemories`、
+`contextMemoryRevisions`、`contextKits`、`contextKitVersions`、`projectContextBindings`
+五张表；Dexie v19、共享存储协议 v7。真实隔离库完成“个人记忆 → 品牌套件 v1 → 项目绑定 →
+发布 v2 → 旧项目仍固定 v1”，1440×900 明暗主题与 1024×700 无横向溢出。ContextBundle
+冲突会在付费调用前停止，Agent / 电商 / 漫剧公共文本调用都会写入 `contextDigest` 与版本引用。
+角色/自定义套件、视觉验收、只读子代理、总日志完整 UI 和发布迁移仍未完成。
 
 ## 10. 验收矩阵
 
@@ -391,5 +393,6 @@ ContextBundle {
 - Agent 回合的 AbortSignal 会传到 `completeText` 和确认后的 `runNode/runFrom`；
   停止时取消已启动的 RunPlan，不再只把界面文字改成“已停止”。
 
-仍待完成：运行中 Steer 的下一模型调用边界注入、DirectRun 尝试转存、文本 Agent 使用
-同一轮询策略、个人记忆与品牌/角色/产品套件。
+阶段 3 的运行中 Steer、DirectRun 尝试转存和文本 Agent 同策略已完成；阶段 4 的个人记忆、
+品牌/产品套件与 ContextBundle 已完成。仍待完成：角色/自定义套件、视觉验收与只读子代理、
+总日志完整 UI 和发布迁移。

@@ -65,6 +65,8 @@ export type GlobalSettingsSection =
    * 归「生成」组：它改的正是"新建节点时填什么"。
    */
   | 'defaults'
+  /** 个人记忆：只保存用户确认过的长期偏好、事实和约束。 */
+  | 'agentMemory'
   /**
    * 通知（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明。
    *
@@ -168,6 +170,21 @@ export const GLOBAL_SETTINGS_SECTIONS: {
     label: '默认参数',
     group: '生成',
     keywords: ['默认', '模型', '比例', '尺寸', '画质', '张数', '参数', '记住上次'],
+  },
+  {
+    id: 'agentMemory',
+    label: 'Agent 与记忆',
+    group: '生成',
+    keywords: [
+      'agent',
+      '记忆',
+      '偏好',
+      '个人偏好',
+      '长期记忆',
+      '上下文',
+      '约束',
+      '事实',
+    ],
   },
   {
     id: 'packs',

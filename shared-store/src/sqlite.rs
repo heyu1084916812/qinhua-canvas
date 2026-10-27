@@ -17,7 +17,7 @@ pub const SCHEMA_VERSION: i64 = 2;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-pub const TABLE_NAMES: [&str; 25] = [
+pub const TABLE_NAMES: [&str; 30] = [
     "projects",
     "projectFolders",
     "nodes",
@@ -43,6 +43,11 @@ pub const TABLE_NAMES: [&str; 25] = [
     "assetSaveQueue",
     "ecommerceCanvasItems",
     "inspirationCache",
+    "contextMemories",
+    "contextMemoryRevisions",
+    "contextKits",
+    "contextKitVersions",
+    "projectContextBindings",
 ];
 
 #[derive(Clone)]

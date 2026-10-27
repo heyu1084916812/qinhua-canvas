@@ -12,6 +12,7 @@ import { PackPanel } from '../features/settings/PackPanel'
 import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
 import { DefaultParamsPanel } from '../features/settings/DefaultParamsPanel'
+import { AgentMemoryPanel } from '../features/settings/AgentMemoryPanel'
 import { NotifyPanel } from '../features/settings/NotifyPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
@@ -25,6 +26,7 @@ import {
   IconHelp,
   IconHosting,
   IconKeyboard,
+  IconMemory,
   IconNotify,
   IconPacks,
   IconPalette,
@@ -62,6 +64,7 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
   backup: IconBackup,
   snapshots: IconSnapshot,
   defaults: IconDefaults,
+  agentMemory: IconMemory,
   packs: IconPacks,
   notify: IconNotify,
   help: IconHelp,
@@ -80,6 +83,7 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   backup: '导出、导入和合并本地备份。',
   snapshots: '查看、拍摄和还原项目结构快照。',
   defaults: '设置新建节点的默认模型与参数。',
+  agentMemory: '管理 Agent 可以长期记住的偏好、事实和硬约束。',
   packs: '安装和管理数据型扩展包。',
   notify: '选择任务完成与失败时的提醒方式。',
   help: '查看常见问题与新手引导。',
@@ -285,6 +289,7 @@ export function GlobalSettingsOverlay() {
               {section === 'packs' && <PackPanel key="packs" />}
               {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
               {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
+              {section === 'agentMemory' && <AgentMemoryPanel key="agentMemory" />}
               {/* 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明 */}
               {section === 'notify' && <NotifyPanel key="notify" />}
               {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}

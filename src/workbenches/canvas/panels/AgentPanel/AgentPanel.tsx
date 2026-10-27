@@ -5,6 +5,7 @@ import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage, NodeInput } from '../../../../domain/shared/execution/types'
+import { formatContextBundleForPrompt } from '../../../../domain/shared/context'
 import {
   AGENT_CONTEXT_WINDOW,
   createAgentSessionStore,
@@ -95,6 +96,7 @@ import {
   directTextTrace,
   type DirectRunRouteCandidate,
 } from '../../../../state/shared/directRun'
+import { createContextRepository } from '../../../../state/shared/contextRepository'
 import { createId } from '../../../../shared/id'
 import {
   queuedTurnPreview,
@@ -219,6 +221,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const sessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
   const jobs = useMemo(() => createAgentJobStore(platform.storage), [platform])
+  const contextRepo = useMemo(
+    () => createContextRepository(platform.storage),
+    [platform],
+  )
   const presets = useMemo(() => createPresetStore(platform.storage), [platform])
   /**
    * 素材库（用户 2026-10-03：「加素材…分两个功能，点击后本地上传和素材库添加」）。
@@ -357,6 +363,17 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const chatRouteRef = useRef(new Map<string, AgentChatRoute>())
   const deliveredSteersRef = useRef(new Map<string, Set<string>>())
+  const contextTraceRef = useRef(
+    new Map<
+      string,
+      {
+        digest: string
+        memoryRefs: { id: string; revision: number }[]
+        kitVersionRefs: { kitId: string; version: number }[]
+        assetRefs: { hash: string; mime: string }[]
+      }
+    >(),
+  )
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   /**
@@ -936,11 +953,29 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ...(data.naturalSize ? { naturalSize: data.naturalSize } : {}),
         }]
       })
+      const contextAssets =
+        contextTraceRef.current.get(session.id)?.assetRefs ?? []
+      const existingAssetHashes = new Set(
+        inputs.flatMap((input) =>
+          input.kind === 'asset' ? [input.assetHash] : [],
+        ),
+      )
+      for (const asset of contextAssets) {
+        if (existingAssetHashes.has(asset.hash)) continue
+        existingAssetHashes.add(asset.hash)
+        inputs.push({
+          kind: 'asset',
+          nodeId: `context-kit:${asset.hash}`,
+          assetHash: asset.hash,
+          mime: asset.mime,
+        })
+      }
       const traceOf = (
         req: TextRunRequest,
         purpose: 'agent' | 'agent-tool-probe',
-      ) =>
-        directTextTrace({
+      ) => {
+        const context = contextTraceRef.current.get(session.id)
+        return directTextTrace({
           projectId: store.getSnapshot().projectId,
           workbench: 'canvas',
           subjectId: session.id,
@@ -954,8 +989,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           params: {
             toolMode,
             messageCount: req.messages?.length ?? 0,
+            ...(context
+              ? {
+                  contextDigest: context.digest,
+                  memoryRefs: context.memoryRefs,
+                  kitVersionRefs: context.kitVersionRefs,
+                }
+              : {}),
           },
         })
+      }
       const onRecordWarning = (warning: string) =>
         store.notify(`结果已返回，但运行记录写入失败：${warning}`, 'error')
       const onRouteSucceeded = (selected: DirectRunRouteCandidate) => {
@@ -1277,6 +1320,52 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusFor(session.id, { kind: 'thinking' })
     autoRunRef.current.set(session.id, session.autoRun === true)
 
+    let contextPrompt = ''
+    try {
+      const bundle = await contextRepo.bundleForProject({
+        projectId: store.getSnapshot().projectId,
+        workbench: 'canvas',
+        request: stripMentionMarkup(text),
+        sessionId: session.id,
+      })
+      contextTraceRef.current.set(session.id, {
+        digest: bundle.digest,
+        memoryRefs: bundle.memoryRefs,
+        kitVersionRefs: bundle.kitVersionRefs,
+        assetRefs: (
+          await Promise.all(
+            bundle.assetHashes.map(async (hash) => {
+              const payload = await platform.assets.read(hash).catch(() => null)
+              return payload ? { hash, mime: payload.mime } : null
+            }),
+          )
+        ).filter(
+          (asset): asset is { hash: string; mime: string } => asset !== null,
+        ),
+      })
+      if (bundle.conflicts.length > 0) {
+        const message = `上下文有冲突，请先处理：${bundle.conflicts
+          .map((conflict) => conflict.message)
+          .join('；')}`
+        await transitionSessionJob(
+          session.id,
+          'failed',
+          'failed',
+          { lastError: message },
+          { phase: 'context_conflict' },
+        )
+        setStatusFor(session.id, { kind: 'error', message })
+        return
+      }
+      contextPrompt = formatContextBundleForPrompt(bundle)
+    } catch (error) {
+      contextTraceRef.current.delete(session.id)
+      store.notify(
+        `读取个人记忆或项目套件失败：${errText(error)}`,
+        'error',
+      )
+    }
+
     /**
      * 发消息前先问一次「这个对话模型到底会不会 tool_calls」。
      *
@@ -1442,6 +1531,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
         generationAvailability,
+        ...(contextPrompt ? { contextBundle: contextPrompt } : {}),
         /** JSON 降级时要把工具声明列进提示词，模型才知道 tool 能填什么（路线 B） */
         ...(toolMode === 'json' ? { jsonToolFallback: true, tools: AGENT_TOOLS } : {}),
       },
@@ -1557,6 +1647,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     viewport,
     prepareChatRoute,
     sessions,
+    contextRepo,
     generationAvailability,
     ensureAgentJob,
     transitionSessionJob,
@@ -1579,7 +1670,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         queuedSession,
         opts.queueTurnId,
       )
-      if (!outcome) return undefined
+      if (!outcome) {
+        if (opts.queueTurnId) {
+          const next = await sessions.finishActiveQueuedTurn(
+            session.id,
+            opts.queueTurnId,
+            false,
+          )
+          if (next) applySessionSnapshot(next)
+        }
+        abortRefs.current.delete(session.id)
+        releaseSessionActivity(session.id, opts.queueTurnId)
+        return undefined
+      }
       const paused =
         outcome.kind === 'stopped' && outcome.checkpoint !== undefined
       if (outcome.kind !== 'confirm' && !paused) {

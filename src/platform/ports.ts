@@ -39,6 +39,14 @@ export type TableName =
   | 'agentJobs'
   /** Agent 任务不可变事件流水；按 jobId + seq 追加。 */
   | 'agentEvents'
+  /** 个人记忆头与不可变修订。 */
+  | 'contextMemories'
+  | 'contextMemoryRevisions'
+  /** 品牌 / 角色 / 产品 / 自定义套件及不可变版本。 */
+  | 'contextKits'
+  | 'contextKitVersions'
+  /** 项目显式绑定的套件版本；不会自动跟随最新版本。 */
+  | 'projectContextBindings'
   /**
    * 用户自定义界面字体（用户 2026-10-09）。
    *

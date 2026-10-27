@@ -323,4 +323,30 @@ describe('ProjectRepository（内存存储）', () => {
     expect(await storage.query('ecommerceTasks', { projectId: p.id })).toHaveLength(1)
     expect(await storage.query('ecommerceResults', { projectId: p.id })).toHaveLength(1)
   })
+
+  it('★★ duplicate 同时复制项目套件绑定，版本号保持不变', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const p = await repo.create({ name: '品牌原项目' })
+    await storage.put('projectContextBindings', {
+      id: 'bind-1',
+      projectId: p.id,
+      kitId: 'kit-brand',
+      kitVersion: 3,
+      mode: 'locked',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    const copy = await repo.duplicate(p.id)
+    const copied = await storage.query('projectContextBindings', { projectId: copy.id })
+    expect(copied).toHaveLength(1)
+    expect(copied[0]).toMatchObject({
+      kitId: 'kit-brand',
+      kitVersion: 3,
+      mode: 'locked',
+    })
+    expect(copied[0].id).not.toBe('bind-1')
+    expect(await storage.query('projectContextBindings', { projectId: p.id })).toHaveLength(1)
+  })
 })

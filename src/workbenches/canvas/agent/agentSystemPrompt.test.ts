@@ -454,3 +454,23 @@ describe('多张图各自一条流程（#183）', () => {
     expect(buildAgentSystemPromptWithContext({ nodes: [], edges: [] })).not.toContain('各自一条流程')
   })
 })
+
+describe('ContextBundle', () => {
+  it('★★ 个人记忆与项目套件作为独立上下文段进入系统提示词', () => {
+    const prompt = buildAgentSystemPromptWithContext(
+      { nodes: [], edges: [] },
+      undefined,
+      {
+        contextBundle: [
+          '## 硬约束（不得违反）',
+          '- 品牌主色：深绿色',
+          '## 个人偏好（可优先采用）',
+          '- 留白充足',
+        ].join('\n'),
+      },
+    )
+    expect(prompt).toContain('品牌主色：深绿色')
+    expect(prompt).toContain('留白充足')
+    expect(prompt).not.toContain('## 本会话启用的技能')
+  })
+})

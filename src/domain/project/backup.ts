@@ -55,6 +55,11 @@ export const BACKUP_TABLES = [
   'ecommerceTasks',
   'ecommerceResults',
   'ecommerceCanvasItems',
+  'contextMemories',
+  'contextMemoryRevisions',
+  'contextKits',
+  'contextKitVersions',
+  'projectContextBindings',
   // 字体是本机界面偏好；体积不小，所以**可选**（见 BackupOptions.includeFonts）
   'fonts',
 ] as const

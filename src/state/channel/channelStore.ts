@@ -61,6 +61,9 @@ import type {
 } from '../../platform/channels/types'
 import type { ChatMessage, NodeInput, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
+import {
+  formatContextBundleForPrompt,
+} from '../../domain/shared/context'
 import { createId } from '../../shared/id'
 import {
   createGenerationClient,
@@ -72,6 +75,7 @@ import {
   type DirectRunTraceInput,
 } from '../shared/directRun'
 import { ChannelRemovalInterruptedError } from '../shared/runChannelGuard'
+import { createContextRepository } from '../shared/contextRepository'
 
 /**
  * zustand 5 的 createStore 类型与本项目装好的 TypeScript 6 泛型推断冲突（见 state/workbenches/canvas/store.ts）。
@@ -373,6 +377,7 @@ export function createChannelStore(
   platform: PlatformKit,
   opts: { seedBuiltins?: boolean } = {},
 ): ChannelStore {
+  const contextRepo = createContextRepository(platform.storage)
   const seedBuiltins = opts.seedBuiltins !== false
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
   const presets: PresetStore = createPresetStore(platform.storage)
@@ -1443,6 +1448,77 @@ export function createChannelStore(
     onRecordWarning,
     onRouteSucceeded,
   }) => {
+    const traceParams =
+      trace?.params && typeof trace.params === 'object'
+        ? { ...(trace.params as Record<string, unknown>) }
+        : {}
+    let outboundMessages = messages
+    const outboundInputs = [...inputs]
+    let contextMeta: Record<string, unknown> = {}
+    if (
+      trace &&
+      typeof traceParams.contextDigest !== 'string' &&
+      traceParams.purpose !== 'agent-tool-probe'
+    ) {
+      try {
+        const lastUser = [...messages]
+          .reverse()
+          .find((message) => message.role === 'user')
+        const bundle = await contextRepo.bundleForProject({
+          projectId: trace.projectId,
+          workbench: trace.workbench,
+          request: lastUser?.content ?? '',
+          sessionId: trace.scopeId,
+          taskId: trace.subjectId,
+        })
+        if (bundle.conflicts.length > 0) {
+          throw new ChannelError({
+            kind: 'parse',
+            raw: `上下文有冲突，请先处理：${bundle.conflicts
+              .map((conflict) => conflict.message)
+              .join('；')}`,
+          })
+        }
+        const contextPrompt = formatContextBundleForPrompt(bundle)
+        if (contextPrompt) {
+          outboundMessages = [
+            { role: 'system', content: contextPrompt },
+            ...messages,
+          ]
+        }
+        contextMeta = {
+          contextDigest: bundle.digest,
+          memoryRefs: bundle.memoryRefs,
+          kitVersionRefs: bundle.kitVersionRefs,
+        }
+        const existingAssetHashes = new Set(
+          outboundInputs.flatMap((input) =>
+            input.kind === 'asset' ? [input.assetHash] : [],
+          ),
+        )
+        for (const hash of bundle.assetHashes) {
+          if (existingAssetHashes.has(hash)) continue
+          const payload = await platform.assets.read(hash).catch(() => null)
+          if (!payload) continue
+          existingAssetHashes.add(hash)
+          outboundInputs.push({
+            kind: 'asset',
+            nodeId: `context-kit:${hash}`,
+            assetHash: hash,
+            mime: payload.mime,
+          })
+        }
+      } catch (error) {
+        if (error instanceof ChannelError) throw error
+        // 记忆 / 套件读取失败不能阻断正常付费调用；本次按“无长期上下文”继续。
+      }
+    }
+    const effectiveTrace = trace
+      ? {
+          ...trace,
+          params: { ...traceParams, ...contextMeta },
+        }
+      : undefined
     const firstChannel = store
       .getState()
       .channels.find((channel) => channel.id === requestedChannelId)
@@ -1483,10 +1559,10 @@ export function createChannelStore(
           request: {
             kind: 'text',
             prompt: '',
-            inputs: [...inputs],
+            inputs: outboundInputs,
             params: {},
             tools,
-            messages,
+            messages: outboundMessages,
             /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
             timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
           },
@@ -1496,21 +1572,21 @@ export function createChannelStore(
               ? { credentialGroupId: selected.credentialGroupId }
               : {}),
             operationId:
-              trace?.operationId ??
+              effectiveTrace?.operationId ??
               `text:${selected.channelId}:${selected.model}`,
           },
         },
         callSignal,
       )
     }
-    if (!trace) return call(signal, candidates[0])
+    if (!effectiveTrace) return call(signal, candidates[0])
     const firstCandidate = candidates[0]!
     try {
       const finished = await runDirectGeneration({
           storage: platform.storage,
           trace: {
-            ...trace,
-            inputs: trace.inputs ?? [...inputs],
+            ...effectiveTrace,
+            inputs: outboundInputs,
             sentChannelId: firstCandidate.channelId,
             sentModel: firstCandidate.model,
             ...(routePlanId ? { routePlanId } : {}),

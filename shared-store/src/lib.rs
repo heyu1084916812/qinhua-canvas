@@ -1152,7 +1152,7 @@ fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 6,
+                "version": 7,
                 "backend": store.kind(),
                 "maintenance": store.in_maintenance(),
                 "dataDir": store.root().to_string_lossy(),
@@ -1550,6 +1550,35 @@ mod tests {
             .unwrap(),
             vec![row]
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn context_tables_are_available() {
+        let root = temp_root("context-tables");
+        let rows = [
+            ("contextMemories", json!({ "id": "m1", "text": "偏好留白" })),
+            ("contextMemoryRevisions", json!({ "id": "mr1", "memoryId": "m1", "revision": 1 })),
+            ("contextKits", json!({ "id": "k1", "kind": "brand", "currentVersion": 1 })),
+            ("contextKitVersions", json!({ "id": "kv1", "kitId": "k1", "version": 1 })),
+            (
+                "projectContextBindings",
+                json!({ "id": "b1", "projectId": "p1", "kitId": "k1", "kitVersion": 1 }),
+            ),
+        ];
+        for (table, row) in rows {
+            write_row(&root, table, &row).unwrap();
+            let id = row.get("id").unwrap().as_str().unwrap().to_string();
+            assert_eq!(
+                query_rows(
+                    &root,
+                    table,
+                    &Map::from_iter([("id".to_string(), Value::String(id))])
+                )
+                .unwrap(),
+                vec![row]
+            );
+        }
         let _ = fs::remove_dir_all(root);
     }
 

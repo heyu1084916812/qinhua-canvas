@@ -412,6 +412,11 @@ export interface AgentPromptExtras {
    */
   perImage?: boolean
   /**
+   * 已由 ContextBundle 归一化的个人记忆、项目套件和冲突说明。
+   * 只注入本次必要片段，不把完整照片或记忆库塞进提示词。
+   */
+  contextBundle?: string
+  /**
    * 随这次对话给的素材节点 id（§8）。
    *
    * 只报**节点 id**：素材已经落在画布上了，模型该做的是在 `attach` 里指过去。
@@ -474,6 +479,10 @@ export function buildAgentSystemPromptWithContext(
   extras: AgentPromptExtras = {},
 ): string {
   const parts = [buildAgentSystemPrompt(summary, inherited)]
+
+  if (extras.contextBundle?.trim()) {
+    parts.push(extras.contextBundle.trim())
+  }
 
   if (extras.preserve) {
     parts.push(

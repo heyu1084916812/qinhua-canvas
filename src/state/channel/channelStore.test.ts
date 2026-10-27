@@ -3,6 +3,8 @@ import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
 import { createChannelStore } from './channelStore'
 import { directTextTrace } from '../shared/directRun'
+import { createContextRepository } from '../shared/contextRepository'
+import { ECOMMERCE_INTENT_MARKER } from '../../domain/ecommerce/chatParse'
 import {
   clearGuardedChannelRuns,
   interruptGuardedRunsForRemovedChannels,
@@ -786,6 +788,110 @@ describe('channelStore', () => {
         },
       ],
     })
+  })
+
+  it('★★ 没有冻结上下文摘要时，公共文本调用会注入个人记忆并写回 contextDigest', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+    await store.setModels(ch.id, [
+      { id: 'mock-chat-1', category: 'chat', inputTypes: ['text'] },
+    ])
+    await createContextRepository(p.storage).createMemory({
+      kind: 'constraint',
+      text: ECOMMERCE_INTENT_MARKER,
+      workbench: 'ecommerce',
+    })
+
+    const result = await store.completeWithTools({
+      channelId: ch.id,
+      model: 'mock-chat-1',
+      tools: [],
+      messages: [{ role: 'user', content: '做一张亚马逊主图' }],
+      signal: new AbortController().signal,
+      trace: directTextTrace({
+        projectId: 'proj_context',
+        workbench: 'ecommerce',
+        subjectId: 'product:1',
+        scopeId: 'session:ec',
+        operationId: 'op-context',
+        purpose: 'ecommerce-intent',
+        channelId: ch.id,
+        model: 'mock-chat-1',
+        prompt: '做一张亚马逊主图',
+      }),
+    })
+
+    expect(result.text).toContain('amazon')
+    const [record] = await p.storage.query('runRecords', { projectId: 'proj_context' })
+    expect(record?.params).toMatchObject({
+      contextDigest: expect.any(String),
+      memoryRefs: [expect.objectContaining({ revision: 1 })],
+      kitVersionRefs: [],
+    })
+  })
+
+  it('★★ 项目绑定的套件版本会进入公共文本上下文，且记录精确版本', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+    await store.setModels(ch.id, [
+      { id: 'mock-chat-1', category: 'chat', inputTypes: ['text'] },
+    ])
+    const contextRepo = createContextRepository(p.storage)
+    await p.storage.put('assets', {
+      id: 'brand-logo',
+      mime: 'image/png',
+      bytes: new Uint8Array([1, 2, 3]),
+    })
+    const created = await contextRepo.createKit({
+      kind: 'brand',
+      name: '品牌 A',
+      guide: ECOMMERCE_INTENT_MARKER,
+      facts: [{ key: '主色', value: '#14532D' }],
+      assetHashes: ['brand-logo'],
+    })
+    await contextRepo.bindProject({
+      projectId: 'proj_brand_context',
+      kitId: created.kit.id,
+      kitVersion: 1,
+    })
+
+    const result = await store.completeWithTools({
+      channelId: ch.id,
+      model: 'mock-chat-1',
+      tools: [],
+      messages: [{ role: 'user', content: '做一张亚马逊主图' }],
+      signal: new AbortController().signal,
+      trace: directTextTrace({
+        projectId: 'proj_brand_context',
+        workbench: 'ecommerce',
+        subjectId: 'product:2',
+        scopeId: 'session:ec-2',
+        operationId: 'op-brand-context',
+        purpose: 'ecommerce-intent',
+        channelId: ch.id,
+        model: 'mock-chat-1',
+        prompt: '做一张亚马逊主图',
+      }),
+    })
+
+    expect(result.text).toContain('amazon')
+    const [record] = await p.storage.query('runRecords', {
+      projectId: 'proj_brand_context',
+    })
+    expect(record?.params).toMatchObject({
+      kitVersionRefs: [{ kitId: created.kit.id, version: 1 }],
+    })
+    expect(record?.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'asset',
+          assetHash: 'brand-logo',
+          mime: 'image/png',
+        }),
+      ]),
+    )
   })
 
   it('文字调用成功但日志写入失败时不重发模型，警告通过回调返回', async () => {

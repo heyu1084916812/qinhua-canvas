@@ -172,6 +172,24 @@
   border-bottom: var(--border);
 }
 
+.kitButton {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.kitButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
 .selectBar {
   flex: none;
   display: flex;

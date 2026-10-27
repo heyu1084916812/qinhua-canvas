@@ -218,6 +218,22 @@ class QinghuaDB extends Dexie {
       agentEvents:
         'id, jobId, sessionId, projectId, seq, type, createdAt, [jobId+seq], [sessionId+createdAt]',
     })
+    /**
+     * v19：个人记忆、版本化套件与项目绑定。
+     *
+     * 记忆修订和套件版本只增不改；项目绑定保存明确版本号，因此套件发布新版本后
+     * 旧项目仍读取原版本。
+     */
+    this.version(19).stores({
+      contextMemories: 'id, kind, workbench, enabled, currentRevision, updatedAt',
+      contextMemoryRevisions:
+        'id, memoryId, revision, kind, workbench, createdAt, [memoryId+revision]',
+      contextKits: 'id, kind, name, currentVersion, updatedAt',
+      contextKitVersions:
+        'id, kitId, version, checksum, createdAt, [kitId+version]',
+      projectContextBindings:
+        'id, projectId, kitId, kitVersion, mode, updatedAt, [projectId+kitId]',
+    })
   }
 }
 

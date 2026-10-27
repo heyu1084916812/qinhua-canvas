@@ -1,5 +1,27 @@
 # CanvasFlow（轻画）项目记忆
 
+### 个人记忆、套件版本与 ContextBundle（2026-10-27 → 对账 #774）
+
+- **项目绑定的是版本号，不是“当前最新”**：`projectContextBindings` 必须保存
+  `kitId + kitVersion`。`contextKits.currentVersion` 只用于新建或显式升级；发布 v2 后，
+  已绑定 v1 的旧项目仍只能读 v1。不可把绑定查询写成“取 currentVersion”。
+- **记忆修订只增不改**：`contextMemories` 是当前头，`contextMemoryRevisions` 是审计正文。
+  编辑必须追加 revision；停用只改 `enabled`，不能删除修订。个人记忆是软偏好/约束，
+  不能冒充品牌事实；对 App 的读取仍按 workbench 过滤。
+- **ContextBundle 冲突必须先停**：同名事实由不同套件给出不同值时，`assembleContextBundle`
+  返回冲突列表；画布 Agent 与公共 `completeWithTools` 都在付费模型请求前抛错/停止。
+  不允许“取最后一个值”或静默按优先级覆盖。
+- **公共文本链只注入一次**：画布 Agent 已冻结上下文时，`directTextTrace.params.contextDigest`
+  会阻止 `completeWithTools` 二次注入；电商/漫剧没有冻结摘要时由公共层统一读取并注入。
+  RunRecord 只记录 `contextDigest / memoryRefs / kitVersionRefs`。
+- **套件素材要真发图**：绑定版本的 `assetHashes` 会进入 ContextBundle；画布 Agent 与公共文本
+  调用都会按 hash 从 `assets` 读真实字节、补成 `NodeInput.asset`，不能只把文件名/路径写进提示词。
+- **存储与迁移**：五张 Context 表已加入 TableName、Dexie v19、Rust `TABLE_NAMES`、共享存储
+  v7、全库备份白名单与项目永久删除级联。项目复制要复制绑定但保持版本号。
+- **验证**：全量 Vitest **3437 passed / 1 skipped**，Rust **35/35**，check/build/diff-check
+  通过。真实隔离库完成“记忆 → 品牌 v1 → 绑定 → 发布 v2 → 项目仍固定 v1”，
+  1440×900 明暗与 1024×700 无溢出；临时存储目录已删除。
+
 ### 运行中引导、文本路由与直连尝试（2026-10-27 → 对账 #773）
 
 - **Steer 不是第二个回合**：`pendingSteers` 随 `agentSessions` 落库，忙碌时输入框的“引导”

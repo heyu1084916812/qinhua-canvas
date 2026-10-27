@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BACKUP_FORMAT,
+  BACKUP_TABLES,
   BACKUP_VERSION,
   bytesToBase64,
   decodeRow,
@@ -59,6 +60,28 @@ describe('全库备份 · 编解码', () => {
     const { text } = serializeBackup(sneaky)
     expect(text).not.toContain('top-secret')
     expect(text).not.toContain('credentials')
+  })
+
+  it('★★ 个人记忆、套件版本和项目绑定进入全库备份', () => {
+    for (const table of [
+      'contextMemories',
+      'contextMemoryRevisions',
+      'contextKits',
+      'contextKitVersions',
+      'projectContextBindings',
+    ]) {
+      expect(BACKUP_TABLES).toContain(table)
+    }
+    const { manifest } = serializeBackup({
+      contextMemories: [{ id: 'm1', text: '偏好留白' }],
+      contextKitVersions: [{ id: 'v1', kitId: 'k1', version: 1 }],
+      projectContextBindings: [{ id: 'b1', projectId: 'p1', kitId: 'k1', kitVersion: 1 }],
+    })
+    expect(manifest.tables).toMatchObject({
+      contextMemories: 1,
+      contextKitVersions: 1,
+      projectContextBindings: 1,
+    })
   })
 
   it('★ 字体可选：默认带上，显式关掉就不带', () => {

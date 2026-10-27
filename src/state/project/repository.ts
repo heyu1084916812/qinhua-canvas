@@ -95,6 +95,7 @@ const PROJECT_CASCADE_TABLES: TableName[] = [
   'ecommerceResults',
   'assetSaveQueue',
   'ecommerceCanvasItems',
+  'projectContextBindings',
 ]
 
 export function createProjectRepository(storage: StoragePort): ProjectRepository {
@@ -454,6 +455,9 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const taskRows = await storage.query('ecommerceTasks', { projectId: id })
       const resultRows = await storage.query('ecommerceResults', { projectId: id })
       const canvasRows = await storage.query('ecommerceCanvasItems', { projectId: id })
+      const contextBindingRows = await storage.query('projectContextBindings', {
+        projectId: id,
+      })
       const taskIdMap = new Map<string, string>()
       const batchIdMap = new Map<string, string>()
       for (const task of taskRows) {
@@ -517,6 +521,13 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           ? { resultId: resultIdMap.get(String(item.resultId)) ?? String(item.resultId) }
           : {}),
       }))
+      const newContextBindings = contextBindingRows.map((binding) => ({
+        ...binding,
+        id: createId('bind'),
+        projectId: copy.id,
+        createdAt: now,
+        updatedAt: now,
+      }))
       await storage.transaction(
         [
           'projects',
@@ -525,6 +536,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           'ecommerceTasks',
           'ecommerceResults',
           'ecommerceCanvasItems',
+          'projectContextBindings',
         ],
         async (tx) => {
           await tx.put('projects', copy as never)
@@ -542,6 +554,9 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           for (const result of newResults) await tx.put('ecommerceResults', result as never)
           for (const item of newCanvasItems) {
             await tx.put('ecommerceCanvasItems', item as never)
+          }
+          for (const binding of newContextBindings) {
+            await tx.put('projectContextBindings', binding as never)
           }
         },
       )

@@ -99,6 +99,17 @@ export function IconDefaults({ size = 16 }: IconProps) {
   )
 }
 
+/** Agent 与记忆：带折角的记忆卡。 */
+export function IconMemory({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M6 4.5h9l3 3v12H6Z" />
+      <path d="M15 4.5v3h3M9 11h6M9 14.5h6" />
+      <path d="M3.5 8.5v11h10" />
+    </svg>
+  )
+}
+
 /** 扩展包：包裹盒 */
 export function IconPacks({ size = 16 }: IconProps) {
   return (
