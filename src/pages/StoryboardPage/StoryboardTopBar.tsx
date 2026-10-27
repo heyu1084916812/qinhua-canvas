@@ -7,7 +7,8 @@ export function StoryboardTopBar({
   status,
   stats,
   exportActions,
-}: StoryboardEditorViewProps) {
+  onOpenLogs,
+}: StoryboardEditorViewProps & { onOpenLogs: () => void }) {
   return (
     <header className={styles.bar}>
       <div className={styles.titleWrap}>
@@ -22,6 +23,14 @@ export function StoryboardTopBar({
       <span className={styles.status} role="status" data-storyboard-status>
         {status}
       </span>
+      <button
+        type="button"
+        className={styles.ghost}
+        data-storyboard-log
+        onClick={onOpenLogs}
+      >
+        日志
+      </button>
       <button
         type="button"
         className={styles.primary}

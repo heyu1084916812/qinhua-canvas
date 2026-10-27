@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { RunLogDrawer } from '../../features/shared/execution/RunLogDrawer'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
 import { StoryboardAssetPanel } from './StoryboardAssetPanel'
@@ -10,10 +12,11 @@ import styles from './StoryboardPage.module.css'
 
 export function StoryboardEditorView(props: StoryboardEditorViewProps) {
   const { preview, sourcePreview, selected, timeline, actions } = props
+  const [logsOpen, setLogsOpen] = useState(false)
 
   return (
     <div className={styles.page} data-storyboard-page>
-      <StoryboardTopBar {...props} />
+      <StoryboardTopBar {...props} onOpenLogs={() => setLogsOpen(true)} />
       <div className={styles.body}>
         <section className={styles.left} aria-label="剧本与分集">
           <StoryboardSourcePanel {...props} />
@@ -41,6 +44,13 @@ export function StoryboardEditorView(props: StoryboardEditorViewProps) {
           range={sourcePreview.range}
           text={sourcePreview.text}
           onClose={actions.closeSource}
+        />
+      ) : null}
+      {logsOpen ? (
+        <RunLogDrawer
+          title="漫剧日志"
+          filter={{ projectId: props.projectId, workbench: 'storyboard' }}
+          onClose={() => setLogsOpen(false)}
         />
       ) : null}
     </div>

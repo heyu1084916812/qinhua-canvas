@@ -65,6 +65,18 @@ export function IconStorage({ size = 16 }: IconProps) {
   )
 }
 
+/** 总日志：带时间线的记录列表。 */
+export function IconLogs({ size = 16 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M5 5h14M5 12h14M5 19h14" />
+      <circle cx="3" cy="5" r="0.7" />
+      <circle cx="3" cy="12" r="0.7" />
+      <circle cx="3" cy="19" r="0.7" />
+    </svg>
+  )
+}
+
 /** 外观与体验：调色板 */
 export function IconAppearance({ size = 16 }: IconProps) {
   return (

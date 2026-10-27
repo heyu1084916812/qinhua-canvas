@@ -22,6 +22,8 @@ export type GlobalSettingsSection =
   | 'cli'
   | 'hosting'
   | 'storage'
+  /** 总日志：跨项目汇总同一份 RunRecord，不复制日志库。 */
+  | 'allLogs'
   /**
    * 主题与颜色（用户 2026-10-25）：明暗主题与强调色。
    *
@@ -135,6 +137,12 @@ export const GLOBAL_SETTINGS_SECTIONS: {
     label: '存储',
     group: '数据',
     keywords: ['数据目录', '缓存', '占用', '磁盘', '空间', '清理', '素材文件夹', '存放'],
+  },
+  {
+    id: 'allLogs',
+    label: '总日志',
+    group: '数据',
+    keywords: ['日志', '运行记录', '失败原因', '成功', '失败', '取消', '中断', '未分类', '路由'],
   },
   // 外观拆成三项：本机文字、主题颜色、项目画布（2026-10-25）
   {

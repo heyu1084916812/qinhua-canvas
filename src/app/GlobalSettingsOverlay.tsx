@@ -13,6 +13,7 @@ import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
 import { DefaultParamsPanel } from '../features/settings/DefaultParamsPanel'
 import { AgentMemoryPanel } from '../features/settings/AgentMemoryPanel'
+import { AllLogsPanel } from '../features/settings/AllLogsPanel'
 import { NotifyPanel } from '../features/settings/NotifyPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
@@ -26,6 +27,7 @@ import {
   IconHelp,
   IconHosting,
   IconKeyboard,
+  IconLogs,
   IconMemory,
   IconNotify,
   IconPacks,
@@ -58,6 +60,7 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
   cli: IconCli,
   hosting: IconHosting,
   storage: IconStorage,
+  allLogs: IconLogs,
   appearance: IconPalette,
   typography: IconTypography,
   canvasLook: IconAppearance,
@@ -77,6 +80,7 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   cli: '管理本机命令与运行环境。',
   hosting: '设置素材上传与公网访问。',
   storage: '查看资源占用并管理存储位置。',
+  allLogs: '跨项目查看全部运行记录、失败原因与路由尝试。',
   appearance: '设置深浅主题、强调色、动效与小地图。',
   typography: '管理界面字体、字号与字距。',
   canvasLook: '设置当前项目的画布背景、节点底色与节点显示。',
@@ -278,6 +282,7 @@ export function GlobalSettingsOverlay() {
               {section === 'cli' && <CliPanel key="cli" />}
               {section === 'hosting' && <HostingPage key="hosting" />}
               {section === 'storage' && <StoragePanel key="storage" />}
+              {section === 'allLogs' && <AllLogsPanel key="allLogs" />}
               {section === 'appearance' && <ThemePanel key="appearance" />}
               {section === 'typography' && <FontManagerPanel key="typography" />}
               {section === 'canvasLook' && <CanvasLookPanel key="canvasLook" />}

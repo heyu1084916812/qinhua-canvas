@@ -1,0 +1,51 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--scrim);
+}
+
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 32px));
+  height: 100%;
+  border-left: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.head strong {
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.head button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.body {
+  min-height: 0;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+}

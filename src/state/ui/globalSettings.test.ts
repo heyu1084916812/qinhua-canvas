@@ -69,7 +69,7 @@ describe('globalSettings · 全局设置浮层', () => {
     off()
   })
 
-  it('★ 子菜单十五栏与内容一一对应（标签与内容一处定义）', () => {
+  it('★ 子菜单与内容一一对应（标签与内容一处定义）', () => {
     // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储 / 主题与颜色 / 字体与文字 /
     // 画布外观 / 备份与恢复 / 快照 / 默认参数 / Agent 与记忆 / 扩展包 / 帮助 / 快捷键 / 关于与隐私 / 通知
     // （#259 + #261 + #308；「外观与体验」与「备份与恢复」为用户 2026-10-09 新增：
@@ -83,6 +83,7 @@ describe('globalSettings · 全局设置浮层', () => {
       'cli',
       'hosting',
       'storage',
+      'allLogs',
       'appearance',
       'typography',
       'canvasLook',
@@ -101,6 +102,7 @@ describe('globalSettings · 全局设置浮层', () => {
       'CLI',
       '素材传输',
       '存储',
+      '总日志',
       '主题与颜色',
       '字体与文字',
       '画布外观',
@@ -128,6 +130,7 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(byId.get('cli')).toBe('连接')
     expect(byId.get('hosting')).toBe('连接')
     expect(byId.get('storage')).toBe('数据')
+    expect(byId.get('allLogs')).toBe('数据')
     expect(byId.get('backup')).toBe('数据')
     expect(byId.get('notify')).toBe('数据')
     expect(byId.get('appearance')).toBe('外观')
@@ -175,7 +178,14 @@ describe('globalSettings · 搜索', () => {
      * （那一栏确实回答这个问题）—— 这是**有意的**结果，不是漏网的噪声，
      * 所以把它写进期望里，将来谁改关键词都会先看到这条。
      */
-    expect(ids('数据')).toEqual(['storage', 'backup', 'snapshots', 'about', 'notify'])
+    expect(ids('数据')).toEqual([
+      'storage',
+      'allLogs',
+      'backup',
+      'snapshots',
+      'about',
+      'notify',
+    ])
   })
 
   it('搜不到就是空（界面据此给"没有匹配"的提示，而不是留一片空白菜单）', () => {
