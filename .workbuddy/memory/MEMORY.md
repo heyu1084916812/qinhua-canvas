@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 与记忆的写入边界及输入框盒模型（2026-10-27 → 对账 #777）
+
+- **个人记忆不是自动聊天记忆**：`contextMemories` 只在用户主动输入并点击“保存记忆”后写入；
+  当前没有从普通对话、一次性要求或模型回复自动抽取长期记忆的链路。Agent 只读取当前作用域内
+  已启用记忆，停用项不进入 ContextBundle。若要增加自动候选，必须走“Agent 提议 → 用户确认”，
+  不能静默覆盖品牌事实或把临时要求永久化。
+- **全宽 textarea 不能让内容宽度再加 padding**：设置卡片里的 `width: 100%` 文本框必须同时有
+  `box-sizing: border-box`，并显式 `display: block; max-width: 100%`；否则左右 padding 与
+  border 会让右边缘顶出父容器。回归在 `scripts/agent-memory-panel-layout.test.mjs`。
+- **验证**：定向 **1/1**、全量 Vitest **3449 passed / 1 skipped**；真实 Chrome 在
+  1440×900 / 1024×700、明暗主题下文本框左右内距均为 **17px**、横向溢出 **0**。
+
 ### Agent 原生 POST、Skill 正文与记忆图谱（2026-10-27 → 对账 #776）
 
 - **聊天 POST 不能等 CORS 失败再重发**：中转站 OPTIONS 可能返回 405，WebView 的报错会被
