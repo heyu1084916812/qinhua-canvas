@@ -1110,7 +1110,7 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(calls[0]!.body).toMatchObject({
       contents: [{ parts: [{ text: '一只猫' }] }],
       generationConfig: {
-        responseModalities: ['IMAGE'],
+        responseModalities: ['TEXT', 'IMAGE'],
         imageConfig: { aspectRatio: '21:9', imageSize: '2K' },
       },
     })
@@ -1146,6 +1146,141 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(calls[0]!.body).toMatchObject({
       generationConfig: {
         imageConfig: { aspectRatio: '1:8', imageSize: '4K' },
+      },
+    })
+  })
+
+  it('★★ Gemini 图片在后续 candidate / 蛇形 inline_data 里也要能读出来', async () => {
+    const net = createMemoryNetwork({
+      handler: async () =>
+        resp(200, {
+          candidates: [
+            {
+              content: { parts: [{ text: '已生成图片' }] },
+              finishReason: 'STOP',
+            },
+            {
+              content: {
+                parts: [
+                  {
+                    inline_data: {
+                      mime_type: 'image/webp',
+                      data: btoa('webp-bytes'),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+    const assets = await a.generateImage(
+      {
+        ...request([], 1),
+        model: 'gemini-nano-banana-2.1',
+        prompt: '替换帐篷颜色',
+        params: { count: 1 },
+      },
+      signal,
+    )
+    expect(assets[0]?.mime).toBe('image/webp')
+    expect(new TextDecoder().decode(assets[0]!.bytes)).toBe('webp-bytes')
+  })
+
+  it('★★ Gemini 返回 fileData.fileUri 时下载该文件，不误报没有图片', async () => {
+    const calls: string[] = []
+    const bytes = new Uint8Array([9, 8, 7, 6])
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push(req.url)
+        if (req.method === 'GET') {
+          return {
+            status: 200,
+            headers: { 'content-type': 'image/jpeg; charset=binary' },
+            async text() {
+              return ''
+            },
+            async json<T>(): Promise<T> {
+              return {} as T
+            },
+            async arrayBuffer() {
+              return bytes.buffer.slice(0) as ArrayBuffer
+            },
+          }
+        }
+        return resp(200, {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    fileData: {
+                      mimeType: 'image/jpeg',
+                      fileUri: 'https://files.example/out.jpg',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+    const assets = await a.generateImage(
+      {
+        ...request([], 1),
+        model: 'gemini-nano-banana-2.1',
+        prompt: '替换帐篷颜色',
+        params: { count: 1 },
+      },
+      signal,
+    )
+    expect(calls).toEqual([
+      'https://x/v1beta/models/gemini-nano-banana-2.1:generateContent',
+      'https://files.example/out.jpg',
+    ])
+    expect(assets[0]).toMatchObject({ mime: 'image/jpeg' })
+    expect([...assets[0]!.bytes]).toEqual([9, 8, 7, 6])
+  })
+
+  it('★ Gemini 只回文字时，错误里带出模型结束原因和正文，不吞真实原因', async () => {
+    const net = createMemoryNetwork({
+      handler: async () =>
+        resp(200, {
+          candidates: [
+            {
+              content: { parts: [{ text: '无法修改这张图片：参考图缺失' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: net,
+      assets: platformWithAssets([]).assets,
+    })
+    await expect(
+      a.generateImage(
+        {
+          ...request([], 1),
+          model: 'gemini-nano-banana-2.1',
+          prompt: '替换帐篷颜色',
+          params: { count: 1 },
+        },
+        signal,
+      ),
+    ).rejects.toMatchObject({
+      appError: {
+        kind: 'parse',
+        raw: expect.stringMatching(/STOP.*参考图缺失/),
       },
     })
   })

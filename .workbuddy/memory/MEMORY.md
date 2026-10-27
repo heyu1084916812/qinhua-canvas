@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### SoonStudio Gemini 图片响应（2026-10-27 → 对账 #772）
+
+- **Gemini 原生生图不能只认 `candidates[0].inlineData`**：SoonStudio 的
+  `gemini-nano-banana-2.1` 可能把图片放在后续 candidate、`inline_data`、`fileData.fileUri`
+  或文字里的 Markdown URL/data URI。解析必须遍历 candidate 与 part，并把 URL 文件真正下载
+  成字节后再内容寻址落库。
+- **`responseModalities` 用 `['TEXT','IMAGE']`**：只请求 `IMAGE` 时部分中转会返回空图或只回
+  文字；同时请求 TEXT 还能拿到审核/拒绝原因。没有图片时错误必须包含 finishReason、安全拦截
+  或模型正文，不能只写“没有内联图片”。
+- **验证**：`openaiImages.test.ts` **75/75**，全量 Vitest **3416 passed / 1 skipped**，
+  check/build 通过。
+
 ### AgentJob / AgentEvent（2026-10-27 → 对账 #769）
 
 - **会话队列不是任务状态机**：`queuedTurns` 只回答下一句话何时跑；`agentJobs` 才保存

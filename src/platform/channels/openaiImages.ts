@@ -218,26 +218,154 @@ export function imageUrlFromChatContent(content: unknown): string | null {
 }
 
 /**
- * 从 **Gemini 原生响应**里取出内联图片。
+ * 从 **Gemini 原生响应**里取出图片。
  *
- * 形态：`candidates[0].content.parts[]` 里的一项带 `inlineData: { mimeType, data }`
- * （官方 camelCase；老网关常见 `inline_data` 蛇形写法，两种都认）。
+ * 官方通常返回 `inlineData`，但中转站实际还会出现：
+ * - 第二个 candidate 才有图；
+ * - `inline_data` 蛇形字段；
+ * - `fileData.fileUri` / `file_data.file_uri`；
+ * - 正文里的 markdown 图片或 data URI。
  */
-export function findInlineImage(
+export type GeminiImagePayload =
+  | { kind: 'inline'; data: string; mimeType: string }
+  | { kind: 'url'; url: string; mimeType?: string }
+
+function geminiCandidates(body: unknown): unknown[] {
+  if (!body || typeof body !== 'object') return []
+  const row = body as Record<string, unknown>
+  const nested =
+    row.response && typeof row.response === 'object'
+      ? (row.response as Record<string, unknown>)
+      : null
+  const candidates = row.candidates ?? nested?.candidates
+  return Array.isArray(candidates) ? candidates : []
+}
+
+function contentPartsOf(candidate: unknown): unknown[] {
+  if (!candidate || typeof candidate !== 'object') return []
+  const content = (candidate as { content?: unknown }).content
+  if (!content || typeof content !== 'object') return []
+  const parts = (content as { parts?: unknown }).parts
+  return Array.isArray(parts) ? parts : []
+}
+
+function stringAt(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+export function findGeminiImage(
   body: unknown,
-): { data: string; mimeType: string } | null {
-  const parts = (body as { candidates?: { content?: { parts?: unknown[] } }[] } | null)
-    ?.candidates?.[0]?.content?.parts
-  if (!Array.isArray(parts)) return null
-  for (const part of parts) {
-    const p = part as { inlineData?: { data?: unknown; mimeType?: unknown }; inline_data?: { data?: unknown; mime_type?: unknown } }
-    const data = p.inlineData?.data ?? p.inline_data?.data
-    const mimeType = p.inlineData?.mimeType ?? p.inline_data?.mime_type
-    if (typeof data === 'string' && data.length > 0) {
-      return { data, mimeType: typeof mimeType === 'string' ? mimeType : 'image/png' }
+): GeminiImagePayload | null {
+  for (const candidate of geminiCandidates(body)) {
+    for (const part of contentPartsOf(candidate)) {
+      if (!part || typeof part !== 'object') continue
+      const p = part as {
+        inlineData?: { data?: unknown; mimeType?: unknown }
+        inline_data?: { data?: unknown; mime_type?: unknown }
+        fileData?: { fileUri?: unknown; mimeType?: unknown }
+        file_data?: { file_uri?: unknown; mime_type?: unknown }
+        text?: unknown
+      }
+      const data = p.inlineData?.data ?? p.inline_data?.data
+      const mimeType =
+        p.inlineData?.mimeType ??
+        p.inline_data?.mime_type ??
+        p.fileData?.mimeType ??
+        p.file_data?.mime_type
+      if (typeof data === 'string' && data.trim()) {
+        const dataUri = /^data:([^;,]+);base64,(.*)$/is.exec(data.trim())
+        return {
+          kind: 'inline',
+          data: (dataUri?.[2] ?? data).replace(/\s+/g, ''),
+          mimeType:
+            dataUri?.[1] ??
+            (typeof mimeType === 'string' ? mimeType : 'image/png'),
+        }
+      }
+      const fileUri = p.fileData?.fileUri ?? p.file_data?.file_uri
+      if (typeof fileUri === 'string' && /^https?:\/\//i.test(fileUri)) {
+        return {
+          kind: 'url',
+          url: fileUri,
+          ...(typeof mimeType === 'string' ? { mimeType } : {}),
+        }
+      }
+      if (typeof p.text === 'string') {
+        const url = imageUrlFromChatContent(p.text)
+        if (url) {
+          return {
+            kind: 'url',
+            url,
+            ...(typeof mimeType === 'string' ? { mimeType } : {}),
+          }
+        }
+        const dataUri = /data:(image\/[^;,]+);base64,([^\s)]+)/i.exec(p.text)
+        if (dataUri?.[1] && dataUri[2]) {
+          return {
+            kind: 'inline',
+            data: dataUri[2].replace(/\s+/g, ''),
+            mimeType: dataUri[1],
+          }
+        }
+      }
+    }
+  }
+
+  // 少数兼容网关仍包成 OpenAI chat 形状。
+  const choices = (body as { choices?: unknown[] } | null)?.choices
+  if (Array.isArray(choices)) {
+    for (const choice of choices) {
+      const text = stringAt(
+        (choice as { message?: { content?: unknown } } | null)?.message?.content,
+      )
+      const url = text ? imageUrlFromChatContent(text) : null
+      if (url) return { kind: 'url', url }
     }
   }
   return null
+}
+
+/** 兼容旧调用点：只返回内联 base64。 */
+export function findInlineImage(
+  body: unknown,
+): { data: string; mimeType: string } | null {
+  const image = findGeminiImage(body)
+  return image?.kind === 'inline'
+    ? { data: image.data, mimeType: image.mimeType }
+    : null
+}
+
+export function geminiNoImageReason(body: unknown): string {
+  if (!body || typeof body !== 'object') return '服务端返回为空'
+  const row = body as Record<string, unknown>
+  const promptFeedback = row.promptFeedback as
+    | { blockReason?: unknown; blockReasonMessage?: unknown }
+    | undefined
+  const candidates = geminiCandidates(body)
+  const parts = candidates.flatMap(contentPartsOf)
+  const text = parts
+    .map((part) =>
+      part && typeof part === 'object'
+        ? stringAt((part as { text?: unknown }).text)
+        : null,
+    )
+    .filter((value): value is string => Boolean(value))
+    .join('\n')
+    .trim()
+  const finishReasons = candidates
+    .map((candidate) =>
+      candidate && typeof candidate === 'object'
+        ? stringAt((candidate as { finishReason?: unknown }).finishReason)
+        : null,
+    )
+    .filter((value): value is string => Boolean(value))
+  const block = stringAt(promptFeedback?.blockReasonMessage) ?? stringAt(promptFeedback?.blockReason)
+  return (
+    [block, finishReasons.length > 0 ? `结束原因：${[...new Set(finishReasons)].join(', ')}` : '', text]
+      .filter(Boolean)
+      .join('；')
+      .slice(0, 500) || '响应里没有图片，也没有可读的文字原因'
+  )
 }
 
 /**
@@ -921,7 +1049,12 @@ export function createOpenAiImagesAdapter(
                 },
               ],
               generationConfig: {
-                responseModalities: ['IMAGE'],
+                /**
+                 * 官方 Gemini 图像模型通常声明 TEXT + IMAGE；只声明 IMAGE 时，
+                 * 部分中转会返回空候选或只有文字。保留 TEXT 也能让审核/拒答原因
+                 * 如实回到错误信息里。
+                 */
+                responseModalities: ['TEXT', 'IMAGE'],
                 ...(sendRatio || imageSize
                   ? {
                       imageConfig: {
@@ -958,13 +1091,42 @@ export function createOpenAiImagesAdapter(
         throw new ChannelError(error)
       }
       if (!unsupportedPath) {
-        const inline = findInlineImage(await res.json<unknown>())
-        if (!inline) {
-          throw new ChannelError({ kind: 'parse', raw: 'Gemini 响应里没有内联图片' })
+        const responseBody = await res.json<unknown>()
+        const image = findGeminiImage(responseBody)
+        if (!image) {
+          throw new ChannelError({
+            kind: 'parse',
+            raw: `Gemini 没有返回图片：${geminiNoImageReason(responseBody)}`,
+          })
         }
-        const bytes = Uint8Array.from(atob(inline.data), (c) => c.charCodeAt(0))
+        let bytes: Uint8Array
+        let mimeType = image.mimeType
+        if (image.kind === 'inline') {
+          bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0))
+        } else {
+          const download = await deps.network.request(
+            {
+              url: image.url,
+              method: 'GET',
+              headers: authHeader(config.apiKey),
+              timeoutMs: IMAGE_ASSET_DOWNLOAD_TIMEOUT_MS,
+            },
+            signal,
+          )
+          if (download.status < 200 || download.status >= 300) {
+            const detail = await download.text().catch(() => '')
+            throw acceptedAfterSubmit(
+              `Gemini 图片已生成，但下载失败：HTTP ${download.status} ${detail}`.trim(),
+            )
+          }
+          bytes = new Uint8Array(await download.arrayBuffer())
+          mimeType =
+            download.headers['content-type']?.split(';')[0]?.trim() ||
+            mimeType ||
+            'image/png'
+        }
         const hash = await fingerprintBytes(bytes)
-        return [toAsset(hash, inline.mimeType, bytes, {})]
+        return [toAsset(hash, mimeType || 'image/png', bytes, {})]
       }
     }
     /**
