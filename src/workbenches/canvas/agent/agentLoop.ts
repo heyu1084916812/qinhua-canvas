@@ -52,6 +52,12 @@ export interface AgentToolRequest {
   args: unknown
 }
 
+export interface AgentLoopCheckpoint {
+  kind: 'max_steps'
+  maxSteps: number
+  completedSteps: number
+}
+
 export type AgentLoopOutcome =
   /** 模型给了文字回答，本轮结束 */
   | { kind: 'message'; text: string; messages: ChatMessage[] }
@@ -60,7 +66,13 @@ export type AgentLoopOutcome =
   /** 渠道 / 解析错误，中止本轮 */
   | { kind: 'error'; message: string; messages: ChatMessage[] }
   /** 触发刹车（轮数上限 / 反复调同一个工具） */
-  | { kind: 'stopped'; reason: string; messages: ChatMessage[] }
+  | {
+      kind: 'stopped'
+      reason: string
+      messages: ChatMessage[]
+      /** 仅轮数预算耗尽时给出；用户可以带着现有工具结果继续。 */
+      checkpoint?: AgentLoopCheckpoint
+    }
 
 export interface AgentLoopDeps {
   adapter: Pick<ChannelAdapter, 'completeText'>
@@ -283,9 +295,14 @@ export async function runAgentTurn(
   return {
     kind: 'stopped',
     reason:
-      `连续 ${maxSteps} 轮还在调工具，已停下（可能是任务太大或它在打转）。` +
-      '如果这个模型经常这样，换一个更擅长规划的对话模型会明显好转。',
+      `本轮连续 ${maxSteps} 步仍在推进，已保存检查点。` +
+      '可以点击“继续任务”接着跑，不需要重新描述要求。',
     messages,
+    checkpoint: {
+      kind: 'max_steps',
+      maxSteps,
+      completedSteps: maxSteps,
+    },
   }
 }
 

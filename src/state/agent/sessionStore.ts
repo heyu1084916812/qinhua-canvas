@@ -90,6 +90,19 @@ export interface AgentSession {
     name: string
     args: unknown
   }
+  /**
+   * 可继续的长任务检查点。
+   *
+   * 消息与工具结果已经保存在 `messages`；这里只标记“上一段是安全暂停，不是失败”，
+   * 页面重载后仍显示继续按钮，且继续时不会重新发起已完成的工具调用。
+   */
+  continuation?: {
+    reason: 'max_steps'
+    maxSteps: number
+    createdAt: number
+    /** 暂停任务来自队列时，保留原队列项 id。 */
+    queuedTurnId?: string
+  }
   /** **全部历史**（展示与回溯）。发给模型的是它的窗口，见 `contextFor` */
   messages: ChatMessage[]
   createdAt: number
@@ -189,6 +202,30 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
             callId: String((row.pendingConfirmation as { callId: string }).callId),
             name: String((row.pendingConfirmation as { name: string }).name),
             args: (row.pendingConfirmation as { args?: unknown }).args,
+          },
+        }
+      : {}),
+    ...(row.continuation &&
+    typeof row.continuation === 'object' &&
+    (row.continuation as { reason?: unknown }).reason === 'max_steps' &&
+    typeof (row.continuation as { maxSteps?: unknown }).maxSteps === 'number'
+      ? {
+          continuation: {
+            reason: 'max_steps' as const,
+            maxSteps: Math.max(
+              1,
+              Math.trunc((row.continuation as { maxSteps: number }).maxSteps),
+            ),
+            createdAt:
+              typeof (row.continuation as { createdAt?: unknown }).createdAt === 'number'
+                ? (row.continuation as { createdAt: number }).createdAt
+                : Number(row.updatedAt ?? 0),
+            ...(typeof (row.continuation as { queuedTurnId?: unknown }).queuedTurnId === 'string' &&
+            (row.continuation as { queuedTurnId: string }).queuedTurnId
+              ? {
+                  queuedTurnId: (row.continuation as { queuedTurnId: string }).queuedTurnId,
+                }
+              : {}),
           },
         }
       : {}),

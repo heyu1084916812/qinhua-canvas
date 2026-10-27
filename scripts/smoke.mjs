@@ -40502,6 +40502,34 @@ async function g769(browser) {
     await page.screenshot({ path: `${OUT}/769-route-attempts.png` })
     await page.keyboard.press('Escape')
 
+    const continuationSeed = await sharedRow(page, 'agentSessions', sessionId)
+    await sharedPut(page, 'agentSessions', {
+      ...continuationSeed,
+      pendingConfirmation: undefined,
+      activeTurnId: undefined,
+      continuation: {
+        reason: 'max_steps',
+        maxSteps: 8,
+        createdAt: Date.now(),
+      },
+      updatedAt: Date.now(),
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page
+      .locator('[data-canvas-hydrated="true"]')
+      .waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page
+      .locator('[data-agent-continuation]')
+      .waitFor({ state: 'visible', timeout: 10000 })
+    rec(
+      g,
+      '★★ 轮数预算用尽后成为可继续检查点，重载仍显示继续任务',
+      (await page.locator('[data-agent-status]').getAttribute('data-agent-status')) === 'paused' &&
+        (await page.locator('[data-agent-continue]').isVisible()),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-continuation.png` })
+
     await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' })
     await page
       .locator('[data-settings-global-route]')

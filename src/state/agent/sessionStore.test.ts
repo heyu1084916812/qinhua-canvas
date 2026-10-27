@@ -230,4 +230,26 @@ describe('Agent 会话 · 待执行任务队列', () => {
       args: { nodeIds: ['n1'] },
     })
   })
+
+  it('★ 长任务检查点随会话读回，并保留原来的队列项 id', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.updateFields(a.id, {
+      continuation: {
+        reason: 'max_steps',
+        maxSteps: 8,
+        createdAt: 123,
+        queuedTurnId: 'turn-1',
+      },
+    })
+
+    const reopened = createAgentSessionStore(storage)
+    expect((await reopened.get(a.id))?.continuation).toEqual({
+      reason: 'max_steps',
+      maxSteps: 8,
+      createdAt: 123,
+      queuedTurnId: 'turn-1',
+    })
+  })
 })

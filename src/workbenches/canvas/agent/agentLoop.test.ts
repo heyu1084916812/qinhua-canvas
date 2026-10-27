@@ -321,8 +321,64 @@ describe('runAgentTurn · 刹车与失败回填', () => {
       maxSteps: 3,
     })
     expect(r.kind).toBe('stopped')
+    if (r.kind === 'stopped') {
+      expect(r.checkpoint).toMatchObject({
+        kind: 'max_steps',
+        maxSteps: 3,
+      })
+      expect(r.reason).toContain('检查点')
+    }
     expect(adapter.completeText).toHaveBeenCalledTimes(3)
     expect(AGENT_DEFAULT_MAX_STEPS).toBeGreaterThan(1)
+  })
+
+  it('★ 从轮数检查点继续时复用已有工具结果，不重放上一步', async () => {
+    let n = 0
+    const first = {
+      completeText: vi.fn(async () => ({
+        text: '',
+        toolCalls: [
+          {
+            id: `checkpoint-${n}`,
+            name: 'readGraph',
+            args: `{"scope":"all","n":${n++}}`,
+          },
+        ],
+      })),
+    }
+    const firstOutcome = await runAgentTurn(user('长任务'), {
+      adapter: first,
+      channelId: 'c',
+      model: 'm',
+      tools,
+      executeRead: async () => ({ ok: true }),
+      executeWrite: async () => ({ ok: true }),
+      signal,
+      maxSteps: 2,
+    })
+    expect(firstOutcome.kind).toBe('stopped')
+    if (firstOutcome.kind !== 'stopped') return
+    expect(firstOutcome.checkpoint).toMatchObject({ kind: 'max_steps' })
+
+    const second = {
+      completeText: vi.fn(async () => ({ text: '已从检查点完成' })),
+    }
+    const continued = await runAgentTurn(firstOutcome.messages, {
+      adapter: second,
+      channelId: 'c',
+      model: 'm',
+      tools,
+      executeRead: async () => ({ ok: true }),
+      executeWrite: async () => ({ ok: true }),
+      signal,
+      maxSteps: 2,
+    })
+    expect(continued).toMatchObject({
+      kind: 'message',
+      text: '已从检查点完成',
+    })
+    expect(first.completeText).toHaveBeenCalledTimes(2)
+    expect(second.completeText).toHaveBeenCalledTimes(1)
   })
 
   it('★★ 渠道报错 → 直接中止本轮，不回填（配置问题模型改不了）', async () => {

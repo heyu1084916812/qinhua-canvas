@@ -144,6 +144,7 @@ type Status =
   | { kind: 'thinking' }
   | { kind: 'toolRunning' }
   | { kind: 'awaitingConfirm'; request: AgentToolRequest }
+  | { kind: 'paused'; message: string }
   | { kind: 'executing' }
   | { kind: 'error'; message: string }
 
@@ -155,6 +156,7 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
   thinking: '思考中',
   toolRunning: '正在看画布',
   awaitingConfirm: '等你确认',
+  paused: '本轮已暂停',
   executing: '正在执行',
   error: '出错',
 }
@@ -452,6 +454,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         setStatusFor(row.id, {
           kind: 'awaitingConfirm',
           request: row.pendingConfirmation,
+        })
+      } else if (row.continuation) {
+        setStatusFor(row.id, {
+          kind: 'paused',
+          message: `已完成 ${row.continuation.maxSteps} 步，可继续`,
         })
       }
     }
@@ -937,7 +944,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               args: outcome.request.args,
             }
           : undefined
-      const latest = await sessions.updateFields(session.id, { pendingConfirmation })
+      const continuation =
+        outcome.kind === 'stopped' && outcome.checkpoint
+          ? {
+              reason: outcome.checkpoint.kind,
+              maxSteps: outcome.checkpoint.maxSteps,
+              createdAt: Date.now(),
+              ...(activeQueueTurnOf(session.id)
+                ? { queuedTurnId: activeQueueTurnOf(session.id) }
+                : {}),
+            }
+          : undefined
+      const latest = await sessions.updateFields(session.id, {
+        pendingConfirmation,
+        continuation,
+      })
       if (latest) {
         setList((prev) => prev.map((item) => (item.id === latest.id ? latest : item)))
         if (currentIdRef.current === latest.id) setCurrent(latest)
@@ -947,6 +968,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       else if (outcome.kind === 'confirm') {
         setStatusFor(session.id, { kind: 'awaitingConfirm', request: outcome.request })
+      } else if (outcome.kind === 'stopped' && outcome.checkpoint) {
+        setStatusFor(session.id, {
+          kind: 'paused',
+          message: `已完成 ${outcome.checkpoint.maxSteps} 步，可继续`,
+        })
       } else if (outcome.kind === 'stopped') {
         setStatusFor(session.id, { kind: 'error', message: outcome.reason })
       } else setStatusFor(session.id, { kind: 'error', message: outcome.message })
@@ -1219,9 +1245,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.request.name,
       )
     }
-    const kind = outcome.kind
     await handleOutcome(session, outcome, hidden)
-    return kind
+    return outcome
   }, [
     messages,
     store,
@@ -1246,20 +1271,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const session = queuedSession ?? current
     if (!text || !session) return undefined
     if (!opts.preclaimed && !claimSessionActivity(session.id, opts.queueTurnId)) return undefined
-    let outcomeKind: AgentLoopOutcome['kind'] | 'error' | undefined
+    let outcome: AgentLoopOutcome | undefined
     try {
-      outcomeKind = await runSendText(text, session, queuedSession)
-      if (outcomeKind !== 'confirm') {
+      outcome = await runSendText(text, session, queuedSession)
+      if (!outcome) return undefined
+      const paused =
+        outcome.kind === 'stopped' && outcome.checkpoint !== undefined
+      if (outcome.kind !== 'confirm' && !paused) {
         if (opts.queueTurnId) {
           const next = await sessions.finishActiveQueuedTurn(
             session.id,
             opts.queueTurnId,
-            outcomeKind === 'message',
+            outcome.kind === 'message',
           )
           if (next) applySessionSnapshot(next)
         }
         releaseSessionActivity(session.id, opts.queueTurnId)
-        if (outcomeKind === 'message' && shouldDrainQueue(session.id)) {
+        if (outcome.kind === 'message' && shouldDrainQueue(session.id)) {
           queueMicrotask(() => queuePumpRef.current(session.id))
         }
       }
@@ -1275,7 +1303,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       releaseSessionActivity(session.id, opts.queueTurnId)
     }
-    return outcomeKind
+    return outcome
   }, [applySessionSnapshot, current, runSendText, sessions, setStatusFor])
 
   const queueText = useCallback(async (raw: string) => {
@@ -1361,9 +1389,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const settleSessionOutcome = useCallback(async (
     sessionId: string,
-    kind: AgentLoopOutcome['kind'],
+    outcome: AgentLoopOutcome | { kind: 'error' },
   ) => {
+    const kind = outcome.kind
     if (kind === 'confirm') return
+    if (kind === 'stopped' && outcome.checkpoint) return
     const queueTurnId = activeQueueTurnOf(sessionId)
     if (queueTurnId) {
       const next = await sessions.finishActiveQueuedTurn(sessionId, queueTurnId, kind === 'message')
@@ -1448,10 +1478,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         request.name,
       )
       await handleOutcome(current, outcome)
-      await settleSessionOutcome(current.id, outcome.kind)
+      await settleSessionOutcome(current.id, outcome)
     } catch (error) {
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
-      await settleSessionOutcome(current.id, 'error')
+      await settleSessionOutcome(current.id, { kind: 'error' })
     } finally {
       confirmingRef.current.delete(current.id)
     }
@@ -1494,10 +1524,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         request.name,
       )
       await handleOutcome(current, outcome)
-      await settleSessionOutcome(current.id, outcome.kind)
+      await settleSessionOutcome(current.id, outcome)
     } catch (error) {
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
-      await settleSessionOutcome(current.id, 'error')
+      await settleSessionOutcome(current.id, { kind: 'error' })
     } finally {
       confirmingRef.current.delete(current.id)
     }
@@ -1512,6 +1542,54 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusFor,
   ])
 
+  /** 轮数预算暂停后继续；工具结果已在 messages 中，不会重放已完成的调用。 */
+  const continueTask = useCallback(async () => {
+    if (!current || status.kind !== 'paused') return
+    let queueTurnId =
+      activeQueueTurnOf(current.id) ?? current.continuation?.queuedTurnId
+    if (!isSessionActivityActive(current.id)) {
+      if (
+        queueTurnId &&
+        current.queuedTurns[0]?.id === queueTurnId
+      ) {
+        const claimed = await sessions.claimNextQueuedTurn(current.id)
+        if (claimed?.session) applySessionSnapshot(claimed.session)
+        queueTurnId = claimed?.turn.id
+      } else {
+        queueTurnId = undefined
+      }
+      if (!claimSessionActivity(current.id, queueTurnId)) return
+    }
+    const imageNodeIds = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.imageNodeIds ?? []
+    const currentLoopDeps = loopDeps(
+      current,
+      createId('op'),
+      toolModeRef.current.get(current.id) ?? 'native',
+      imageNodeIds,
+    )
+    setStatusFor(current.id, { kind: 'thinking' })
+    try {
+      const outcome = await runAgentTurn(messages, currentLoopDeps)
+      await handleOutcome(current, outcome)
+      await settleSessionOutcome(current.id, outcome)
+    } catch (error) {
+      setStatusFor(current.id, { kind: 'error', message: errText(error) })
+      await settleSessionOutcome(current.id, { kind: 'error' })
+    }
+  }, [
+    current,
+    status,
+    messages,
+    sessions,
+    applySessionSnapshot,
+    loopDeps,
+    setStatusFor,
+    handleOutcome,
+    settleSessionOutcome,
+  ])
+
   const stop = useCallback(() => {
     if (!current) return
     clearQueueDrain(current.id)
@@ -1523,6 +1601,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     releaseSessionActivity(current.id, queueTurnId)
     abortRefs.current.get(current.id)?.abort()
+    void sessions
+      .updateFields(current.id, { continuation: undefined })
+      .then((next) => {
+        if (next) applySessionSnapshot(next)
+      })
     setStatusFor(current.id, IDLE_STATUS)
     if ((current.queuedTurns?.length ?? 0) > 0) {
       store.notify('当前回合已停止，排队任务保留；可从队列手动继续', 'info')
@@ -2375,10 +2458,33 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         {status.kind !== 'idle' && (
           <div className={styles.statusLine} data-agent-status={status.kind}>
             {STATUS_LABEL[status.kind]}
-            {status.kind === 'error' ? `：${status.message}` : ''}
+            {status.kind === 'error' || status.kind === 'paused'
+              ? `：${status.message}`
+              : ''}
           </div>
         )}
       </div>
+
+      {status.kind === 'paused' && current?.continuation && (
+        <div className={styles.step} data-agent-continuation>
+          <div className={styles.stepHead}>
+            <span className={styles.stepLabel}>任务检查点</span>
+          </div>
+          <p className={styles.continuationText}>
+            已完成 {current.continuation.maxSteps} 步，工具结果已保存。继续时从检查点接着执行。
+          </p>
+          <div className={styles.row}>
+            <button
+              type="button"
+              className={styles.primary}
+              onClick={() => void continueTask()}
+              data-agent-continue
+            >
+              继续任务
+            </button>
+          </div>
+        </div>
+      )}
 
       {/*
         确认卡：**放在对话流里、当一条步骤**，而不是贴在输入框上方的独立弹层。

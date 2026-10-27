@@ -16,8 +16,12 @@
   整个相关运行停止，避免后续 attempt 拿已删除凭据。
 - **路由设置入口固定在“模型服务”顶栏**：策略、最大尝试次数、路由范围都在这里；范围按
   渠道 × Key 分组列出。空允许列表表示“全部可用”，非空表示严格白名单，至少保留一项。
-- **验证证据（2026-10-27）**：全量 Vitest **3398 passed / 1 skipped**，check/build 通过；
-  G769 **11/11**，截图 `.playwright-verify/769-routing-scope.png`。真实测试项目与会话已清理。
+- **8 步上限是检查点，不是失败**：`runAgentTurn` 达到预算时返回 `checkpoint: max_steps`；
+  `agentSessions.continuation` 只存恢复意图、步数与原 `queuedTurnId`，工具结果仍只在 messages。
+  继续按钮复用已有消息；队列任务暂停期间不能释放 claim，否则最终完成会把原任务重新当新任务跑。
+- **验证证据（2026-10-27）**：全量 Vitest **3400 passed / 1 skipped**，check/build 通过；
+  G769 **12/12**，截图 `.playwright-verify/769-routing-scope.png` 与
+  `769-agent-continuation.png`。真实测试项目与会话已清理。
 
 ### 架构拆分 · UI 冻结（2026-10-26 → 对账 #766）
 

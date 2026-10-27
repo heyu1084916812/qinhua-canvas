@@ -405,6 +405,14 @@
   overflow-wrap: anywhere;
 }
 
+.continuationText {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 /* 产物缩略图：固定方块，张数变多只换行、不把卡片撑高 */
 .thumbs {
   display: flex;
