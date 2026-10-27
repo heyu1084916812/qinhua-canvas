@@ -1,5 +1,6 @@
 import {
   createRunRecord,
+  type RunAttemptRecord,
   type RunRecord,
   type RunRecordScope,
 } from '../../domain/shared/execution/runRecord'
@@ -7,6 +8,7 @@ import type { NodeInput, RunStatus } from '../../domain/shared/execution/types'
 import type { GeneratedAsset } from '../../platform/channels/types'
 import type { PlatformKit } from '../../platform/ports'
 import { fingerprintHex } from '../../domain/shared/hash'
+import { isRouteFallbackSafe } from '../../domain/shared/task'
 import { createId } from '../../shared/id'
 import { asAppError, describeError, errorTextOf } from '../../shared/result'
 import {
@@ -23,6 +25,15 @@ export interface DirectRunTraceInput extends RunRecordScope {
   fingerprint: string
   sentChannelId?: string
   sentModel?: string
+  /** 用户选择的逻辑模型；与真正发往上游的 sentModel 分开记录。 */
+  requestedModel?: string
+  routePlanId?: string
+}
+
+export interface DirectRunRouteCandidate {
+  channelId: string
+  credentialGroupId?: string
+  model: string
 }
 
 export interface DirectRunResult<T> {
@@ -79,6 +90,7 @@ export function directTextTrace(args: {
     ),
     sentChannelId: args.channelId,
     sentModel: args.model,
+    requestedModel: args.model,
   }
 }
 
@@ -104,6 +116,33 @@ function statusOf(error: unknown, signal?: AbortSignal): RunStatus {
     return 'canceled'
   }
   return 'failed'
+}
+
+function attemptErrorMeta(
+  error: ReturnType<typeof asAppError>,
+  callStarted: boolean,
+): Pick<RunAttemptRecord, 'errorKind' | 'httpStatus' | 'sendPhase'> {
+  if (!error) return { sendPhase: callStarted ? 'unknown' : 'not-sent' }
+  if (error.kind === 'network') {
+    return {
+      errorKind: error.kind,
+      sendPhase: error.sendPhase ?? 'unknown',
+    }
+  }
+  if (error.kind === 'http') {
+    return {
+      errorKind: error.kind,
+      httpStatus: error.status,
+      sendPhase: 'rejected',
+    }
+  }
+  if (error.kind === 'execution') {
+    return { errorKind: error.kind, sendPhase: 'accepted' }
+  }
+  return {
+    errorKind: error.kind,
+    sendPhase: callStarted ? 'unknown' : 'not-sent',
+  }
 }
 
 async function persistRecord(
@@ -136,8 +175,13 @@ export async function runDirectGeneration<T>(args: {
   trace: DirectRunTraceInput
   /** Channel used by this direct call; guards the call against channel removal. */
   channelId?: string
+  /** Frozen route candidates for this direct call. Each entry is one real attempt. */
+  routeCandidates?: readonly DirectRunRouteCandidate[]
   signal?: AbortSignal
-  call: (signal: AbortSignal) => Promise<T>
+  call: (
+    signal: AbortSignal,
+    route: DirectRunRouteCandidate | undefined,
+  ) => Promise<T>
   outputHashesOf: (result: T) => string[]
   outputAssetOf?: (result: T) => GeneratedAsset | undefined
   onRecordWarning?: (warning: string) => void
@@ -151,11 +195,23 @@ export async function runDirectGeneration<T>(args: {
   if (args.signal?.aborted) abortFromParent()
   else args.signal?.addEventListener('abort', abortFromParent, { once: true })
 
-  const guardedChannelId = args.channelId?.trim() || args.trace.sentChannelId?.trim()
-  const guardId = guardedChannelId ? createId('directguard') : null
-  if (guardId && guardedChannelId) {
+  const routeCandidates = (args.routeCandidates ?? []).filter(
+    (candidate) => candidate.channelId.trim() && candidate.model.trim(),
+  )
+  const fallbackChannelId =
+    args.channelId?.trim() || args.trace.sentChannelId?.trim() || ''
+  const guardedChannelIds = [
+    ...new Set([
+      ...routeCandidates.map((candidate) => candidate.channelId),
+      ...(fallbackChannelId ? [fallbackChannelId] : []),
+    ]),
+  ]
+  const guardId = guardedChannelIds.length > 0 ? createId('directguard') : null
+  if (guardId) {
     registerGuardedChannelRun(guardId, {
-      taskChannels: new Map([[guardId, guardedChannelId]]),
+      taskChannels: new Map(
+        guardedChannelIds.map((channelId) => [channelId, channelId]),
+      ),
       cancel: () => {
         interrupted = true
         controller.abort()
@@ -186,17 +242,97 @@ export async function runDirectGeneration<T>(args: {
       operationId: args.trace.operationId,
       ...(args.trace.parentRunId ? { parentRunId: args.trace.parentRunId } : {}),
     } satisfies RunRecordScope,
-    ...(args.trace.sentChannelId ? { sentChannelId: args.trace.sentChannelId } : {}),
-    ...(args.trace.sentModel ? { sentModel: args.trace.sentModel } : {}),
+    ...(args.trace.routePlanId ? { routePlanId: args.trace.routePlanId } : {}),
   }
 
+  const attempts: RunAttemptRecord[] = []
+  const attemptCount = Math.max(1, routeCandidates.length)
+  let lastRoute: DirectRunRouteCandidate | undefined
+  let lastChannelId =
+    fallbackChannelId || args.trace.sentChannelId?.trim() || ''
+  let lastModel = args.trace.sentModel?.trim() || ''
+  const trackAttempts = routeCandidates.length > 0 || Boolean(lastChannelId || lastModel)
+
   try {
-    const result = await args.call(controller.signal)
+    let result: T | undefined
+    let lastFinishedAt = startedAt
+    for (let index = 0; index < attemptCount; index += 1) {
+      const route = routeCandidates[index]
+      if (route) {
+        lastRoute = route
+        lastChannelId = route.channelId
+        lastModel = route.model
+      }
+      const attemptStartedAt = index === 0 ? startedAt : now()
+      try {
+        result = await args.call(controller.signal, route)
+        const attemptFinishedAt = now()
+        lastFinishedAt = attemptFinishedAt
+        if (trackAttempts) {
+          attempts.push({
+            attempt: index + 1,
+            channelId: lastChannelId,
+            ...(route?.credentialGroupId
+              ? { credentialGroupId: route.credentialGroupId }
+              : {}),
+            requestedModel:
+              args.trace.requestedModel?.trim() ||
+              args.trace.sentModel?.trim() ||
+              lastModel,
+            sentModel: lastModel,
+            status: controller.signal.aborted ? 'canceled' : 'succeeded',
+            sendPhase: 'accepted',
+            startedAt: attemptStartedAt,
+            finishedAt: attemptFinishedAt,
+            durationMs: Math.max(0, attemptFinishedAt - attemptStartedAt),
+          })
+        }
+        break
+      } catch (error) {
+        const attemptFinishedAt = now()
+        lastFinishedAt = attemptFinishedAt
+        const normalized = asAppError(error)
+        const canceled = controller.signal.aborted
+        if (trackAttempts) {
+          attempts.push({
+            attempt: index + 1,
+            channelId: lastChannelId,
+            ...(route?.credentialGroupId
+              ? { credentialGroupId: route.credentialGroupId }
+              : {}),
+            requestedModel:
+              args.trace.requestedModel?.trim() ||
+              args.trace.sentModel?.trim() ||
+              lastModel,
+            sentModel: lastModel,
+            status: canceled ? 'canceled' : 'failed',
+            startedAt: attemptStartedAt,
+            finishedAt: attemptFinishedAt,
+            durationMs: Math.max(0, attemptFinishedAt - attemptStartedAt),
+            ...attemptErrorMeta(normalized, true),
+            ...(canceled || !normalized ? {} : { errorText: describeError(normalized) }),
+          })
+        }
+        if (canceled) throw error
+        const hasNext = index + 1 < routeCandidates.length
+        if (normalized && hasNext && isRouteFallbackSafe(normalized)) continue
+        throw error
+      }
+    }
+    if (result === undefined) {
+      throw new Error('直连调用没有执行任何路由候选')
+    }
     if (interrupted) throw new ChannelRemovalInterruptedError()
-    const finishedAt = now()
+    const finishedAt = lastFinishedAt
     const asset = args.outputAssetOf?.(result)
     const record: RunRecord = createRunRecord({
       ...base,
+      ...(lastChannelId ? { sentChannelId: lastChannelId } : {}),
+      ...(lastModel ? { sentModel: lastModel } : {}),
+      ...(lastRoute?.credentialGroupId
+        ? { credentialGroupId: lastRoute.credentialGroupId }
+        : {}),
+      ...(attempts.length > 0 ? { routeAttempts: attempts } : {}),
       status: 'succeeded',
       outputHashes: args.outputHashesOf(result),
       durationMs: Math.max(0, finishedAt - startedAt),
@@ -216,6 +352,12 @@ export async function runDirectGeneration<T>(args: {
     const app = asAppError(error)
     const record: RunRecord = createRunRecord({
       ...base,
+      ...(lastChannelId ? { sentChannelId: lastChannelId } : {}),
+      ...(lastModel ? { sentModel: lastModel } : {}),
+      ...(lastRoute?.credentialGroupId
+        ? { credentialGroupId: lastRoute.credentialGroupId }
+        : {}),
+      ...(attempts.length > 0 ? { routeAttempts: attempts } : {}),
       status,
       outputHashes: [],
       durationMs: Math.max(0, finishedAt - startedAt),
@@ -239,8 +381,12 @@ export async function runDirectText(args: {
   storage: PlatformKit['storage']
   trace: DirectRunTraceInput
   channelId?: string
+  routeCandidates?: readonly DirectRunRouteCandidate[]
   signal?: AbortSignal
-  call: (signal: AbortSignal) => Promise<string>
+  call: (
+    signal: AbortSignal,
+    route: DirectRunRouteCandidate | undefined,
+  ) => Promise<string>
   onRecordWarning?: (warning: string) => void
   now?: () => number
 }): Promise<string> {
@@ -248,6 +394,7 @@ export async function runDirectText(args: {
     storage: args.storage,
     trace: args.trace,
     channelId: args.channelId ?? args.trace.sentChannelId,
+    ...(args.routeCandidates ? { routeCandidates: args.routeCandidates } : {}),
     signal: args.signal,
     call: args.call,
     outputHashesOf: () => [],

@@ -8,6 +8,12 @@ import {
   takeNextAgentTurn,
   type QueuedAgentTurn,
 } from '../../domain/agent/queuedTurn'
+import {
+  enqueueAgentSteer,
+  normalizeAgentSteers,
+  removeAgentSteers,
+  type AgentSteer,
+} from '../../domain/agent/steering'
 
 /**
  * Agent 会话存储（设计文档 §8 / §12）。
@@ -84,6 +90,8 @@ export interface AgentSession {
   /** 已被队列泵领取、尚未最终完成的队首任务。 */
   activeTurnId?: string
   activeTurnStartedAt?: number
+  /** 当前运行回合尚未送入模型上下文、或尚未完成写回的引导消息。 */
+  pendingSteers: AgentSteer[]
   /** 重启后仍需恢复的确认卡。工具参数只存结构副本，不存执行结果。 */
   pendingConfirmation?: {
     callId: string
@@ -147,6 +155,14 @@ export interface AgentSessionStore {
     turn: QueuedAgentTurn,
   ): Promise<{ ok: true; session: AgentSession } | { ok: false; reason: 'missing' | 'empty' | 'full' }>
   removeQueuedTurn(id: string, turnId: string): Promise<AgentSession | null>
+  enqueueSteer(
+    id: string,
+    steer: AgentSteer,
+  ): Promise<
+    | { ok: true; session: AgentSession }
+    | { ok: false; reason: 'missing' | 'empty' | 'full' }
+  >
+  removeSteers(id: string, steerIds: readonly string[]): Promise<AgentSession | null>
   /** 原子领取队首；任务仍留在队列，避免进程在启动前丢任务。 */
   claimNextQueuedTurn(id: string): Promise<{ session: AgentSession; turn: QueuedAgentTurn } | null>
   /** 结束已领取任务；完成时移出队列，失败 / 中断时保留供手动继续。 */
@@ -187,6 +203,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
       : {}),
     queuedTurns: normalizeQueuedTurns(row.queuedTurns),
+    pendingSteers: normalizeAgentSteers(row.pendingSteers),
     ...(typeof row.activeTurnId === 'string' && row.activeTurnId
       ? { activeTurnId: row.activeTurnId }
       : {}),
@@ -259,6 +276,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         ...(videoModel ? { videoModel } : {}),
         ...(skillId ? { skillId } : {}),
         queuedTurns: [],
+        pendingSteers: [],
         messages: [],
         createdAt: now,
         updatedAt: now,
@@ -324,6 +342,32 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       const next = {
         ...latest,
         queuedTurns: removeAgentTurn(latest.queuedTurns, turnId),
+        updatedAt: Date.now(),
+      }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return next
+    },
+
+    async enqueueSteer(id, steer) {
+      const latest = await find(id)
+      if (!latest) return { ok: false, reason: 'missing' }
+      const queued = enqueueAgentSteer(latest.pendingSteers, steer)
+      if (!queued.ok) return { ok: false, reason: queued.reason }
+      const next = {
+        ...latest,
+        pendingSteers: queued.steers,
+        updatedAt: Date.now(),
+      }
+      await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+      return { ok: true, session: next }
+    },
+
+    async removeSteers(id, steerIds) {
+      const latest = await find(id)
+      if (!latest || steerIds.length === 0) return latest
+      const next = {
+        ...latest,
+        pendingSteers: removeAgentSteers(latest.pendingSteers, steerIds),
         updatedAt: Date.now(),
       }
       await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)

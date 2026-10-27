@@ -66,6 +66,25 @@ export function isRequestResendSafe(error: AppError): boolean {
   return error.kind === 'network' && error.sendPhase === 'not-sent'
 }
 
+/**
+ * 是否允许从当前路由候选切到下一个候选。
+ *
+ * 付费请求一旦可能到达上游，就不能因为还有备用渠道而再发一次。只有明确未发出，
+ * 或服务端已经明确拒绝且没有受理（401 / 403 / 429 / 5xx）时才允许换候选。
+ */
+export function isRouteFallbackSafe(error: AppError): boolean {
+  if (error.kind === 'network') return isRequestResendSafe(error)
+  if (error.kind === 'http') {
+    return (
+      error.status === 401 ||
+      error.status === 403 ||
+      error.status === 429 ||
+      error.status >= 500
+    )
+  }
+  return false
+}
+
 /** 日志按项目滚动裁剪，保留最近 limit 条 */
 export function trimLog<T>(entries: readonly T[], limit: number): T[] {
   if (entries.length <= limit) return entries.slice()

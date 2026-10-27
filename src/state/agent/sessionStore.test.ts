@@ -253,6 +253,30 @@ describe('Agent 会话 · 待执行任务队列', () => {
     })
   })
 
+  it('★ 运行中引导随会话落库，应用后只删除已应用的条目', async () => {
+    const storage = createMemoryPlatform().storage
+    const s = createAgentSessionStore(storage)
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueSteer(a.id, {
+      id: 'steer-1',
+      text: '改成横版',
+      createdAt: 1,
+    })
+    await s.enqueueSteer(a.id, {
+      id: 'steer-2',
+      text: '文字再大一点',
+      createdAt: 2,
+    })
+
+    const reopened = createAgentSessionStore(storage)
+    expect((await reopened.get(a.id))?.pendingSteers.map((item) => item.id)).toEqual([
+      'steer-1',
+      'steer-2',
+    ])
+    const cleaned = await reopened.removeSteers(a.id, ['steer-1'])
+    expect(cleaned?.pendingSteers.map((item) => item.id)).toEqual(['steer-2'])
+  })
+
   it('★ 删除会话同时清理 AgentJob 与事件，不留孤立任务', async () => {
     const storage = createMemoryPlatform().storage
     const s = createAgentSessionStore(storage)

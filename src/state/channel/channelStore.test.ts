@@ -281,6 +281,46 @@ describe('channelStore', () => {
     })).resolves.toEqual({ ok: false, reason: 'policy_excluded' })
   })
 
+  it('★ 文本 Agent 使用同一 RoutePlan，并按同一 round_robin 游标轮换', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const a = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    const b = await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
+    const model: ModelCapability = {
+      id: 'chat-shared',
+      category: 'chat',
+      inputTypes: ['text'],
+    }
+    await store.setModels(a.id, [model])
+    await store.setModels(b.id, [model])
+    await store.setRoutingPolicy({
+      strategy: 'round_robin',
+      maxAttempts: 2,
+      allowedCandidates: [],
+    })
+
+    const first = await store.planGenerationRoute({
+      category: 'chat',
+      logicalModel: model.id,
+    })
+    const second = await store.planGenerationRoute({
+      category: 'chat',
+      logicalModel: model.id,
+    })
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(new Set([a.id, b.id])).toEqual(
+      new Set([
+        first.plan.candidates[0]?.channelId,
+        second.plan.candidates[0]?.channelId,
+      ]),
+    )
+    expect(first.plan.candidates[0]?.channelId).not.toBe(
+      second.plan.candidates[0]?.channelId,
+    )
+    expect(first.plan.candidates[0]?.upstreamModel).toBe(model.id)
+  })
+
   it('★ 存储里的策略非法 / 缺字段 → 回落 priority（不把脏数据当成有效策略）', async () => {
     const dirty = createMemoryPlatform({
       rows: { presets: [{ id: 'routing:strategy', strategy: 'telepathy' }] },
@@ -697,6 +737,7 @@ describe('channelStore', () => {
     const store = createChannelStore(p, { seedBuiltins: false })
     const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
     await store.setModelMapping(ch.id, 'Agent Logical', 'mock-chat-1')
+    const succeeded: { channelId: string; model: string }[] = []
 
     const result = await store.completeWithTools({
       channelId: ch.id,
@@ -704,6 +745,9 @@ describe('channelStore', () => {
       tools: [],
       messages: [{ role: 'user', content: '给这张图加一盏暖灯' }],
       signal: new AbortController().signal,
+      routeCandidates: [{ channelId: ch.id, model: 'mock-chat-1' }],
+      routePlanId: 'Agent Logical:chat:priority',
+      onRouteSucceeded: (route) => succeeded.push(route),
       trace: directTextTrace({
         projectId: 'proj_canvas',
         workbench: 'canvas',
@@ -719,6 +763,7 @@ describe('channelStore', () => {
     })
 
     expect(result.text).toBeTruthy()
+    expect(succeeded).toEqual([{ channelId: ch.id, model: 'mock-chat-1' }])
     const records = await p.storage.query('runRecords', { projectId: 'proj_canvas' })
     expect(records).toHaveLength(1)
     expect(records[0]).toMatchObject({
@@ -729,8 +774,17 @@ describe('channelStore', () => {
       operationId: 'op-agent-1',
       sentChannelId: ch.id,
       sentModel: 'mock-chat-1',
+      routePlanId: 'Agent Logical:chat:priority',
       status: 'succeeded',
       outputHashes: [],
+      routeAttempts: [
+        {
+          attempt: 1,
+          channelId: ch.id,
+          sentModel: 'mock-chat-1',
+          status: 'succeeded',
+        },
+      ],
     })
   })
 

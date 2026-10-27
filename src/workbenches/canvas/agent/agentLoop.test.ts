@@ -142,6 +142,38 @@ describe('runAgentTurn · 基本往复', () => {
     )
   })
 
+  it('★★ 运行中引导在下一次模型调用前插入，不另起用户回合', async () => {
+    const { deps, adapter } = depsWith([
+      { text: '先按原计划处理' },
+      { text: '已改成横版' },
+    ])
+    let pulls = 0
+    const r = await runAgentTurn(user('做一张竖版'), {
+      ...deps,
+      takeSteering: async () => {
+        pulls += 1
+        return pulls === 2
+          ? [{ role: 'user' as const, content: '改成横版' }]
+          : []
+      },
+    })
+
+    expect(r.kind).toBe('message')
+    expect(adapter.completeText).toHaveBeenCalledTimes(2)
+    const calls = adapter.completeText.mock.calls as unknown as [
+      { messages: ChatMessage[] },
+      AbortSignal,
+    ][]
+    const firstRequest = calls[0]?.[0]
+    const secondRequest = calls[1]?.[0]
+    expect(firstRequest.messages).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ content: '改成横版' })]),
+    )
+    expect(secondRequest.messages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ content: '改成横版' })]),
+    )
+  })
+
   /**
    * ★★ 建图**直接落地**（用户 2026-10-02：「他直接给我新建进去，但是生成与否
    * 需要让我确认，取消后也不会撤回已经新建到画布中的工作流」）。

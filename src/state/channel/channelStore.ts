@@ -68,6 +68,7 @@ import {
 } from '../../platform/generation'
 import {
   runDirectGeneration,
+  type DirectRunRouteCandidate,
   type DirectRunTraceInput,
 } from '../shared/directRun'
 import { ChannelRemovalInterruptedError } from '../shared/runChannelGuard'
@@ -237,7 +238,7 @@ export interface ChannelStoreActions {
    * 显式渠道只在该渠道内生成分组候选；未指定渠道时按全局策略跨渠道。
    */
   planGenerationRoute(opts: {
-    category: 'image' | 'video'
+    category: 'image' | 'video' | 'chat'
     logicalModel: string
     explicitChannelId?: string
   }): Promise<RoutePlanResult>
@@ -315,10 +316,15 @@ export interface ChannelStoreActions {
     signal: AbortSignal
     /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
     timeoutMs?: number
+    /** 冻结的文本路由链；有值时按候选顺序安全降级并写入同一份 RunRecord。 */
+    routeCandidates?: readonly DirectRunRouteCandidate[]
+    routePlanId?: string
     /** 直连付费调用的统一运行记录；新调用必须显式提供。 */
     trace: DirectRunTraceInput
     /** 业务成功但日志写入失败时的可见回调；不会触发第二次付费请求。 */
     onRecordWarning?: (warning: string) => void
+    /** 候选降级成功后回报真实命中的目标，下一轮先把同一个目标放到首位。 */
+    onRouteSucceeded?: (route: DirectRunRouteCandidate) => void
   }): Promise<TextResult>
   /** 单次 TTS：文本 → 音频字节；调用方负责把产物写进 assets。 */
   generateSpeech(
@@ -1431,53 +1437,101 @@ export function createChannelStore(
     inputs = [],
     signal,
     timeoutMs,
+    routeCandidates = [],
+    routePlanId,
     trace,
     onRecordWarning,
+    onRouteSucceeded,
   }) => {
-    const ch = store.getState().channels.find((c) => c.id === requestedChannelId)
-    if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
-    const sentModel = modelIsUpstream
+    const firstChannel = store
+      .getState()
+      .channels.find((channel) => channel.id === requestedChannelId)
+    if (!firstChannel) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+    const firstSentModel = modelIsUpstream
       ? requestedModel
-      : resolveUpstreamModel(ch.modelMap, requestedModel) ?? requestedModel
-    const call = (callSignal: AbortSignal) => generation.completeText(
-      {
-        channel: ch,
-        model: requestedModel,
-        request: {
-          kind: 'text',
-          prompt: '',
-          inputs: [...inputs],
-          params: {},
-          tools,
-          messages,
-          /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
-          timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
+      : resolveUpstreamModel(firstChannel.modelMap, requestedModel) ?? requestedModel
+    const candidates: readonly DirectRunRouteCandidate[] =
+      routeCandidates.length > 0
+        ? routeCandidates
+        : [
+            {
+              channelId: requestedChannelId,
+              model: modelIsUpstream ? requestedModel : firstSentModel,
+            },
+          ]
+    const isFrozenRoute = (route: DirectRunRouteCandidate | undefined): boolean =>
+      Boolean(
+        route &&
+          routeCandidates.some(
+            (candidate) =>
+              candidate.channelId === route.channelId &&
+              candidate.credentialGroupId === route.credentialGroupId &&
+              candidate.model === route.model,
+          ),
+      )
+    const call = (
+      callSignal: AbortSignal,
+      route: DirectRunRouteCandidate | undefined,
+    ) => {
+      const selected = route ?? candidates[0]!
+      const ch = store.getState().channels.find((channel) => channel.id === selected.channelId)
+      if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
+      return generation.completeText(
+        {
+          channel: ch,
+          model: selected.model,
+          request: {
+            kind: 'text',
+            prompt: '',
+            inputs: [...inputs],
+            params: {},
+            tools,
+            messages,
+            /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
+            timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
+          },
+          hints: {
+            modelIsUpstream: isFrozenRoute(route) || modelIsUpstream,
+            ...(selected.credentialGroupId
+              ? { credentialGroupId: selected.credentialGroupId }
+              : {}),
+            operationId:
+              trace?.operationId ??
+              `text:${selected.channelId}:${selected.model}`,
+          },
         },
-        hints: {
-          modelIsUpstream,
-          operationId: trace?.operationId ?? `text:${requestedChannelId}:${requestedModel}`,
-        },
-      },
-      callSignal,
-    )
-    if (!trace) return call(signal)
+        callSignal,
+      )
+    }
+    if (!trace) return call(signal, candidates[0])
+    const firstCandidate = candidates[0]!
     try {
-      return (
-        await runDirectGeneration({
+      const finished = await runDirectGeneration({
           storage: platform.storage,
           trace: {
             ...trace,
             inputs: trace.inputs ?? [...inputs],
-            sentChannelId: requestedChannelId,
-            sentModel,
+            sentChannelId: firstCandidate.channelId,
+            sentModel: firstCandidate.model,
+            ...(routePlanId ? { routePlanId } : {}),
           },
-          channelId: requestedChannelId,
+          channelId: firstCandidate.channelId,
+          routeCandidates: candidates,
           signal,
           call,
           outputHashesOf: () => [],
           ...(onRecordWarning ? { onRecordWarning } : {}),
         })
-      ).result
+      if (finished.record.sentChannelId && finished.record.sentModel) {
+        onRouteSucceeded?.({
+          channelId: finished.record.sentChannelId,
+          ...(finished.record.credentialGroupId
+            ? { credentialGroupId: finished.record.credentialGroupId }
+            : {}),
+          model: finished.record.sentModel,
+        })
+      }
+      return finished.result
     } catch (error) {
       if (error instanceof ChannelRemovalInterruptedError) {
         throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })

@@ -18,6 +18,7 @@ import { ChannelError } from '../../../platform/channels/types'
 import {
   backoffMs,
   isRequestResendSafe,
+  isRouteFallbackSafe,
   isRetryableStatus,
 } from '../../../domain/shared/task'
 import { createId } from '../../../shared/id'
@@ -177,16 +178,6 @@ function isRetryable(error: AppError, policy: RunPolicy): boolean {
  * 同样会变成第二次付费提交。只有显式 `not-sent` 才可换组；
  * 401 / 403 / 429 / 5xx 才是服务端已给出响应的换 Key 范围。
  */
-function isGroupSwitchable(error: AppError): boolean {
-  if (error.kind === 'network') {
-    return isRequestResendSafe(error)
-  }
-  if (error.kind === 'http') {
-    return error.status === 401 || error.status === 403 || error.status === 429 || error.status >= 500
-  }
-  return false
-}
-
 function callChannel(
   adapter: ChannelAdapter,
   request: RunRequest,
@@ -520,7 +511,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
         const targetCount = routeTargetCount(task.request)
         const hasNextRoute = attempt + 1 < targetCount
         const shouldRetry = hasNextRoute
-          ? isGroupSwitchable(error)
+          ? isRouteFallbackSafe(error)
           : targetCount === 0 &&
             isRetryable(error, policy) &&
             attempt < policy.maxRetries

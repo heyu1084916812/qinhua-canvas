@@ -103,6 +103,13 @@ export interface AgentLoopDeps {
    * 预检就该和它挨着；散在调用点迟早有一条路径漏掉。
    */
   precheck?: (name: string, args: unknown) => { ok: true } | { ok: false; result: unknown }
+  /**
+   * 取出在下一次模型调用前应插入的运行中引导。实现方必须按 id 去重；
+   * 循环会在每个工具批次结束后再次调用，不会中断已经发出的模型请求。
+   */
+  takeSteering?: () =>
+    | readonly ChatMessage[]
+    | Promise<readonly ChatMessage[]>
   signal: AbortSignal
   maxSteps?: number
 }
@@ -140,7 +147,7 @@ async function askModel(history: ChatMessage[], deps: AgentLoopDeps) {
       inputs: [...(deps.inputs ?? [])],
       params: {},
       tools: deps.toolMode === 'json' ? [] : deps.tools,
-      messages: history,
+      messages: history.map((message) => ({ ...message })),
     },
     deps.signal,
   )
@@ -154,8 +161,15 @@ export async function runAgentTurn(
   const messages = [...history]
   const maxSteps = deps.maxSteps ?? AGENT_DEFAULT_MAX_STEPS
   const seenCalls = new Map<string, number>()
+  const pullSteering = async (): Promise<number> => {
+    if (!deps.takeSteering) return 0
+    const steering = await deps.takeSteering()
+    if (steering.length > 0) messages.push(...steering)
+    return steering.length
+  }
 
   for (let step = 0; step < maxSteps; step += 1) {
+    await pullSteering()
     let result: Awaited<ReturnType<typeof askModel>>
     try {
       result = await askModel(messages, deps)
@@ -172,6 +186,7 @@ export async function runAgentTurn(
     if (calls.length === 0 && deps.toolMode === 'json') {
       const action = parseJsonAgentAction(result.text)
       if (action?.name === 'final') {
+        if ((await pullSteering()) > 0) continue
         const message =
           action.args &&
           typeof action.args === 'object' &&
@@ -193,6 +208,7 @@ export async function runAgentTurn(
       calls = [{ id: `json-${step}`, name: action.name, args: JSON.stringify(action.args ?? {}) }]
     }
     if (calls.length === 0) {
+      if ((await pullSteering()) > 0) continue
       messages.push({ role: 'assistant', content: result.text })
       return { kind: 'message', text: result.text, messages }
     }

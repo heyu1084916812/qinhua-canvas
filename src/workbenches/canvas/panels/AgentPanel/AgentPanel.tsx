@@ -29,11 +29,13 @@ import {
   toLogicalName,
 } from '../../../../domain/project/modelCatalog'
 import {
-  resolveRoutedChatTarget,
   type RoutedChatTarget,
 } from '../../../../domain/shared/chatTarget'
 import type { PresetVendor } from '../../../../domain/project/modelPresets'
-import { generationAvailabilityOf } from '../../../../domain/project/generationRouting'
+import {
+  generationAvailabilityOf,
+  runRouteCandidatesOf,
+} from '../../../../domain/project/generationRouting'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import { cropAsset, extractSelection } from '../../../../features/canvas/extractSelection'
 import { splitNodeToGrid } from '../../../../features/canvas/splitToGrid'
@@ -89,13 +91,20 @@ import {
   decideToolMode,
   ensureToolSupport,
 } from '../../../../features/shared/agent/toolSupport'
-import { directTextTrace } from '../../../../state/shared/directRun'
+import {
+  directTextTrace,
+  type DirectRunRouteCandidate,
+} from '../../../../state/shared/directRun'
 import { createId } from '../../../../shared/id'
 import {
   queuedTurnPreview,
   sessionForQueuedTurn,
   type QueuedAgentTurn,
 } from '../../../../domain/agent/queuedTurn'
+import {
+  steerMessagesOf,
+  type AgentSteer,
+} from '../../../../domain/agent/steering'
 import {
   IconAuto,
   IconArrowUp,
@@ -171,6 +180,25 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
 function statusIsBusy(status: Status): boolean {
   return status.kind !== 'idle' && status.kind !== 'error'
 }
+
+function statusCanSteer(status: Status): boolean {
+  return (
+    status.kind === 'thinking' ||
+    status.kind === 'toolRunning' ||
+    status.kind === 'awaitingConfirm' ||
+    status.kind === 'executing'
+  )
+}
+
+interface AgentChatRoute extends RoutedChatTarget {
+  credentialGroupId?: string
+  routePlanId: string
+  candidates: DirectRunRouteCandidate[]
+}
+
+type ChatRoutePreparation =
+  | { ok: true; route: AgentChatRoute }
+  | { ok: false; message: string }
 
 /**
  * 自动模式下**一轮对话最多自动执行几次**。
@@ -260,16 +288,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const stickyModelRef = useRef<{ image?: string; video?: string }>({})
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
+  const [sendMode, setSendMode] = useState<'queue' | 'steer'>('queue')
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
   const allChannels = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().channels,
     () => channels.getState().channels,
-  )
-  const routeStrategy = useSyncExternalStore(
-    channels.subscribe,
-    () => channels.getState().routeStrategy,
-    () => channels.getState().routeStrategy,
   )
   const customModels = useSyncExternalStore(
     channels.subscribe,
@@ -331,7 +355,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 确认与自动执行会把同一回合拆成多次模型调用，这些调用必须继续走同一条渠道；
    * 下一次真正发送新消息时再按全局策略重新选路。
    */
-  const chatRouteRef = useRef(new Map<string, RoutedChatTarget>())
+  const chatRouteRef = useRef(new Map<string, AgentChatRoute>())
+  const deliveredSteersRef = useRef(new Map<string, Set<string>>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   /**
@@ -409,20 +434,60 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 取本轮路由：同一会话、同一逻辑模型在本轮内复用；换模型或开始新消息时重新选。
    * UI 只保存逻辑名，渠道始终是后台实现细节。
    */
-  const resolveChatRoute = useCallback(
-    (session: AgentSession, fresh = false): RoutedChatTarget | null => {
-      const logicalModel = toLogicalName(allChannels, session.model) || session.model.trim()
-      if (!logicalModel) return null
-      const cached = chatRouteRef.current.get(session.id)
-      if (!fresh && cached?.logicalModel === logicalModel) return cached
-      const routed = resolveRoutedChatTarget(allChannels, logicalModel, routeStrategy, {
-        random: Math.random(),
+  const cachedChatRoute = useCallback((session: AgentSession): AgentChatRoute | null => {
+    const logicalModel =
+      toLogicalName(allChannels, session.model) || session.model.trim()
+    const cached = chatRouteRef.current.get(session.id)
+    return cached?.logicalModel === logicalModel ? cached : null
+  }, [allChannels])
+
+  const prepareChatRoute = useCallback(
+    async (
+      session: AgentSession,
+      fresh = false,
+    ): Promise<ChatRoutePreparation> => {
+      const logicalModel =
+        toLogicalName(allChannels, session.model) || session.model.trim()
+      if (!logicalModel) {
+        return { ok: false, message: '还没选模型：先在上面选一个对话模型' }
+      }
+      const cached = cachedChatRoute(session)
+      if (!fresh && cached) return { ok: true, route: cached }
+      const planned = await channels.planGenerationRoute({
+        category: 'chat',
+        logicalModel,
       })
-      if (routed) chatRouteRef.current.set(session.id, routed)
-      else chatRouteRef.current.delete(session.id)
-      return routed
+      if (!planned.ok) {
+        const message =
+          planned.reason === 'no_token'
+            ? `「${logicalModel}」的 Key 还未配置`
+            : planned.reason === 'policy_excluded'
+              ? `「${logicalModel}」已被当前路由范围排除`
+              : `没有可用的模型服务提供「${logicalModel}」：请在模型服务里勾选该模型或补好模型映射`
+        return { ok: false, message }
+      }
+      const candidates = runRouteCandidatesOf(planned.plan)
+      const first = candidates[0]
+      if (!first) {
+        return {
+          ok: false,
+          message: `没有可用的模型服务提供「${logicalModel}」`,
+        }
+      }
+      const route: AgentChatRoute = {
+        channelId: first.channelId,
+        ...(first.credentialGroupId
+          ? { credentialGroupId: first.credentialGroupId }
+          : {}),
+        logicalModel,
+        upstreamModel: first.model,
+        routePlanId: `${planned.plan.logicalModel}:${planned.plan.capability}:${planned.plan.strategy}`,
+        candidates,
+      }
+      chatRouteRef.current.set(session.id, route)
+      return { ok: true, route }
     },
-    [allChannels, routeStrategy],
+    [allChannels, cachedChatRoute, channels],
   )
 
   /**
@@ -851,7 +916,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       toolMode: 'native' | 'json' = 'native',
       visualNodeIds: readonly string[] = [],
     ) => {
-      const route = resolveChatRoute(session)
+      const route = cachedChatRoute(session)
       const logicalModel =
         route?.logicalModel ?? (toLogicalName(allChannels, session.model) || session.model)
       const imageNodeIds = [...new Set(visualNodeIds)]
@@ -893,18 +958,45 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         })
       const onRecordWarning = (warning: string) =>
         store.notify(`结果已返回，但运行记录写入失败：${warning}`, 'error')
+      const onRouteSucceeded = (selected: DirectRunRouteCandidate) => {
+        if (!route) return
+        route.channelId = selected.channelId
+        route.upstreamModel = selected.model
+        if (selected.credentialGroupId) {
+          route.credentialGroupId = selected.credentialGroupId
+        } else {
+          delete route.credentialGroupId
+        }
+        route.candidates = [
+          selected,
+          ...route.candidates.filter(
+            (candidate) =>
+              candidate.channelId !== selected.channelId ||
+              candidate.credentialGroupId !== selected.credentialGroupId ||
+              candidate.model !== selected.model,
+          ),
+        ]
+      }
       return {
         adapter: {
           completeText: (req: TextRunRequest, signal: AbortSignal) =>
             channels.completeWithTools({
-              channelId: req.channelId,
-              model: req.model,
+              channelId: route?.channelId ?? req.channelId,
+              model: route?.upstreamModel ?? req.model,
+              modelIsUpstream: Boolean(route),
               tools: req.tools ?? (toolMode === 'native' ? AGENT_TOOLS : []),
               messages: req.messages ?? [],
               inputs: req.inputs,
               signal,
+              ...(route
+                ? {
+                    routeCandidates: route.candidates,
+                    routePlanId: route.routePlanId,
+                  }
+                : {}),
               trace: traceOf(req, 'agent'),
               onRecordWarning,
+              ...(route ? { onRouteSucceeded } : {}),
             }),
         },
         channelId: route?.channelId ?? '',
@@ -974,10 +1066,48 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       },
       executeRead: (name: string, args: unknown) =>
         executeReadTool(name, args, toolCtx(originOf(viewport))),
+      takeSteering: async () => {
+        try {
+          const latest = await sessions.get(session.id)
+          const delivered =
+            deliveredSteersRef.current.get(session.id) ?? new Set<string>()
+          const pending = (latest?.pendingSteers ?? []).filter(
+            (steer) => !delivered.has(steer.id),
+          )
+          if (pending.length === 0) return []
+          const active = await jobs.active(session.id).catch(() => null)
+          if (active) {
+            await Promise.all(
+              pending.map((steer) =>
+                jobs
+                  .appendEvent(active.id, 'steer_applied', {
+                    steerId: steer.id,
+                    textLength: steer.text.length,
+                  })
+                  .catch(() => null),
+              ),
+            )
+          }
+          for (const steer of pending) delivered.add(steer.id)
+          deliveredSteersRef.current.set(session.id, delivered)
+          return steerMessagesOf(pending, stripMentionMarkup)
+        } catch {
+          return []
+        }
+      },
         signal: abortRefs.current.get(session.id)?.signal ?? new AbortController().signal,
       }
     },
-    [allChannels, channels, resolveChatRoute, viewport, toolCtx, store],
+    [
+      allChannels,
+      channels,
+      cachedChatRoute,
+      viewport,
+      toolCtx,
+      store,
+      sessions,
+      jobs,
+    ],
   )
 
   /** 把循环的结果落到界面上：回答就显示，要确认就出预览卡，刹车/报错就说清楚 */
@@ -1025,10 +1155,17 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 : {}),
             }
           : undefined
-      const latest = await sessions.updateFields(session.id, {
+      let latest = await sessions.updateFields(session.id, {
         pendingConfirmation,
         continuation,
       })
+      const deliveredSteerIds = [
+        ...(deliveredSteersRef.current.get(session.id) ?? []),
+      ]
+      if (deliveredSteerIds.length > 0) {
+        latest = await sessions.removeSteers(session.id, deliveredSteerIds)
+        deliveredSteersRef.current.delete(session.id)
+      }
       if (!jobIdsRef.current.has(session.id)) {
         const active = await jobs.active(session.id)
         if (active) jobIdsRef.current.set(session.id, active.id)
@@ -1121,14 +1258,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setStatusFor(session.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
       return
     }
-    const chatRoute = resolveChatRoute(session, true)
-    if (!chatRoute) {
-      setStatusFor(session.id, {
-        kind: 'error',
-        message: `没有可用的模型服务提供「${session.model}」：请在模型服务里勾选该模型或补好模型映射`,
-      })
+    const prepared = await prepareChatRoute(session, true)
+    if (!prepared.ok) {
+      setStatusFor(session.id, { kind: 'error', message: prepared.message })
       return
     }
+    const chatRoute = prepared.route
     const operationId = createId('op')
     await ensureAgentJob(session, turnId ?? createId('turnmsg'))
     await transitionSessionJob(
@@ -1157,11 +1292,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       {
         completeText: (req: TextRunRequest, signal: AbortSignal) =>
           channels.completeWithTools({
-            channelId: req.channelId,
-            model: req.model,
+            channelId: chatRoute.channelId,
+            model: chatRoute.upstreamModel,
+            modelIsUpstream: true,
             tools: req.tools ?? AGENT_TOOLS,
             messages: req.messages ?? [],
             signal,
+            routeCandidates: chatRoute.candidates,
+            routePlanId: chatRoute.routePlanId,
             trace: directTextTrace({
               projectId: store.getSnapshot().projectId,
               workbench: 'canvas',
@@ -1169,8 +1307,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               scopeId: `session:${session.id}`,
               operationId,
               purpose: 'agent-tool-probe',
-              channelId: req.channelId,
-              model: req.model,
+              channelId: chatRoute.channelId,
+              model: chatRoute.upstreamModel,
               prompt: req.prompt,
               inputs: req.inputs,
               params: {
@@ -1180,6 +1318,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             }),
             onRecordWarning: (warning) =>
               store.notify(`结果已返回，但运行记录写入失败：${warning}`, 'error'),
+            onRouteSucceeded: (selected) => {
+              chatRoute.channelId = selected.channelId
+              chatRoute.upstreamModel = selected.model
+              if (selected.credentialGroupId) {
+                chatRoute.credentialGroupId = selected.credentialGroupId
+              } else {
+                delete chatRoute.credentialGroupId
+              }
+              chatRoute.candidates = [
+                selected,
+                ...chatRoute.candidates.filter(
+                  (candidate) =>
+                    candidate.channelId !== selected.channelId ||
+                    candidate.credentialGroupId !== selected.credentialGroupId ||
+                    candidate.model !== selected.model,
+                ),
+              ]
+            },
             /** 探测自带一个更短的等待上限（见 `PROBE_TIMEOUT_MS`） */
             ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}),
           }),
@@ -1399,7 +1555,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     allSkills,
     toolCtx,
     viewport,
-    resolveChatRoute,
+    prepareChatRoute,
     sessions,
     generationAvailability,
     ensureAgentJob,
@@ -1442,6 +1598,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
     } catch (error) {
       const aborted = abortRefs.current.get(session.id)?.signal.aborted === true
+      deliveredSteersRef.current.delete(session.id)
       await transitionSessionJob(
         session.id,
         aborted ? 'canceled' : 'failed',
@@ -1516,6 +1673,37 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     return true
   }, [applySessionSnapshot, current, jobs, projectId, sessions, setStatusFor, store])
+
+  /**
+   * 运行中引导只插入当前任务，不启动第二个回合。带新素材的要求仍走排队，
+   * 因为当前已发出的模型请求不能中途改变视觉输入。
+   */
+  const steerText = useCallback(async (raw: string) => {
+    if (!current || !statusCanSteer(status)) return false
+    const text = raw.trim()
+    if (!text) return false
+    if (current.pendingAssetIds?.length) {
+      store.notify('当前引导带新素材，请改用排队执行', 'error')
+      return false
+    }
+    const steer: AgentSteer = {
+      id: createId('steer'),
+      text,
+      createdAt: Date.now(),
+    }
+    const added = await sessions.enqueueSteer(current.id, steer)
+    if (!added.ok) {
+      if (added.reason === 'full') {
+        store.notify('当前任务的引导已达上限，请等待下一步应用', 'error')
+      }
+      return false
+    }
+    applySessionSnapshot(added.session)
+    if (currentIdRef.current === current.id) {
+      setDraft((value) => (value.trim() === text ? '' : value))
+    }
+    return true
+  }, [applySessionSnapshot, current, sessions, status, store])
 
   const removeQueued = useCallback(async (turnId: string) => {
     if (!current) return
@@ -1605,11 +1793,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const send = useCallback(() => {
     if (!draft.trim()) return
     if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
-      void queueText(draft)
+      if (sendMode === 'steer' && statusCanSteer(status)) {
+        void steerText(draft)
+      } else {
+        void queueText(draft)
+      }
+      setSendMode('queue')
       return
     }
     void sendText(draft)
-  }, [current, draft, queueText, sendText, status])
+  }, [current, draft, queueText, sendMode, sendText, status, steerText])
 
   /**
    * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
@@ -2759,6 +2952,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         </div>
       )}
 
+      {current && current.pendingSteers.length > 0 && (
+        <div className={styles.steerPending} data-agent-steer-pending={current.pendingSteers.length}>
+          <span>{current.pendingSteers.length} 条引导将在下一步生效</span>
+        </div>
+      )}
+
       {current && current.queuedTurns.length > 0 && (
         <div
           className={styles.queue}
@@ -3282,6 +3481,41 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               onClose={() => setOpenPicker(null)}
               onSelect={(v) => void setAutoRun(v === 'auto')}
             />
+            {statusCanSteer(status) && draft.trim() && (
+              <div
+                className={styles.sendMode}
+                role="group"
+                aria-label="忙碌时发送方式"
+                data-agent-send-mode
+              >
+                <button
+                  type="button"
+                  className={
+                    sendMode === 'queue'
+                      ? styles.sendModeActive
+                      : styles.sendModeBtn
+                  }
+                  aria-pressed={sendMode === 'queue'}
+                  onClick={() => setSendMode('queue')}
+                  data-agent-send-queue
+                >
+                  排队
+                </button>
+                <button
+                  type="button"
+                  className={
+                    sendMode === 'steer'
+                      ? styles.sendModeActive
+                      : styles.sendModeBtn
+                  }
+                  aria-pressed={sendMode === 'steer'}
+                  onClick={() => setSendMode('steer')}
+                  data-agent-send-steer
+                >
+                  引导
+                </button>
+              </div>
+            )}
           </div>
 
           {/*
@@ -3306,7 +3540,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               type="button"
               className={`${styles.send} ${styles.sendActive}`}
               onClick={() => void send()}
-              title={statusIsBusy(status) ? '加入队列' : '发送'}
+              title={
+                statusIsBusy(status)
+                  ? sendMode === 'steer'
+                    ? '插入当前任务'
+                    : '加入队列'
+                  : '发送'
+              }
               data-agent-send
             >
               <IconArrowUp size={16} />

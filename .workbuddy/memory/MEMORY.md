@@ -1,5 +1,23 @@
 # CanvasFlow（轻画）项目记忆
 
+### 运行中引导、文本路由与直连尝试（2026-10-27 → 对账 #773）
+
+- **Steer 不是第二个回合**：`pendingSteers` 随 `agentSessions` 落库，忙碌时输入框的“引导”
+  只在 `runAgentTurn` 下一次模型调用前插入；等待中的模型请求不能被中途改写。送达后发
+  `agentEvents.steer_applied`，完成时只删已送达条目。带新素材的要求必须走队列，因为当前
+  请求的 `inputs` 已冻结。
+- **Agent 文本与图片/视频共用 RoutePlan**：`planGenerationRoute({category:'chat'})` 负责
+  候选、分组白名单与轮询游标；同一用户回合冻结候选链。候选降级成功后，下一轮要把实际命中
+  目标提到首位，否则每一轮都会重复撞同一个 401/403。
+- **直连调用也只写一份 RunRecord**：`runDirectGeneration` 在一次记录里保存
+  `routeAttempts`，不能每个候选各写一条任务。只有 401/403/429/5xx 或明确 `not-sent` 可换
+  候选；超时、408、响应丢失仍只提交一次。
+- **Agent 循环传历史必须复制数组**：`askModel` 给适配器的 `messages` 不能继续引用循环内部
+  的可变数组，否则后续插入 steer 会让已发出的请求看起来也被改了，测试与审计都会失真。
+- **验证**：定向 **104/104**，全量 Vitest **3424 passed / 1 skipped**；check/build 通过。
+  Agent 面板 1440×900 / 1024×700 明暗主题无横向溢出；Tauri UI 冻结门禁因已有窗口触发
+  单实例退出，不能记作真机通过。
+
 ### SoonStudio Gemini 图片响应（2026-10-27 → 对账 #772）
 
 - **Gemini 原生生图不能只认 `candidates[0].inlineData`**：SoonStudio 的

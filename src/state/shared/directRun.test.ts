@@ -173,6 +173,116 @@ describe('runDirectGeneration', () => {
     expect(warnings[0]).toContain('disk busy')
   })
 
+  it('直连路由遇到 403 时只切换到下一候选，并写进同一份尝试记录', async () => {
+    const platform = createMemoryPlatform()
+    const calls: string[] = []
+    const finished = await runDirectText({
+      storage: platform.storage,
+      trace: {
+        ...directTextTrace({
+          projectId: 'p1',
+          workbench: 'canvas',
+          subjectId: 'session:1',
+          scopeId: 'session:1',
+          operationId: 'op-route',
+          purpose: 'agent',
+          channelId: 'ch-a',
+          model: 'model-upstream-a',
+          prompt: 'hello',
+        }),
+        routePlanId: 'logical:chat:priority',
+      },
+      channelId: 'ch-a',
+      routeCandidates: [
+        { channelId: 'ch-a', model: 'model-upstream-a' },
+        { channelId: 'ch-b', credentialGroupId: 'g-b', model: 'model-upstream-b' },
+      ],
+      call: async (_signal, route) => {
+        calls.push(`${route?.channelId}:${route?.model}`)
+        if (route?.channelId === 'ch-a') {
+          throw new ChannelError({ kind: 'http', status: 403, body: 'group denied' })
+        }
+        return 'ok'
+      },
+    })
+
+    expect(finished).toBe('ok')
+    expect(calls).toEqual([
+      'ch-a:model-upstream-a',
+      'ch-b:model-upstream-b',
+    ])
+    const [record] = await platform.storage.query('runRecords', { projectId: 'p1' })
+    expect(record).toMatchObject({
+      status: 'succeeded',
+      sentChannelId: 'ch-b',
+      sentModel: 'model-upstream-b',
+      credentialGroupId: 'g-b',
+      routePlanId: 'logical:chat:priority',
+      routeAttempts: [
+        {
+          attempt: 1,
+          channelId: 'ch-a',
+          sentModel: 'model-upstream-a',
+          status: 'failed',
+          httpStatus: 403,
+        },
+        {
+          attempt: 2,
+          channelId: 'ch-b',
+          credentialGroupId: 'g-b',
+          sentModel: 'model-upstream-b',
+          status: 'succeeded',
+        },
+      ],
+    })
+  })
+
+  it('直连路由遇到结果未知的超时不换候选，避免第二次付费提交', async () => {
+    const platform = createMemoryPlatform()
+    let calls = 0
+    const timeout = new ChannelError({
+      kind: 'network',
+      detail: 'timeout',
+      sendPhase: 'unknown',
+    })
+
+    await expect(
+      runDirectText({
+        storage: platform.storage,
+        trace: {
+          ...trace,
+          sentChannelId: 'ch-a',
+          sentModel: 'm-a',
+        },
+        routeCandidates: [
+          { channelId: 'ch-a', model: 'm-a' },
+          { channelId: 'ch-b', model: 'm-b' },
+        ],
+        call: async () => {
+          calls += 1
+          throw timeout
+        },
+      }),
+    ).rejects.toBe(timeout)
+
+    expect(calls).toBe(1)
+    const [record] = await platform.storage.query('runRecords', { projectId: 'p1' })
+    expect(record).toMatchObject({
+      status: 'failed',
+      sentChannelId: 'ch-a',
+      sentModel: 'm-a',
+      routeAttempts: [
+        {
+          attempt: 1,
+          channelId: 'ch-a',
+          status: 'failed',
+          errorKind: 'network',
+          sendPhase: 'unknown',
+        },
+      ],
+    })
+  })
+
   it('画布提示词工具、Agent、电商文字动作共用同一作用域契约', async () => {
     const platform = createMemoryPlatform()
     const cases = [

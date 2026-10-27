@@ -125,6 +125,37 @@
   gap: var(--space-1);
 }
 
+.sendMode {
+  flex: 0 0 auto;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+
+.sendModeBtn,
+.sendModeActive {
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  line-height: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sendModeActive {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
 .smallBtn {
   flex: 0 0 auto;
   height: 30px;
@@ -473,6 +504,16 @@
   border: 1px solid var(--stroke);
   border-radius: var(--radius-node);
   background: var(--bg-subtle);
+}
+
+.steerPending {
+  padding: 6px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.45;
 }
 
 .queueHead {

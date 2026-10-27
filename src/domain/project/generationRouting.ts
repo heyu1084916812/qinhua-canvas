@@ -23,6 +23,7 @@ import {
 } from './routePlan'
 
 export type GenerationMediaKind = 'image' | 'video'
+export type GenerationRouteKind = GenerationMediaKind | 'chat'
 
 export interface GenerationRoutingRecipe {
   channelId?: string
@@ -53,7 +54,7 @@ export interface GenerationAvailability {
  */
 export function buildGenerationRoutePlan(opts: {
   channels: readonly Channel[]
-  category: GenerationMediaKind
+  category: GenerationRouteKind
   logicalModel: string
   policy?: Partial<RoutePolicy>
   cursor?: number
