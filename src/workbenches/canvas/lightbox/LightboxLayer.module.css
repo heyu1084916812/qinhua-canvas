@@ -333,6 +333,63 @@
   font-variant-numeric: tabular-nums;
 }
 
+.galleryStrip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(48px + var(--space-3));
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(760px, calc(100vw - var(--space-8) * 2));
+  padding: 4px;
+  overflow-x: auto;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  transform: translateX(-50%);
+}
+
+.galleryThumb,
+.galleryThumbOn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 38px;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.galleryThumbOn {
+  border-color: var(--text-1);
+  color: var(--text-1);
+}
+
+.galleryThumb:focus-visible,
+.galleryThumbOn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.galleryThumb img,
+.galleryThumbOn img,
+.galleryThumb video,
+.galleryThumbOn video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .spacer {
   flex: none;
 }

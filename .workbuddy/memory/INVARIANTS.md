@@ -17,12 +17,22 @@
   不支持该模型时必须在本地报 `missingModel`。
 - **文本节点渠道不是权威**：`completeText` 以逻辑模型重新解析启用渠道，旧节点
   `channelId` 只作偏好提示。这样可以先选模型、后改渠道勾选，不会把未启用模型发给旧渠道。
+- **旧 `channelId` 回退只在画布执行层开启**：`resolveNodeRoute` 默认仍要求显式渠道硬成功；
+  仅 `CanvasExecutionProvider` 传 `fallbackFromExplicit=true`。只有旧渠道缺 Key / 停用 /
+  不支持模型，且其他启用渠道确有同一模型时才改走全局路由；否则保留原明确失败原因。
+- **总日志跨项目筛选必须显式声明**：只有总日志查询带 `aggregate=true`；
+  工作台私有日志仍必须绑定 `projectId + workbench`，不得为修筛选项放宽整个查询层。
 
 ## SoonStudio · 异步图片
 
 - **Gemini 参考图走任务接口**：SoonStudio 的 Gemini 图生图使用
   `images/edits?async=true` + `Prefer: respond-async`，结果从 `images/tasks/:id` 查询。
   不在带参考图的 4K 请求上直接调用原生 `generateContent`，避免长连接中断后无法恢复结果。
+- **已受理响应先取任务号再轮询**：兼容 `task_id / taskId / jobId / job_id` 与顶层或 `data` 内嵌；
+  有 `pollUrl / poll_url` 时按站点 origin 解析，没有时才回退 `images/tasks/:id`。历史失败记录
+  不自动追改；提交后的请求仍不得因解析、轮询或重启风险自动重发。
+- **目录与灯箱状态各有唯一入口**：LibTV 目录缓存 URL 必须带版本键；多选灯箱缩略图直接使用
+  gallery index，不重建 gallery、不复制第二份选中态。
 
 ## Agent · 确认与停止
 

@@ -9872,7 +9872,7 @@ async function g60(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
@@ -9892,6 +9892,15 @@ async function g60(browser) {
   await sleep(1000)
   const srcId = await gen.getAttribute('data-node-id')
   rec(g, '第一次生成：源节点出图', (await page.locator('[data-node-asset]').count()) === 1, `assets=${await page.locator('[data-node-asset]').count()}`)
+
+  const idleRunBtn = page.locator('[data-creation-panel] [data-panel-run]')
+  rec(
+    g,
+    '★ 第一次完成后生成按钮恢复为空闲可点',
+    (await idleRunBtn.getAttribute('aria-label')) === '生成当前节点' &&
+      !(await idleRunBtn.isDisabled()),
+    `label=${await idleRunBtn.getAttribute('aria-label')} disabled=${await idleRunBtn.isDisabled()}`,
+  )
 
   // 2) 第二次生成：全程盯着**源节点**有没有进入生成态
   const srcSelector = `[data-node-id="${srcId}"]`

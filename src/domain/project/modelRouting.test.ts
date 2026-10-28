@@ -363,6 +363,51 @@ describe('resolveNodeRoute', () => {
       }),
     ).toEqual({ ok: false, reason: 'channel_no_token' })
   })
+
+  it('画布允许旧渠道失效时改走其他可用提供者', () => {
+    const channels = [
+      source('old', {
+        hasToken: false,
+        modelIds: ['gpt-image-2'],
+        modelMap: { 'GPT Image 2': 'gpt-image-2' },
+      }),
+      source('ready', {
+        priority: 10,
+        modelIds: ['gpt-image-2'],
+        modelMap: { 'GPT Image 2': 'gpt-image-2' },
+      }),
+    ]
+
+    expect(
+      resolveNodeRoute(channels, 'GPT Image 2', 'old', {
+        resolve: resolveUpstreamModel,
+        fallbackFromExplicit: true,
+      }),
+    ).toEqual({
+      ok: true,
+      selection: { channelId: 'ready', upstreamModel: 'gpt-image-2' },
+    })
+  })
+
+  it('画布改走其他渠道时仍要求确有可用提供者', () => {
+    expect(
+      resolveNodeRoute(
+        [
+          source('old', {
+            hasToken: false,
+            modelIds: ['gpt-image-2'],
+            modelMap: { 'GPT Image 2': 'gpt-image-2' },
+          }),
+        ],
+        'GPT Image 2',
+        'old',
+        {
+          resolve: resolveUpstreamModel,
+          fallbackFromExplicit: true,
+        },
+      ),
+    ).toEqual({ ok: false, reason: 'channel_no_token' })
+  })
 })
 
 describe('routeCandidatesFor', () => {

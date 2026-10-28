@@ -140,14 +140,14 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   },
   {
     id: 'allLogs',
-    label: '总日志',
+    label: '日志',
     group: '数据',
     keywords: ['日志', '运行记录', '失败原因', '成功', '失败', '取消', '中断', '未分类', '路由'],
   },
   // 外观拆成三项：本机文字、主题颜色、项目画布（2026-10-25）
   {
     id: 'appearance',
-    label: '主题与颜色',
+    label: '主题',
     group: '外观',
     keywords: [
       '主题', '深色', '浅色', '暗色', '强调色', '颜色', '动效', '动画', '小地图', '界面',
@@ -155,33 +155,33 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   },
   {
     id: 'typography',
-    label: '字体与文字',
+    label: '字体',
     group: '外观',
     keywords: ['字体', '字号', '字距', '文本', '界面文字', '导入字体', '粗体'],
   },
   {
     id: 'canvasLook',
-    label: '画布外观',
+    label: '画布',
     group: '外观',
     keywords: ['画布', '画布外观', '背景色', '画布底色', '节点底色', '节点字号', '节点尺寸', '点阵', '网格', '纯色'],
   },
   // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
   {
     id: 'backup',
-    label: '备份与恢复',
+    label: '备份',
     group: '数据',
     keywords: ['备份', '恢复', '导出', '导入', '快照', '还原', '回收站', '数据安全', '换机器'],
   },
   // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
   {
     id: 'defaults',
-    label: '默认参数',
+    label: '默认值',
     group: '生成',
     keywords: ['默认', '模型', '比例', '尺寸', '画质', '张数', '参数', '记住上次'],
   },
   {
     id: 'agentMemory',
-    label: 'Agent 与记忆',
+    label: 'Agent 记忆',
     group: '生成',
     keywords: [
       'agent',
@@ -220,7 +220,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   },
   {
     id: 'about',
-    label: '关于与隐私',
+    label: '关于',
     group: '系统',
     keywords: ['关于', '隐私', '许可', '开源', '数据在哪', '联网', '卸载', '版本', '清数据'],
   },

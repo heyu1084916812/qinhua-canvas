@@ -616,7 +616,6 @@ export function ProjectsPage() {
                 name="projects-sort"
                 className={styles.sort}
                 value={sort}
-                compact
                 ariaLabel="排序方式"
                 options={[
                   { value: 'updated', label: '最近编辑' },

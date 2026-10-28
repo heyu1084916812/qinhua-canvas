@@ -71,6 +71,7 @@ export function AllLogsPanel() {
 
   const filter = useMemo<Omit<RunLogQuery, 'offset' | 'limit'>>(
     () => ({
+      aggregate: true,
       ...(projectId ? { projectId } : {}),
       ...(workbench ? { workbench } : {}),
       ...(status ? { status } : {}),

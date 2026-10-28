@@ -19,6 +19,8 @@ export interface RunLogQuery {
    */
   projectId?: string
   workbench?: WorkbenchId
+  /** 总日志聚合：允许在未指定项目时只按工作台跨项目筛选。 */
+  aggregate?: boolean
   scopeState?: RunLogScopeState
   status?: RunRecord['status']
   action?: string
@@ -75,7 +77,7 @@ export function createRunLogRepository(storage: StoragePort): RunLogRepository {
 }
 
 function validateQuery(filter: RunLogQuery): void {
-  if (filter.workbench && !filter.projectId) {
+  if (filter.workbench && !filter.projectId && filter.aggregate !== true) {
     throw new Error('工作台私有日志查询必须同时绑定 projectId + workbench')
   }
   if (filter.workbench && filter.scopeState === 'unclassified') {

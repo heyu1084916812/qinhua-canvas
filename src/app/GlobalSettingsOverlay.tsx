@@ -76,23 +76,23 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
 }
 
 const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
-  channels: '管理服务地址、令牌与可用模型。',
-  cli: '管理本机命令与运行环境。',
+  channels: '配置模型服务与密钥。',
+  cli: '管理本机 CLI。',
   hosting: '设置素材上传与公网访问。',
-  storage: '查看资源占用并管理存储位置。',
-  allLogs: '跨项目查看全部运行记录、失败原因与路由尝试。',
-  appearance: '设置深浅主题、强调色、动效与小地图。',
-  typography: '管理界面字体、字号与字距。',
-  canvasLook: '设置当前项目的画布背景、节点底色与节点显示。',
-  backup: '导出、导入和合并本地备份。',
-  snapshots: '查看、拍摄和还原项目结构快照。',
-  defaults: '设置新建节点的默认模型与参数。',
-  agentMemory: '管理 Agent 可以长期记住的偏好、事实和硬约束。',
-  packs: '安装和管理数据型扩展包。',
-  notify: '选择任务完成与失败时的提醒方式。',
-  help: '查看常见问题与新手引导。',
-  shortcuts: '查看全部画布快捷键。',
-  about: '查看版本、更新与隐私说明。',
+  storage: '管理数据与缓存。',
+  allLogs: '查看全部运行记录。',
+  appearance: '设置主题与动效。',
+  typography: '调整界面与节点字体。',
+  canvasLook: '设置当前项目画布。',
+  backup: '导出、导入与恢复数据。',
+  snapshots: '保存和还原项目结构。',
+  defaults: '设置新建节点默认值。',
+  agentMemory: '管理 Agent 长期记忆。',
+  packs: '管理扩展包。',
+  notify: '设置完成与失败提醒。',
+  help: '查看帮助与新手引导。',
+  shortcuts: '查看快捷键。',
+  about: '版本、更新与隐私。',
 }
 
 /**
@@ -198,7 +198,7 @@ export function GlobalSettingsOverlay() {
                 data-global-settings-search
                 type="search"
                 value={query}
-                placeholder="搜索设置（字体、备份、图床…）"
+                placeholder="搜索设置"
                 aria-label="搜索设置"
                 onChange={(e) => setQuery(e.target.value)}
               />

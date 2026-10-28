@@ -345,6 +345,75 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('SoonStudio 兼容 jobId + pollUrl 形态的异步响应', async () => {
+    const tiny = solidPng(4, 3, [0x33, 0x44, 0x55])
+    const calls: string[] = []
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          calls.push(req.url)
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, {
+              studioAsync: true,
+              jobId: 'job_studio_123',
+              status: 'running',
+              pollUrl: '/api/studio/async-responses/job_studio_123',
+            })
+          }
+          if (
+            req.url ===
+            'https://soonstudio.ai/api/studio/async-responses/job_studio_123'
+          ) {
+            return resp(200, {
+              status: 'SUCCESS',
+              data: { url: ['https://cdn.example/job-result.png'] },
+            })
+          }
+          if (req.url === 'https://cdn.example/job-result.png') {
+            const bytes = new Uint8Array(tiny)
+            return {
+              status: 200,
+              headers: { 'content-type': 'image/png' },
+              async text() {
+                return ''
+              },
+              async json<T>(): Promise<T> {
+                throw new Error('not json')
+              },
+              async arrayBuffer() {
+                return bytes.buffer.slice(
+                  bytes.byteOffset,
+                  bytes.byteOffset + bytes.byteLength,
+                ) as ArrayBuffer
+              },
+            }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const assets = await a.generateImage(
+      {
+        ...request([]),
+        model: 'gemini-nano-banana-2.1',
+      },
+      signal,
+    )
+
+    expect(calls[0]).toBe('https://soonstudio.ai/v1/images/generations?async=true')
+    expect(calls[1]).toBe(
+      'https://soonstudio.ai/api/studio/async-responses/job_studio_123',
+    )
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
   it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
     'SoonStudio submission %s sends one POST and ends as accepted',
     async (detail) => {

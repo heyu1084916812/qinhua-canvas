@@ -534,6 +534,11 @@ export function CanvasExecutionProvider({
           strategy,
           resolve: resolveUpstreamModel,
           random: Math.random(),
+          /**
+           * 画布前端已经没有“选渠道”这一档，`channelId` 是创建时的内部值。
+           * 它仍然优先；只有它缺 Key / 停用 / 不支持模型而别处有可用提供者时才改走路由。
+           */
+          fallbackFromExplicit: true,
         })
         if (!routed.ok) {
           const channelName =

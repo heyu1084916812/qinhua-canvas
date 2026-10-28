@@ -458,20 +458,52 @@ function imageItemsIn(value: unknown): ImageItem[] {
   return out
 }
 
-function soonStudioTaskIdIn(value: unknown): string | null {
+interface SoonStudioAsyncRef {
+  id: string
+  pollUrl: string | null
+}
+
+function textField(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function soonStudioAsyncRefIn(value: unknown): SoonStudioAsyncRef | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
-  if (typeof row.task_id === 'string' && row.task_id.trim()) return row.task_id.trim()
-  if (typeof row.taskId === 'string' && row.taskId.trim()) return row.taskId.trim()
+  const id =
+    textField(row.task_id) ??
+    textField(row.taskId) ??
+    textField(row.jobId) ??
+    textField(row.job_id)
+  const pollUrl = textField(row.pollUrl) ?? textField(row.poll_url)
+  if (id) return { id, pollUrl }
   if (typeof row.data === 'string' && /^[A-Za-z0-9_-]{8,}$/.test(row.data.trim())) {
-    return row.data.trim()
+    return { id: row.data.trim(), pollUrl }
   }
   if (row.data && typeof row.data === 'object') {
     const nested = row.data as Record<string, unknown>
-    if (typeof nested.task_id === 'string' && nested.task_id.trim()) return nested.task_id.trim()
-    if (typeof nested.taskId === 'string' && nested.taskId.trim()) return nested.taskId.trim()
+    const nestedId =
+      textField(nested.task_id) ??
+      textField(nested.taskId) ??
+      textField(nested.jobId) ??
+      textField(nested.job_id)
+    const nestedPollUrl =
+      textField(nested.pollUrl) ??
+      textField(nested.poll_url)
+    if (nestedId) return { id: nestedId, pollUrl: nestedPollUrl ?? pollUrl }
   }
   return null
+}
+
+function soonStudioPollUrl(base: string, ref: SoonStudioAsyncRef): string {
+  if (ref.pollUrl) {
+    try {
+      return new URL(ref.pollUrl, `${new URL(base).origin}/`).toString()
+    } catch {
+      return ref.pollUrl
+    }
+  }
+  return `${base}/images/tasks/${encodeURIComponent(ref.id)}`
 }
 
 function soonStudioFailureIn(value: unknown): string | null {
@@ -895,12 +927,13 @@ export function createOpenAiImagesAdapter(
     const immediate = imageItemsIn(created)
     if (immediate.length > 0) return assetsFromItems(immediate, requested, signal)
 
-    const taskId = soonStudioTaskIdIn(created)
-    if (!taskId) {
-      throw acceptedAfterSubmit(`生图任务已提交，但响应里没有 task_id：${createdRaw.slice(0, 300)}`)
+    const asyncRef = soonStudioAsyncRefIn(created)
+    if (!asyncRef) {
+      throw acceptedAfterSubmit(`生图任务已提交，但响应里没有任务号：${createdRaw.slice(0, 300)}`)
     }
 
-    const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
+    const taskId = asyncRef.id
+    const pollUrl = soonStudioPollUrl(base, asyncRef)
     let lastResponse = ''
     let lastTransport = ''
     const startedAt = now()

@@ -17,6 +17,11 @@ interface LibtvCatalogFile {
 
 export const LIBTV_CATALOG_TOTAL = 764
 export const LIBTV_BODY_TOTAL = 764
+/**
+ * 目录 URL 版本。`force-cache` 会把旧版没有 `category` 的 704 条目录一直留在
+ * 浏览器缓存里；URL 加版本后新、旧缓存天然分键，升级即可拿到 v2 分类。
+ */
+export const LIBTV_CATALOG_CACHE_VERSION = 'category-v2-2026-10-27'
 
 let catalogPromise: Promise<LibtvSkill[]> | null = null
 
@@ -28,9 +33,10 @@ let catalogPromise: Promise<LibtvSkill[]> | null = null
 export async function loadLibtvCatalog(): Promise<LibtvSkill[]> {
   if (catalogPromise) return catalogPromise
   catalogPromise = (async () => {
-    const response = await fetch(`${import.meta.env.BASE_URL}libtv-skills/catalog.json`, {
-      cache: 'force-cache',
-    })
+    const response = await fetch(
+      `${import.meta.env.BASE_URL}libtv-skills/catalog.json?v=${encodeURIComponent(LIBTV_CATALOG_CACHE_VERSION)}`,
+      { cache: 'force-cache' },
+    )
     if (!response.ok) throw new Error(`LibTV 技能目录读取失败（HTTP ${response.status}）`)
     const catalog = (await response.json()) as LibtvCatalogFile
     const items = Array.isArray(catalog.items) ? catalog.items : []

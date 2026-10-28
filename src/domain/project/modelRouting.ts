@@ -428,13 +428,30 @@ export function resolveNodeRoute(
     attempt?: number
     random?: number
     resolve?: (map: Readonly<Record<string, string>> | null | undefined, name: string) => string | null
+    /**
+     * 画布不再向用户暴露渠道选择：节点上的 `channelId` 只是历史内部值。
+     * 显式渠道不可用时，允许调用方在 **确有其他可用提供者** 时改走全局路由。
+     *
+     * 默认关闭，保留状态层 / 其他调用方“显式渠道硬失败”的旧契约。
+     */
+    fallbackFromExplicit?: boolean
   } = {},
 ): NodeRouteResult {
   const resolve = options.resolve ?? defaultResolve
   if (explicitChannelId.trim()) {
     const direct = resolveRouteForChannel(channels, logicalModel, explicitChannelId, resolve)
-    return direct.ok
-      ? { ok: true, selection: direct.selection }
+    if (direct.ok) return { ok: true, selection: direct.selection }
+    if (options.fallbackFromExplicit !== true) {
+      return { ok: false, reason: direct.reason }
+    }
+    const fallback = resolveRouteFor(channels, logicalModel, {
+      strategy: options.strategy,
+      attempt: options.attempt,
+      random: options.random,
+      resolve,
+    })
+    return fallback
+      ? { ok: true, selection: fallback }
       : { ok: false, reason: direct.reason }
   }
   const routed = resolveRouteFor(channels, logicalModel, {

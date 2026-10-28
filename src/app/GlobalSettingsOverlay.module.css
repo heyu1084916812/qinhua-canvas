@@ -22,8 +22,8 @@
    * 面板尺寸：留出四周的呼吸（与壳层留白同族），并给上下限 ——
    * 小窗不至于把面板挤扁、大屏不至于铺成整屏（那就不像"浮层"了）。
    */
-  width: min(1120px, calc(100vw - var(--space-8) * 2));
-  height: min(720px, calc(100vh - var(--space-8) * 2));
+  width: min(1240px, calc(100vw - var(--space-6) * 2));
+  height: min(852px, calc(100vh - var(--space-6) * 2));
   background: var(--bg-canvas);
   border-radius: var(--radius-node);
   box-shadow: var(--shadow-float);
@@ -89,12 +89,12 @@
  */
 .nav {
   flex: none;
-  width: 200px;
+  width: 216px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-3);
+  gap: 1px;
+  padding: var(--space-2) var(--space-3);
   border-right: var(--border);
   overflow-y: auto;
 }
@@ -167,7 +167,7 @@
 }
 
 .navItem {
-  min-height: var(--space-8);
+  min-height: 30px;
   box-sizing: border-box;
   border: none;
   background: transparent;
@@ -204,15 +204,15 @@
 .navGroup {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .navGroup + .navGroup {
-  margin-top: var(--space-sidebar-group);
+  margin-top: var(--space-2);
 }
 
 .navGroupTitle {
-  padding: 0 var(--space-3) var(--space-1);
+  padding: 0 var(--space-3) 2px;
   font-size: var(--fs-chip);
   font-weight: var(--fw-chip);
   color: var(--text-3);

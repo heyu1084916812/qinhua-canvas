@@ -337,6 +337,8 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openLightboxGallery: (nodeIds: readonly string[]) => void
   /** 在多选灯箱里切上一张 / 下一张（会循环）。普通素材灯箱下无操作。 */
   navigateLightbox: (delta: number) => void
+  /** 多选灯箱：直接跳到指定缩略图。 */
+  selectLightboxIndex: (index: number) => void
   /**
    * 以框选模式打开灯箱（用户口径：在素材灯箱里框选局部图）。
    *
@@ -750,6 +752,16 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       const index =
         ((Math.trunc(current + delta) % lightbox.gallery.length) + lightbox.gallery.length) %
         lightbox.gallery.length
+      const next = lightbox.gallery[index]
+      if (!next) return
+      store.setState({
+        lightbox: { ...lightbox, assetHash: next.assetHash, galleryIndex: index },
+      })
+    },
+    selectLightboxIndex: (index) => {
+      const lightbox = store.getState().lightbox
+      if (!lightbox?.gallery?.length || !Number.isInteger(index)) return
+      if (index < 0 || index >= lightbox.gallery.length) return
       const next = lightbox.gallery[index]
       if (!next) return
       store.setState({

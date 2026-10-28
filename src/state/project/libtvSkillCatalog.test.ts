@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   libtvCategoryCounts,
+  LIBTV_CATALOG_CACHE_VERSION,
   loadLibtvCatalog,
   loadLibtvSkillBody,
   loadLibtvSkillFiles,
@@ -79,11 +80,14 @@ describe('LibTV 目录异步加载', () => {
   })
 
   it('从 public 静态 JSON 加载，按 v2 内容分类归桶，旧标签不参与分类', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(catalogRaw, { status: 200 })),
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request) => new Response(catalogRaw, { status: 200 }),
     )
+    vi.stubGlobal('fetch', fetchMock)
     const skills = await loadLibtvCatalog()
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      `v=${LIBTV_CATALOG_CACHE_VERSION}`,
+    )
     expect(skills).toHaveLength(3)
     expect(skills.some((skill) => skill.id === 'libtv:no-body')).toBe(false)
     const counts = libtvCategoryCounts(skills)

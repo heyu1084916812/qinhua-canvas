@@ -119,6 +119,43 @@ const ANNOTATE_TOOLS = [
   { id: 'text', label: '文字', icon: <IconText size={16} /> },
 ] as const
 
+function GalleryThumb({
+  item,
+  index,
+  active,
+  onSelect,
+}: {
+  item: { assetHash: string; nodeId: string; title: string }
+  index: number
+  active: boolean
+  onSelect: (index: number) => void
+}) {
+  const { url, mime } = useAssetMeta(item.assetHash)
+  const video = (mime ?? '').startsWith('video/')
+  return (
+    <button
+      type="button"
+      className={active ? styles.galleryThumbOn : styles.galleryThumb}
+      data-lightbox-thumbnail={index}
+      data-lightbox-thumbnail-active={active ? 'true' : undefined}
+      aria-label={`查看第 ${index + 1} 张：${item.title}`}
+      aria-current={active ? 'true' : undefined}
+      title={item.title}
+      onClick={() => onSelect(index)}
+    >
+      {url ? (
+        video ? (
+          <video src={url} muted playsInline preload="metadata" />
+        ) : (
+          <img src={url} alt="" draggable={false} />
+        )
+      ) : (
+        <IconImage size={16} />
+      )}
+    </button>
+  )
+}
+
 export function LightboxLayer() {
   const store = useCanvasStore()
   const platform = usePlatform()
@@ -1594,6 +1631,19 @@ export function LightboxLayer() {
           </div>
         ) : null}
       </div>
+      ) : null}
+      {hasGalleryNavigation && mode === 'view' ? (
+        <div className={styles.galleryStrip} data-lightbox-thumbnails>
+          {gallery.map((item, index) => (
+            <GalleryThumb
+              key={`${item.nodeId}:${item.assetHash}`}
+              item={item}
+              index={index}
+              active={index === galleryIndex}
+              onSelect={store.selectLightboxIndex}
+            />
+          ))}
+        </div>
       ) : null}
       {/*
        * 固定底栏：左侧像素 / 缩放，中间是能力切换，右侧是最常用的下载 / 关闭。

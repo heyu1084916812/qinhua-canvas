@@ -1,5 +1,23 @@
 # CanvasFlow（轻画）项目记忆
 
+### 画布连续生成、日志聚合与香蕉异步响应（2026-10-28 → 对账 #792 / #793 / #794）
+
+- **显式渠道回退只能在画布开启**：`resolveNodeRoute` 的 `fallbackFromExplicit` 默认关闭；
+  只有画布执行宿主传 `true`。旧渠道能路由时仍优先，缺 Key / 停用 / 缺模型时必须先确认
+  另有启用渠道真实提供同一模型，才允许回退；否则保留原渠道的明确失败原因。
+- **二次生成必须走新承载节点**：G60 隔离库是判定画布连续生成的唯一 UI 证据，必须同时看
+  第一次按钮恢复、第二次产出数量、原节点不转圈、原图不覆盖与最终无残留状态。
+- **总日志聚合是显式查询能力**：`RunLogQuery.aggregate=true` 只给跨项目总日志按工作台筛选；
+  工作台私有日志仍要求 `projectId + workbench`，不能为修一个筛选错误放宽所有调用方。
+- **SoonStudio 异步任务号不止一种**：已受理响应可能是 `task_id / taskId / jobId / job_id`，
+  轮询地址可能在顶层或 `data` 内，叫 `pollUrl / poll_url`。先解析任务号，再按站点 origin
+  解析相对 pollUrl；历史失败记录不能自动追改成成功，也不能拿真实付费 Key 重发验证。
+- **缓存与灯箱不要造第二份状态**：LibTV 目录 URL 加版本键以越过旧 `force-cache`；
+  灯箱缩略图直接调用 `selectLightboxIndex`，不要重建 gallery 或复制选中状态。
+- 验证：定向 **167/167**、隔离 G60 **7/7**、全量 Vitest **3525 passed / 1 skipped**；
+  `npm run check`、`npm run build`、`git diff --check` 通过。UI 实拍覆盖
+  1440×900 / 1024×700 与明暗主题；detector 剩余项为既有注释误报和项目封面网格 advisory。
+
 ### 文本工具目标与提示词 chip（2026-10-28 → 对账 #791）
 
 - **面板当前目标是文本工具的事实源**：`resolveTextRoute` 先归一逻辑名，再只在启用渠道中找提供者；

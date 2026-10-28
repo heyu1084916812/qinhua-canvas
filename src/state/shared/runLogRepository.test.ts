@@ -372,6 +372,11 @@ describe('runLogRepository', () => {
     await expect(repo.query({ workbench: 'storyboard' })).rejects.toThrow(
       '必须同时绑定 projectId + workbench',
     )
+    const aggregateWorkbench = await repo.query({
+      workbench: 'storyboard',
+      aggregate: true,
+    })
+    expect(aggregateWorkbench.entries.map((entry) => entry.record.id)).toEqual(['r1'])
   })
 
   it('198 / 201 分页边界在存储查询内稳定切片，旧记录仍可兼容读取', async () => {

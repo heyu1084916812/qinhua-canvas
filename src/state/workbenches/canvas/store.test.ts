@@ -268,6 +268,10 @@ describe('canvas store / 素材灯箱（§6.17）', () => {
     expect(store.getLightbox()).toMatchObject({ assetHash: 'h1', galleryIndex: 0 })
     store.navigateLightbox(-1)
     expect(store.getLightbox()).toMatchObject({ assetHash: 'h2', galleryIndex: 1 })
+    store.selectLightboxIndex(0)
+    expect(store.getLightbox()).toMatchObject({ assetHash: 'h1', galleryIndex: 0 })
+    store.selectLightboxIndex(99)
+    expect(store.getLightbox()).toMatchObject({ assetHash: 'h1', galleryIndex: 0 })
   })
 })
 
