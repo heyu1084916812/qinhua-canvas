@@ -207,7 +207,7 @@ export const MentionEditor = forwardRef<
     placeholder?: string
     className?: string
     /** 回车=做什么。**没给就是换行**（创作面板的提示词框要的是换行，不是发送） */
-    onEnter?: () => void
+    onEnter?: (modifiers: { ctrlKey: boolean; metaKey: boolean }) => void
     /** 无障碍名（默认「给助手的消息」；创作面板传「提示词」） */
     label?: string
     /**
@@ -556,7 +556,7 @@ export const MentionEditor = forwardRef<
           return
         }
         e.preventDefault()
-        onEnter()
+        onEnter({ ctrlKey: e.ctrlKey, metaKey: e.metaKey })
       }}
     />
   )

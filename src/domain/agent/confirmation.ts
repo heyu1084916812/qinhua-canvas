@@ -27,9 +27,23 @@ export function confirmationRunsGeneration(name: string): boolean {
   return !PLANNING_ONLY_CONFIRMATIONS.has(name)
 }
 
-/** 计划与中途判断必须由用户亲自确认，自动生成模式也不能代点。 */
-export function confirmationRequiresExplicitApproval(name: string): boolean {
-  return name === 'proposeTaskPlan' || name === 'requestTaskConfirmation'
+/**
+ * 自动生成模式下仍必须由用户亲自点的确认。
+ *
+ * 计划永远人工确认；真正缺信息的 clarification 也不能替用户猜答案。
+ * 生成结果 review 属于自动执行链路，允许自动通过。
+ */
+export function confirmationRequiresExplicitApproval(
+  name: string,
+  args?: unknown,
+): boolean {
+  if (name === 'proposeTaskPlan') return true
+  if (name !== 'requestTaskConfirmation') return false
+  const purpose =
+    args && typeof args === 'object'
+      ? (args as { purpose?: unknown }).purpose
+      : undefined
+  return purpose !== 'review'
 }
 
 /**

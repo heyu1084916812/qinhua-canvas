@@ -90,7 +90,13 @@ import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
 import type { CanvasStore } from '../../../../state/workbenches/canvas/store'
 import type { TextRunRequest } from '../../../../platform/channels/types'
-import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolRequest } from '../../agent/agentLoop'
+import {
+  resumeAgentTurn,
+  runAgentTurn,
+  type AgentLoopDeps,
+  type AgentLoopOutcome,
+  type AgentToolRequest,
+} from '../../agent/agentLoop'
 import { trimOrphanToolMessages } from '../../agent/historyWindow'
 import {
   buildAgentSystemPromptWithContext,
@@ -186,6 +192,8 @@ type Status =
   | { kind: 'executing' }
   | { kind: 'error'; message: string }
 
+type AgentDeliveryMode = 'queue' | 'steer'
+
 /** 单例的空闲态：按会话取状态时的兜底值，**必须是同一个对象**（否则每次都换引用，依赖数组炸） */
 const IDLE_STATUS: Status = { kind: 'idle' }
 
@@ -226,9 +234,9 @@ type ChatRoutePreparation =
  * 自动模式下**一轮对话最多自动执行几次**。
  *
  * 「确认 → 执行 → 再确认」是可能绕圈的（模型每步都想再往下走一步）。
- * 到顶就退回手动，把最后那张确认卡留给用户 —— 总比无限花钱好。
+ * 到顶转为可继续的安全检查点，不把下一步变成新的付费确认卡。
  */
-const AUTO_RUN_LIMIT = 6
+const AUTO_RUN_LIMIT = 32
 
 export function AgentPanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const platform = usePlatform()
@@ -284,6 +292,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
   }, [])
   const [queueExpanded, setQueueExpanded] = useState(false)
+  const [deliveryMode, setDeliveryMode] = useState<AgentDeliveryMode>('queue')
   const queuePumpingRef = useRef(new Set<string>())
   const jobIdsRef = useRef(new Map<string, string>())
   const confirmingRef = useRef(new Set<string>())
@@ -1612,6 +1621,89 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 这样「重试」才能复用同一条路（用户 2026-10-14 第 1 条：助手回复下方要有
    * 复制 / 重试）。重试要拿的是**上一条用户消息**，而不是输入框里此刻的内容。
    */
+  /**
+   * 自动模式统一续跑入口。
+   *
+   * 初次发送、用户在确认卡上切自动、检查点“继续任务”都必须走这里；
+   * 否则某条入口只确认了当前一张卡，下一张又会重新弹出来。
+   */
+  const continueAutoConfirmations = useCallback(async (
+    session: AgentSession,
+    initial: AgentLoopOutcome,
+    currentLoopDeps: AgentLoopDeps,
+    onMessages: (next: ChatMessage[]) => void,
+  ): Promise<AgentLoopOutcome> => {
+    let outcome = initial
+    let autoSteps = 0
+    while (
+      outcome.kind === 'confirm' &&
+      autoRunRef.current.get(session.id) === true &&
+      !confirmationRequiresExplicitApproval(
+        outcome.request.name,
+        outcome.request.args,
+      ) &&
+      autoSteps < AUTO_RUN_LIMIT
+    ) {
+      autoSteps += 1
+      const runsGeneration = confirmationRunsGeneration(outcome.request.name)
+      if (runsGeneration) {
+        await transitionSessionJob(
+          session.id,
+          'waiting_generation',
+          'generation_started',
+          { pendingCallId: outcome.request.callId },
+          { tool: outcome.request.name, auto: true },
+        )
+      }
+      setStatusFor(session.id, { kind: 'executing' })
+      const done = await executeConfirmedTool(
+        outcome.request.name,
+        outcome.request.args,
+        toolCtx(originOf(viewport)),
+      )
+      onMessages(outcome.messages)
+      if (runsGeneration) {
+        await transitionSessionJob(
+          session.id,
+          'planning',
+          'generation_finished',
+          { pendingCallId: undefined },
+          { tool: outcome.request.name, auto: true },
+        )
+      }
+      outcome = await resumeAgentTurn(
+        outcome.messages,
+        outcome.request.callId,
+        done,
+        currentLoopDeps,
+        outcome.request.name,
+      )
+    }
+    if (
+      outcome.kind === 'confirm' &&
+      autoRunRef.current.get(session.id) === true &&
+      autoSteps >= AUTO_RUN_LIMIT &&
+      !confirmationRequiresExplicitApproval(
+        outcome.request.name,
+        outcome.request.args,
+      )
+    ) {
+      outcome = {
+        kind: 'stopped',
+        reason:
+          `自动执行已连续完成 ${AUTO_RUN_LIMIT} 个动作，已安全暂停；` +
+          '点击“继续任务”可接着执行，不会把下一步变成新的付费确认卡。',
+        messages: outcome.messages,
+        checkpoint: {
+          kind: 'max_steps',
+          maxSteps: AUTO_RUN_LIMIT,
+          completedSteps: AUTO_RUN_LIMIT,
+        },
+      }
+    }
+    return outcome
+  }, [setStatusFor, toolCtx, transitionSessionJob, viewport])
+
   const runSendText = useCallback(async (
     text: string,
     session: AgentSession,
@@ -1947,51 +2039,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         .map((mention) => mention.id),
     ])]
     const currentLoopDeps = loopDeps(session, operationId, toolMode, visualNodeIds)
-    let outcome = await runAgentTurn(withSystem, currentLoopDeps)
-    /**
-     * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
-     *
-     * 与手动那条路（`handleOutcome` 里的 `awaitingConfirm` → 用户点确认）是同一件事，
-     * 区别只在**要不要问**。上限见 `AUTO_RUN_LIMIT`：到顶退回手动，把最后那张
-     * 确认卡留给用户。
-     */
-    let autoSteps = 0
-    while (
-      outcome.kind === 'confirm' &&
-      autoRunRef.current.get(session.id) === true &&
-      !confirmationRequiresExplicitApproval(outcome.request.name) &&
-      autoSteps < AUTO_RUN_LIMIT
-    ) {
-      autoSteps += 1
-      await transitionSessionJob(
-        session.id,
-        'waiting_generation',
-        'generation_started',
-        { pendingCallId: outcome.request.callId },
-        { tool: outcome.request.name, auto: true },
-      )
-      setStatusFor(session.id, { kind: 'executing' })
-      const done = await executeConfirmedTool(
-        outcome.request.name,
-        outcome.request.args,
-        toolCtx(originOf(viewport)),
-      )
-      if (currentIdRef.current === session.id) setMessages(withHidden(outcome.messages))
-      await transitionSessionJob(
-        session.id,
-        'planning',
-        'generation_finished',
-        { pendingCallId: undefined },
-        { tool: outcome.request.name, auto: true },
-      )
-      outcome = await resumeAgentTurn(
-        outcome.messages,
-        outcome.request.callId,
-        done,
-        currentLoopDeps,
-        outcome.request.name,
-      )
-    }
+    const initial = await runAgentTurn(withSystem, currentLoopDeps)
+    const outcome = await continueAutoConfirmations(
+      session,
+      initial,
+      currentLoopDeps,
+      (next) => {
+        if (currentIdRef.current === session.id) setMessages(withHidden(next))
+      },
+    )
     await handleOutcome(session, outcome, hidden)
     return outcome
   }, [
@@ -2010,6 +2066,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     generationAvailability,
     ensureAgentJob,
     transitionSessionJob,
+    continueAutoConfirmations,
   ])
 
   const sendText = useCallback(async (
@@ -2247,29 +2304,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
   }), [pumpQueuedTurn])
 
-  /** 输入框那条路：空闲就执行，忙碌就排队，绝不在同一会话并发启动两个回合。 */
-  const send = useCallback(() => {
-    if (!draft.trim()) return
-    if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
-      void queueText(draft)
-      return
-    }
-    void sendText(draft)
-  }, [current, draft, queueText, sendText, status])
-
-  /**
-   * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
-   * 取 `display`（带引用 chip 的原文）而不是 `content`：重试时要连引用一起还原。
-   */
-  const retry = useCallback(() => {
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
-    if (!lastUser) return
-    const text = lastUser.display ?? lastUser.content
-    if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
-      void queueText(text)
-    } else void sendText(text)
-  }, [current, messages, queueText, sendText, status])
-
   /** 复制一条助手回复；剪贴板被拒时静默 —— 不弹一个用户看不懂的错误 */
   const copyReply = useCallback(async (key: number, text: string) => {
     try {
@@ -2464,6 +2498,98 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     store,
   ])
 
+  /**
+   * 输入框里的“引导”：直接把当前草稿投进正在运行的回合。
+   *
+   * 普通运行中走 pendingSteers；停在确认卡时先取消未执行动作，再把这条消息
+   * 作为新用户回合发起，避免用户还得先排队、展开列表、再点一次引导。
+   */
+  const guideDraft = useCallback(async (raw: string) => {
+    const text = raw.trim()
+    if (!text || !current) return false
+    if (current.pendingAssetIds?.length) {
+      store.notify('带新素材的消息不能中途引导，已改为排队发送', 'info')
+      return queueText(text)
+    }
+
+    const pendingConfirmation =
+      status.kind === 'awaitingConfirm' ? status.request : current.pendingConfirmation
+    if (pendingConfirmation) {
+      const settled = await settleInterruptedSession(
+        current,
+        pendingConfirmation,
+        'canceled',
+      )
+      const target = settled ?? current
+      store.notify('已取消等待中的动作，并立即发送这条引导', 'info')
+      await sendText(text, target)
+      return true
+    }
+
+    const steered = await sessions.enqueueSteer(current.id, {
+      id: createId('steer'),
+      text,
+      createdAt: Date.now(),
+    })
+    if (!steered.ok) {
+      store.notify(
+        steered.reason === 'full'
+          ? '当前任务的引导已达上限'
+          : '引导发送失败，请稍后重试',
+        'error',
+      )
+      return false
+    }
+    applySessionSnapshot(steered.session)
+    if (currentIdRef.current === current.id) {
+      setDraft((value) => (value.trim() === text ? '' : value))
+    }
+    store.notify('已作为引导发送，将在 Agent 下一次动作前应用', 'info')
+    return true
+  }, [
+    applySessionSnapshot,
+    current,
+    queueText,
+    sendText,
+    sessions,
+    settleInterruptedSession,
+    status,
+    store,
+  ])
+
+  /** 输入框发送：空闲直接跑；忙碌时按当前“排队 / 引导”模式投递。 */
+  const send = useCallback(
+    (requestedMode: AgentDeliveryMode = deliveryMode) => {
+      if (!draft.trim()) return
+      if (
+        statusIsBusy(status) ||
+        (current && isSessionActivityActive(current.id))
+      ) {
+        if (requestedMode === 'steer' && statusCanSteer(status)) {
+          void guideDraft(draft)
+        } else {
+          void queueText(draft)
+        }
+        return
+      }
+      void sendText(draft)
+    },
+    [current, deliveryMode, draft, guideDraft, queueText, sendText, status],
+  )
+
+  /**
+   * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
+   * 取 `display`（带引用 chip 的原文）而不是 `content`：重试时要连引用一起还原。
+   */
+  const retry = useCallback(() => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    const text = lastUser.display ?? lastUser.content
+    if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
+      void queueText(text)
+    } else void sendText(text)
+  }, [current, messages, queueText, sendText, status])
+
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
     if (confirmingRef.current.has(current.id)) return
@@ -2503,12 +2629,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         )
       }
       setStatusFor(current.id, { kind: 'thinking' })
-      const outcome = await resumeAgentTurn(
+      const resumed = await resumeAgentTurn(
         messages,
         request.callId,
         result,
         currentLoopDeps,
         request.name,
+      )
+      const outcome = await continueAutoConfirmations(
+        current,
+        resumed,
+        currentLoopDeps,
+        (next) => {
+          if (currentIdRef.current === current.id) setMessages(next)
+        },
       )
       await handleOutcome(current, outcome)
       await settleSessionOutcome(current.id, outcome)
@@ -2543,6 +2677,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     sessions,
     setStatusFor,
     transitionSessionJob,
+    continueAutoConfirmations,
   ])
 
   /**
@@ -2606,7 +2741,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     )
     setStatusFor(current.id, { kind: 'thinking' })
     try {
-      const outcome = await runAgentTurn(messages, currentLoopDeps)
+      const initial = await runAgentTurn(messages, currentLoopDeps)
+      const outcome = await continueAutoConfirmations(
+        current,
+        initial,
+        currentLoopDeps,
+        (next) => {
+          if (currentIdRef.current === current.id) setMessages(next)
+        },
+      )
       await handleOutcome(current, outcome)
       await settleSessionOutcome(current.id, outcome)
     } catch (error) {
@@ -2624,6 +2767,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     handleOutcome,
     settleSessionOutcome,
     transitionSessionJob,
+    continueAutoConfirmations,
   ])
 
   const stop = useCallback(async () => {
@@ -2746,7 +2890,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 下一张确认卡到达就会按新值继续，而不是继续沿用开局的手动模式。
        */
       autoRunRef.current.set(current.id, autoRun)
-      const resumeCurrent = autoRun && status.kind === 'awaitingConfirm'
+      const resumeCurrent =
+        autoRun &&
+        status.kind === 'awaitingConfirm' &&
+        !confirmationRequiresExplicitApproval(
+          status.request.name,
+          status.request.args,
+        )
       await patchSession({ autoRun })
       /**
        * 已经停在确认卡时也要立刻接管：用户不是在预约“下一次自动”，
@@ -3791,7 +3941,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           /** 语义锚点：冒烟按 `[data-agent-input]` 定位这个输入框 */
           anchorAttr={{ 'data-agent-input': '' }}
           placeholder="开始你的创作，或者 @ 引用工作流 / 节点 / 资源"
-          onEnter={() => void send()}
+          onEnter={(modifiers) => {
+            const opposite = deliveryMode === 'queue' ? 'steer' : 'queue'
+            void send(
+              modifiers.ctrlKey || modifiers.metaKey ? opposite : deliveryMode,
+            )
+          }}
           /** 刚打出 `@` → 直接开引用菜单（参考产品就是「打 @ 就出」） */
           onMentionTrigger={() => setOpenPicker('agent-mention')}
           /** 节点引用的缩略图：宿主取图，编辑器就地补进 chip 的槽位 */
@@ -4205,6 +4360,36 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             />
           </div>
 
+          {statusCanSteer(status) && (
+            <div
+              className={styles.deliveryMode}
+              data-agent-send-mode={deliveryMode}
+              role="group"
+              aria-label="运行中消息投递方式"
+            >
+              <button
+                type="button"
+                className={styles.deliveryModeButton}
+                aria-pressed={deliveryMode === 'queue'}
+                data-agent-send-mode-button="queue"
+                onClick={() => setDeliveryMode('queue')}
+                title="加入队列，等当前任务完成后再执行"
+              >
+                排队
+              </button>
+              <button
+                type="button"
+                className={styles.deliveryModeButton}
+                aria-pressed={deliveryMode === 'steer'}
+                data-agent-send-mode-button="steer"
+                onClick={() => setDeliveryMode('steer')}
+                title="立即引导当前任务（Ctrl/Cmd+Enter）"
+              >
+                引导
+              </button>
+            </div>
+          )}
+
           {/*
             发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
             与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
@@ -4226,8 +4411,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             <button
               type="button"
               className={`${styles.send} ${styles.sendActive}`}
-              onClick={() => void send()}
-              title={statusIsBusy(status) ? '加入队列' : '发送'}
+              onClick={() => void send(deliveryMode)}
+              title={
+                statusIsBusy(status)
+                  ? deliveryMode === 'steer'
+                    ? '引导当前任务'
+                    : '加入队列'
+                  : '发送'
+              }
               data-agent-send
             >
               <IconArrowUp size={16} />

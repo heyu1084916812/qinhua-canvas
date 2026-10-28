@@ -1,5 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### 自动生成确认边界与输入区排队 / 引导（2026-10-28 → 对账 #800）
+
+- **自动模式不是“自动确认一切”**：`proposeTaskPlan` 永远人工确认；
+  `requestTaskConfirmation(review)` 自动通过；`clarification` 仍问用户。切换自动模式时
+  也不能顺手确认当前计划卡。
+- **自动循环要区分 planning-only 与生成动作**：`requestTaskConfirmation` 只推进计划，
+  不能错误进入 `waiting_generation`。达到 32 次自动动作后转 `stopped + checkpoint`，
+  UI 显示“继续任务”，不再弹新的付费确认卡。
+- **输入区投递模式是显式状态**：忙碌默认 `queue`，用户可切 `steer`；
+  `Ctrl/Cmd+Enter` 对本次发送使用相反模式。waiting confirmation 的 steer 先取消未执行动作，
+  再以新用户回合发送；带新素材不能 steer，自动回落 queue。
+- 验证：G800 四种视口 / 主题组合各 **3/3**；G769 浅色 / 深色各 **24/24**；
+  `confirmation` 定向 **5/5**；全量 Vitest **3531 passed / 1 skipped**；
+  check / build / 脚本语法 / diff 校验通过。
+
 ### Agent 底部布局与 SoonStudio completed 直接产物（2026-10-28 → 对账 #799）
 
 - **动态内容不能再和 footer 抢固定高度**：任务计划、消息、确认卡、队列统一放进

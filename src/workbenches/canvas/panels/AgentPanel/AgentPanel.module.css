@@ -127,6 +127,45 @@
   gap: var(--space-1);
 }
 
+.deliveryMode {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+}
+
+.deliveryModeButton {
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-chip);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deliveryModeButton:hover {
+  color: var(--text-1);
+}
+
+.deliveryModeButton[aria-pressed='true'] {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.deliveryModeButton:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: 1px;
+}
+
 .smallBtn {
   flex: 0 0 auto;
   height: 30px;

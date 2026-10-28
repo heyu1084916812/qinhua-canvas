@@ -40718,8 +40718,36 @@ async function g769(browser) {
         !(await page.locator('[data-agent-task-step="deliver"]').innerText()).includes(
           '完成需验收',
         ) &&
-        (await page.locator('[data-agent-send-mode]').count()) === 0,
+        (await page.locator('[data-agent-send-mode]').count()) === 1 &&
+        (await page
+          .locator('[data-agent-send-mode-button="queue"]')
+          .getAttribute('aria-pressed')) === 'true' &&
+        (await page
+          .locator('[data-agent-send-mode-button="steer"]')
+          .getAttribute('aria-pressed')) === 'false',
     )
+    await page.locator('[data-agent-send-mode-button="steer"]').click()
+    const steerMode = await page.evaluate(() => {
+      const group = document.querySelector('[data-agent-send-mode]')
+      return {
+        mode: group?.getAttribute('data-agent-send-mode'),
+        queue: document
+          .querySelector('[data-agent-send-mode-button="queue"]')
+          ?.getAttribute('aria-pressed'),
+        steer: document
+          .querySelector('[data-agent-send-mode-button="steer"]')
+          ?.getAttribute('aria-pressed'),
+      }
+    })
+    rec(
+      g,
+      '★★ 运行中可直接切换“排队 / 引导”，引导为即时投递模式',
+      steerMode.mode === 'steer' &&
+        steerMode.queue === 'false' &&
+        steerMode.steer === 'true',
+      JSON.stringify(steerMode),
+    )
+    await page.locator('[data-agent-send-mode-button="queue"]').click()
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
     await page.setViewportSize({ width: 1024, height: 700 })
     await sleep(300)
@@ -41374,7 +41402,197 @@ async function g798(browser) {
   }
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769, g795, g798]
+/**
+ * G800 自动生成不能代点计划确认。
+ *
+ * 自动模式允许生成结果审核自动通过，但 `proposeTaskPlan` 永远保留给用户。
+ */
+async function g800(browser) {
+  const g = 'G800 自动生成保留计划确认'
+  const compact = process.env.SMOKE_VIEWPORT === '1024'
+  const viewport = compact ? { width: 1024, height: 700 } : { width: 1440, height: 900 }
+  const theme = process.env.SMOKE_DARK === '1' ? 'dark' : 'light'
+  const variant = `${theme}-${viewport.width}`
+  const ctx = await newCtx(browser, { viewport })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error).slice(0, 200)))
+  const projectId = `p-agent-auto-plan-${variant}`
+  const sessionId = `chat-agent-auto-plan-${variant}`
+  const callId = `call-auto-plan-${variant}`
+  const now = Date.now()
+
+  try {
+    await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+    await sharedPut(page, 'projects', {
+      id: projectId,
+      name: '自动生成计划确认验证',
+      workbench: 'canvas',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await sharedPut(page, 'agentSessions', {
+      id: sessionId,
+      projectId,
+      title: '自动生成计划确认',
+      channelId: '',
+      model: 'GPT-6 Astra',
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: callId, name: 'proposeTaskPlan', args: '{}' }],
+        },
+      ],
+      queuedTurns: [],
+      pendingSteers: [],
+      pendingConfirmation: {
+        callId,
+        name: 'proposeTaskPlan',
+        args: {
+          title: '品牌视觉执行计划',
+          summary: '先生成基准图，再扩展物料。',
+          steps: [
+            { id: 'base', title: '生成品牌基准图', requiresConfirmation: true },
+            { id: 'extend', title: '扩展品牌物料', requiresConfirmation: true },
+          ],
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await page.goto(`${BASE}/canvas/${projectId}`, { waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-preview="proposeTaskPlan"]').waitFor({
+      state: 'visible',
+      timeout: 10000,
+    })
+    await page.locator('[data-param-chip="agent-autorun"]').click()
+    await page
+      .locator('[data-param-popup="agent-autorun"] button', { hasText: '自动生成' })
+      .click()
+    await page.waitForTimeout(500)
+
+    const row = await sharedRow(page, 'agentSessions', sessionId)
+    const result = {
+      autoRun: row?.autoRun === true,
+      pendingCall: row?.pendingConfirmation?.callId ?? null,
+      preview: await page.locator('[data-agent-preview="proposeTaskPlan"]').count(),
+      confirm: await page.locator('[data-agent-confirm]').count(),
+    }
+    rec(
+      g,
+      '★★ 切到自动生成后，计划确认仍然保留给用户',
+      result.autoRun &&
+        result.pendingCall === callId &&
+        result.preview === 1 &&
+        result.confirm === 1,
+      JSON.stringify(result),
+    )
+    await page.screenshot({
+      path: `${OUT}/800-agent-plan-auto-${variant}.png`,
+    })
+
+    const planRow = await sharedRow(page, 'agentSessions', sessionId)
+    const reviewCallId = `call-auto-review-${variant}`
+    const reviewedAt = Date.now()
+    await sharedPut(page, 'agentSessions', {
+      ...planRow,
+      autoRun: false,
+      pendingConfirmation: {
+        callId: reviewCallId,
+        name: 'requestTaskConfirmation',
+        args: {
+          stepId: 'base',
+          purpose: 'review',
+          question: '基准图是否满意？',
+          detail: '确认后会继续扩展物料。',
+        },
+      },
+      taskPlan: {
+        id: `task-plan-auto-review-${variant}`,
+        title: '品牌视觉执行计划',
+        steps: [
+          {
+            id: 'base',
+            title: '生成品牌基准图',
+            status: 'in_progress',
+            requiresConfirmation: true,
+            resultsReadyAt: reviewedAt,
+          },
+          {
+            id: 'extend',
+            title: '扩展品牌物料',
+            status: 'pending',
+            requiresConfirmation: true,
+          },
+        ],
+        currentStepId: 'base',
+        createdAt: reviewedAt,
+        updatedAt: reviewedAt,
+      },
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            {
+              id: reviewCallId,
+              name: 'requestTaskConfirmation',
+              args: JSON.stringify({
+                stepId: 'base',
+                purpose: 'review',
+                question: '基准图是否满意？',
+              }),
+            },
+          ],
+        },
+      ],
+      updatedAt: Date.now(),
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page
+      .locator('[data-agent-preview="requestTaskConfirmation"]')
+      .waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('[data-param-chip="agent-autorun"]').click()
+    await page
+      .locator('[data-param-popup="agent-autorun"] button', { hasText: '自动生成' })
+      .click()
+    await page
+      .locator('[data-agent-preview="requestTaskConfirmation"]')
+      .waitFor({ state: 'detached', timeout: 10000 })
+      .catch(() => {})
+    let reviewRow = null
+    let reviewStep = null
+    for (let i = 0; i < 30; i += 1) {
+      reviewRow = await sharedRow(page, 'agentSessions', sessionId)
+      reviewStep = reviewRow?.taskPlan?.steps?.find(
+        (step) => step.id === 'base',
+      )
+      if (typeof reviewStep?.reviewApprovedAt === 'number') break
+      await sleep(200)
+    }
+    rec(
+      g,
+      '★★ 自动模式会直接通过生成结果 review',
+      reviewRow?.autoRun === true &&
+        reviewRow?.pendingConfirmation == null &&
+        typeof reviewStep?.reviewApprovedAt === 'number',
+      `auto=${reviewRow?.autoRun ?? false} pending=${reviewRow?.pendingConfirmation?.name ?? 'none'} approved=${reviewStep?.reviewApprovedAt ?? 'none'}`,
+    )
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
+    await sharedDelete(page, 'projects', projectId).catch(() => {})
+    await ctx.close()
+  }
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769, g795, g798, g800]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),
