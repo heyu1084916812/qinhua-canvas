@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { NodeViewProps } from '../registry'
 import type { PromptData } from '../../../../domain/canvas/model/node'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
@@ -6,7 +6,9 @@ import { usePromptTools } from '../../../../features/shared/promptTools/usePromp
 import type { PromptToolAction } from '../../../../features/shared/promptTools/promptTools'
 import { MarkdownBlocks } from '../../text/MarkdownBlocks'
 import { usePresetTextOptional } from '../../../../app/providers/PresetTextProvider'
-import { IconStop } from '../../toolbar/icons'
+import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
+import { IconPrompt, IconStop } from '../../toolbar/icons'
+import { resolveTextRoute } from '../../execution/textRoute'
 import styles from './PromptNodeView.module.css'
 
 /**
@@ -32,6 +34,12 @@ export function PromptNodeView(props: NodeViewProps) {
   /** 是否处于**节点内编辑态**（双击进入；Esc / 失焦退出） */
   const [editing, setEditing] = useState(false)
   const exec = useCanvasExecution()
+  const channels = useChannels()
+  const allChannels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().channels,
+    () => channels.getState().channels,
+  )
   /** 功能预设词（后台中枢）：节点本体上的优化 / 翻译 / 反推也要按改过的指令跑 */
   const presetText = usePresetTextOptional()
 
@@ -84,12 +92,13 @@ export function PromptNodeView(props: NodeViewProps) {
    * 与真正发出去的请求同源——不在这里另扫一遍图。
    */
   const imageInputs = props.upstreamImageInputs ?? []
+  const route = resolveTextRoute(allChannels, data.channelId, data.model)
 
   const tools = usePromptTools({
     completeText: exec.completeText,
     subjectId: props.node.id,
-    channelId: data.channelId,
-    model: data.model,
+    channelId: route?.channelId ?? '',
+    model: route?.model ?? '',
     imageInputs,
     presetOverrides: presetText.overrides,
     onResult: (text) =>
@@ -163,8 +172,14 @@ export function PromptNodeView(props: NodeViewProps) {
       {/* §6.7：上游连了提示词节点时，文本区上方出现胶囊——它是「上游文本不会自动带进来」
           这件事唯一的界面说明（数量由 画布表面 注入，视图层不读图，架构 §4.7） */}
       {(props.upstreamPromptCount ?? 0) > 0 && (
-        <span className={styles.linked} data-prompt-linked>
-          上游已链接提示词节点
+        <span className={styles.linkedRow} data-prompt-linked>
+          <span className={styles.linked}>
+            <span className={styles.linkedIcon} aria-hidden="true">
+              <IconPrompt size={14} />
+            </span>
+            <span>提示词</span>
+          </span>
+          <span className={styles.linkedMeta}>已链接 {props.upstreamPromptCount} 个</span>
         </span>
       )}
       {editing ? (

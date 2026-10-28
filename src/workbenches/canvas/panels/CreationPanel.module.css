@@ -420,13 +420,49 @@
 }
 
 .linked {
-  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  height: 1.72em;
+  box-sizing: border-box;
+  padding: 0 3px;
   border: 1px solid var(--stroke);
-  border-radius: var(--radius-pill);
-  padding: 2px 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: inherit;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.linkedRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.linkedIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--text-2);
+}
+
+.linkedIcon svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.linkedMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
   font-size: var(--fs-chip);
   font-weight: var(--fw-chip);
-  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .prompt {

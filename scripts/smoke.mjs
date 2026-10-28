@@ -7085,7 +7085,12 @@ async function g46(browser) {
     .locator('[data-panel-linked-prompt]')
     .innerText()
     .catch(() => '')
-  rec(g, '生成节点面板显示「上游已链接提示词节点」', linkedText.includes('上游已链接提示词节点'), linkedText)
+  rec(
+    g,
+    '生成节点面板显示“提示词 / 已链接”状态',
+    linkedText.includes('提示词') && linkedText.includes('已链接'),
+    linkedText,
+  )
 
   // ① 上拉浮层（§3.3 / §6.8）
   /**

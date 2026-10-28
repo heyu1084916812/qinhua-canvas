@@ -17,6 +17,8 @@ import {
 } from '../text/MentionEditor'
 import { expandMentions, type MentionCandidate } from '../text/mentionValue'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
+import type { PromptToolTarget } from '../../../features/shared/promptTools/usePromptTools'
+import { resolveTextRoute } from '../execution/textRoute'
 import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
@@ -41,6 +43,7 @@ import {
 import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
 import {
   IconClose,
+  IconPrompt,
   IconPreset,
   IconSpinner,
   IconStop,
@@ -148,7 +151,7 @@ const DEFAULT_DURATION = 5
 export interface PanelPromptTools {
   status: 'idle' | 'running' | 'error'
   error: string | null
-  run: (text: string, action: PromptToolAction) => void
+  run: (text: string, action: PromptToolAction, target?: PromptToolTarget) => void
 }
 
 /**
@@ -825,6 +828,19 @@ export function CreationPanel(props: CreationPanelProps) {
   })
 /** 节点上存的模型名 → 逻辑名（老数据迁移）：见 `logicalModelNames` 处的说明 */
   const shownLogicalModel = toLogicalName(allChannels, shownModel)
+  /**
+   * 工具调用的目标与面板当前“看起来选中的值”同源。
+   *
+   * 节点里的旧 `channelId` 只作首选提示；若当前启用渠道已不能提供这个模型，
+   * 就从其余启用渠道中重新解析。解析不到时传空，让守卫在本地说明配置问题，
+   * 不把过期组合发到上游换一个 HTTP 400。
+   */
+  const promptToolTarget = resolveTextRoute(allChannels, shownChannelId, shownModel)
+  const runPromptTool = (action: PromptToolAction) =>
+    tools?.run(model.prompt, action, {
+      channelId: promptToolTarget?.channelId ?? '',
+      model: promptToolTarget?.model ?? shownLogicalModel,
+    })
   /**
    * 模型 chip 在**还没选**时的占位文案（用户 2026-09-27 第 8 轮）。
    *
@@ -1583,8 +1599,14 @@ export function CreationPanel(props: CreationPanelProps) {
           */}
           {model.linkedPromptCount > 0 && (
             <div className={styles.promptHead}>
-              <span className={styles.linked} data-panel-linked-prompt>
-                上游已链接提示词节点 {model.linkedPromptCount}
+              <span className={styles.linkedRow} data-panel-linked-prompt>
+                <span className={styles.linked}>
+                  <span className={styles.linkedIcon} aria-hidden="true">
+                    <IconPrompt size={14} />
+                  </span>
+                  <span>提示词</span>
+                </span>
+                <span className={styles.linkedMeta}>已链接 {model.linkedPromptCount} 个</span>
               </span>
             </div>
           )}
@@ -2035,7 +2057,7 @@ export function CreationPanel(props: CreationPanelProps) {
               className={styles.toolBtn}
               disabled={tools.status === 'running' || model.prompt.trim().length === 0}
               title={tools.error ?? '用文本模型优化此提示词'}
-              onClick={() => tools.run(model.prompt, 'optimize')}
+              onClick={() => runPromptTool('optimize')}
             >
               优化
             </button>
@@ -2044,7 +2066,7 @@ export function CreationPanel(props: CreationPanelProps) {
               className={styles.toolBtn}
               disabled={tools.status === 'running' || model.prompt.trim().length === 0}
               title={tools.error ?? '中文 ⇄ 英文互译'}
-              onClick={() => tools.run(model.prompt, 'translate')}
+              onClick={() => runPromptTool('translate')}
             >
               翻译
             </button>
@@ -2061,7 +2083,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   ? `把上游 ${props.promptImageCount} 张图发给文本模型，反推出绘画提示词（覆盖当前文本）`
                   : '反推需要上游图片：先把一个已出图的生成节点连到本节点')
               }
-              onClick={() => tools.run(model.prompt, 'describe')}
+              onClick={() => runPromptTool('describe')}
             >
               反推
             </button>

@@ -86,9 +86,9 @@ import {
   type RouteChannelSource,
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
-import { channelIdForLogical } from '../../../domain/project/modelCatalog'
 import { buildGroupRunPlan } from '../../../features/canvas/execution/groupRunPlan'
 import { createNodeScopedRunCancellation } from '../../../features/canvas/execution/nodeScopedRunCancellation'
+import { resolveTextRoute } from './textRoute'
 
 /**
  * 画布执行宿主（架构 §4.7 / §5.5）：把 `useExecution` 接到画布 store + 渠道解析器。
@@ -1105,18 +1105,17 @@ export function CanvasExecutionProvider({
       signal: AbortSignal
     }): Promise<string> => {
       const all = channels.getState().channels
-      const enabled = all.filter((c) => c.enabled)
       /**
        * 提示词工具只有“模型”这一个用户可见选择，`channelId` 是节点上的内部解析值。
        * 旧节点可能保留着当时渠道，后来用户在设置里改了该渠道的勾选模型；
        * 此时必须重新找能提供该逻辑模型的启用渠道，不能拿过期组合直接发请求。
        */
-      const resolvedChannelId =
-        channelIdForLogical(enabled, model, channelId) ?? channelId
-      const ch = all.find((c) => c.id === resolvedChannelId)
+      const route = resolveTextRoute(all, channelId, model)
+      if (!route) throw new ChannelError({ kind: 'channel', detail: 'missingModel' })
+      const ch = all.find((c) => c.id === route.channelId)
       if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
       const prompt = system ? `${system}\n\n${text}` : text
-      const sentModel = resolveUpstreamModel(ch.modelMap, model) ?? model
+      const sentModel = resolveUpstreamModel(ch.modelMap, route.model) ?? route.model
       const operationId = createId('op')
       return runDirectText({
         storage: platform.storage,
@@ -1131,7 +1130,7 @@ export function CanvasExecutionProvider({
           model: sentModel,
           prompt: text,
           inputs: inputs ?? [],
-          params: { system, requestedModel: model },
+          params: { system, requestedModel: route.model },
         }),
         channelId: ch.id,
         signal,
@@ -1139,7 +1138,7 @@ export function CanvasExecutionProvider({
           const result = await generation.completeText(
             {
               channel: ch,
-              model,
+              model: route.model,
               request: {
                 kind: 'text',
                 prompt,

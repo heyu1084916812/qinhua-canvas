@@ -41,9 +41,14 @@ export interface UsePromptToolsOptions {
   onResult: (text: string) => void
 }
 
+export interface PromptToolTarget {
+  channelId?: string
+  model?: string
+}
+
 export interface UsePromptToolsResult {
   /** 点击入口：先过守卫（不通过则直接置 error），再发起请求 */
-  run: (text: string, action: PromptToolAction) => void
+  run: (text: string, action: PromptToolAction, target?: PromptToolTarget) => void
   cancel: () => void
   status: 'idle' | 'running' | 'error'
   error: string | null
@@ -75,8 +80,11 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
     system: string
     text: string
     withImages: boolean
+    target?: PromptToolTarget
   }) => {
     const o = optsRef.current
+    const channelId = args.target?.channelId ?? o.channelId
+    const model = args.target?.model ?? o.model
     const ac = new AbortController()
     abortRef.current?.abort() // 连点时取消上一次
     abortRef.current = ac
@@ -84,8 +92,8 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
     setError(null)
     o
       .completeText({
-        channelId: o.channelId!,
-        model: o.model!,
+        channelId: channelId!,
+        model: model!,
         subjectId: o.subjectId,
         purpose: args.purpose,
         system: args.system,
@@ -126,11 +134,13 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
   }, [])
 
   const run = useCallback(
-    (text: string, action: PromptToolAction) => {
+    (text: string, action: PromptToolAction, target?: PromptToolTarget) => {
       const o = optsRef.current
+      const channelId = target?.channelId ?? o.channelId
+      const model = target?.model ?? o.model
       const guard = promptToolGuard({
-        channelId: o.channelId,
-        model: o.model,
+        channelId,
+        model,
         text,
         action,
         imageCount: o.imageInputs?.length ?? 0,
@@ -150,6 +160,7 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
         system: effectivePresetText(action, o.presetOverrides),
         text,
         withImages: action === 'describe',
+        target: { channelId, model },
       })
     },
     [invoke],

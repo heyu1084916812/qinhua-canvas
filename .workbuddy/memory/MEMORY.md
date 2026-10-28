@@ -1,5 +1,19 @@
 # CanvasFlow（轻画）项目记忆
 
+### 文本工具目标与提示词 chip（2026-10-28 → 对账 #791）
+
+- **面板当前目标是文本工具的事实源**：`resolveTextRoute` 先归一逻辑名，再只在启用渠道中找提供者；
+  节点旧 `channelId` 只作首选提示。没有提供者时返回 `null`，执行层本地报 `missingModel`，
+  绝不能再回退旧渠道换一次上游 400。
+- **工具 hook 支持显式目标**：`usePromptTools.run(text, action, target)` 的 `target` 会参与守卫和请求；
+  面板调用必须传解析后的 `channelId + model`。没有路由时传空串，不能用 `undefined`（会回落旧值）。
+- **提示词 chip 复用引用语言**：节点与创作面板的上游提示词状态使用 `提示词` 矩形 chip + 外部
+  `已链接 N 个`，几何与 `MentionEditor` 的 @ 引用 chip 一致（6px 圆角、1px 描边、跟随正文字号）。
+- **Gemini 参考图是协议恢复问题**：SoonStudio 带图请求已改异步 `edits` + `tasks/:id` 轮询；
+  剩余风险是应用重启丢任务号、响应无任务号、轮询持续失败。不能靠盲目重发付费 POST 解决。
+- 验证：选路与节点 / 面板定向、隔离 G23 37/37、全量 Vitest 3522 passed / 1 skipped、check / build、
+  Impeccable detector 通过。
+
 ### 文本工具选路与 SoonStudio 异步参考图（2026-10-28 → 对账 #790）
 
 - **勾选优先于缓存**：渠道 `models` 非空时，`channelIdForLogical` 只能从勾选清单里判断
