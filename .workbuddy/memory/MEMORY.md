@@ -1,5 +1,23 @@
 # CanvasFlow（轻画）项目记忆
 
+### 灯箱点击、活动槽位与 SoonStudio 两段结果（2026-10-28 → 对账 #795 / #796 / #797）
+
+- **空节点不等于空槽**：只有 `assetHash` 为空还不够。节点若已被另一条计划的
+  `queued / running` 状态或 `taskToNode` 落点占用，必须从可复用槽位里排除。
+  否则多个付费任务会同时写进同一节点；真实库曾出现 11 个 plan 命中同一个空节点。
+- **执行期保留集合来自两处**：`runStatesOf(projectId)` 提供当前可见运行状态，
+  `taskToNodeMapsRef` 提供落点已确定但状态尚未广播的窗口。两者取并集后传给
+  `buildRunPlan(..., { reservedNodeIds })`，单点、批量分发与循环都复用同一口径。
+- **SoonStudio 外层 completed 不是最终图**：真实响应先在
+  `/api/studio/async-responses/:jobId` 返回 `status=completed`，body 里才是内层
+  `task_id`；随后必须请求 `/v1/images/tasks/:taskId`。最终结果在
+  `data.data.data`，图片字段可能是 `image_url`，不能只认 `data.url` 或 `task_id`。
+- **灯箱缩略图交互要隔离舞台手势**：按钮 pointer / click 两阶段都阻止冒泡；
+  缩略图条无边框、透明背景、零内距。旋转时 inline `transformOrigin: 50% 50%`，
+  但测试判定要用 `offsetWidth / offsetHeight`，不能用旋转后的 bounding rect。
+- 验证：G795 浅色 1440×900 **6/6**、深色 1024×700 **6/6**；G60 **9/9**；
+  全量 Vitest **3528 passed / 1 skipped**；check / build 通过。
+
 ### 画布连续生成、日志聚合与香蕉异步响应（2026-10-28 → 对账 #792 / #793 / #794）
 
 - **显式渠道回退只能在画布开启**：`resolveNodeRoute` 的 `fallbackFromExplicit` 默认关闭；

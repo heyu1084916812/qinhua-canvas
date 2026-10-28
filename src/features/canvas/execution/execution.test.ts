@@ -150,6 +150,18 @@ describe('buildRunPlan（单点生成）', () => {
     expect(plan.tasks[0]!.slot).toEqual({ kind: 'reuse', nodeId: genId })
   })
 
+  it('★ 已运行中的空下游节点不再被第二条计划复用', () => {
+    const { store, promptId, genId } = setup()
+    const plan = buildRunPlan(
+      'node',
+      { originNodeId: promptId },
+      store.getSnapshot(),
+      'single',
+      { reservedNodeIds: new Set([genId]) },
+    )
+    expect(plan.tasks[0]!.slot).toMatchObject({ kind: 'new', connectFrom: promptId })
+  })
+
   it('single-alt 解析为 single + newDownstream，落位改为铺新下游节点', () => {
     const { store, promptId } = setup()
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single-alt')

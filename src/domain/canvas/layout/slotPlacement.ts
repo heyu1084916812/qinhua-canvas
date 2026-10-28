@@ -14,6 +14,12 @@ export interface SlotSearchOptions {
   count: number
   /** Alt+R：不复用空槽位，改为在拓扑方向铺新下游节点 */
   newDownstream?: boolean
+  /**
+   * 已有运行计划占用的节点。它们即使暂时还没有产物，也**不能再当空槽复用**：
+   * 连续点击生成会产生多条并发计划，若都落到同一个运输节点上，上游会重复扣费，
+   * 而界面只看到一两个节点，表现成“按钮没反应”。
+   */
+  reservedNodeIds?: ReadonlySet<string>
 }
 
 /** 空 = 显示快照为空（产品文档 §6.19.3） */
@@ -59,7 +65,11 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
     if (visited.has(current)) continue
     visited.add(current)
 
-    if (!used.has(current) && isEmptySlot(current, graph)) {
+    if (
+      !used.has(current) &&
+      !opts.reservedNodeIds?.has(current) &&
+      isEmptySlot(current, graph)
+    ) {
       used.add(current)
       plans.push({ kind: 'reuse', nodeId: current })
     }

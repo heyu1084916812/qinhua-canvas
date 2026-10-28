@@ -23,6 +23,16 @@
 - **总日志跨项目筛选必须显式声明**：只有总日志查询带 `aggregate=true`；
   工作台私有日志仍必须绑定 `projectId + workbench`，不得为修筛选项放宽整个查询层。
 
+## Canvas · 空槽与灯箱
+
+- **运行中的空节点仍是“已占用”**：空槽判据除了 `assetHash` 为空，还必须排除
+  `reservedNodeIds`。执行宿主把 `queued / running` 状态与所有活动计划的 `taskToNode`
+  落点取并集；连续点击只能创建新的承载节点，不能把多条计划写到同一节点。
+- **缩略图点击不能被舞台手势吞掉**：缩略图按钮在 pointerdown / click 两阶段阻止冒泡；
+  缩略图条无边框、透明底、零内距。
+- **旋转绕图片中心**：旋转模式的灯光框 `transform-origin` 是 `50% 50%`；
+  回归测试比较 `offsetWidth / offsetHeight` 的中心，不使用旋转后的 bounding rect。
+
 ## SoonStudio · 异步图片
 
 - **Gemini 参考图走任务接口**：SoonStudio 的 Gemini 图生图使用
@@ -31,6 +41,10 @@
 - **已受理响应先取任务号再轮询**：兼容 `task_id / taskId / jobId / job_id` 与顶层或 `data` 内嵌；
   有 `pollUrl / poll_url` 时按站点 origin 解析，没有时才回退 `images/tasks/:id`。历史失败记录
   不自动追改；提交后的请求仍不得因解析、轮询或重启风险自动重发。
+- **外层 completed 还要查内层结果任务**：`/api/studio/async-responses/:jobId` 的
+  `status=completed` 只表示代理任务结束；从 `response.body.task_id` 继续请求
+  `/v1/images/tasks/:taskId` 才是最终图。最终结果可能位于 `data.data.data`，图片字段可能是
+  `image_url / output_url / file_url`。
 - **目录与灯箱状态各有唯一入口**：LibTV 目录缓存 URL 必须带版本键；多选灯箱缩略图直接使用
   gallery index，不重建 gallery、不复制第二份选中态。
 

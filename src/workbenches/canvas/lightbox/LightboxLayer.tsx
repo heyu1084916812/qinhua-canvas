@@ -141,7 +141,11 @@ function GalleryThumb({
       aria-label={`查看第 ${index + 1} 张：${item.title}`}
       aria-current={active ? 'true' : undefined}
       title={item.title}
-      onClick={() => onSelect(index)}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation()
+        onSelect(index)
+      }}
     >
       {url ? (
         video ? (
@@ -893,6 +897,7 @@ export function LightboxLayer() {
     rotating && box
       ? {
           ...box,
+          transformOrigin: '50% 50%',
           transform: `rotate(${angle}deg) scaleX(${mirrorH ? -1 : 1}) scaleY(${mirrorV ? -1 : 1})`,
         }
       : box
@@ -1633,7 +1638,11 @@ export function LightboxLayer() {
       </div>
       ) : null}
       {hasGalleryNavigation && mode === 'view' ? (
-        <div className={styles.galleryStrip} data-lightbox-thumbnails>
+        <div
+          className={styles.galleryStrip}
+          data-lightbox-thumbnails
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           {gallery.map((item, index) => (
             <GalleryThumb
               key={`${item.nodeId}:${item.assetHash}`}

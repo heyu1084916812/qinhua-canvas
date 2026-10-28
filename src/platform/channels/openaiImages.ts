@@ -434,6 +434,21 @@ function imageItemsIn(value: unknown): ImageItem[] {
       : typeof row.url === 'string'
         ? [row.url]
         : []
+    for (const key of [
+      'image_url',
+      'imageUrl',
+      'output_url',
+      'outputUrl',
+      'file_url',
+      'fileUrl',
+      'image_large_url',
+    ]) {
+      const value = row[key]
+      if (typeof value === 'string' && value) urls.push(value)
+      if (Array.isArray(value)) {
+        urls.push(...value.filter((item): item is string => typeof item === 'string'))
+      }
+    }
     const preferredUrl =
       urls.find((item) => /^https?:\/\//i.test(item)) ??
       urls.find((item) => /^data:image\//i.test(item))
@@ -504,6 +519,41 @@ function soonStudioPollUrl(base: string, ref: SoonStudioAsyncRef): string {
     }
   }
   return `${base}/images/tasks/${encodeURIComponent(ref.id)}`
+}
+
+function soonStudioCompletedTaskIdIn(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null
+  const root = value as Record<string, unknown>
+  const response =
+    root.response && typeof root.response === 'object'
+      ? (root.response as Record<string, unknown>)
+      : null
+  const body =
+    response?.body && typeof response.body === 'object'
+      ? (response.body as Record<string, unknown>)
+      : null
+  const nested =
+    body?.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : null
+  return (
+    textField(body?.task_id) ??
+    textField(body?.taskId) ??
+    textField(nested?.task_id) ??
+    textField(nested?.taskId) ??
+    textField(root.task_id) ??
+    textField(root.taskId)
+  )
+}
+
+function soonStudioStatusIn(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const root = value as Record<string, unknown>
+  const data =
+    root.data && typeof root.data === 'object'
+      ? (root.data as Record<string, unknown>)
+      : null
+  return String(root.status ?? data?.status ?? '').trim().toUpperCase()
 }
 
 function soonStudioFailureIn(value: unknown): string | null {
@@ -933,7 +983,8 @@ export function createOpenAiImagesAdapter(
     }
 
     const taskId = asyncRef.id
-    const pollUrl = soonStudioPollUrl(base, asyncRef)
+    let pollUrl = soonStudioPollUrl(base, asyncRef)
+    let delegatedTaskId = ''
     let lastResponse = ''
     let lastTransport = ''
     const startedAt = now()
@@ -977,9 +1028,35 @@ export function createOpenAiImagesAdapter(
       }
       const items = imageItemsIn(body)
       if (items.length > 0) return assetsFromItems(items, requested, signal)
+      /**
+       * SoonStudio 的真实异步响应是两段式：
+       *
+       *   1. /api/studio/async-responses/:jobId 完成时，只返回
+       *      `response.body.task_id`，里面还没有图片；
+       *   2. 再用这个内层 task_id 请求 /v1/images/tasks/:taskId 才拿到产物。
+       *
+       * 网页端走的是同一条两段式链路。若停在外层 `completed` 上继续轮询，
+       * 状态会一直看起来“已完成但没有图”，最后误报超时。
+       */
+      const status = soonStudioStatusIn(body)
+      if (
+        !delegatedTaskId &&
+        ['COMPLETED', 'SUCCESS', 'SUCCEEDED', 'DONE'].includes(status)
+      ) {
+        const innerTaskId = soonStudioCompletedTaskIdIn(body)
+        if (!innerTaskId) {
+          throw acceptedAfterSubmit(
+            `生图任务 ${taskId} 已完成，但响应里没有可查询的结果任务号：${raw.slice(0, 300)}`,
+          )
+        }
+        delegatedTaskId = innerTaskId
+        pollUrl = `${base}/images/tasks/${encodeURIComponent(innerTaskId)}`
+      }
     }
     throw acceptedAfterSubmit(
-      `生图任务 ${taskId} 已提交，但轮询超时或结果未知：${lastResponse || lastTransport || '无响应'}`,
+      `生图任务 ${taskId} 已提交${
+        delegatedTaskId ? `，结果任务 ${delegatedTaskId}` : ''
+      }，但轮询超时或结果未知：${lastResponse || lastTransport || '无响应'}`,
     )
   }
 

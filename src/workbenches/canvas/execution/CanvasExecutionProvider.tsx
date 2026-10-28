@@ -279,6 +279,24 @@ export function CanvasExecutionProvider({
     () => runStatesOf(projectId),
   )
 
+  /**
+   * 当前所有活动计划已经占用的“运行席位”。
+   *
+   * `runStates` 只回答 UI 可见状态；任务在渠道解析阶段时目标节点还没写进去。
+   * `taskToNodeMapsRef` 会在落点确定后立刻把真实承载节点补进来。两者取并集，
+   * 才能阻止连续点击把同一个空节点当成两个计划的共同落点。
+   */
+  const activeRunNodeIds = useCallback((): ReadonlySet<string> => {
+    const ids = new Set<string>()
+    for (const [nodeId, state] of runStatesOf(projectId)) {
+      if (state.kind === 'queued' || state.kind === 'running') ids.add(nodeId)
+    }
+    for (const taskToNode of taskToNodeMapsRef.current.values()) {
+      for (const nodeId of taskToNode.values()) ids.add(nodeId)
+    }
+    return ids
+  }, [projectId])
+
   // 版本计数（§6.21「每次执行的版本号」）：nodeId → 已知最大 version。
   // 挂载时从 runRecords 表初始化；runEngine 经 nextVersion 递增；
   // 引擎之外的写入方（版本恢复）经 appendRecord 递增，保证计数与库一致。
@@ -972,7 +990,9 @@ export function CanvasExecutionProvider({
              * 与这里要的行为一致：循环的每一轮都是**新增一次产出**，
              * 不该占用下游节点本身（那个节点是「参数与输入的持有者」）。
              */
-            const plan = buildRunPlan('node', { originNodeId: nodeId }, fresh, 'single-alt')
+            const plan = buildRunPlan('node', { originNodeId: nodeId }, fresh, 'single-alt', {
+              reservedNodeIds: activeRunNodeIds(),
+            })
             if (plan.tasks.length === 0) continue
             allTasks.push(...plan.tasks)
             added += 1
@@ -1078,7 +1098,7 @@ export function CanvasExecutionProvider({
         void store.flush()
       }
     },
-    [store, launch],
+    [store, launch, activeRunNodeIds],
   )
 
   /**
@@ -1505,7 +1525,13 @@ export function CanvasExecutionProvider({
          */
         const target = candidateDownstream(node, graph)[0]
         if (target) {
-          const plan = buildRunPlan('node', { originNodeId: target.id }, graph, 'single')
+          const plan = buildRunPlan(
+            'node',
+            { originNodeId: target.id },
+            graph,
+            'single',
+            { reservedNodeIds: activeRunNodeIds() },
+          )
           if (plan.tasks.length === 0) {
             explainEmptyPlan(target.id)
             return
@@ -1520,7 +1546,10 @@ export function CanvasExecutionProvider({
         { originNodeId: nodeId },
         graph,
         opts?.alt ? 'single-alt' : 'single',
-        { reuseOriginNode: opts?.inPlace === true },
+        {
+          reuseOriginNode: opts?.inPlace === true,
+          reservedNodeIds: activeRunNodeIds(),
+        },
       )
       if (plan.tasks.length === 0) {
         explainEmptyPlan(nodeId)
@@ -1538,6 +1567,7 @@ export function CanvasExecutionProvider({
       appendRecord,
       bumpVersion,
       platform,
+      activeRunNodeIds,
     ],
   )
 

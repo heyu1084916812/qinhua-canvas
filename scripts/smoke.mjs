@@ -2469,7 +2469,7 @@ async function g9(browser) {
   )
 
   // 3) 生成节点选 渠道 + 模型 + 提示词（用 data 属性而非 CSS module 哈希类名）
-  await configureGenPanel(page, panel, '屋顶的猫')
+  await configureGenPanel(page, panel, '慢速测试图 屋顶的猫')
   // N=1 已不建结果组（§6.16，M6-24）：本组要验的是「结果组出现 + 刷新后仍在」，
   // 故显式跑 4 张；单张不建组由 G53 覆盖。
   await setCount(panel, '4 张')
@@ -9917,9 +9917,34 @@ async function g60(browser) {
   }, srcSelector)
 
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
-  for (let t = 0; t < 60; t++) {
+  const firstCarrierStarted = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-node-type="generation"]').length >= 2,
+      null,
+      { timeout: 8000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 第二次生成已先落到新的承载节点', firstCarrierStarted)
+
+  /**
+   * 第二条计划还在跑时再点一次：第三条计划不能再复用同一个空承载节点。
+   * 这条是用户“生成中节点已经出现，但左边按钮再点没反应”的真实竞争条件。
+   */
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  const thirdTargetCreated = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-node-type="generation"]').length >= 3,
+      null,
+      { timeout: 8000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 生成中再次点击会创建独立承载节点，不复用运行中的空节点', thirdTargetCreated)
+
+  for (let t = 0; t < 80; t++) {
     const n = await page.locator('[data-node-asset]').count()
-    if (n >= 2 && (await page.locator('[data-node-status]').count()) === 0) break
+    if (n >= 3 && (await page.locator('[data-node-status]').count()) === 0) break
     await sleep(250)
   }
   await sleep(1000)
@@ -9927,14 +9952,14 @@ async function g60(browser) {
   const flashed = srcStates.filter((s) => s === 'running' || s === 'queued')
   rec(g, '★ 原节点全程不出现生成状态（它这次只是参考图）', flashed.length === 0, `flashed=${flashed.length}/${srcStates.length}`)
 
-  // 3) 产出确实落到新建的承载节点上，且原节点仍有自己的素材
+  // 3) 两次并发生成确实各落一个承载节点，且原节点仍有自己的素材
   const genCount = await page.locator('[data-node-type="generation"]').count()
-  rec(g, '产出落在新建的承载节点（共 2 个生成节点）', genCount === 2, `count=${genCount}`)
+  rec(g, '两次产出分别落在两个新建承载节点（共 3 个生成节点）', genCount === 3, `count=${genCount}`)
   const srcHasAsset = await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()
   rec(g, '原节点仍持有自己那张图（没被覆盖）', srcHasAsset === 1, `srcAssets=${srcHasAsset}`)
   rec(g, '结束后无残留转圈', (await page.locator('[data-node-status]').count()) === 0, `overlays=${await page.locator('[data-node-status]').count()}`)
 
-  await page.screenshot({ path: `${OUT}/77-g60-second-run.png` })
+  await page.screenshot({ path: `${OUT}/77-g60-parallel-runs.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
@@ -41013,7 +41038,179 @@ async function g769(browser) {
   }
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769]
+/**
+ * G795 多选灯箱缩略图真实点击 + 旋转中心。
+ *
+ * 用户实测缩略图看起来可点但主画面不跳，且旋转绕左上角。这里不直接调 store：
+ * 两张不同颜色的 PNG 先真实拖入画布，再 Shift 多选、点工具栏“灯箱”，
+ * 最后点第二张缩略图并检查 hash / active index / 主图 transform-origin 全链路。
+ */
+async function g795(browser) {
+  const g = 'G795 灯箱缩略图点击与旋转中心'
+  const compact = process.env.SMOKE_VIEWPORT === '1024'
+  const viewport = compact ? { width: 1024, height: 700 } : { width: 1440, height: 900 }
+  const theme = process.env.SMOKE_DARK === '1' ? 'dark' : 'light'
+  const ctx = await newCtx(browser, { viewport })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error).slice(0, 200)))
+  let projectId = ''
+
+  try {
+    await gotoProjects(page)
+    await sleep(400)
+    await page.locator('[data-template="blank"]').click()
+    await page.waitForURL(/\/canvas\//)
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ timeout: 15000 })
+    projectId = page.url().split('/canvas/')[1] ?? ''
+
+    const surface = page.locator('[data-canvas-surface]')
+    const dropPng = async (dx, dy, color) => {
+      const before = new Set(
+        await page
+          .locator('[data-node-type="generation"]')
+          .evaluateAll((els) => els.map((el) => el.getAttribute('data-node-id'))),
+      )
+      const dataTransfer = await page.evaluateHandle(
+        ({ b64 }) => {
+          const transfer = new DataTransfer()
+          const binary = atob(b64)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+          transfer.items.add(new File([bytes], 'gallery.png', { type: 'image/png' }))
+          return transfer
+        },
+        { b64: solidPngBuffer(320, 240, color).toString('base64') },
+      )
+      const box = await surface.boundingBox()
+      await surface.dispatchEvent('dragover', { dataTransfer })
+      await surface.dispatchEvent('drop', {
+        dataTransfer,
+        clientX: box.x + dx,
+        clientY: box.y + dy,
+      })
+      await sleep(1200)
+      const after = await page
+        .locator('[data-node-type="generation"]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute('data-node-id')))
+      const fresh = after.filter((id) => id && !before.has(id))
+      return page.locator(`[data-node-id="${fresh.at(-1)}"]`)
+    }
+
+    const first = await dropPng(180, 160, [220, 70, 70])
+    const second = await dropPng(520, 210, [70, 90, 220])
+    const firstId = await first.getAttribute('data-node-id')
+    const secondId = await second.getAttribute('data-node-id')
+    await moveNode(page, firstId, 100, 120)
+    await moveNode(page, secondId, 100, 430)
+    const creationPanel = page.locator('[data-creation-panel]')
+    if ((await creationPanel.count()) > 0) {
+      await creationPanel.click({ position: { x: 20, y: 20 } }).catch(() => {})
+      await page.keyboard.press('Escape')
+      await sleep(250)
+    }
+    if ((await page.locator('[data-creation-panel]').count()) > 0) {
+      await page
+        .locator('[data-canvas-surface]')
+        .click({ force: true, position: { x: 20, y: 420 } })
+      await sleep(250)
+    }
+    await clickBlankCanvas(page)
+
+    await first.click({ position: { x: 60, y: 10 } })
+    await page.keyboard.down('Shift')
+    await second.click({ position: { x: 60, y: 10 } })
+    await page.keyboard.up('Shift')
+    await sleep(300)
+
+    const galleryButton = page.locator('[data-multi-action="gallery"]')
+    rec(g, '两张素材可 Shift 多选并出现灯箱入口', (await galleryButton.count()) === 1)
+    await galleryButton.click()
+    await page.locator('[data-lightbox]').waitFor({ state: 'visible', timeout: 5000 })
+
+    const root = page.locator('[data-lightbox]')
+    const thumbs = page.locator('[data-lightbox-thumbnail]')
+    const thumbCount = await thumbs.count()
+    rec(g, '多选灯箱出现至少两张缩略图', thumbCount >= 2, `count=${thumbCount}`)
+
+    const strip = page.locator('[data-lightbox-thumbnails]')
+    const stripStyle = await strip.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        border: style.borderTopWidth,
+        background: style.backgroundColor,
+        padding: style.paddingTop,
+      }
+    })
+    rec(
+      g,
+      '★ 缩略图条不再有外层框',
+      stripStyle.border === '0px' &&
+        stripStyle.padding === '0px' &&
+        /rgba\(0, 0, 0, 0\)|transparent/.test(stripStyle.background),
+      JSON.stringify(stripStyle),
+    )
+
+    const beforeHash = await root.getAttribute('data-lightbox-hash')
+    if (thumbCount >= 2) await thumbs.nth(1).click()
+    const switched = await page
+      .waitForFunction(
+        (hash) =>
+          document.querySelector('[data-lightbox]')?.getAttribute('data-lightbox-hash') !== hash &&
+          document
+            .querySelector('[data-lightbox-thumbnail-active="true"]')
+            ?.getAttribute('data-lightbox-thumbnail') === '1',
+        beforeHash,
+        { timeout: 5000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    rec(g, '★★ 点击第二张缩略图，灯箱主素材与选中态一起切换', switched)
+    await page.screenshot({
+      path: `${OUT}/795-lightbox-thumbs-${theme}-${viewport.width}.png`,
+    })
+
+    await page.locator('[data-lightbox-mode-button="rotate"]').click()
+    await page.locator('[data-rotate-right]').click()
+    const rotation = await page.locator('[data-lightbox-media]').evaluate((element) => {
+      const origin = getComputedStyle(element).transformOrigin.split(' ').map(Number.parseFloat)
+      return { width: element.offsetWidth, height: element.offsetHeight, origin }
+    })
+    rec(
+      g,
+      '★★ 旋转锚点在图片中心',
+      Math.abs(rotation.origin[0] - rotation.width / 2) < 1 &&
+        Math.abs(rotation.origin[1] - rotation.height / 2) < 1,
+      JSON.stringify(rotation),
+    )
+
+    await page.screenshot({
+      path: `${OUT}/795-lightbox-thumbs-rotate-${theme}-${viewport.width}.png`,
+    })
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await page.keyboard.press('Escape').catch(() => {})
+    if (projectId) {
+      const projectNodes = (await sharedRows(page, 'nodes').catch(() => [])).filter(
+        (row) => row.projectId === projectId,
+      )
+      const hashes = projectNodes
+        .map((row) => row.data?.assetHash)
+        .filter((hash) => typeof hash === 'string' && hash)
+      for (const row of projectNodes) {
+        await sharedDelete(page, 'nodes', row.id).catch(() => {})
+      }
+      for (const hash of hashes) {
+        await sharedDelete(page, 'assets', hash).catch(() => {})
+        await sharedDelete(page, 'assetLibrary', hash).catch(() => {})
+      }
+      await sharedDelete(page, 'projects', projectId).catch(() => {})
+    }
+    await ctx.close()
+  }
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769, g795]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

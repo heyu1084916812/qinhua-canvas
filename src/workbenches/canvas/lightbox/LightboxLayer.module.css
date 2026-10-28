@@ -342,12 +342,12 @@
   align-items: center;
   gap: 4px;
   max-width: min(760px, calc(100vw - var(--space-8) * 2));
-  padding: 4px;
+  padding: 0;
   overflow-x: auto;
   box-sizing: border-box;
-  border: var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   transform: translateX(-50%);
 }
 

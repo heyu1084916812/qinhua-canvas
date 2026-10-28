@@ -174,7 +174,11 @@ export function buildRunPlan(
    * - 只在这条计划**一共一次调用**时生效 —— N>1 时每次调用都写回同一个节点会互相覆盖，
    *   那种情况必须照旧铺 N 个承载节点。
    */
-  opts: { reuseOriginNode?: boolean } = {},
+  opts: {
+    reuseOriginNode?: boolean
+    /** 正在被其他计划写入的节点不能再次作为空槽复用。 */
+    reservedNodeIds?: ReadonlySet<string>
+  } = {},
 ): RunPlan {
   const newDownstream = mode === 'single-alt'
   const executionMode: ExecutionMode = newDownstream ? 'single' : (mode as ExecutionMode)
@@ -252,6 +256,7 @@ export function buildRunPlan(
           graph: working,
           count: Math.max(1, plannedCalls),
           newDownstream: newDownstream || multiShot,
+          reservedNodeIds: opts.reservedNodeIds,
         })
       : []
 

@@ -414,6 +414,93 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('SoonStudio 外层 completed 后按内层 task_id 再取最终结果', async () => {
+    const tiny = solidPng(5, 2, [0x55, 0x66, 0x77])
+    const calls: string[] = []
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          calls.push(req.url)
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, {
+              studioAsync: true,
+              jobId: 'outer_job_123',
+              status: 'running',
+              pollUrl: '/api/studio/async-responses/outer_job_123',
+            })
+          }
+          if (
+            req.url ===
+            'https://soonstudio.ai/api/studio/async-responses/outer_job_123'
+          ) {
+            return resp(200, {
+              studioAsync: true,
+              jobId: 'outer_job_123',
+              status: 'completed',
+              pollUrl: '/api/studio/async-responses/outer_job_123',
+              response: {
+                body: { task_id: 'upstream_task_456' },
+                status: 200,
+              },
+            })
+          }
+          if (req.url === 'https://soonstudio.ai/v1/images/tasks/upstream_task_456') {
+            return resp(200, {
+              data: {
+                status: 'SUCCESS',
+                data: {
+                  data: [{ image_url: 'https://cdn.example/final-result.png' }],
+                },
+              },
+            })
+          }
+          if (req.url === 'https://cdn.example/final-result.png') {
+            const bytes = new Uint8Array(tiny)
+            return {
+              status: 200,
+              headers: { 'content-type': 'image/png' },
+              async text() {
+                return ''
+              },
+              async json<T>(): Promise<T> {
+                throw new Error('not json')
+              },
+              async arrayBuffer() {
+                return bytes.buffer.slice(
+                  bytes.byteOffset,
+                  bytes.byteOffset + bytes.byteLength,
+                ) as ArrayBuffer
+              },
+            }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const assets = await a.generateImage(
+      {
+        ...request([]),
+        model: 'gemini-nano-banana-2.1',
+      },
+      signal,
+    )
+
+    expect(calls).toEqual([
+      'https://soonstudio.ai/v1/images/generations?async=true',
+      'https://soonstudio.ai/api/studio/async-responses/outer_job_123',
+      'https://soonstudio.ai/v1/images/tasks/upstream_task_456',
+      'https://cdn.example/final-result.png',
+    ])
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
   it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
     'SoonStudio submission %s sends one POST and ends as accepted',
     async (detail) => {

@@ -66,6 +66,17 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
     expect(plans).toEqual([{ kind: 'reuse', nodeId: 'b' }])
   })
 
+  it('★ 正在被其他计划占用的空节点不能再复用，改铺新承载节点', () => {
+    const g = graph([gen('a', '节点A', 'h1'), gen('b', '节点B')], [{ source: 'a', target: 'b' }])
+    const plans = planSlots({
+      startNodeId: 'a',
+      graph: g,
+      count: 1,
+      reservedNodeIds: new Set(['b']),
+    })
+    expect(plans).toEqual([{ kind: 'new', title: '节点A的输出1', connectFrom: 'a' }])
+  })
+
   it('槽位不够时铺新节点并命名「原节点名的输出N」', () => {
     const g = graph([gen('a', '节点A', 'h1'), gen('b', '节点B', 'h2')], [{ source: 'a', target: 'b' }])
  const plans = planSlots({ startNodeId: 'a', graph: g, count: 2 })
