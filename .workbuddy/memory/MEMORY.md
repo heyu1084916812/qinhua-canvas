@@ -1,5 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 底部布局与 SoonStudio completed 直接产物（2026-10-28 → 对账 #799）
+
+- **动态内容不能再和 footer 抢固定高度**：任务计划、消息、确认卡、队列统一放进
+  `[data-agent-content]` 滚动；对话模型行和 composer 必须 `flex: 0 0 auto`，
+  否则内容一长就会溢出 `[data-agent-panel]`，看起来像“底部容器不够长”。
+- **SoonStudio completed 不等于只有内层 task_id**：真实响应可能是
+  `response.body.data[].url` 直接给最终图。`imageItemsIn` 必须遍历 `response / body`，
+  先下载直接产物；只有确实无图时才读取内层任务号。
+- **同源媒体可带认证、外部 CDN 不带**：`/api/media/...` 可能与 API 同源；
+  下载时只对与渠道 baseUrl 同源的 URL 发送渠道认证，避免 Key 泄漏到第三方对象存储。
+- 验证：G769 浅色 / 深色各 **23/23**；`openaiImages` 定向 **79/79**；
+  全量 Vitest **3531 passed / 1 skipped**；check / build / 脚本语法 / diff 校验通过。
+
 ### Agent 确认 / 引导冲突与灯箱换图（2026-10-28 → 对账 #798）
 
 - **确认卡与待引导不能同时存在**：停在 `pendingConfirmation` 时，引导必须先取消未执行动作，

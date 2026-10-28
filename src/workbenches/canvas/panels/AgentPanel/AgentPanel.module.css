@@ -9,6 +9,7 @@
   right: var(--space-3);
   bottom: var(--space-3);
   width: 380px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -21,6 +22,7 @@
 }
 
 .head {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -230,6 +232,7 @@
 
 /* 「对话模型」那一行：agent 自己的 LLM，单独一处（不跟生成模型挤一个面板） */
 .llmRow {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -249,7 +252,7 @@
   cursor: pointer;
 }
 
-.messages {
+.content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -257,6 +260,18 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-3) 0;
+}
+
+.content > * {
+  flex: 0 0 auto;
+}
+
+.messages {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 .hint {
@@ -783,6 +798,7 @@
  * 盒子自带边框，因此不再需要上一版那条 `border-top` 分隔线。
  */
 .composer {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

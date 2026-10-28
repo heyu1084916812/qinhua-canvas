@@ -417,6 +417,7 @@ describe('openaiImages adapter / 基础契约', () => {
   it('SoonStudio 外层 completed 后按内层 task_id 再取最终结果', async () => {
     const tiny = solidPng(5, 2, [0x55, 0x66, 0x77])
     const calls: string[] = []
+    const externalAssetAuth: string[] = []
     const soonCfg: ResolvedChannelConfig = {
       ...cfg,
       protocol: 'soonstudio',
@@ -460,6 +461,7 @@ describe('openaiImages adapter / 基础契约', () => {
             })
           }
           if (req.url === 'https://cdn.example/final-result.png') {
+            externalAssetAuth.push(String(req.headers?.Authorization ?? ''))
             const bytes = new Uint8Array(tiny)
             return {
               status: 200,
@@ -498,6 +500,89 @@ describe('openaiImages adapter / 基础契约', () => {
       'https://soonstudio.ai/v1/images/tasks/upstream_task_456',
       'https://cdn.example/final-result.png',
     ])
+    expect(externalAssetAuth).toEqual([''])
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
+  it('SoonStudio completed response can expose the final image URL directly inside response.body.data', async () => {
+    const tiny = solidPng(6, 4, [0x66, 0x77, 0x88])
+    const calls: string[] = []
+    const directAssetAuth: string[] = []
+    const directUrl = 'https://soonstudio.ai/api/media/v1_direct_result.png'
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: createMemoryNetwork({
+        handler: async (req) => {
+          calls.push(req.url)
+          if (req.url === 'https://soonstudio.ai/v1/images/generations?async=true') {
+            return resp(200, {
+              studioAsync: true,
+              jobId: 'outer_job_direct',
+              status: 'running',
+              pollUrl: '/api/studio/async-responses/outer_job_direct',
+            })
+          }
+          if (
+            req.url ===
+            'https://soonstudio.ai/api/studio/async-responses/outer_job_direct'
+          ) {
+            return resp(200, {
+              studioAsync: true,
+              jobId: 'outer_job_direct',
+              status: 'completed',
+              pollUrl: '/api/studio/async-responses/outer_job_direct',
+              response: {
+                body: {
+                  data: [{ url: directUrl }],
+                },
+                status: 200,
+              },
+            })
+          }
+          if (req.url === directUrl) {
+            directAssetAuth.push(String(req.headers?.Authorization ?? ''))
+            const bytes = new Uint8Array(tiny)
+            return {
+              status: 200,
+              headers: { 'content-type': 'image/png' },
+              async text() {
+                return ''
+              },
+              async json<T>(): Promise<T> {
+                throw new Error('not json')
+              },
+              async arrayBuffer() {
+                return bytes.buffer.slice(
+                  bytes.byteOffset,
+                  bytes.byteOffset + bytes.byteLength,
+                ) as ArrayBuffer
+              },
+            }
+          }
+          return resp(404, {})
+        },
+      }),
+      assets: platformWithAssets([]).assets,
+    })
+
+    const assets = await a.generateImage(
+      {
+        ...request([]),
+        model: 'gpt-image-2.5-sunburst',
+      },
+      signal,
+    )
+
+    expect(calls).toEqual([
+      'https://soonstudio.ai/v1/images/generations?async=true',
+      'https://soonstudio.ai/api/studio/async-responses/outer_job_direct',
+      directUrl,
+    ])
+    expect(directAssetAuth).toEqual(['Bearer k'])
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 

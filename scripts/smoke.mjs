@@ -40728,21 +40728,40 @@ async function g769(browser) {
         .querySelector('[data-agent-task-plan="task-plan-g769"]')
         ?.getBoundingClientRect()
       const panel = document.querySelector('[data-agent-panel]')?.getBoundingClientRect()
+      const content = document.querySelector('[data-agent-content]')
+      const composer = document
+        .querySelector('[data-agent-composer]')
+        ?.getBoundingClientRect()
+      const llmRow = document
+        .querySelector('[data-agent-llm-row]')
+        ?.getBoundingClientRect()
       return {
         overflow: document.documentElement.scrollWidth - innerWidth,
-        fits:
+        planFitsWidth:
           !!plan &&
           !!panel &&
           plan.left >= panel.left - 1 &&
-          plan.right <= panel.right + 1 &&
-          plan.top >= panel.top - 1 &&
-          plan.bottom <= panel.bottom + 1,
+          plan.right <= panel.right + 1,
+        contentScrolls:
+          !!content && content.scrollHeight > content.clientHeight + 1,
+        footerFits:
+          !!panel &&
+          !!composer &&
+          !!llmRow &&
+          composer.left >= panel.left - 1 &&
+          composer.right <= panel.right + 1 &&
+          composer.bottom <= panel.bottom + 1 &&
+          llmRow.top >= panel.top - 1 &&
+          llmRow.bottom <= panel.bottom + 1,
       }
     })
     rec(
       g,
-      '★ 1024×700 下计划卡不溢出 Agent 面板',
-      narrowPlan.overflow <= 0 && narrowPlan.fits,
+      '★★ 1024×700 长计划在内容区滚动，输入区始终固定在面板内',
+      narrowPlan.overflow <= 0 &&
+        narrowPlan.planFitsWidth &&
+        narrowPlan.contentScrolls &&
+        narrowPlan.footerFits,
       JSON.stringify(narrowPlan),
     )
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1024.png` })

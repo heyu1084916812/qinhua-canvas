@@ -465,7 +465,17 @@ function imageItemsIn(value: unknown): ImageItem[] {
       })
     }
     if (!preferredUrl && b64Values[0]) push({ b64_json: b64Values[0] })
-    for (const key of ['data', 'output', 'outputs', 'images', 'result', 'results', 'image']) {
+    for (const key of [
+      'data',
+      'output',
+      'outputs',
+      'images',
+      'result',
+      'results',
+      'image',
+      'response',
+      'body',
+    ]) {
       if (key in row) visit(row[key], depth + 1)
     }
   }
@@ -712,6 +722,13 @@ export function createOpenAiImagesAdapter(
   ): Promise<GeneratedAsset[]> => {
     const assets: GeneratedAsset[] = []
     const failures: string[] = []
+    const mediaHeaders = (url: string): Record<string, string> => {
+      try {
+        return new URL(url).origin === new URL(base).origin ? authHeader(config.apiKey) : {}
+      } catch {
+        return {}
+      }
+    }
     for (const item of items) {
       const inlineB64 = item.b64_json ?? item.fallbackB64
       const candidates = [item.url, ...(item.fallbackUrls ?? [])].filter(
@@ -731,7 +748,8 @@ export function createOpenAiImagesAdapter(
             {
               url,
               method: 'GET',
-              headers: {},
+              // 同站产物可能只允许带渠道凭据读取；外部 CDN 绝不能收到 Key。
+              headers: mediaHeaders(url),
               timeoutMs: IMAGE_ASSET_DOWNLOAD_TIMEOUT_MS,
             },
             signal,

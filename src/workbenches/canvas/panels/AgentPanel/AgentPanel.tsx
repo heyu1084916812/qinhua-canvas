@@ -760,7 +760,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages, status])
+  }, [
+    messages,
+    status,
+    current?.taskPlan,
+    current?.queuedTurns.length,
+    current?.pendingSteers.length,
+  ])
 
   const persist = useCallback(
     async (session: AgentSession, next: ChatMessage[]) => {
@@ -3394,6 +3400,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         )}
       </header>
 
+      <div className={styles.content} ref={scrollRef} data-agent-content>
       {current?.taskPlan && (
         <TaskPlanCard
           plan={current.taskPlan}
@@ -3401,7 +3408,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         />
       )}
 
-      <div className={styles.messages} ref={scrollRef} data-agent-messages>
+      <div className={styles.messages} data-agent-messages>
         {items.length === 0 && (
           <p className={styles.hint}>
             说一句你想要什么，我会把它建成画布上的工作流。
@@ -3724,6 +3731,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           )}
         </div>
       )}
+      </div>
 
       {/*
         对话模型 = **agent 自己的 LLM**，单独一处（用户 2026-10-02：「对话模型是

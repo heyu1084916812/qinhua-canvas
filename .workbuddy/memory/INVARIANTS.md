@@ -37,6 +37,11 @@
 
 ## SoonStudio · 异步图片
 
+- **completed 外层可能直接带图**：真实响应存在
+  `response.body.data[].url` 这种最终产物直接返回的形态。图片遍历必须进入
+  `response / body`；有直接 URL 就先下载，不能因为没有内层 task_id 立即报错。
+- **媒体认证按同源边界发送**：只有下载 URL 与渠道 baseUrl 同源时才带渠道认证；
+  第三方 CDN / 对象存储不得收到 API Key。
 - **Gemini 参考图走任务接口**：SoonStudio 的 Gemini 图生图使用
   `images/edits?async=true` + `Prefer: respond-async`，结果从 `images/tasks/:id` 查询。
   不在带参考图的 4K 请求上直接调用原生 `generateContent`，避免长连接中断后无法恢复结果。
@@ -52,6 +57,9 @@
 
 ## Agent · 确认与停止
 
+- **内容滚动与固定 footer 分层**：任务计划、消息、确认卡、待引导和队列都属于
+  `[data-agent-content]`；对话模型行与 composer 留在滚动区外并禁止收缩。
+  动态内容只让内容区滚动，不能把输入框挤出 Agent 浮窗。
 - **计划一次只推进一步**：`done` 不自动启动下一步；跨步骤启动、未开始就完成都必须拒绝。
   旧坏顺序读回时收回后续 pending，进度卡不得同时出现多个进行中。
 - **结果待验收是硬门禁**：`runNode / runFrom` 成功后当前步骤写 `resultsReadyAt`；
