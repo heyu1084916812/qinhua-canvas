@@ -5,6 +5,8 @@
 
 ## Agent · 确认与停止
 
+- **浮球在浮窗展开时仍常驻**：`AgentDock` 不得用 `open ? null` 卸载入口；浮球保持原坐标，
+  展开态点击即收起。展开态拖动浮球时，每步都要用 `openAgentPanel()` 重算浮窗，保持工作区间距与边界。
 - **计划是一份持久数据**：复杂任务用 `AgentSession.taskPlan` 保存稳定 stepId、当前步骤与状态；
   `proposeTaskPlan` 必须用户确认，`updateTaskStep` 才是进度真相源，正文不能代替进度卡。
 - **计划与中途确认不可自动代点**：自动生成模式也只自动扣费确认，不得越过

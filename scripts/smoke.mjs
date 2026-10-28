@@ -40227,6 +40227,20 @@ async function g735(browser) {
       Math.abs(panelImmediate.y - panelBox.y) <= 1,
     `首帧=${Math.round(panelImmediate?.x ?? -1)},${Math.round(panelImmediate?.y ?? -1)} 稳定=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
   )
+  const orbWhenOpen = await orb.boundingBox()
+  const orbHitWhenOpen = await orb.evaluate((node) => {
+    const rect = node.getBoundingClientRect()
+    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === node
+  })
+  rec(
+    g,
+    '★★★★ Agent 浮窗展开后浮球仍留在画布且保持可点',
+    (await orb.isVisible()) &&
+      orbHitWhenOpen &&
+      Math.abs(orbWhenOpen.x - orbDragged.x) <= 1 &&
+      Math.abs(orbWhenOpen.y - orbDragged.y) <= 1,
+    `展开后=${Math.round(orbWhenOpen.x)},${Math.round(orbWhenOpen.y)} 命中=${orbHitWhenOpen}`,
+  )
   await page.screenshot({ path: `${OUT}/735-agent-1280.png` })
 
   await page.getByRole('button', { name: /这次用哪些模型生成/ }).click()

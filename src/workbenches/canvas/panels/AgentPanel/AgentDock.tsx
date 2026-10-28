@@ -138,10 +138,12 @@ export function AgentDock({
       const area = measureCanvasWorkArea()
 
       if (current.kind === 'orb') {
-        applyLayout({
+        const orb = clampAgentPoint({ x: current.originX + dx, y: current.originY + dy }, area)
+        const next = {
           ...base,
-          orb: clampAgentPoint({ x: current.originX + dx, y: current.originY + dy }, area),
-        })
+          orb,
+        }
+        applyLayout(open ? openAgentPanel(next, area) : next)
         return
       }
       if (current.kind === 'panel') {
@@ -250,36 +252,40 @@ export function AgentDock({
 
   return (
     <>
-      {!open ? (
-        <button
-          type="button"
-          className={styles.orb}
-          style={layout ? { left: layout.orb.x, top: layout.orb.y } : undefined}
-          data-canvas-agent
-          data-agent-orb
-          aria-label="Agent"
-          aria-controls="canvas-agent-panel"
-          title="Agent"
-          onPointerDown={onOrbPointerDown}
-          onClick={() => {
-            if (suppressOrbClickRef.current) {
-              suppressOrbClickRef.current = false
-              return
-            }
-            const current = layoutRef.current
-            if (current) {
-              applyLayout(openAgentPanel(current, measureCanvasWorkArea()))
-            }
-            onOpenChange(true)
-          }}
-        >
-          <span className={styles.orbSwirl} aria-hidden="true" />
-          <span className={styles.orbGlint} aria-hidden="true" />
-          <span className={styles.orbLabel} aria-hidden="true">
-            Agent
-          </span>
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className={styles.orb}
+        style={layout ? { left: layout.orb.x, top: layout.orb.y } : undefined}
+        data-canvas-agent
+        data-agent-orb
+        data-agent-expanded={open ? 'true' : 'false'}
+        aria-label={open ? '收起 Agent' : '打开 Agent'}
+        aria-controls="canvas-agent-panel"
+        aria-expanded={open}
+        title={open ? '收起 Agent' : 'Agent'}
+        onPointerDown={onOrbPointerDown}
+        onClick={() => {
+          if (suppressOrbClickRef.current) {
+            suppressOrbClickRef.current = false
+            return
+          }
+          if (open) {
+            collapse()
+            return
+          }
+          const current = layoutRef.current
+          if (current) {
+            applyLayout(openAgentPanel(current, measureCanvasWorkArea()))
+          }
+          onOpenChange(true)
+        }}
+      >
+        <span className={styles.orbSwirl} aria-hidden="true" />
+        <span className={styles.orbGlint} aria-hidden="true" />
+        <span className={styles.orbLabel} aria-hidden="true">
+          {open ? '收起 Agent' : 'Agent'}
+        </span>
+      </button>
 
       {mounted ? (
         <div
