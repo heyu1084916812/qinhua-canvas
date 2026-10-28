@@ -267,6 +267,84 @@ describe('openaiImages adapter / 基础契约', () => {
     expect(assets[0]!.bytes).toEqual(tiny)
   })
 
+  it('SoonStudio Gemini 带参考图时走异步 edits 任务，不调用原生 generateContent', async () => {
+    const tiny = solidPng(4, 3, [0x22, 0x33, 0x44])
+    const calls: { url: string; method: string; body: unknown }[] = []
+    const soonCfg: ResolvedChannelConfig = {
+      ...cfg,
+      protocol: 'soonstudio',
+      baseUrl: 'https://soonstudio.ai',
+    }
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, method: req.method ?? 'GET', body: req.body })
+        if (req.url === 'https://soonstudio.ai/v1/images/edits?async=true') {
+          return resp(200, { task_id: 'task_edit_123' })
+        }
+        if (req.url === 'https://soonstudio.ai/v1/images/tasks/task_edit_123') {
+          return resp(200, {
+            data: {
+              status: 'SUCCESS',
+              data: { url: ['https://cdn.example/edit-result.png'] },
+            },
+          })
+        }
+        if (req.url === 'https://cdn.example/edit-result.png') {
+          const bytes = new Uint8Array(tiny)
+          return {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+            async text() {
+              return ''
+            },
+            async json<T>(): Promise<T> {
+              throw new Error('not json')
+            },
+            async arrayBuffer() {
+              return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+            },
+          }
+        }
+        return resp(404, {})
+      },
+    })
+    const a = createOpenAiImagesAdapter(soonCfg, {
+      network: net,
+      assets: platformWithAssets([
+        { id: 'asset_ref_1', bytes: solidPng(3, 3, [1, 2, 3]), mime: 'image/png' },
+        { id: 'asset_ref_2', bytes: solidPng(3, 3, [4, 5, 6]), mime: 'image/png' },
+      ]).assets,
+    })
+    const assets = await a.generateImage(
+      {
+        ...request(
+          [
+            { kind: 'asset', assetHash: 'asset_ref_1', mime: 'image/png', nodeId: 'n1' },
+            { kind: 'asset', assetHash: 'asset_ref_2', mime: 'image/png', nodeId: 'n2' },
+          ],
+          1,
+          { ratio: '1:1', resolution: '4K' },
+        ),
+        model: 'gemini-nano-banana-2.1',
+      },
+      signal,
+    )
+
+    expect(calls.map((call) => call.url)).not.toContain(
+      'https://soonstudio.ai/v1beta/models/gemini-nano-banana-2.1:generateContent',
+    )
+    expect(calls[0]!.url).toBe('https://soonstudio.ai/v1/images/edits?async=true')
+    expect(calls[0]!.method).toBe('POST')
+    expect(calls[0]!.body).toBeInstanceOf(FormData)
+    const form = calls[0]!.body as FormData
+    expect(form.get('model')).toBe('gemini-nano-banana-2.1')
+    expect(form.get('aspect_ratio')).toBe('1:1')
+    expect(form.get('image_size')).toBe('4K')
+    expect(form.getAll('image')).toHaveLength(2)
+    expect(calls[1]!.url).toBe('https://soonstudio.ai/v1/images/tasks/task_edit_123')
+    expect(assets[0]!.bytes).toEqual(tiny)
+  })
+
   it.each(['cors', 'dns', 'tls', 'timeout'] as const)(
     'SoonStudio submission %s sends one POST and ends as accepted',
     async (detail) => {

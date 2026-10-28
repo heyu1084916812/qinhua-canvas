@@ -186,6 +186,36 @@ describe('公共 GenerationClient', () => {
     expect(keys).toEqual(['b'])
   })
 
+  it('显式分组都不支持模型时，不拿渠道旧 Key 继续请求', async () => {
+    let adapterCalls = 0
+    const client = createGenerationClient({
+      platform: createMemoryPlatform(),
+      catalog: () => BUILTIN_CATALOG,
+      loadToken: async () => 'legacy-key',
+      createAdapter: () => {
+        adapterCalls += 1
+        return stubAdapter()
+      },
+    })
+    const ch = channel({
+      credentialGroups: [group('image-only', 'cred_group', 1, ['gemini-nano-banana-2.1'])],
+    })
+
+    await expect(
+      client.completeText(
+        {
+          channel: ch,
+          model: 'Deepseek 4.1 Flash',
+          request: { kind: 'text', prompt: 'optimize', inputs: [], params: {} },
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      appError: { kind: 'channel', detail: 'missingModel' },
+    })
+    expect(adapterCalls).toBe(0)
+  })
+
   it('65535 的非对话调用把分组 Key 放进备用槽', async () => {
     let seenConfig: { apiKey: string | null; altApiKey?: string | null } | null = null
     const client = createGenerationClient({

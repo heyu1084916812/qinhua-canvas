@@ -5219,7 +5219,7 @@ async function g23(browser) {
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
   // 1) 配置 mock 渠道（同 g9）：新增 → 验证（拉全部模型）→ 勾选 → 启用
-  const g23ch = await configureMockChannel(page)
+  const g23ch = await configureMockChannel(page, { isolate: true })
   rec(g, '渠道验证通过（模型缓存含 chat）', g23ch.verified)
 
   /*

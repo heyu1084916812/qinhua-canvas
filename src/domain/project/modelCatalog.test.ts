@@ -370,6 +370,25 @@ describe('channelIdForLogical', () => {
     expect(channelIdForLogical(channels, 'shared-model', 'B')).toBe('B')
   })
 
+  it('已勾选模型不为空时，拉取缓存里的别名不能抢走选路', () => {
+    const channels = [
+      ch({
+        id: 'soonstudio',
+        models: [cap('gemini-nano-banana-2.1')],
+        modelCache: [cap('gemini-nano-banana-2.1'), cap('deepseek-v4.1-flash', 'chat')],
+      }),
+      ch({
+        id: 'workbuddy',
+        models: [cap('cn:deepseek-v4.1-flash', 'chat')],
+        modelMap: { 'Deepseek 4.1 Flash': 'cn:deepseek-v4.1-flash' },
+      }),
+    ]
+
+    expect(channelIdForLogical(channels, 'Deepseek 4.1 Flash', 'soonstudio')).toBe(
+      'workbuddy',
+    )
+  })
+
   it('★ 在用的渠道提供不了它时才换（不许因为偏好就留在错的渠道上）', () => {
     const channels = [
       ch({ id: 'A', models: [cap('only-in-a')] }),

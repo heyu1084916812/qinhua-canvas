@@ -150,7 +150,13 @@ function findProvider(
      * 只有逻辑名那一侧，也必须能取到能力（否则面板会把它当成「不认识」而隐藏）。
      */
     const aliases = upstreamAliasesOf(name)
-    const hit = [...c.models, ...(c.modelCache ?? [])].find(
+    /**
+     * 勾选优先：渠道一旦有自己的勾选清单，`modelCache` 只能用于设置页展示，
+     * 不能在这里把未勾选的模型重新算成“当前渠道可用”。否则父级 `preferChannelId`
+     * 会让一个仅缓存过该模型的渠道抢走选路，最终请求被上游以“模型未启用”拒绝。
+     */
+    const selectable = c.models.length > 0 ? c.models : (c.modelCache ?? [])
+    const hit = selectable.find(
       (m) => m.id === upstream || m.id === name || aliases.includes(m.id),
     )
     if (hit) return { channelId: c.id, capability: hit }
@@ -175,7 +181,8 @@ function findProvider(
   }
   // 没有映射（恒等）时按同名直配找
   for (const c of ordered) {
-    const hit = [...c.models, ...(c.modelCache ?? [])].find((m) => m.id === name)
+    const selectable = c.models.length > 0 ? c.models : (c.modelCache ?? [])
+    const hit = selectable.find((m) => m.id === name)
     if (hit) return { channelId: c.id, capability: hit }
   }
   return undefined

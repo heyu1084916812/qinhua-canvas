@@ -3,6 +3,20 @@
 > `MEMORY.md` 放不下，本文件是完整版。**改动 canvas / comic 内部前必读**（由 MEMORY.md 顶部指引到此）。
 > 排序：canvas 通用 → 结果组/容器 → 生成与执行 → 复制粘贴 → 渠道与协议 → comic。
 
+## 渠道 · 模型选路
+
+- **勾选优先于拉取缓存**：渠道 `models` 非空时，模型能力与选路只能从这份清单取；
+  `modelCache` 仅用于勾选为空时的兼容兜底。显式 `modelMap` 仍是可路由声明，但执行分组
+  不支持该模型时必须在本地报 `missingModel`。
+- **文本节点渠道不是权威**：`completeText` 以逻辑模型重新解析启用渠道，旧节点
+  `channelId` 只作偏好提示。这样可以先选模型、后改渠道勾选，不会把未启用模型发给旧渠道。
+
+## SoonStudio · 异步图片
+
+- **Gemini 参考图走任务接口**：SoonStudio 的 Gemini 图生图使用
+  `images/edits?async=true` + `Prefer: respond-async`，结果从 `images/tasks/:id` 查询。
+  不在带参考图的 4K 请求上直接调用原生 `generateContent`，避免长连接中断后无法恢复结果。
+
 ## Agent · 确认与停止
 
 - **计划一次只推进一步**：`done` 不自动启动下一步；跨步骤启动、未开始就完成都必须拒绝。

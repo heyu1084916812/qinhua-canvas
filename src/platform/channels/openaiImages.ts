@@ -808,6 +808,7 @@ export function createOpenAiImagesAdapter(
     quality: string | null,
     background: string | null,
     signal: AbortSignal,
+    files: { blob: Blob; name: string }[] = [],
   ): Promise<GeneratedAsset[]> => {
     const resolution =
       typeof request.params.resolution === 'string' ? request.params.resolution.trim() : ''
@@ -816,20 +817,54 @@ export function createOpenAiImagesAdapter(
     )
     let res: NetworkResponse
     try {
+      const isGemini = imageParamsFor(request.model)?.dialect === 'gemini'
+      const ratio =
+        isGemini && typeof request.params.ratio === 'string'
+          ? request.params.ratio.trim()
+          : ''
+      const imageSize =
+        isGemini && typeof request.params.resolution === 'string'
+          ? request.params.resolution.trim().toUpperCase()
+          : ''
+      const geminiFields = {
+        ...(ratio ? { aspect_ratio: ratio } : {}),
+        ...(imageSize ? { image_size: imageSize } : {}),
+      }
+      const form = files.length > 0 ? new FormData() : null
+      if (form) {
+        form.append('model', request.model)
+        form.append('prompt', request.prompt)
+        form.append('n', String(count))
+        form.append('response_format', 'url')
+        if (size) form.append('size', size)
+        if (quality) form.append('quality', quality)
+        if (background) form.append('background', background)
+        for (const [key, value] of Object.entries(geminiFields)) form.append(key, value)
+        for (const file of files) form.append('image', file.blob, file.name)
+      }
       res = await deps.network.request(
         {
-          url: `${imagesUrl}?async=true`,
+          url: `${form ? editsUrl : imagesUrl}?async=true`,
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
-          body: {
-            model: request.model,
-            prompt: request.prompt,
-            n: count,
-            response_format: 'url',
-            ...(size ? { size } : {}),
-            ...(quality ? { quality } : {}),
-            ...(background ? { background } : {}),
-          },
+          headers: form
+            ? { Prefer: 'respond-async', ...authHeader(config.apiKey) }
+            : {
+                'Content-Type': 'application/json',
+                Prefer: 'respond-async',
+                ...authHeader(config.apiKey),
+              },
+          body:
+            form ??
+            ({
+              model: request.model,
+              prompt: request.prompt,
+              n: count,
+              response_format: 'url',
+              ...(size ? { size } : {}),
+              ...(quality ? { quality } : {}),
+              ...(background ? { background } : {}),
+              ...geminiFields,
+            } satisfies Record<string, unknown>),
           timeoutMs: VERIFY_TIMEOUT_MS,
         },
         signal,
@@ -1029,6 +1064,36 @@ export function createOpenAiImagesAdapter(
       const sendRatio = ratio === GEMINI_DEFAULT_RATIO ? null : ratio
       const wantedSize = String(request.params.resolution ?? '').toUpperCase()
       const imageSize = spec.sizes.find((s) => s.toUpperCase() === wantedSize) ?? spec.sizes[0]
+      /**
+       * SoonStudio 的带参考图 Gemini 任务走自己的异步编辑端点。
+       * 原生 `generateContent` 会把 4K 图片内联在长时间连接里，状态一旦中断就无法恢复；
+       * 异步端点和网站使用同一套任务查询，能明确区分“提交失败”与“结果待查询”。
+       */
+      if (config.protocol === 'soonstudio') {
+        const files = await readImageFiles(request)
+        const count = Math.min(
+          Math.max(...spec.counts),
+          Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1),
+        )
+        const quality = openAiImageQuality(request.params.quality, spec.qualities)
+        const rawBackground =
+          typeof request.params.background === 'string' ? request.params.background : ''
+        const background =
+          rawBackground &&
+          rawBackground !== 'auto' &&
+          spec.backgrounds.includes(rawBackground)
+            ? rawBackground
+            : null
+        return generateSoonStudioImage(
+          request,
+          count,
+          imageSize,
+          quality,
+          background,
+          signal,
+          files,
+        )
+      }
       /** `base` 形如 `…/v1`，原生端点在同一主机的 `/v1beta` 上 */
       const root = base.replace(/\/v1$/, '')
       /** 连进来的参考图 —— 少了这一段，模型就只能凭提示词凭空画（见 `toInlineImages`） */

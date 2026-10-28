@@ -285,6 +285,19 @@ export function createGenerationClient(
       }
     }
 
+    /**
+     * 渠道已经有显式的分组模型清单时，“没有任何分组支持这个模型”就是缺模型，
+     * 不能因为还留着渠道级旧 Key 就继续发出去。否则上游只会回一个含糊的
+     * “模型未在当前渠道启用”，既多走一次网络，也掩盖了实际是本地选路错误。
+     */
+    if (
+      groups.length > 0 &&
+      groups.some((group) => group.models.length > 0) &&
+      !groups.some((group) => groupSupportsModel(group, modelIds))
+    ) {
+      throw missingModel()
+    }
+
     if (legacyToken || legacyAltToken || tokenAllowsMissing(channel)) {
       return { group: null, token: legacyToken, altToken: legacyAltToken }
     }

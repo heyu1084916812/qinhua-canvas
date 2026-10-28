@@ -1,5 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### 文本工具选路与 SoonStudio 异步参考图（2026-10-28 → 对账 #790）
+
+- **勾选优先于缓存**：渠道 `models` 非空时，`channelIdForLogical` 只能从勾选清单里判断
+  当前渠道是否提供模型；`modelCache` 只在勾选为空时兜底。显式 `modelMap` 仍算可路由声明。
+- **文本节点渠道是提示，不是真相**：旧节点上的 `channelId` 可能和后来改过的渠道模型清单
+  不一致；`completeText` 必须用逻辑模型重新找启用渠道，否则会拿 soonstudio + DeepSeek
+  这种过期组合去撞上游 400。
+- **显式分组无模型要本地停**：有分组模型清单但没有任何分组支持请求模型时，即使渠道还留着
+  旧 Key，也直接抛 `missingModel`；不要为了兼容旧 Key 多打一笔注定失败的请求。
+- **SoonStudio 参考图不再走原生 Gemini 长连接**：Gemini 带参考图请求改走
+  `images/edits?async=true`，带 `Prefer: respond-async`，再轮询 `images/tasks/:id`。
+  原生 `generateContent` 会把 4K 图片内联到长连接里，连接中断就只能报“提交结果未知”。
+- 验证：定向 **130/130**；全量 Vitest **3517 passed / 1 skipped**；隔离 G23 **37/37**；
+  check / build 通过。没有拿真实 Key 重复发付费生图请求。
+
 ### Agent 计划状态机与结果验收（2026-10-28 → 对账 #788）
 
 - **完成一步不自动启动下一步**：`updateTaskStep(done)` 只收口当前步骤；下一阶段必须由模型

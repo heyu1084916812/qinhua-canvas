@@ -86,6 +86,7 @@ import {
   type RouteChannelSource,
 } from '../../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
+import { channelIdForLogical } from '../../../domain/project/modelCatalog'
 import { buildGroupRunPlan } from '../../../features/canvas/execution/groupRunPlan'
 import { createNodeScopedRunCancellation } from '../../../features/canvas/execution/nodeScopedRunCancellation'
 
@@ -1103,7 +1104,16 @@ export function CanvasExecutionProvider({
       inputs?: NodeInput[]
       signal: AbortSignal
     }): Promise<string> => {
-      const ch = channels.getState().channels.find((c) => c.id === channelId)
+      const all = channels.getState().channels
+      const enabled = all.filter((c) => c.enabled)
+      /**
+       * 提示词工具只有“模型”这一个用户可见选择，`channelId` 是节点上的内部解析值。
+       * 旧节点可能保留着当时渠道，后来用户在设置里改了该渠道的勾选模型；
+       * 此时必须重新找能提供该逻辑模型的启用渠道，不能拿过期组合直接发请求。
+       */
+      const resolvedChannelId =
+        channelIdForLogical(enabled, model, channelId) ?? channelId
+      const ch = all.find((c) => c.id === resolvedChannelId)
       if (!ch) throw new ChannelError({ kind: 'channel', detail: 'missingChannel' })
       const prompt = system ? `${system}\n\n${text}` : text
       const sentModel = resolveUpstreamModel(ch.modelMap, model) ?? model
@@ -1117,13 +1127,13 @@ export function CanvasExecutionProvider({
           scopeId: `session:${subjectId}`,
           operationId,
           purpose,
-          channelId,
+          channelId: ch.id,
           model: sentModel,
           prompt: text,
           inputs: inputs ?? [],
           params: { system, requestedModel: model },
         }),
-        channelId,
+        channelId: ch.id,
         signal,
         call: async (callSignal) => {
           const result = await generation.completeText(
