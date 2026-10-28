@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### 0.1.9 发布包与 release 门禁单实例冲突（2026-10-29 → 对账 #802）
+
+- **发布门禁必须在没有开发壳运行时执行**：开发版 `target/debug/qinghua.exe` 与 release
+  `qinghua.exe` 共用同一 Tauri 标识和单实例锁。先启动开发版时，门禁复制出来的 release
+  进程会把启动请求交给已有实例，然后以 `code=0` 正常退出，表现为 CDP 端口等不到，
+  容易被误判成安装包损坏。先结束开发实例，再运行 `node scripts/release-desktop.mjs`
+  或 `node scripts/check-release-shell.mjs`。
+- **版本必须严格递增**：`0.1.8` 已有本地产物，而 GitHub 上不存在 `v0.1.9`；本版升级到
+  `0.1.9`，避免发版脚本或人工误取旧 `0.1.8` 包。三处应用版本、两个 lock 文件与
+  `.codex/project-release.json` 必须同轮更新。
+- **本次证据**：Ed25519 验签 keyid `7cec98e1251b82bf`；release 启动门禁 **11/11**；
+  安装包 **43,701,454 B**，SHA-256
+  `2EB54F77ACCCB9AFE59CF949F16F696F783ACB6F488AE7AF4539F6874AC45EE4`。
+- **发布边界**：构建成功不等于已发布。`AGENTS.md` 要求先列完整待推提交和摘要，用户显式确认后才能
+  `git push`；之后才创建 tag / GitHub Release 并运行匿名发布验收。
+
 ### Agent 运行状态、投递偏好与执行落库（2026-10-28 → 对账 #801）
 
 - **运行中投递偏好只住全局设置**：默认 `steer`，Agent 面板不再放排队 / 引导切换。

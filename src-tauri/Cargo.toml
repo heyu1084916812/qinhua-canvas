@@ -1,6 +1,6 @@
 [package]
 name = "qinghua"
-version = "0.1.8"
+version = "0.1.9"
 description = "轻画 · 无限画布（桌面壳）"
 authors = ["轻画"]
 edition = "2021"
