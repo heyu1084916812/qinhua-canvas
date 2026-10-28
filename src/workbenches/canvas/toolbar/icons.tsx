@@ -630,6 +630,26 @@ export function IconArrowUp(props: IconProps) {
   )
 }
 
+export function IconSteer(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 7h9.5a4.5 4.5 0 0 1 0 9H11" />
+      <path d="m8 4-3 3 3 3" />
+      <path d="m14 13-3 3 3 3" />
+    </Svg>
+  )
+}
+
+export function IconMore(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
 /** 图片：山与日。步骤卡上代表「这一步产出的是一张图」 */
 export function IconImage(props: IconProps) {
   return (

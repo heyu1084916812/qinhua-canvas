@@ -40325,13 +40325,9 @@ async function g769(browser) {
   const sessionId = 'chat-agent-queue'
   const routeRunId = 'g769-route-attempt'
   const thumbNodeId = 'node-g769-thumb'
-  const thumbHash = 'hash-g769-thumb'
-  const thumbBytes = Uint8Array.from(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=',
-      'base64',
-    ),
-  )
+  const thumbHash = 'd769a11c00000001'
+  const thumbBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
   const now = Date.now()
 
   try {
@@ -40579,9 +40575,12 @@ async function g769(browser) {
     const planSeed = await sharedRow(page, 'agentSessions', sessionId)
     await sharedPut(page, 'assets', {
       id: thumbHash,
+      hash: thumbHash,
       projectId,
       mime: 'image/png',
-      bytes: thumbBytes,
+      width: 1,
+      height: 1,
+      url: `data:image/png;base64,${thumbBase64}`,
       createdAt: now,
     })
     await sharedPut(page, 'nodes', {
@@ -40629,8 +40628,10 @@ async function g769(browser) {
         name: 'requestTaskConfirmation',
         args: {
           stepId: 'visual',
+          purpose: 'clarification',
           question: '视觉方向用偏砖红还是正朱红？',
-          detail: '确认后会继续生成整套视觉规范。',
+          detail:
+            '做 Logo 前确认 2 件事：1) 主色用偏砖红；2) 画布上的旧图保持不动。',
         },
       },
       taskPlan: {
@@ -40673,7 +40674,12 @@ async function g769(browser) {
           .getAttribute('data-agent-task-step-status')) ===
           'awaiting_confirmation' &&
         (await page.locator('[data-agent-preview="requestTaskConfirmation"]').count()) === 1 &&
-        (await page.locator('[data-agent-confirm]').innerText()).includes('确认并继续'),
+        (await page.locator('[data-agent-confirm]').innerText()).includes('确认并继续') &&
+        (await page.locator('[data-agent-preview="requestTaskConfirmation"] li').count()) >= 3 &&
+        !(await page.locator('[data-agent-task-step="deliver"]').innerText()).includes(
+          '完成需验收',
+        ) &&
+        (await page.locator('[data-agent-send-mode]').count()) === 0,
     )
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
     await page.setViewportSize({ width: 1024, height: 700 })
@@ -40703,7 +40709,10 @@ async function g769(browser) {
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1024.png` })
     await page.setViewportSize({ width: 1440, height: 900 })
     await sleep(250)
-    await page.locator('[data-agent-step-detail="runNode"]').first().click()
+    await page.locator('[data-agent-step-detail="runNode"]').first().evaluate((node) => {
+      if (node instanceof HTMLElement) node.click()
+    })
+    await sleep(250)
     await page
       .locator(`[data-agent-thumb-open="${thumbHash}"]`)
       .waitFor({ state: 'visible', timeout: 10000 })
@@ -40717,6 +40726,100 @@ async function g769(browser) {
     )
     await page.locator('[data-lightbox-close]').click()
     await page.locator('[data-lightbox]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+
+    const queueSeed = await sharedRow(page, 'agentSessions', sessionId)
+    await sharedPut(page, 'agentSessions', {
+      ...queueSeed,
+      queuedTurns: [
+        {
+          id: 'turn-guide',
+          text: '把字重调细一点',
+          createdAt: now + 2,
+          channelId: '',
+          model: 'GPT-6 Astra',
+          imageModel: 'GPT Image 2',
+        },
+      ],
+      updatedAt: Date.now(),
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-preview="requestTaskConfirmation"]').waitFor({
+      state: 'visible',
+      timeout: 10000,
+    })
+    await page.locator('[data-agent-queue-toggle]').click()
+    await page.locator('[data-agent-queue-item="turn-guide"]').waitFor({
+      state: 'visible',
+      timeout: 5000,
+    })
+    await page.locator('[data-agent-queue-more]').click()
+    await page.locator('[data-agent-queue-edit]').click()
+    await page.setViewportSize({ width: 1024, height: 700 })
+    await sleep(250)
+    const queueEditFits = await page.evaluate(() => {
+      const editor = document
+        .querySelector('[data-agent-queue-edit-input]')
+        ?.getBoundingClientRect()
+      const save = document
+        .querySelector('[data-agent-queue-edit-save]')
+        ?.getBoundingClientRect()
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        editor:
+          !!editor &&
+          editor.left >= 0 &&
+          editor.top >= 0 &&
+          editor.right <= innerWidth + 1 &&
+          editor.bottom <= innerHeight + 1,
+        save:
+          !!save &&
+          save.left >= 0 &&
+          save.top >= 0 &&
+          save.right <= innerWidth + 1 &&
+          save.bottom <= innerHeight + 1,
+      }
+    })
+    rec(
+      g,
+      '★ 1024×700 下排队消息编辑浮层完整可见',
+      queueEditFits.overflow <= 0 && queueEditFits.editor && queueEditFits.save,
+      JSON.stringify(queueEditFits),
+    )
+    await page.screenshot({
+      path: `${OUT}/769-agent-queue-edit${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await sleep(200)
+    await page
+      .locator('[data-agent-queue-edit-input]')
+      .fill('把字重调细，绿色换成蓝色')
+    await page.locator('[data-agent-queue-edit-save]').click()
+    await sleep(300)
+    const editedQueue = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 排队消息可就地编辑，顺序与模型设置不变',
+      editedQueue?.queuedTurns?.[0]?.id === 'turn-guide' &&
+        editedQueue.queuedTurns[0]?.text === '把字重调细，绿色换成蓝色' &&
+        editedQueue.queuedTurns[0]?.model === 'GPT-6 Astra',
+      `队列=${JSON.stringify(editedQueue?.queuedTurns ?? [])}`,
+    )
+    await page.locator('[data-agent-queue-steer]').click()
+    await page.locator('[data-agent-preview]').waitFor({
+      state: 'detached',
+      timeout: 10000,
+    })
+    const guidedQueue = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★★★ 排队消息点“引导”会立即取消等待动作并交给 Agent',
+      guidedQueue?.pendingConfirmation == null &&
+        guidedQueue?.queuedTurns?.length === 0 &&
+        (await page.locator('[data-agent-preview]').count()) === 0,
+      `pending=${guidedQueue?.pendingConfirmation?.name ?? 'none'} queued=${guidedQueue?.queuedTurns?.length ?? 0}`,
+    )
 
     await sharedPut(page, 'runRecords', {
       id: routeRunId,

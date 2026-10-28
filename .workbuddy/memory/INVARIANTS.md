@@ -5,6 +5,19 @@
 
 ## Agent · 确认与停止
 
+- **计划一次只推进一步**：`done` 不自动启动下一步；跨步骤启动、未开始就完成都必须拒绝。
+  旧坏顺序读回时收回后续 pending，进度卡不得同时出现多个进行中。
+- **结果待验收是硬门禁**：`runNode / runFrom` 成功后当前步骤写 `resultsReadyAt`；
+  未写 `reviewApprovedAt` 前禁止 `applyPlan / runNode / runFrom` 进入下一阶段。
+  验收确认必须带 `stepId` 且 `purpose=review`。
+- **验收默认关闭，只有显式 true 才开启**：旧计划缺少 `requiresConfirmation` 时不得
+  默认要求验收。用户确认 review 时允许同时补写 `resultsReadyAt` 与
+  `reviewApprovedAt`，避免非生成步骤因缺少产出时间而永久卡住。
+- **确认卡不是长文墙**：编号项与长句必须拆成短行；计划前提进入 `assumptions`，
+  不得把未经用户确认的审美判断写成事实。
+- **队列发送只有一种默认路径**：忙碌时发送一律排队。队列项的“引导”是显式操作：
+  普通运行中原子转为 pending steer；停在确认卡时先取消未执行动作，再作为新回合立即发送。
+- **编辑排队消息保序**：只更新同一 turnId 的正文，不重建队列项、不改冻结模型与技能。
 - **浮球在浮窗展开时仍常驻**：`AgentDock` 不得用 `open ? null` 卸载入口；浮球保持原坐标，
   展开态点击即收起。展开态拖动浮球时，每步都要用 `openAgentPanel()` 重算浮窗，保持工作区间距与边界。
 - **计划是一份持久数据**：复杂任务用 `AgentSession.taskPlan` 保存稳定 stepId、当前步骤与状态；

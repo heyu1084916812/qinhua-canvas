@@ -244,13 +244,14 @@ export async function runAgentTurn(
 
       /**
        * 视觉验收是只读终点：它只负责交付问题清单。验收后同一轮里若模型继续建图、
-       * 改图或发起生成，就停在这里，把决定权交回用户。子代理本身没有写入口，
-       * 这一道则防止主管 Agent 拿到清单后自动改动或重跑付费请求。
+       * 改图或发起生成，就停在这里，把决定权交回用户。唯一允许的是发起一次
+       * `requestTaskConfirmation`，让用户看到结果问题并明确决定是否继续；不能替用户
+       * 把计划步骤自动打勾，也不能接着建下一阶段。
        */
       if (
         visualReviewRan &&
-        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name)) &&
-        call.name !== 'updateTaskStep'
+        call.name !== 'requestTaskConfirmation' &&
+        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name))
       ) {
         return {
           kind: 'stopped',

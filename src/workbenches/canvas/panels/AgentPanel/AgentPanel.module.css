@@ -125,37 +125,6 @@
   gap: var(--space-1);
 }
 
-.sendMode {
-  flex: 0 0 auto;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: transparent;
-}
-
-.sendModeBtn,
-.sendModeActive {
-  height: 20px;
-  padding: 0 6px;
-  border: none;
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
-  color: var(--text-2);
-  font: inherit;
-  font-size: var(--fs-chip);
-  line-height: 20px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.sendModeActive {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
 .smallBtn {
   flex: 0 0 auto;
   height: 30px;
@@ -524,6 +493,7 @@
 }
 
 .queue {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -553,7 +523,8 @@
 
 .queueToggle,
 .queueResume,
-.queueRemove {
+.queueAction,
+.queueSteer {
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -597,7 +568,8 @@
 
 .queueToggle:hover,
 .queueResume:hover,
-.queueRemove:hover {
+.queueAction:hover:not(:disabled),
+.queueSteer:hover:not(:disabled) {
   color: var(--text-1);
 }
 
@@ -610,9 +582,10 @@
 }
 
 .queueItem {
+  position: relative;
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 24px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   padding: 4px 0;
@@ -636,13 +609,171 @@
   -webkit-box-orient: vertical;
 }
 
-.queueRemove {
+.queueActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.queueAction {
   width: 24px;
   height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.queueAction:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+
+.queueSteer {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  font: inherit;
+  font-size: var(--fs-chip);
+  white-space: nowrap;
+}
+
+.queueSteer:not(:disabled) {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.queueSteer:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+
+.queueAction:focus-visible,
+.queueSteer:focus-visible,
+.queueMenuItem:focus-visible,
+.queueEditSave:focus-visible,
+.queueEditCancel:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: 1px;
+}
+
+.queueMenu {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.queueMenu {
+  justify-self: end;
+  min-width: 136px;
+  padding: 4px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.queueMenuItem {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+  text-align: left;
+}
+
+.queueMenuItem:hover {
+  background: var(--bg-hover);
+}
+
+.queueEditPopover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 66;
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.queueEditInput {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 44px;
+  max-height: 88px;
+  padding: 7px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  line-height: 1.45;
+}
+
+.queueEditInput:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: 1px;
+}
+
+.queueEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.queueEditSave,
+.queueEditCancel {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.queueEditSave {
+  border-color: var(--control-inverse-bg);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.queueEditSave:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.queueEditCancel:hover,
+.queueEditSave:hover:not(:disabled) {
+  color: var(--text-1);
+}
+
+.queueEditSave:hover:not(:disabled) {
+  background: var(--control-inverse-bg-hover);
+  border-color: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
 }
 
 /**

@@ -322,7 +322,7 @@ describe('runAgentTurn · 基本往复', () => {
     expect(executeWrite).not.toHaveBeenCalled()
   })
 
-  it('★★ 视觉验收后允许计划步骤收口，但仍禁止顺手改画布或重跑', async () => {
+  it('★★ 视觉验收后不能替用户把计划步骤直接收口', async () => {
     const { deps, executeWrite } = depsWith([
       {
         toolCalls: [
@@ -346,12 +346,41 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('验完并记录结果'), deps)
 
-    expect(executeWrite).toHaveBeenCalledTimes(1)
-    expect(executeWrite).toHaveBeenCalledWith('updateTaskStep', {
-      stepId: 'review',
-      status: 'done',
-    })
     expect(r.kind).toBe('stopped')
+    expect(executeWrite).not.toHaveBeenCalled()
+  })
+
+  it('★★ 视觉验收后允许发起用户结果验收确认卡', async () => {
+    const { deps, executeWrite } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'review',
+            name: 'visualReview',
+            args: '{"nodeIds":["n1"]}',
+          },
+          {
+            id: 'confirm',
+            name: 'requestTaskConfirmation',
+            args:
+              '{"stepId":"review","purpose":"review","question":"这组图是否满意？"}',
+          },
+        ],
+      },
+    ])
+    const r = await runAgentTurn(user('请验收这一组图'), deps)
+
+    expect(r.kind).toBe('confirm')
+    if (r.kind === 'confirm') {
+      expect(r.request).toMatchObject({
+        name: 'requestTaskConfirmation',
+        args: expect.objectContaining({
+          stepId: 'review',
+          purpose: 'review',
+        }),
+      })
+    }
+    expect(executeWrite).not.toHaveBeenCalled()
   })
 
   it('★★ 确认后用 resumeAgentTurn 把结果喂回去，模型能看到自己做过什么', async () => {

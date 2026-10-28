@@ -99,7 +99,10 @@ export function AgentDock({
     const onAreaChange = () => {
       const nextArea = measureCanvasWorkArea()
       const current = layoutRef.current
-      applyLayout(current ? clampAgentDockLayout(current, nextArea) : defaultAgentDockLayout(nextArea))
+      const clamped = current
+        ? clampAgentDockLayout(current, nextArea)
+        : defaultAgentDockLayout(nextArea)
+      applyLayout(open ? openAgentPanel(clamped, nextArea) : clamped)
     }
     const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
     const observer = typeof ResizeObserver === 'function' && surface ? new ResizeObserver(onAreaChange) : null
@@ -109,7 +112,7 @@ export function AgentDock({
       observer?.disconnect()
       window.removeEventListener('resize', onAreaChange)
     }
-  }, [applyLayout])
+  }, [applyLayout, open])
 
   useLayoutEffect(() => {
     if (!open) return

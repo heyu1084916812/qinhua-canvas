@@ -16,11 +16,9 @@ import styles from './TaskPlanCard.module.css'
 export function TaskPlanCard({
   plan,
   pendingConfirmationStepId,
-  running,
 }: {
   plan: AgentTaskPlan
   pendingConfirmationStepId?: string
-  running: boolean
 }) {
   const [expanded, setExpanded] = useState(true)
   const progress = agentTaskPlanProgress(plan)
@@ -53,7 +51,7 @@ export function TaskPlanCard({
               ? '本次创作已完成'
               : progress.current
                 ? `执行计划 · 当前：${progress.current.title}`
-                : '执行计划'}
+                : '等待下一步开始'}
           </span>
           <span className={styles.title}>{plan.title}</span>
         </span>
@@ -89,7 +87,6 @@ export function TaskPlanCard({
               index={index}
               current={plan.currentStepId === step.id}
               awaitingConfirmation={pendingConfirmationStepId === step.id}
-              running={running}
             />
           ))}
         </ol>
@@ -103,27 +100,32 @@ function StepRow({
   index,
   current,
   awaitingConfirmation,
-  running,
 }: {
   step: AgentTaskPlanStep
   index: number
   current: boolean
   awaitingConfirmation: boolean
-  running: boolean
 }) {
   const done = step.status === 'done' || step.status === 'skipped'
   const failed = step.status === 'failed'
+  const awaitingReview =
+    step.status === 'in_progress' &&
+    Boolean(step.resultsReadyAt) &&
+    !step.reviewApprovedAt
   const active =
-    awaitingConfirmation ||
-    step.status === 'in_progress' ||
-    (current && running)
+    (awaitingConfirmation || step.status === 'in_progress') &&
+    !awaitingReview
   return (
     <li
       className={styles.step}
       data-agent-task-step={step.id}
       data-agent-task-step-current={current ? 'true' : undefined}
       data-agent-task-step-status={
-        awaitingConfirmation ? 'awaiting_confirmation' : step.status
+        awaitingConfirmation
+          ? 'awaiting_confirmation'
+          : awaitingReview
+            ? 'awaiting_review'
+            : step.status
       }
       aria-current={current ? 'step' : undefined}
     >
@@ -143,7 +145,7 @@ function StepRow({
           <IconCheck size={12} />
         ) : failed ? (
           <IconClose size={11} />
-        ) : awaitingConfirmation ? (
+        ) : awaitingConfirmation || awaitingReview ? (
           <IconPause size={11} />
         ) : active ? (
           <IconSpinner size={12} className={styles.spinner} />
@@ -156,6 +158,8 @@ function StepRow({
           状态：
           {awaitingConfirmation
             ? '等待确认'
+            : awaitingReview
+              ? '结果待验收'
             : step.status === 'done'
               ? '已完成'
               : step.status === 'failed'
@@ -173,9 +177,11 @@ function StepRow({
         {step.note && <span className={styles.note}>{step.note}</span>}
       </span>
       {awaitingConfirmation ? (
-        <span className={styles.confirmTag}>等待确认</span>
+        <span className={styles.confirmTag}>等待你确认</span>
+      ) : awaitingReview ? (
+        <span className={styles.confirmTag}>结果待验收</span>
       ) : step.requiresConfirmation && !done ? (
-        <span className={styles.softTag}>需确认</span>
+        <span className={styles.softTag}>完成需验收</span>
       ) : null}
     </li>
   )

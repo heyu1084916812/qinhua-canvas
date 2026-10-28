@@ -144,6 +144,40 @@ describe('Agent 会话 · 待执行任务队列', () => {
     expect((await reopened.get(a.id))?.queuedTurns.map((item) => item.id)).toEqual(['1'])
   })
 
+  it('排队消息可就地编辑，顺序与冻结模型不变', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1', '旧文案'))
+    await s.enqueueTurn(a.id, turn('2'))
+    const next = await s.updateQueuedTurnText(a.id, '1', '  新文案  ')
+    expect(next?.queuedTurns.map((item) => [item.id, item.text])).toEqual([
+      ['1', '新文案'],
+      ['2', '任务 2'],
+    ])
+    expect(next?.queuedTurns[0]?.model).toBe('chat-a')
+  })
+
+  it('普通排队消息可原子转为引导；带新素材的项拒绝', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1', '改成横版'))
+    const promoted = await s.promoteQueuedTurnToSteer(a.id, '1', 'steer-1')
+    expect(promoted).toMatchObject({ ok: true })
+    if (!promoted.ok) return
+    expect(promoted.session.queuedTurns).toEqual([])
+    expect(promoted.session.pendingSteers).toEqual([
+      { id: 'steer-1', text: '改成横版', createdAt: expect.any(Number) },
+    ])
+
+    await s.enqueueTurn(a.id, {
+      ...turn('2', '带图修改'),
+      pendingAssetIds: ['asset-1'],
+    })
+    expect(
+      await s.promoteQueuedTurnToSteer(a.id, '2', 'steer-2'),
+    ).toEqual({ ok: false, reason: 'has_assets' })
+  })
+
   it('★★ 消息写回只更新 messages，不会把运行中后来入队的任务整行覆盖掉', async () => {
     const s = store()
     const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })

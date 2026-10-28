@@ -80,6 +80,18 @@ export function removeAgentTurn(
   return normalizeQueuedTurns(current).filter((turn) => turn.id !== turnId)
 }
 
+export function updateAgentTurnText(
+  current: readonly QueuedAgentTurn[] | undefined,
+  turnId: string,
+  text: string,
+): QueuedAgentTurn[] {
+  const nextText = text.trim()
+  if (!nextText) return normalizeQueuedTurns(current)
+  return normalizeQueuedTurns(current).map((turn) =>
+    turn.id === turnId ? { ...turn, text: nextText } : turn,
+  )
+}
+
 export function takeNextAgentTurn(
   current: readonly QueuedAgentTurn[] | undefined,
 ): { turn: QueuedAgentTurn | null; turns: QueuedAgentTurn[] } {

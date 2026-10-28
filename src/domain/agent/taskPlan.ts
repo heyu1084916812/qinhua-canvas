@@ -17,12 +17,18 @@ export interface AgentTaskPlanStep {
   note?: string
   startedAt?: number
   finishedAt?: number
+  /** 用户明确确认过“这一步的结果可以接受”的时间。 */
+  reviewApprovedAt?: number
+  /** 当前步骤已产出可验收结果的时间；有此值且未验收时禁止进入下一阶段。 */
+  resultsReadyAt?: number
 }
 
 export interface AgentTaskPlan {
   id: string
   title: string
   summary?: string
+  /** 计划成立所依赖、但尚未由用户确认的前提。 */
+  assumptions?: string[]
   steps: AgentTaskPlanStep[]
   currentStepId?: string
   createdAt: number
@@ -42,6 +48,7 @@ export type AgentTaskPlanResult =
   | { ok: false; problems: string[] }
 
 const MAX_STEPS = 16
+const MAX_ASSUMPTIONS = 8
 const TERMINAL_STEP_STATUSES = new Set<AgentTaskStepStatus>([
   'done',
   'failed',
@@ -62,6 +69,14 @@ function stepStatusOf(value: unknown): AgentTaskStepStatus {
   return (AGENT_TASK_STEP_STATUSES as readonly string[]).includes(String(value))
     ? (value as AgentTaskStepStatus)
     : 'pending'
+}
+
+function assumptionsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((item) => textOf(item, 180)).filter(Boolean))].slice(
+    0,
+    MAX_ASSUMPTIONS,
+  )
 }
 
 export function agentTaskPlanProgress(
@@ -125,6 +140,14 @@ export function normalizeStoredTaskPlan(
     used.add(stepId)
     const detail = textOf(row.detail, 240)
     const note = textOf(row.note, 240)
+    const reviewApprovedAt =
+      typeof row.reviewApprovedAt === 'number' && row.reviewApprovedAt > 0
+        ? row.reviewApprovedAt
+        : undefined
+    const resultsReadyAt =
+      typeof row.resultsReadyAt === 'number' && row.resultsReadyAt > 0
+        ? row.resultsReadyAt
+        : undefined
     steps.push({
       id: stepId,
       title: stepTitle,
@@ -140,20 +163,45 @@ export function normalizeStoredTaskPlan(
       ...(typeof row.finishedAt === 'number' && row.finishedAt > 0
         ? { finishedAt: row.finishedAt }
         : {}),
+      ...(reviewApprovedAt ? { reviewApprovedAt } : {}),
+      ...(resultsReadyAt ? { resultsReadyAt } : {}),
     })
   }
   if (steps.length < 2) return undefined
+  /**
+   * 旧版本允许跨步骤更新，可能留下“前一步未完成、后一步已完成”的坏顺序。
+   * 读回时把被跨过的后续状态收回 pending，避免进度卡继续显示两个当前步骤。
+   */
+  let blocked = false
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index]!
+    if (blocked && step.status !== 'pending') {
+      steps[index] = {
+        id: step.id,
+        title: step.title,
+        status: 'pending',
+        ...(step.detail ? { detail: step.detail } : {}),
+        ...(step.note ? { note: step.note } : {}),
+        ...(step.requiresConfirmation ? { requiresConfirmation: true } : {}),
+      }
+    }
+    if (step.status !== 'done' && step.status !== 'skipped') blocked = true
+  }
   const requestedCurrent = textOf(source.currentStepId, 80)
   const currentStepId =
-    steps.find((step) => step.id === requestedCurrent)?.id ??
+    steps.find(
+      (step) => step.id === requestedCurrent && step.status === 'in_progress',
+    )?.id ??
     steps.find((step) => step.status === 'in_progress')?.id
   const summary = textOf(source.summary, 240)
+  const assumptions = assumptionsOf(source.assumptions)
   return {
     id,
     title,
     steps,
     ...(currentStepId ? { currentStepId } : {}),
     ...(summary ? { summary } : {}),
+    ...(assumptions.length > 0 ? { assumptions } : {}),
     createdAt:
       typeof source.createdAt === 'number' && source.createdAt > 0
         ? source.createdAt
@@ -178,6 +226,7 @@ export function normalizeTaskPlanProposal(
   const source = recordOf(raw)
   const title = textOf(source.title, 80)
   const summary = textOf(source.summary, 240)
+  const assumptions = assumptionsOf(source.assumptions)
   const rows = Array.isArray(source.steps) ? source.steps : []
   const problems: string[] = []
   if (!title) problems.push('计划缺少标题')
@@ -226,6 +275,7 @@ export function normalizeTaskPlanProposal(
       id: options.id,
       title,
       ...(summary ? { summary } : {}),
+      ...(assumptions.length > 0 ? { assumptions } : {}),
       steps,
       currentStepId: steps[0]?.id,
       createdAt: options.now,
@@ -237,9 +287,9 @@ export function normalizeTaskPlanProposal(
 /**
  * 更新计划中的一个步骤。
  *
- * `done` / `skipped` 后会自动把下一个未完成步骤设为 `in_progress`，这样模型只
- * 需要报告“刚做完哪一步”，面板就会自然露出“现在做什么”。失败则停下来，不自动
- * 跳过或重试。
+ * 步骤必须严格按顺序推进：上一步没有结束，不能把后面的步骤写成 `in_progress`；
+ * 完成一步也不会自动启动下一步，模型必须在下一次真正开始时显式写 `in_progress`。
+ * 需要用户验收的步骤，在没有 `reviewApprovedAt` 前不能写 `done`。
  */
 export function updateAgentTaskPlanStep(
   plan: AgentTaskPlan,
@@ -262,37 +312,83 @@ export function updateAgentTaskPlanStep(
       ],
     }
   }
+  const step = plan.steps[stepIndex]
+  const previousOpen = plan.steps
+    .slice(0, stepIndex)
+    .find((item) => !TERMINAL_STEP_STATUSES.has(item.status))
+  const activeIndex = plan.steps.findIndex((item) => item.status === 'in_progress')
+
+  if (status === 'pending') {
+    return {
+      ok: false,
+      problems: ['步骤不能由模型退回 pending；请继续当前步骤或结束整轮等待用户'],
+    }
+  }
+  if (status === 'in_progress') {
+    if (TERMINAL_STEP_STATUSES.has(step.status)) {
+      return { ok: false, problems: [`步骤「${step.title}」已经结束，不能重新开始`] }
+    }
+    if (previousOpen) {
+      return {
+        ok: false,
+        problems: [`请先完成上一步「${previousOpen.title}」，再开始「${step.title}」`],
+      }
+    }
+    if (activeIndex >= 0 && activeIndex !== stepIndex) {
+      return {
+        ok: false,
+        problems: [`当前步骤「${plan.steps[activeIndex]?.title ?? activeIndex + 1}」还没有结束`],
+      }
+    }
+  }
+  if (status === 'done') {
+    if (step.status === 'done') {
+      return { ok: true, plan: { ...plan, updatedAt: now } }
+    }
+    if (step.status !== 'in_progress') {
+      return {
+        ok: false,
+        problems: [`步骤「${step.title}」还没有开始，不能直接标为完成`],
+      }
+    }
+    if (step.requiresConfirmation && !step.reviewApprovedAt) {
+      return {
+        ok: false,
+        problems: [
+          `步骤「${step.title}」的结果还需要用户验收。先调用 requestTaskConfirmation，` +
+            'purpose 写 review、stepId 写当前步骤；用户确认后才能标为 done。',
+        ],
+      }
+    }
+  }
+  if (status === 'skipped' || status === 'failed') {
+    if (step.status !== 'in_progress' && activeIndex !== stepIndex) {
+      return {
+        ok: false,
+        problems: [`只能结束当前进行中的步骤；「${step.title}」尚未开始`],
+      }
+    }
+  }
   const note = textOf(source.note, 240)
   const steps = plan.steps.map((step, index) => {
     if (index !== stepIndex) {
-      if (status === 'in_progress' && step.status === 'in_progress') {
-        return { ...step, status: 'pending' as const }
-      }
       return { ...step }
     }
     return {
       ...step,
       status,
       ...(note ? { note } : {}),
-      ...(status !== 'pending' && !step.startedAt
+      ...(status === 'in_progress'
+        ? { reviewApprovedAt: undefined, resultsReadyAt: undefined }
+        : {}),
+      ...(!step.startedAt
         ? { startedAt: now }
         : {}),
       ...(TERMINAL_STEP_STATUSES.has(status) ? { finishedAt: now } : {}),
     }
   })
 
-  if (status === 'done' || status === 'skipped') {
-    const next = steps
-      .slice(stepIndex + 1)
-      .find((step) => step.status === 'pending')
-    if (next) next.status = 'in_progress'
-    if (next && !next.startedAt) next.startedAt = now
-  }
-
-  const currentStepId =
-    status === 'failed'
-      ? undefined
-      : steps.find((step) => step.status === 'in_progress')?.id
+  const currentStepId = steps.find((step) => step.status === 'in_progress')?.id
 
   return {
     ok: true,
@@ -305,21 +401,87 @@ export function updateAgentTaskPlanStep(
   }
 }
 
+/**
+ * 用户确认验收当前步骤的结果。只记录“结果已获用户确认”，不改 done；
+ * 下一步仍由模型显式写 in_progress，避免确认后自动串行执行。
+ */
+export function approveAgentTaskPlanReview(
+  plan: AgentTaskPlan,
+  stepId: string,
+  now: number,
+): AgentTaskPlanResult {
+  const step = plan.steps.find((item) => item.id === stepId)
+  if (!step) return { ok: false, problems: [`找不到计划步骤：${stepId}`] }
+  if (step.status !== 'in_progress') {
+    return {
+      ok: false,
+      problems: [`只有当前进行中的步骤需要结果验收；「${step.title}」当前是 ${step.status}`],
+    }
+  }
+  return {
+    ok: true,
+    plan: {
+      ...plan,
+      steps: plan.steps.map((item) =>
+        item.id === stepId
+          ? {
+              ...item,
+              resultsReadyAt: item.resultsReadyAt ?? now,
+              reviewApprovedAt: now,
+            }
+          : item,
+      ),
+      updatedAt: now,
+    },
+  }
+}
+
+/** 当前步骤已有可验收结果；此后必须等用户验收，不能再开下一阶段。 */
+export function markAgentTaskPlanResultsReady(
+  plan: AgentTaskPlan,
+  now: number,
+): AgentTaskPlanResult {
+  const current =
+    plan.steps.find((step) => step.id === plan.currentStepId) ??
+    plan.steps.find((step) => step.status === 'in_progress')
+  if (!current || current.status !== 'in_progress') {
+    return { ok: false, problems: ['当前没有可标记结果等待验收的计划步骤'] }
+  }
+  return {
+    ok: true,
+    plan: {
+      ...plan,
+      steps: plan.steps.map((step) =>
+        step.id === current.id ? { ...step, resultsReadyAt: now } : step,
+      ),
+      updatedAt: now,
+    },
+  }
+}
+
 export function taskPlanPrompt(plan: AgentTaskPlan): string {
   const progress = agentTaskPlanProgress(plan)
   return [
     '## 当前任务计划',
-    `计划：${plan.title}（${progress.completed}/${progress.total}）`,
+    `计划：${plan.title}｜${plan.id}（${progress.completed}/${progress.total}）`,
+    ...(plan.summary ? [`目标：${plan.summary}`] : []),
+    ...(plan.assumptions?.length
+      ? ['计划前提（未经用户明确确认前不得当成事实）：', ...plan.assumptions.map((item) => `- ${item}`)]
+      : []),
     ...plan.steps.map(
       (step) =>
         `- ${step.id}｜${step.title}｜${step.status}` +
         `${step.requiresConfirmation ? '｜需要用户确认' : ''}` +
+        `${step.reviewApprovedAt ? '｜用户已验收结果' : ''}` +
+        `${step.resultsReadyAt && !step.reviewApprovedAt ? '｜结果待验收' : ''}` +
         `${step.note ? `｜${step.note}` : ''}`,
     ),
     '',
-    '执行时必须用 updateTaskStep 更新这些 stepId 的状态：开始一步写 in_progress，',
-    '完成写 done，失败写 failed，不适用写 skipped。不要只在正文里口头说“正在做/已完成”。',
-    '步骤标注“需要用户确认”时，在真正越过该阶段之前调用 requestTaskConfirmation。',
+    '一次只能推进一个步骤。用 updateTaskStep 在真正开始时写 in_progress；上一步结束前不能开始下一步。',
+    '完成一步只写 done，系统不会自动启动下一步。失败写 failed，不适用写 skipped。',
+    '标注“需要用户确认”的步骤完成后，必须先调用 requestTaskConfirmation（purpose=review）',
+    '请用户验收结果；用户确认后才能把这一步写 done。结果待验收期间禁止 applyPlan / runNode',
+    '进入下一阶段。视觉验收发现问题时更不能自动进入下一步。',
   ].join('\n')
 }
 

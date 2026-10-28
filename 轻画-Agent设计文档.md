@@ -1,11 +1,20 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-28：严格单步、结果验收与队列直发（对账 #788 / #789）。** 计划同一时间只能有
+> 一个进行中步骤；`done / skipped` 只结束当前步骤，不会自动启动下一步。设计、生成、页面等
+> 有产出的步骤在用户验收前保持“结果待验收”，工具层会阻断下一阶段建图与生成。
+> `requestTaskConfirmation` 必须带 `stepId`，验收用 `purpose=review`；计划用 `assumptions`
+> 明示未确认前提。只有显式 `requiresConfirmation=true` 的步骤要求验收，旧计划缺字段时
+> 不默认开启；review 确认可补齐 `resultsReadyAt`。确认正文按编号项和长句拆行。Agent 忙碌时发送统一排队，队列项提供
+> “引导 / 删除 / 更多”；更多菜单只编辑消息。等待确认时点“引导”会取消尚未执行的动作并立即
+> 以新用户回合发送，运行中则转为当前任务的 steering。
+
 > **2026-10-28：持久任务计划与中途确认（对账 #786）。** 复杂任务先分析必需输入；缺关键输入
 > 时先问用户，信息足够后调用 `proposeTaskPlan`，计划必须由用户确认。批准后计划写入
 > `AgentSession.taskPlan`，每一步用 `updateTaskStep` 报告 `in_progress / done / failed /
 > skipped`，面板顶部进度卡据此显示当前步骤与勾选。关键阶段用 `requestTaskConfirmation`
-> 暂停等待判断；计划与中途确认都不受自动生成模式代点。视觉验收后允许把“验收”步骤打勾，
-> 但仍禁止同一轮自动改图或重跑。Agent 产物缩略图统一走画布灯箱放大。
+> 暂停等待判断；计划与中途确认都不受自动生成模式代点。当前验收口径以 #788 为准：
+> 用户确认结果前不能把步骤打勾或继续下一阶段。Agent 产物缩略图统一走画布灯箱放大。
 
 > **2026-10-27：确认取消与任务停止收口（对账 #785）。** 写操作批准必须按
 > `waiting_confirmation → planning → waiting_generation` 两步入生成；`rememberMemory`

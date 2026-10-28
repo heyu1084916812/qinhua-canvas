@@ -123,10 +123,7 @@ import {
   sessionForQueuedTurn,
   type QueuedAgentTurn,
 } from '../../../../domain/agent/queuedTurn'
-import {
-  steerMessagesOf,
-  type AgentSteer,
-} from '../../../../domain/agent/steering'
+import { steerMessagesOf } from '../../../../domain/agent/steering'
 import {
   IconAuto,
   IconArrowUp,
@@ -140,13 +137,15 @@ import {
   IconLoop,
   IconManual,
   IconMention,
+  IconMore,
   IconModelCube,
   IconPlus,
   IconRename,
   IconSettings,
   IconSkill,
+  IconSteer,
 } from '../../toolbar/icons'
-import { toConversation } from './conversation'
+import { readableConfirmationLines, toConversation } from './conversation'
 import { TaskPlanCard } from './TaskPlanCard'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
@@ -318,7 +317,37 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const stickyModelRef = useRef<{ image?: string; video?: string }>({})
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
-  const [sendMode, setSendMode] = useState<'queue' | 'steer'>('queue')
+  const [queueMenuId, setQueueMenuId] = useState<string | null>(null)
+  const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
+  const [editingQueueText, setEditingQueueText] = useState('')
+  useEffect(() => {
+    setQueueMenuId(null)
+    setEditingQueueId(null)
+    setEditingQueueText('')
+  }, [current?.id])
+  useEffect(() => {
+    if (!queueMenuId) return
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (
+        target.closest(`[data-agent-queue-more="${queueMenuId}"]`) ||
+        target.closest(`[data-agent-queue-menu="${queueMenuId}"]`)
+      ) {
+        return
+      }
+      setQueueMenuId(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setQueueMenuId(null)
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [queueMenuId])
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
   const allChannels = useSyncExternalStore(
     channels.subscribe,
@@ -2071,37 +2100,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     return true
   }, [applySessionSnapshot, current, jobs, projectId, sessions, setStatusFor, store])
 
-  /**
-   * 运行中引导只插入当前任务，不启动第二个回合。带新素材的要求仍走排队，
-   * 因为当前已发出的模型请求不能中途改变视觉输入。
-   */
-  const steerText = useCallback(async (raw: string) => {
-    if (!current || !statusCanSteer(status)) return false
-    const text = raw.trim()
-    if (!text) return false
-    if (current.pendingAssetIds?.length) {
-      store.notify('当前引导带新素材，请改用排队执行', 'error')
-      return false
-    }
-    const steer: AgentSteer = {
-      id: createId('steer'),
-      text,
-      createdAt: Date.now(),
-    }
-    const added = await sessions.enqueueSteer(current.id, steer)
-    if (!added.ok) {
-      if (added.reason === 'full') {
-        store.notify('当前任务的引导已达上限，请等待下一步应用', 'error')
-      }
-      return false
-    }
-    applySessionSnapshot(added.session)
-    if (currentIdRef.current === current.id) {
-      setDraft((value) => (value.trim() === text ? '' : value))
-    }
-    return true
-  }, [applySessionSnapshot, current, sessions, status, store])
-
   const removeQueued = useCallback(async (turnId: string) => {
     if (!current) return
     const queuedJob = await jobs.forTurn(current.id, turnId)
@@ -2116,7 +2114,34 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     const next = await sessions.removeQueuedTurn(current.id, turnId)
     if (next) applySessionSnapshot(next)
+    setQueueMenuId((id) => (id === turnId ? null : id))
   }, [applySessionSnapshot, current, jobs, sessions])
+
+  const beginQueueEdit = (turn: QueuedAgentTurn) => {
+    setQueueMenuId(null)
+    setEditingQueueId(turn.id)
+    setEditingQueueText(turn.text)
+  }
+
+  const commitQueueEdit = useCallback(async () => {
+    if (!current || !editingQueueId) return
+    const text = editingQueueText.trim()
+    if (!text) {
+      store.notify('消息不能为空', 'error')
+      return
+    }
+    const next = await sessions.updateQueuedTurnText(current.id, editingQueueId, text)
+    if (next) applySessionSnapshot(next)
+    setEditingQueueId(null)
+    setEditingQueueText('')
+  }, [
+    applySessionSnapshot,
+    current,
+    editingQueueId,
+    editingQueueText,
+    sessions,
+    store,
+  ])
 
   const pumpQueuedTurn = useCallback(async (sessionId: string) => {
     if (queuePumpingRef.current.has(sessionId)) return
@@ -2190,16 +2215,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const send = useCallback(() => {
     if (!draft.trim()) return
     if (statusIsBusy(status) || (current && isSessionActivityActive(current.id))) {
-      if (sendMode === 'steer' && statusCanSteer(status)) {
-        void steerText(draft)
-      } else {
-        void queueText(draft)
-      }
-      setSendMode('queue')
+      void queueText(draft)
       return
     }
     void sendText(draft)
-  }, [current, draft, queueText, sendMode, sendText, status, steerText])
+  }, [current, draft, queueText, sendText, status])
 
   /**
    * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
@@ -2236,7 +2256,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       session: AgentSession,
       request: AgentToolRequest | undefined,
       result: 'canceled' | 'interrupted',
-    ) => {
+    ): Promise<AgentSession | null> => {
       const queueTurnId = activeQueueTurnOf(session.id)
       const settledMessages = request
         ? confirmationSettlementMessages(messages, request, result)
@@ -2316,6 +2336,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         setMessages(settledMessages)
       }
       setStatusFor(session.id, IDLE_STATUS)
+      return latest
     },
     [
       applySessionSnapshot,
@@ -2326,6 +2347,82 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       transitionSessionJob,
     ],
   )
+
+  /**
+   * 队列项的“直接引导”：带新素材的消息不能被中途改成引导，因为当前请求的视觉输入
+   * 已经发出；普通文字则立即进入当前任务。若正停在确认卡，先取消这次待执行动作，
+   * 再把消息作为新的用户回合发出去，避免旧动作先执行、引导最后才看到。
+   */
+  const guideQueuedTurn = useCallback(async (turn: QueuedAgentTurn) => {
+    if (!current || !statusCanSteer(status)) return
+    if (turn.pendingAssetIds?.length) {
+      store.notify('带新素材的消息不能中途引导，请等它按队列发送', 'error')
+      return
+    }
+    const queuedJob = await jobs.forTurn(current.id, turn.id)
+
+    if (status.kind === 'awaitingConfirm') {
+      const withoutTurn = await sessions.removeQueuedTurn(current.id, turn.id)
+      if (!withoutTurn) return
+      applySessionSnapshot(withoutTurn)
+      if (queuedJob?.status === 'queued') {
+        await jobs.transition(
+          queuedJob.id,
+          'canceled',
+          'canceled',
+          {},
+          { reason: 'promoted_to_steer' },
+        )
+      }
+      const settled = await settleInterruptedSession(
+        withoutTurn,
+        status.request,
+        'canceled',
+      )
+      const target = settled ?? withoutTurn
+      store.notify('已取消等待中的动作，并立即发送这条引导', 'info')
+      await sendText(turn.text, sessionForQueuedTurn(target, turn))
+      return
+    }
+
+    const promoted = await sessions.promoteQueuedTurnToSteer(
+      current.id,
+      turn.id,
+      createId('steer'),
+    )
+    if (!promoted.ok) {
+      store.notify(
+        promoted.reason === 'has_assets'
+          ? '带新素材的消息不能中途引导，请等它按队列发送'
+          : promoted.reason === 'steer_full'
+            ? '当前任务的引导已达上限'
+            : '这条排队消息已经不存在',
+        'error',
+      )
+      return
+    }
+    applySessionSnapshot(promoted.session)
+    if (queuedJob?.status === 'queued') {
+      await jobs.transition(
+        queuedJob.id,
+        'canceled',
+        'canceled',
+        {},
+        { reason: 'promoted_to_steer' },
+      )
+    }
+    setQueueMenuId(null)
+    store.notify('已转为引导，将在 Agent 下一次动作前应用', 'info')
+  }, [
+    applySessionSnapshot,
+    current,
+    jobs,
+    sendText,
+    sessions,
+    settleInterruptedSession,
+    status,
+    store,
+  ])
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
@@ -2949,7 +3046,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 一整屏 JSON 打给用户。翻成人话这件事放在 `conversation.ts` 的纯函数里，
    * 因为「哪一步该说什么」是产品口径，得能断言。
    */
-  const items = useMemo(() => toConversation(messages), [messages])
+  const items = useMemo(
+    () =>
+      toConversation([
+        ...messages,
+        ...steerMessagesOf(current?.pendingSteers ?? [], stripMentionMarkup),
+      ]),
+    [current?.pendingSteers, messages],
+  )
   /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示（图变更时跟着刷） */
   const graph = useGraph()
   const hashOfNode = useMemo(() => {
@@ -3089,6 +3193,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const pendingPlan = previewOf(status, store)
+  const editingQueueTurn =
+    current?.queuedTurns.find((turn) => turn.id === editingQueueId) ?? null
   const pendingTaskStepId =
     status.kind === 'awaitingConfirm' &&
     status.request.name === 'requestTaskConfirmation'
@@ -3258,11 +3364,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         <TaskPlanCard
           plan={current.taskPlan}
           pendingConfirmationStepId={pendingTaskStepId}
-          running={
-            status.kind === 'thinking' ||
-            status.kind === 'toolRunning' ||
-            status.kind === 'executing'
-          }
         />
       )}
 
@@ -3473,17 +3574,118 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 <div key={turn.id} className={styles.queueItem} data-agent-queue-item={turn.id}>
                   <span className={styles.queueIndex}>{index + 1}</span>
                   <span className={styles.queueText}>{queuedTurnPreview(turn.text)}</span>
-                  <button
-                    type="button"
-                    className={styles.queueRemove}
-                    onClick={() => void removeQueued(turn.id)}
-                    title="移出队列"
-                    data-agent-queue-remove
-                  >
-                    <IconClose size={13} />
-                  </button>
+                  <div className={styles.queueActions}>
+                    <button
+                      type="button"
+                      className={styles.queueSteer}
+                      onClick={() => void guideQueuedTurn(turn)}
+                      disabled={
+                        !statusCanSteer(status) ||
+                        (turn.pendingAssetIds?.length ?? 0) > 0
+                      }
+                      title={
+                        (turn.pendingAssetIds?.length ?? 0) > 0
+                          ? '带新素材的消息只能排队'
+                          : statusCanSteer(status)
+                            ? '直接引导当前任务'
+                            : '当前没有可引导的任务'
+                      }
+                      aria-label="直接引导"
+                      data-agent-queue-steer
+                    >
+                      <IconSteer size={14} />
+                      <span>引导</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.queueAction}
+                      onClick={() => void removeQueued(turn.id)}
+                      title="删除消息"
+                      aria-label="删除消息"
+                      data-agent-queue-remove
+                    >
+                      <IconDelete size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.queueAction}
+                      onClick={() =>
+                        setQueueMenuId((id) => (id === turn.id ? null : turn.id))
+                      }
+                      title="更多"
+                      aria-label="更多"
+                      aria-haspopup="menu"
+                      aria-expanded={queueMenuId === turn.id}
+                      data-agent-queue-more
+                    >
+                      <IconMore size={15} />
+                    </button>
+                  </div>
+                  {queueMenuId === turn.id && editingQueueId !== turn.id && (
+                    <div
+                      className={styles.queueMenu}
+                      role="menu"
+                      data-agent-queue-menu={turn.id}
+                    >
+                      <button
+                        type="button"
+                        className={styles.queueMenuItem}
+                        role="menuitem"
+                        onClick={() => beginQueueEdit(turn)}
+                        data-agent-queue-edit
+                      >
+                        <IconRename size={14} />
+                        编辑消息
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
+            </div>
+          )}
+          {editingQueueTurn && (
+            <div className={styles.queueEditPopover}>
+              <textarea
+                className={styles.queueEditInput}
+                value={editingQueueText}
+                rows={3}
+                autoFocus
+                aria-label="编辑排队消息"
+                onChange={(event) => setEditingQueueText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setEditingQueueId(null)
+                    setEditingQueueText('')
+                  }
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    void commitQueueEdit()
+                  }
+                }}
+                data-agent-queue-edit-input
+              />
+              <div className={styles.queueEditActions}>
+                <button
+                  type="button"
+                  className={styles.queueEditSave}
+                  onClick={() => void commitQueueEdit()}
+                  disabled={!editingQueueText.trim()}
+                  data-agent-queue-edit-save
+                >
+                  <IconCheck size={13} />
+                  保存
+                </button>
+                <button
+                  type="button"
+                  className={styles.queueEditCancel}
+                  onClick={() => {
+                    setEditingQueueId(null)
+                    setEditingQueueText('')
+                  }}
+                >
+                  取消
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -3959,41 +4161,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               onClose={() => setOpenPicker(null)}
               onSelect={(v) => void setAutoRun(v === 'auto')}
             />
-            {statusCanSteer(status) && draft.trim() && (
-              <div
-                className={styles.sendMode}
-                role="group"
-                aria-label="忙碌时发送方式"
-                data-agent-send-mode
-              >
-                <button
-                  type="button"
-                  className={
-                    sendMode === 'queue'
-                      ? styles.sendModeActive
-                      : styles.sendModeBtn
-                  }
-                  aria-pressed={sendMode === 'queue'}
-                  onClick={() => setSendMode('queue')}
-                  data-agent-send-queue
-                >
-                  排队
-                </button>
-                <button
-                  type="button"
-                  className={
-                    sendMode === 'steer'
-                      ? styles.sendModeActive
-                      : styles.sendModeBtn
-                  }
-                  aria-pressed={sendMode === 'steer'}
-                  onClick={() => setSendMode('steer')}
-                  data-agent-send-steer
-                >
-                  引导
-                </button>
-              </div>
-            )}
           </div>
 
           {/*
@@ -4018,13 +4185,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               type="button"
               className={`${styles.send} ${styles.sendActive}`}
               onClick={() => void send()}
-              title={
-                statusIsBusy(status)
-                  ? sendMode === 'steer'
-                    ? '插入当前任务'
-                    : '加入队列'
-                  : '发送'
-              }
+              title={statusIsBusy(status) ? '加入队列' : '发送'}
               data-agent-send
             >
               <IconArrowUp size={16} />
@@ -4118,16 +4279,25 @@ function previewOf(
   if (name === 'proposeTaskPlan') {
     const title = typeof a.title === 'string' ? a.title.trim() : '执行计划'
     const summary = typeof a.summary === 'string' ? a.summary.trim() : ''
+    const assumptions = Array.isArray(a.assumptions)
+      ? a.assumptions
+          .filter((value): value is string => typeof value === 'string')
+          .flatMap((value) => readableConfirmationLines(value))
+      : []
     const steps = Array.isArray(a.steps)
       ? a.steps.flatMap((value, index) => {
           if (!value || typeof value !== 'object') return []
           const row = value as Record<string, unknown>
           const stepTitle = typeof row.title === 'string' ? row.title.trim() : ''
           if (!stepTitle) return []
+          const detail = typeof row.detail === 'string' ? row.detail.trim() : ''
           return [
             `${index + 1}. ${stepTitle}${
-              row.requiresConfirmation === true ? '（中途确认）' : ''
+              row.requiresConfirmation !== false ? '（完成需验收）' : ''
             }`,
+            ...(detail
+              ? readableConfirmationLines(detail).map((line) => `   产出：${line}`)
+              : []),
           ]
         })
       : []
@@ -4137,8 +4307,11 @@ function previewOf(
       lines: [
         title,
         ...(summary ? [summary] : []),
+        ...(assumptions.length > 0
+          ? ['计划前提（请核对）：', ...assumptions.map((line) => `· ${line}`)]
+          : []),
         ...steps,
-        '确认后才会开始执行；每一步的状态会显示在上方进度卡。',
+        '确认后才会开始执行；每一步完成后都会停下来等你验收。',
       ],
       action: '确认计划',
     }
@@ -4152,8 +4325,8 @@ function previewOf(
     return {
       tool: name,
       title: question,
-      lines: detail ? [detail] : [],
-      action: '确认并继续',
+      lines: readableConfirmationLines(detail),
+      action: a.purpose === 'review' ? '结果满意，继续' : '确认并继续',
     }
   }
   /**

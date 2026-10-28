@@ -137,7 +137,7 @@
 
 .panelFrame {
   position: fixed;
-  z-index: 45;
+  z-index: 47;
   min-width: 280px;
   box-sizing: border-box;
   /**

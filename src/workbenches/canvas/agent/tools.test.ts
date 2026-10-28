@@ -116,7 +116,7 @@ describe('工具声明', () => {
     )
   })
 
-  it('★★ 任务计划先提出、批准后保存，再按 stepId 推进中间确认', async () => {
+  it('★★ 任务计划严格按顺序推进，产出步骤验收后才允许完成', async () => {
     let current: import('../../../domain/agent/taskPlan').AgentTaskPlan | undefined
     const save = vi.fn(async (plan: import('../../../domain/agent/taskPlan').AgentTaskPlan) => {
       current = plan
@@ -134,16 +134,19 @@ describe('工具声明', () => {
       'proposeTaskPlan',
       {
         title: '品牌视觉套件',
+        summary: '先梳理输入，再生成视觉规范',
+        assumptions: ['品牌名暂定 HE YU'],
         steps: [
-          { id: 'research', title: '梳理品牌输入' },
+          { id: 'research', title: '梳理品牌输入', requiresConfirmation: false },
           { id: 'visual', title: '生成视觉规范', requiresConfirmation: true },
-          { id: 'deliver', title: '制作应用物料' },
+          { id: 'deliver', title: '制作应用物料', requiresConfirmation: true },
         ],
       },
       ctx,
     )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
     expect(proposed.ok).toBe(true)
     expect(proposed.plan.currentStepId).toBe('research')
+    expect(proposed.plan.assumptions).toEqual(['品牌名暂定 HE YU'])
 
     const updated = (await executeConfirmedTool(
       'updateTaskStep',
@@ -151,24 +154,139 @@ describe('工具声明', () => {
       ctx,
     )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
     expect(updated.ok).toBe(true)
-    expect(updated.plan.currentStepId).toBe('visual')
+    expect(updated.plan.currentStepId).toBeUndefined()
     expect(updated.plan.steps[0]).toMatchObject({
       status: 'done',
       note: '已整理 4 项输入',
     })
 
+    const started = (await executeConfirmedTool(
+      'updateTaskStep',
+      { stepId: 'visual', status: 'in_progress' },
+      ctx,
+    )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
+    expect(started.ok).toBe(true)
+    expect(started.plan.currentStepId).toBe('visual')
+
+    expect(
+      await executeConfirmedTool(
+        'updateTaskStep',
+        { stepId: 'visual', status: 'done' },
+        ctx,
+      ),
+    ).toMatchObject({ ok: false })
+
+    current = {
+      ...started.plan,
+      steps: started.plan.steps.map((step) =>
+        step.id === 'visual' ? { ...step, resultsReadyAt: 175 } : step,
+      ),
+    }
     expect(
       await executeConfirmedTool(
         'requestTaskConfirmation',
-        { stepId: 'visual', question: '主色用偏砖红还是正朱红？' },
+        {
+          stepId: 'visual',
+          purpose: 'review',
+          question: '这版视觉规范是否满意？',
+        },
         ctx,
       ),
     ).toMatchObject({
       ok: true,
       approved: true,
+      purpose: 'review',
       stepId: 'visual',
+      plan: {
+        steps: [
+          { id: 'research', status: 'done' },
+          { id: 'visual', status: 'in_progress', reviewApprovedAt: expect.any(Number) },
+          { id: 'deliver', status: 'pending' },
+        ],
+      },
     })
-    expect(save).toHaveBeenCalledTimes(2)
+
+    const completed = (await executeConfirmedTool(
+      'updateTaskStep',
+      { stepId: 'visual', status: 'done' },
+      ctx,
+    )) as { ok: boolean; plan: import('../../../domain/agent/taskPlan').AgentTaskPlan }
+    expect(completed.ok).toBe(true)
+    expect(completed.plan.steps.map((step) => step.status)).toEqual([
+      'done',
+      'done',
+      'pending',
+    ])
+    expect(completed.plan.currentStepId).toBeUndefined()
+    expect(save).toHaveBeenCalled()
+  })
+
+  it('★★ 生成成功后标记结果待验收，并拦住下一阶段建图', async () => {
+    let current: import('../../../domain/agent/taskPlan').AgentTaskPlan = {
+      id: 'plan-review',
+      title: 'Logo 设计',
+      steps: [
+        {
+          id: 'logo',
+          title: '生成 Logo',
+          status: 'in_progress',
+          requiresConfirmation: true,
+          startedAt: 1,
+        },
+        {
+          id: 'deck',
+          title: '制作作品集',
+          status: 'pending',
+          requiresConfirmation: true,
+        },
+      ],
+      currentStepId: 'logo',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const save = vi.fn(async (plan: typeof current) => {
+      current = plan
+      return plan
+    })
+    const ctx = {
+      ...setup().ctx,
+      taskPlan: {
+        get: async () => current,
+        save,
+      },
+    } satisfies AgentToolContext
+
+    const ran = (await executeConfirmedTool(
+      'runNode',
+      { nodeIds: ['node-logo'] },
+      ctx,
+    )) as {
+      ok: boolean
+      plan: import('../../../domain/agent/taskPlan').AgentTaskPlan
+    }
+    expect(ran.ok).toBe(true)
+    expect(ran.plan.steps[0]?.resultsReadyAt).toEqual(expect.any(Number))
+
+    expect(
+      await executeConfirmedTool(
+        'applyPlan',
+        {
+          summary: '下一阶段',
+          nodes: [
+            {
+              localId: 'page',
+              type: 'generation',
+              data: { mode: 'image', prompt: '作品集内页' },
+            },
+          ],
+          edges: [],
+        },
+        ctx,
+      ),
+    ).toMatchObject({
+      ok: false,
+      problems: expect.arrayContaining([expect.stringContaining('等用户验收')]),
+    })
   })
 })
 

@@ -7,6 +7,7 @@ import {
   removeAgentTurn,
   sessionForQueuedTurn,
   takeNextAgentTurn,
+  updateAgentTurnText,
   type QueuedAgentTurn,
 } from './queuedTurn'
 
@@ -48,6 +49,18 @@ describe('Agent 待执行回合', () => {
       turns: [queued[1], queued[2]],
     })
     expect(removeAgentTurn(queued, '2').map((item) => item.id)).toEqual(['1', '3'])
+  })
+
+  it('编辑排队消息只改正文，不改位置和冻结设置', () => {
+    const queued = [
+      { ...turn('1', '旧文案'), imageModel: 'image-a' },
+      turn('2'),
+    ]
+    expect(updateAgentTurnText(queued, '1', '  新文案  ')).toEqual([
+      { ...turn('1', '新文案'), imageModel: 'image-a' },
+      turn('2'),
+    ])
+    expect(updateAgentTurnText(queued, '1', '   ')).toEqual(queued)
   })
 
   it('★★ 真正执行时使用入队时冻结的模型、技能和素材引用', () => {

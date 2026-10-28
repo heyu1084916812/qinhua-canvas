@@ -137,6 +137,9 @@ describe('组装', () => {
     expect(p).toContain('视觉验收是只读检查')
     expect(p).toContain('缺少会改变结果的关键信息时')
     expect(p).toContain('不要只在正文里说')
+    expect(p).toContain('一次只推进一个步骤')
+    expect(p).toContain('purpose')
+    expect(p).toContain('用户确认前不能写')
   })
 })
 

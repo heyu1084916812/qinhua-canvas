@@ -31,6 +31,8 @@ import {
 import type { VisualReviewResult } from '../../../domain/agent/visualReview'
 import {
   AGENT_TASK_STEP_STATUSES,
+  approveAgentTaskPlanReview,
+  markAgentTaskPlanResultsReady,
   normalizeTaskPlanProposal,
   updateAgentTaskPlanStep,
   type AgentTaskPlan,
@@ -188,6 +190,13 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
       properties: {
         title: { type: 'string', description: '计划标题，最多 80 字' },
         summary: { type: 'string', description: '一句话说明目标与交付物' },
+        assumptions: {
+          type: 'array',
+          maxItems: 8,
+          items: { type: 'string' },
+          description:
+            '计划依赖但尚未由用户明确确认的前提。不要把审美判断或用户资料写成既定事实。',
+        },
         steps: {
           type: 'array',
           minItems: 2,
@@ -203,10 +212,11 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
               detail: { type: 'string', description: '可选：本阶段产出' },
               requiresConfirmation: {
                 type: 'boolean',
-                description: '本阶段开始前是否需要用户做选择或批准',
+                description:
+                  '本阶段结果是否需要用户明确验收后才能完成。设计、生成、页面等有产出的步骤应为 true。',
               },
             },
-            required: ['id', 'title'],
+            required: ['id', 'title', 'requiresConfirmation'],
           },
         },
       },
@@ -216,8 +226,8 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
   {
     name: 'updateTaskStep',
     description:
-      '更新已批准执行计划中的一个步骤。真正开始该阶段时写 in_progress，' +
-      '完成后写 done，失败写 failed，不适用写 skipped。不要只在回复正文里说进度。',
+      '按顺序更新已批准计划中的一个步骤。上一步未完成时不能开始下一步；' +
+      '完成一步不会自动启动下一步。需要验收的步骤必须先由 requestTaskConfirmation 获得用户确认。',
     parameters: {
       type: 'object',
       properties: {
@@ -234,16 +244,26 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
   {
     name: 'requestTaskConfirmation',
     description:
-      '执行计划中的某个阶段确实需要用户选择、提供关键信息或批准高风险动作时，' +
-      '暂停任务并让用户确认。普通生成扣费仍由 runNode 自己的确认卡处理，不要重复询问。',
+      '暂停当前阶段并向用户确认一个具体问题。purpose=clarification 用于补充关键信息；' +
+      'purpose=review 用于在生成或设计结果出来后询问用户是否满意。' +
+      '普通生成扣费仍由 runNode 自己的确认卡处理，不要重复询问。',
     parameters: {
       type: 'object',
       properties: {
         stepId: { type: 'string', description: '当前计划步骤 id' },
+        purpose: {
+          type: 'string',
+          enum: ['clarification', 'review'],
+          description:
+            'clarification=开始前补充信息；review=阶段结果已产出，请用户验收是否满意。',
+        },
         question: { type: 'string', description: '要让用户决定的具体问题' },
-        detail: { type: 'string', description: '可选：选项、影响或建议' },
+        detail: {
+          type: 'string',
+          description: '可选：短段落或换行分隔的要点；不要把多个问题挤成一大段。',
+        },
       },
-      required: ['question'],
+      required: ['stepId', 'purpose', 'question'],
     },
   },
   {
@@ -1408,12 +1428,39 @@ async function compareNodesInStore(
   return { ok: true, compareNodeId: id }
 }
 
+async function markCurrentPlanResultsReady(
+  ctx: AgentToolContext,
+  plan: AgentTaskPlan | undefined,
+): Promise<AgentTaskPlan | undefined> {
+  if (!ctx.taskPlan || !plan) return undefined
+  const marked = markAgentTaskPlanResultsReady(plan, Date.now())
+  if (!marked.ok) return undefined
+  return (await ctx.taskPlan.save(marked.plan)) ?? undefined
+}
+
 export async function executeConfirmedTool(
   name: string,
   args: unknown,
   ctx: AgentToolContext,
 ): Promise<unknown> {
   const a = asRecord(args)
+  const activePlan = ctx.taskPlan ? await ctx.taskPlan.get() : undefined
+  const activeStep =
+    activePlan?.steps.find((step) => step.id === activePlan.currentStepId) ??
+    activePlan?.steps.find((step) => step.status === 'in_progress')
+  if (
+    activeStep?.resultsReadyAt &&
+    !activeStep.reviewApprovedAt &&
+    (name === 'applyPlan' || name === 'runNode' || name === 'runFrom')
+  ) {
+    return {
+      ok: false,
+      problems: [
+        `当前步骤「${activeStep.title}」已有结果，正在等用户验收。`,
+        '先调用 requestTaskConfirmation（purpose=review）让用户确认；确认前不能新建下一阶段或继续生成。',
+      ],
+    }
+  }
   switch (name) {
     case 'proposeTaskPlan': {
       if (!ctx.taskPlan) {
@@ -1451,15 +1498,42 @@ export async function executeConfirmedTool(
       const question = typeof a.question === 'string' ? a.question.trim() : ''
       if (!question) return { ok: false, problems: ['缺少需要用户确认的问题'] }
       const stepId = typeof a.stepId === 'string' ? a.stepId.trim() : ''
-      const current = ctx.taskPlan ? await ctx.taskPlan.get() : undefined
-      if (stepId && current && !current.steps.some((step) => step.id === stepId)) {
+      if (!ctx.taskPlan) {
+        return { ok: false, problems: ['当前会话没有接入任务计划存储'] }
+      }
+      if (!stepId) {
+        return { ok: false, problems: ['阶段确认必须绑定当前计划的 stepId'] }
+      }
+      const current = await ctx.taskPlan.get()
+      if (!current) {
+        return { ok: false, problems: ['当前没有已批准的执行计划'] }
+      }
+      const step = current.steps.find((item) => item.id === stepId)
+      if (!step) {
         return { ok: false, problems: [`找不到计划步骤：${stepId}`] }
+      }
+      const purpose = a.purpose === 'review' ? 'review' : 'clarification'
+      if (purpose === 'review') {
+        const approved = approveAgentTaskPlanReview(current, stepId, Date.now())
+        if (!approved.ok) return approved
+        const saved = await ctx.taskPlan.save(approved.plan)
+        if (!saved) return { ok: false, problems: ['任务步骤验收状态保存失败'] }
+        return {
+          ok: true,
+          approved: true,
+          purpose,
+          question,
+          stepId,
+          plan: saved,
+          message: '用户已验收当前步骤结果，可以继续。',
+        }
       }
       return {
         ok: true,
         approved: true,
+        purpose,
         question,
-        ...(stepId ? { stepId } : {}),
+        stepId,
         message: '用户已确认，可以继续执行当前计划步骤。',
       }
     }
@@ -1615,7 +1689,14 @@ export async function executeConfirmedTool(
       const ids = ctx.resolveNodeIds ? ctx.resolveNodeIds(rawIds) : rawIds
       if (ids.length === 0) return { ok: false, problems: ['没有指定要跑的节点'] }
       const outcomes = await ctx.runNodes(ids, ctx.signal)
-      return { ok: outcomes.every((o) => o.ok), outcomes }
+      const savedPlan = outcomes.some((outcome) => outcome.ok)
+        ? await markCurrentPlanResultsReady(ctx, activePlan)
+        : undefined
+      return {
+        ok: outcomes.every((o) => o.ok),
+        outcomes,
+        ...(savedPlan ? { plan: savedPlan } : {}),
+      }
     }
     case 'runFrom': {
       const rawIds = asStringArray(a.nodeIds)
@@ -1623,7 +1704,14 @@ export async function executeConfirmedTool(
       const resolved = runFromNodeIds(ctx.store, ids)
       if (!resolved.ok) return resolved
       const outcomes = await ctx.runNodes(resolved.ids, ctx.signal)
-      return { ok: outcomes.every((o) => o.ok), outcomes }
+      const savedPlan = outcomes.some((outcome) => outcome.ok)
+        ? await markCurrentPlanResultsReady(ctx, activePlan)
+        : undefined
+      return {
+        ok: outcomes.every((o) => o.ok),
+        outcomes,
+        ...(savedPlan ? { plan: savedPlan } : {}),
+      }
     }
     case 'rememberMemory': {
       if (!ctx.rememberMemory) {

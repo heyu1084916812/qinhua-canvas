@@ -6,6 +6,7 @@ import {
   normalizeQueuedTurns,
   removeAgentTurn,
   takeNextAgentTurn,
+  updateAgentTurnText,
   type QueuedAgentTurn,
 } from '../../domain/agent/queuedTurn'
 import {
@@ -161,6 +162,19 @@ export interface AgentSessionStore {
     turn: QueuedAgentTurn,
   ): Promise<{ ok: true; session: AgentSession } | { ok: false; reason: 'missing' | 'empty' | 'full' }>
   removeQueuedTurn(id: string, turnId: string): Promise<AgentSession | null>
+  updateQueuedTurnText(
+    id: string,
+    turnId: string,
+    text: string,
+  ): Promise<AgentSession | null>
+  promoteQueuedTurnToSteer(
+    id: string,
+    turnId: string,
+    steerId: string,
+  ): Promise<
+    | { ok: true; session: AgentSession }
+    | { ok: false; reason: 'missing' | 'has_assets' | 'steer_full' }
+  >
   enqueueSteer(
     id: string,
     steer: AgentSteer,
@@ -356,6 +370,51 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       }
       await storage.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
       return next
+    },
+
+    async updateQueuedTurnText(id, turnId, text) {
+      if (!text.trim()) return find(id)
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const latest = toSession(rows[0])
+        const next = {
+          ...latest,
+          queuedTurns: updateAgentTurnText(latest.queuedTurns, turnId, text),
+          updatedAt: Date.now(),
+        }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return next
+      })
+    },
+
+    async promoteQueuedTurnToSteer(id, turnId, steerId) {
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return { ok: false as const, reason: 'missing' as const }
+        const latest = toSession(rows[0])
+        const turn = latest.queuedTurns.find((item) => item.id === turnId)
+        if (!turn) return { ok: false as const, reason: 'missing' as const }
+        if (turn.pendingAssetIds?.length) {
+          return { ok: false as const, reason: 'has_assets' as const }
+        }
+        const steering = enqueueAgentSteer(latest.pendingSteers, {
+          id: steerId,
+          text: turn.text,
+          createdAt: Date.now(),
+        })
+        if (!steering.ok) {
+          return { ok: false as const, reason: 'steer_full' as const }
+        }
+        const next = {
+          ...latest,
+          pendingSteers: steering.steers,
+          queuedTurns: removeAgentTurn(latest.queuedTurns, turnId),
+          updatedAt: Date.now(),
+        }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return { ok: true as const, session: next }
+      })
     },
 
     async enqueueSteer(id, steer) {
