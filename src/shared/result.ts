@@ -155,7 +155,7 @@ const CLI_TEXT: Record<'notfound' | 'failed' | 'timeout' | 'canceled', string> =
 }
 
 const EXECUTION_TEXT: Record<'accepted', string> = {
-  accepted: '请求已经提交，但后续状态查询失败',
+  accepted: '请求可能已被上游接收，但结果暂时无法确认',
 }
 
 export function describeError(e: AppError): string {

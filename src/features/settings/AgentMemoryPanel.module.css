@@ -93,6 +93,13 @@
   gap: 4px;
 }
 
+.behaviorHint {
+  margin: 10px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.55;
+}
+
 .choice,
 .choiceOn {
   min-height: 28px;

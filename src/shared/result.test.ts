@@ -112,6 +112,16 @@ describe('asAppError', () => {
     expect(describeError({ kind: 'http', status: 502, body: raw, verbatim: true })).toBe(raw)
   })
 
+  it('accepted execution errors do not claim the upstream definitely received the request', () => {
+    const text = describeError({
+      kind: 'execution',
+      detail: 'accepted',
+      message: 'timeout',
+    })
+    expect(text).toContain('可能已被上游接收')
+    expect(text).not.toContain('请求已经提交')
+  })
+
   /**
    * comfly 这类网关在地区限制 / WAF / 登录页上会回整页 HTML。
    * 以前 parse 错误只显示“格式对不上”，用户看不到 HTML 里真正的“不支持当前地区”；

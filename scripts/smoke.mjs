@@ -2535,7 +2535,7 @@ async function g10(browser) {
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
   // 配一个 mock 渠道并启用（含勾选模型：§7.4 起画布下拉只列已勾选的）
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
 
   // 进画布（文生图模板）
   await gotoProjects(page)
@@ -21482,7 +21482,16 @@ async function g95(browser) {
     )
   await page.locator(`[data-node-id="${pickNodeId}"]`).click()
   await sleep(400)
-  await page.locator('[data-agent-pick-selection]').click()
+  rec(
+    g,
+    '★★ Agent 输入区不再显示单独的“取选中节点”按钮',
+    (await page.locator('[data-agent-pick-selection]').count()) === 0,
+  )
+  await agentMentionChip.click()
+  await sleep(300)
+  await page
+    .locator(`[data-param-popup="agent-mention"] [data-param-option="node:${pickNodeId}"]`)
+    .click()
   await sleep(900)
   const pickedChips = await page
     .locator('[data-agent-input] [data-mention-kind="node"]')
@@ -21490,7 +21499,7 @@ async function g95(browser) {
   const nodesAfterPick = await page.locator('[data-node-type]').count()
   rec(
     g,
-    '★★ 取画布上选中的节点当素材（落成正文 chip，不重复建节点）',
+    '★★ 通过 @ 引用画布节点当素材（落成正文 chip，不重复建节点）',
     pickedChips >= 1 && nodesAfterPick === nodesBeforePick,
     `chip=${pickedChips} 节点 ${nodesBeforePick}→${nodesAfterPick}`,
   )
@@ -40368,9 +40377,11 @@ async function g769(browser) {
   const thumbBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
   const now = Date.now()
+  let priorDeliveryRow = null
 
   try {
     await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+    priorDeliveryRow = await sharedRow(page, 'presets', 'agent:delivery')
     await sharedPut(page, 'projects', {
       id: projectId,
       name: 'Agent 队列验证',
@@ -40718,36 +40729,92 @@ async function g769(browser) {
         !(await page.locator('[data-agent-task-step="deliver"]').innerText()).includes(
           '完成需验收',
         ) &&
-        (await page.locator('[data-agent-send-mode]').count()) === 1 &&
+        (await page.locator('[data-agent-send-mode]').count()) === 0 &&
         (await page
-          .locator('[data-agent-send-mode-button="queue"]')
-          .getAttribute('aria-pressed')) === 'true' &&
-        (await page
-          .locator('[data-agent-send-mode-button="steer"]')
-          .getAttribute('aria-pressed')) === 'false',
+          .locator('[data-agent-composer]')
+          .getAttribute('data-agent-delivery-mode')) === 'steer',
     )
-    await page.locator('[data-agent-send-mode-button="steer"]').click()
-    const steerMode = await page.evaluate(() => {
-      const group = document.querySelector('[data-agent-send-mode]')
-      return {
-        mode: group?.getAttribute('data-agent-send-mode'),
-        queue: document
-          .querySelector('[data-agent-send-mode-button="queue"]')
-          ?.getAttribute('aria-pressed'),
-        steer: document
-          .querySelector('[data-agent-send-mode-button="steer"]')
-          ?.getAttribute('aria-pressed'),
-      }
-    })
+    const skillIconShape = await page.evaluate(() => ({
+      agentPaths:
+        document.querySelector('[data-agent-skill-open] svg')?.querySelectorAll('path').length ?? 0,
+      globalPaths:
+        document
+          .querySelector('[data-sidebar-item="/skills"] svg')
+          ?.querySelectorAll('path').length ?? 0,
+      selectionButton: document.querySelectorAll('[data-agent-pick-selection]').length,
+    }))
     rec(
       g,
-      '★★ 运行中可直接切换“排队 / 引导”，引导为即时投递模式',
-      steerMode.mode === 'steer' &&
-        steerMode.queue === 'false' &&
-        steerMode.steer === 'true',
-      JSON.stringify(steerMode),
+      '★★ Agent 与全局技能入口使用同一本打开的书图标，旧的取选区按钮已移除',
+      skillIconShape.agentPaths === 3 &&
+        skillIconShape.globalPaths === 3 &&
+        skillIconShape.selectionButton === 0,
+      JSON.stringify(skillIconShape),
     )
-    await page.locator('[data-agent-send-mode-button="queue"]').click()
+    const activityCollapsed = await page.evaluate(() => ({
+      visible: Boolean(document.querySelector('[data-agent-activity]')),
+      expanded: document
+        .querySelector('[data-agent-activity]')
+        ?.getAttribute('data-agent-activity-expanded'),
+      rows: document.querySelectorAll('[data-agent-activity-list] > *').length,
+    }))
+    rec(
+      g,
+      '★★ 运行态只显示一行思考 / 执行状态',
+      activityCollapsed.visible &&
+        activityCollapsed.expanded === 'false' &&
+        activityCollapsed.rows === 0,
+      JSON.stringify(activityCollapsed),
+    )
+    if ((await page.locator('[data-agent-activity-toggle]').count()) > 0) {
+      await page.locator('[data-agent-activity-toggle]').click()
+      const activityRows = await page.locator('[data-agent-activity-list] > *').count()
+      await page.screenshot({
+        path: `${OUT}/769-agent-activity-expanded${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+      })
+      rec(
+        g,
+        '★★ 状态条展开后最多显示前五步',
+        activityRows >= 1 && activityRows <= 5,
+        `rows=${activityRows}`,
+      )
+      await page.locator('[data-agent-activity-toggle]').click()
+    }
+    await page.locator('[data-sidebar-settings]').click()
+    await page.locator('[data-global-settings-tab="agentMemory"]').click()
+    await page.locator('[data-agent-behavior]').waitFor({ state: 'visible', timeout: 5000 })
+    const globalDelivery = await page.evaluate(() => ({
+      steer: document
+        .querySelector('[data-agent-delivery-mode-option="steer"]')
+        ?.getAttribute('aria-pressed'),
+      queue: document
+        .querySelector('[data-agent-delivery-mode-option="queue"]')
+        ?.getAttribute('aria-pressed'),
+    }))
+    rec(
+      g,
+      '★★ Agent 面板不再放投递开关，全局设置默认“引导”',
+      globalDelivery.steer === 'true' && globalDelivery.queue === 'false',
+      JSON.stringify(globalDelivery),
+    )
+    await page.screenshot({
+      path: `${OUT}/769-agent-delivery-setting${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
+    await page.locator('[data-agent-delivery-mode-option="queue"]').click()
+    await page.locator('[data-global-settings-close]').click()
+    const queueAfterSetting = await page
+      .locator('[data-agent-composer]')
+      .getAttribute('data-agent-delivery-mode')
+    rec(
+      g,
+      '★★ 全局设置切到“排队”后 Agent 当前会话立即生效',
+      queueAfterSetting === 'queue',
+      `mode=${queueAfterSetting}`,
+    )
+    await page.locator('[data-sidebar-settings]').click()
+    await page.locator('[data-global-settings-tab="agentMemory"]').click()
+    await page.locator('[data-agent-delivery-mode-option="steer"]').click()
+    await page.locator('[data-global-settings-close]').click()
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
     await page.setViewportSize({ width: 1024, height: 700 })
     await sleep(300)
@@ -41072,6 +41139,11 @@ async function g769(browser) {
 
     rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   } finally {
+    if (priorDeliveryRow) {
+      await sharedPut(page, 'presets', priorDeliveryRow).catch(() => {})
+    } else {
+      await sharedDelete(page, 'presets', 'agent:delivery').catch(() => {})
+    }
     await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
     await sharedDelete(page, 'agentJobs', 'g769-job-1').catch(() => {})
     await sharedDelete(page, 'agentJobs', 'g769-job-2').catch(() => {})

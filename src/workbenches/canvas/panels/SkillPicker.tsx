@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { skillGuard, type SkillEntity } from '../../../domain/prompt/skill'
+import { IconSkill } from '../toolbar/icons'
 import styles from './SkillPicker.module.css'
 
 /**
@@ -67,6 +68,7 @@ export function SkillPicker({
         title={skills.length > 0 ? '选择一个技能处理这段文本' : '还没有技能：去技能库添加'}
         onClick={() => setOpen((v) => !v)}
       >
+        <IconSkill size={16} />
         {selected ? selected.name : '技能'}
         {skills.length > 0 && !selected && <span className={styles.count}>{skills.length}</span>}
       </button>

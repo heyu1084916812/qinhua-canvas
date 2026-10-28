@@ -88,13 +88,13 @@ export function IconCanvas({ size = 20 }: IconProps) {
   )
 }
 
-/** 技能库：一块文档 + 星标 */
+/** 技能库：一本打开的书 */
 export function IconSkills({ size = 20 }: IconProps) {
   return (
     <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
-      <path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20V4a.5.5 0 0 1 .5-.5Z" />
-      <path d="M14 3.5V8h4.5" />
-      <path d="m12 11.5 1.1 2.2 2.4.35-1.75 1.7.4 2.4-2.15-1.15-2.15 1.15.4-2.4-1.75-1.7 2.4-.35Z" />
+      <path d="M3.7 5.2c2.9-.8 5.5.1 8.3 2v12c-2.8-1.9-5.4-2.8-8.3-2Z" />
+      <path d="M20.3 5.2c-2.9-.8-5.5.1-8.3 2v12c2.8-1.9 5.4-2.8 8.3-2Z" />
+      <path d="M12 7.2v12" />
     </svg>
   )
 }

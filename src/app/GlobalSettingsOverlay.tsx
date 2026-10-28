@@ -87,7 +87,7 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   backup: '导出、导入与恢复数据。',
   snapshots: '保存和还原项目结构。',
   defaults: '设置新建节点默认值。',
-  agentMemory: '管理 Agent 长期记忆。',
+  agentMemory: '管理 Agent 记忆与运行偏好。',
   packs: '管理扩展包。',
   notify: '设置完成与失败提醒。',
   help: '查看帮助与新手引导。',

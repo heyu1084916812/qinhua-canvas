@@ -5,6 +5,10 @@
 
 ## 渠道 · 模型选路
 
+- **模型验证超时不能冒充生图超时**：`VERIFY_TIMEOUT_MS = 10s` 只给 verify / listModels；
+  异步生图提交走 `IMAGE_GENERATE_TIMEOUT_MS`，单次任务查询走
+  `IMAGE_TASK_POLL_TIMEOUT_MS`。提交请求超时只能显示“可能已被上游接收”，不得
+  写成“已经提交”后再自动重发。
 - **文本工具只认当前启用渠道的真实提供者**：`resolveTextRoute` 接收节点旧渠道作为“首选”，
   但只有该渠道确实提供模型时才保留；否则从其余启用渠道重新解析。全部不支持时返回 `null`，
   `completeText` 必须在本地报 `missingModel`，不得回退旧渠道再请求。
@@ -57,6 +61,13 @@
 
 ## Agent · 确认与停止
 
+- **Agent 投递偏好是全局持久偏好**：`queue | steer` 住 `presets/agent:delivery`，
+  默认 `steer`；Agent 面板不得再出现第二套本地切换。`Ctrl/Cmd+Enter` 只对本次取反。
+- **执行 Promise 必须覆盖落库**：`CanvasExecutionProvider.launch()` 在 `startRun()` 后
+  `await store.flush()`，否则 Agent 会在一张图已经成功、RunRecord 仍在防抖队列时误报
+  “没有留下记录”。Agent 对账前再 flush 一次；重试只读存储，不重发请求。
+- **运行状态条只展示真实状态**：一行默认、最多展开五步；工具步骤取当前用户回合之后，
+  不展示模型隐藏思维链，也不虚构生成步骤。
 - **内容滚动与固定 footer 分层**：任务计划、消息、确认卡、待引导和队列都属于
   `[data-agent-content]`；对话模型行与 composer 留在滚动区外并禁止收缩。
   动态内容只让内容区滚动，不能把输入框挤出 Agent 浮窗。

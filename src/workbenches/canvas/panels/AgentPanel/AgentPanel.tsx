@@ -27,6 +27,7 @@ import type {
   AgentJobPatch,
   AgentJobStatus,
 } from '../../../../domain/agent/job'
+import type { AgentDeliveryMode } from '../../../../domain/agent/delivery'
 import {
   confirmationApprovalSteps,
   confirmationRequiresExplicitApproval,
@@ -131,6 +132,11 @@ import {
 } from '../../../../domain/agent/queuedTurn'
 import { steerMessagesOf } from '../../../../domain/agent/steering'
 import {
+  getAgentDeliveryMode,
+  setAgentDeliveryMode,
+  subscribeAgentDeliveryMode,
+} from '../../../../state/ui/agentDelivery'
+import {
   IconAuto,
   IconArrowUp,
   IconCheck,
@@ -139,7 +145,6 @@ import {
   IconCopyText,
   IconDelete,
   IconChat,
-  IconImage,
   IconLoop,
   IconManual,
   IconMention,
@@ -151,7 +156,12 @@ import {
   IconSkill,
   IconSteer,
 } from '../../toolbar/icons'
-import { readableConfirmationLines, toConversation } from './conversation'
+import {
+  readableConfirmationLines,
+  toConversation,
+  type ConversationItem,
+  type ConversationStep,
+} from './conversation'
 import { TaskPlanCard } from './TaskPlanCard'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
@@ -189,10 +199,8 @@ type Status =
   | { kind: 'toolRunning' }
   | { kind: 'awaitingConfirm'; request: AgentToolRequest }
   | { kind: 'paused'; message: string }
-  | { kind: 'executing' }
+  | { kind: 'executing'; tool?: string }
   | { kind: 'error'; message: string }
-
-type AgentDeliveryMode = 'queue' | 'steer'
 
 /** 单例的空闲态：按会话取状态时的兜底值，**必须是同一个对象**（否则每次都换引用，依赖数组炸） */
 const IDLE_STATUS: Status = { kind: 'idle' }
@@ -206,6 +214,13 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
   executing: '正在执行',
   error: '出错',
 }
+
+const GENERATION_ACTIVITY_PHRASES = [
+  '别急，图马上出来',
+  '正在把画面整理好',
+  '生成任务正在推进',
+  '快好了，正在检查结果',
+] as const
 
 function statusIsBusy(status: Status): boolean {
   return status.kind !== 'idle' && status.kind !== 'error'
@@ -292,7 +307,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
   }, [])
   const [queueExpanded, setQueueExpanded] = useState(false)
-  const [deliveryMode, setDeliveryMode] = useState<AgentDeliveryMode>('queue')
+  const deliveryMode = useSyncExternalStore(
+    subscribeAgentDeliveryMode,
+    getAgentDeliveryMode,
+    getAgentDeliveryMode,
+  )
   const queuePumpingRef = useRef(new Set<string>())
   const jobIdsRef = useRef(new Map<string, string>())
   const confirmingRef = useRef(new Set<string>())
@@ -334,6 +353,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setEditingQueueId(null)
     setEditingQueueText('')
   }, [current?.id])
+  useEffect(() => {
+    let alive = true
+    void presets
+      .loadAgentDeliveryMode()
+      .then((mode) => {
+        if (alive) setAgentDeliveryMode(mode)
+      })
+      .catch(() => {
+        // 读取失败沿用内存默认“引导”，不打断 Agent 启动。
+      })
+    return () => {
+      alive = false
+    }
+  }, [presets])
   useEffect(() => {
     if (!queueMenuId) return
     const closeOutside = (event: PointerEvent) => {
@@ -930,9 +963,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               }
             }),
           )
+          // 运行记录与资产写入可能仍在画布 store 的防抖队列里；先等同一批落库，
+          // 再按新记录对账，避免把已经出图的节点误报成“没有留下记录”。
+          await store.flush()
           /**
-           * 运行记录由执行层 flush 后才返回，但多节点并发时偶尔会晚一拍。
-           * 给记录一个很短的 settle 窗口，避免“图已经出来、步骤卡却说没记录”。
+           * flush 之后通常第一轮就能读到全部新记录。保留短重试只兜底外部存储
+           * 的提交可见性延迟，不重发任何付费请求。
            * 这里只等**本次新记录**，不会重发任何付费请求。
            */
           let outcomes: ReturnType<typeof agentRunOutcomeOf>[] = []
@@ -1655,7 +1691,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           { tool: outcome.request.name, auto: true },
         )
       }
-      setStatusFor(session.id, { kind: 'executing' })
+      setStatusFor(session.id, { kind: 'executing', tool: outcome.request.name })
       const done = await executeConfirmedTool(
         outcome.request.name,
         outcome.request.args,
@@ -2608,7 +2644,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           { tool: request.name, approved: true },
         )
       }
-      setStatusFor(current.id, { kind: 'executing' })
+      setStatusFor(current.id, { kind: 'executing', tool: request.name })
       const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
       const imageNodeIds = [...new Set(
         [...messages].reverse().find((message) => message.role === 'user')?.imageNodeIds ?? [],
@@ -3006,31 +3042,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 与拖图不同：这些节点早就落库了，不需要再导一次，直接把 id 记进会话 ——
    * agent 会用同一套 `attach` 复用它们。
    */
-  const attachSelection = useCallback(async () => {
-    if (!current || selection.length === 0) return
-    const exist = new Set(store.getSnapshot().nodes.map((n) => n.id))
-    const picked = selection.filter((id) => exist.has(id))
-    if (picked.length === 0) {
-      store.notify('选中的不是画布上的节点', 'error')
-      return
-    }
-    /**
-     * 落成**正文里的引用 chip**（用户 2026-10-02：「点击节点后出现的把选中的节点当作
-     * 此次的素材……全部出现在正文里面，全部保持和艾特的出现的地方一样」）——
-     * 与 @ 引用同一套锚点与呈现，不再是正文外面另起一行的标签。
-     */
-    for (const id of picked) insertMention('node', id, nodeLabelOf(id))
-    const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
-    await patchSession({ pendingAssetIds: merged })
-  }, [current, selection, store, patchSession, insertMention, nodeLabelOf])
-
   /**
    * 多选浮层上那枚「添加到 agent」（用户 2026-10-05 第 11 条，参考图四第六个动作）。
    *
    * 画布侧与对话窗是**兄弟组件**，两边靠 `agentHandoff` 那个模块级单例交接（说明见
    * 那个文件）。这里做两件事，顺序不能反：
    * ① 先把 ids 落进**当前会话**（`pendingAssetIds`）并补成正文 chip —— 与
-   *    `attachSelection` 完全同一条口径，用户看到的就该是同一个东西；
+   *    用户看到的引用与普通 @ 节点保持同一种形态；
    * ② 取走即清空（`takeAgentHandoff`），否则每次切会话 / 重渲染都会再收一遍。
    *
    * 为什么用 ref 缓冲而不是直接消费：面板刚打开时 `current` 可能还没就绪
@@ -3661,15 +3679,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </div>
           )
         })}
-        {status.kind !== 'idle' && (
-          <div className={styles.statusLine} data-agent-status={status.kind}>
-            {STATUS_LABEL[status.kind]}
-            {status.kind === 'error' || status.kind === 'paused'
-              ? `：${status.message}`
-              : ''}
-          </div>
-        )}
       </div>
+
+      {status.kind !== 'idle' &&
+        (status.kind === 'error' || status.kind === 'paused' ? (
+          <div className={styles.statusLine} data-agent-status={status.kind}>
+            {STATUS_LABEL[status.kind]}：{status.message}
+          </div>
+        ) : (
+          <AgentActivityStrip status={status} items={items} />
+        ))}
 
       {status.kind === 'paused' && current?.continuation && (
         <div className={styles.step} data-agent-continuation>
@@ -3919,7 +3938,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         而 `textarea` 只能显示纯文本，做不到「一个矩形夹在文字中间」。
         素材标签也收在盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
       */}
-      <div className={styles.composer} data-agent-composer>
+      <div
+        className={styles.composer}
+        data-agent-composer
+        data-agent-delivery-mode={deliveryMode}
+      >
         {/*
           **没有独立的 chip 行了**（用户 2026-10-02：「agent 的 skill 选择后不要出现在
           图三的地方……点击节点后出现的把选中的节点当作此次的素材的时候都会出现在那里，
@@ -3927,7 +3950,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
           技能 / 生成模型 / 取选中素材现在**一律落成正文里的引用 chip**（`skill:` /
           `model:` / `node:` 三种 token），与 @ 引用同一套锚点与呈现：
-          · 插入：`insertMention(...)`（见上面各处的 onSelect / attachSelection）；
+          · 插入：`insertMention(...)`（见上面各处的 onSelect / attachFiles）；
           · 会话字段仍然照写（技能、图片 / 视频模型、素材 id），因为提示词与落地配方
             读的是它们 —— 正文是**看得见的记录**，会话行是**真正生效的设置**；
           · 进一个会话时只把素材 chip 补回正文（见下面那个 `restoredSessionRef` 的
@@ -4038,21 +4061,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 </div>
               )}
             </span>
-            {/*
-              画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
-              没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
-            */}
-            <button
-              type="button"
-              className={styles.iconBtn}
-              onClick={() => void attachSelection()}
-              disabled={selection.length === 0}
-              title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
-              data-agent-pick-selection
-            >
-              <IconImage size={16} />
-            </button>
-
             {/*
               工具条剩下的四件事（用户 2026-10-02 第二轮）：
               **@ 引用 / 模型 / 技能 / 手动·自动**。
@@ -4360,36 +4368,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             />
           </div>
 
-          {statusCanSteer(status) && (
-            <div
-              className={styles.deliveryMode}
-              data-agent-send-mode={deliveryMode}
-              role="group"
-              aria-label="运行中消息投递方式"
-            >
-              <button
-                type="button"
-                className={styles.deliveryModeButton}
-                aria-pressed={deliveryMode === 'queue'}
-                data-agent-send-mode-button="queue"
-                onClick={() => setDeliveryMode('queue')}
-                title="加入队列，等当前任务完成后再执行"
-              >
-                排队
-              </button>
-              <button
-                type="button"
-                className={styles.deliveryModeButton}
-                aria-pressed={deliveryMode === 'steer'}
-                data-agent-send-mode-button="steer"
-                onClick={() => setDeliveryMode('steer')}
-                title="立即引导当前任务（Ctrl/Cmd+Enter）"
-              >
-                引导
-              </button>
-            </div>
-          )}
-
           {/*
             发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
             与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
@@ -4442,6 +4420,149 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         />
       </div>
     </aside>
+  )
+}
+
+function currentTurnSteps(items: readonly ConversationItem[]): ConversationStep[] {
+  let start = 0
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index]?.kind === 'user') {
+      start = index + 1
+      break
+    }
+  }
+  return items
+    .slice(start)
+    .filter((item): item is ConversationStep => item.kind === 'step')
+}
+
+function activityTextOf(status: Status, generationPhraseIndex: number): string {
+  if (status.kind === 'executing') {
+    if (status.tool === 'runNode' || status.tool === 'runFrom') {
+      return GENERATION_ACTIVITY_PHRASES[
+        generationPhraseIndex % GENERATION_ACTIVITY_PHRASES.length
+      ]!
+    }
+    return '正在执行这一步操作'
+  }
+  if (status.kind === 'thinking') return '正在理解你的要求'
+  if (status.kind === 'toolRunning') return '正在查看画布和结果'
+  if (status.kind === 'awaitingConfirm') return '这一步需要你确认'
+  return STATUS_LABEL[status.kind]
+}
+
+function TypewriterActivity({ text }: { text: string }) {
+  const [visible, setVisible] = useState(text)
+  const [typing, setTyping] = useState(false)
+
+  useEffect(() => {
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduceMotion || text.length === 0) {
+      setVisible(text)
+      setTyping(false)
+      return
+    }
+    setVisible('')
+    setTyping(true)
+    let index = 0
+    const interval = Math.max(18, Math.min(55, Math.floor(800 / text.length)))
+    const timer = window.setInterval(() => {
+      index += 1
+      setVisible(text.slice(0, index))
+      if (index >= text.length) {
+        window.clearInterval(timer)
+        setTyping(false)
+      }
+    }, interval)
+    return () => window.clearInterval(timer)
+  }, [text])
+
+  return (
+    <span className={styles.activityCopy} aria-live="polite">
+      <span aria-hidden="true">
+        {visible}
+        {typing ? <span className={styles.activityCursor} /> : null}
+      </span>
+      <span className={styles.srOnly}>{text}</span>
+    </span>
+  )
+}
+
+function AgentActivityStrip({
+  status,
+  items,
+}: {
+  status: Status
+  items: readonly ConversationItem[]
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
+  const steps = currentTurnSteps(items)
+  const recent = steps.slice(-4).reverse()
+  const canExpand = recent.length > 0
+  const generationTool = status.kind === 'executing' ? status.tool : undefined
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [status.kind])
+
+  useEffect(() => {
+    if (status.kind !== 'executing' || (generationTool !== 'runNode' && generationTool !== 'runFrom')) {
+      setGenerationPhraseIndex(0)
+      return
+    }
+    const timer = window.setInterval(() => {
+      setGenerationPhraseIndex((current) => current + 1)
+    }, 4_000)
+    return () => window.clearInterval(timer)
+  }, [generationTool, status.kind])
+
+  const currentText = activityTextOf(status, generationPhraseIndex)
+
+  return (
+    <section
+      className={expanded ? `${styles.activity} ${styles.activityOpen}` : styles.activity}
+      data-agent-activity
+      data-agent-activity-expanded={expanded ? 'true' : 'false'}
+      data-agent-status={status.kind}
+    >
+      <div className={styles.activityHead}>
+        <span className={styles.activityDot} aria-hidden="true" />
+        <TypewriterActivity text={currentText} />
+        {canExpand ? (
+          <button
+            type="button"
+            className={styles.activityToggle}
+            data-agent-activity-toggle
+            aria-expanded={expanded}
+            aria-label={expanded ? '收起执行步骤' : '展开最近五步'}
+            title={expanded ? '收起执行步骤' : '展开最近五步'}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <span className={styles.activityToggleIcon}>
+              <IconChevronDown size={14} />
+            </span>
+          </button>
+        ) : null}
+      </div>
+      {expanded && canExpand ? (
+        <div className={styles.activityList} data-agent-activity-list>
+          {recent.map((step) => (
+            <div
+              key={step.id}
+              className={step.failed ? styles.activityRowFailed : styles.activityRow}
+            >
+              <span className={styles.activityStepName}>{step.label}</span>
+              {step.lines[0] ? (
+                <span className={styles.activityStepDetail}>{step.lines[0]}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   )
 }
 

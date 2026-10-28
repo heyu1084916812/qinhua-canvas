@@ -10,6 +10,11 @@
  */
 import type { StoragePort } from '../../platform/ports'
 import {
+  DEFAULT_AGENT_DELIVERY_MODE,
+  isAgentDeliveryMode,
+  type AgentDeliveryMode,
+} from '../../domain/agent/delivery'
+import {
   isRecipeRowId,
   NO_RECIPE,
   presetRowId,
@@ -38,6 +43,7 @@ const ROUTE_STRATEGY_ROW_ID = 'routing:strategy'
  */
 const AGENT_DEFAULT_ROW_ID = 'agent:default'
 const AGENT_DEFAULT_SKILL_ROW_ID = 'agent:skill'
+const AGENT_DELIVERY_ROW_ID = 'agent:delivery'
 
 /**
  * **技能收藏**的保留行 id（用户 2026-10-03：对话窗的技能菜单要按参考产品分成
@@ -97,6 +103,10 @@ export interface PresetStore {
   loadAgentDefaultSkill(): Promise<string | null>
   /** 写 Agent 默认技能；空值表示不设置默认技能 */
   saveAgentDefaultSkill(skillId: string | null): Promise<void>
+  /** Agent 运行中发送偏好；缺省必须是“引导”。 */
+  loadAgentDeliveryMode(): Promise<AgentDeliveryMode>
+  /** 写入 Agent 运行中发送偏好。 */
+  saveAgentDeliveryMode(mode: AgentDeliveryMode): Promise<void>
   /** 读技能收藏（技能 id 列表）；没收藏过返回空数组 */
   loadSkillFavorites(): Promise<string[]>
   /** 写技能收藏（整份覆盖） */
@@ -218,6 +228,25 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         )
       } catch {
         // 偏好写不进去不该打断使用；最坏情况只是下次仍需手选
+      }
+    },
+    async loadAgentDeliveryMode() {
+      try {
+        const rows = await storage.query('presets', { id: AGENT_DELIVERY_ROW_ID })
+        const mode = (rows[0] as { mode?: unknown } | undefined)?.mode
+        return isAgentDeliveryMode(mode) ? mode : DEFAULT_AGENT_DELIVERY_MODE
+      } catch {
+        return DEFAULT_AGENT_DELIVERY_MODE
+      }
+    },
+    async saveAgentDeliveryMode(mode) {
+      try {
+        await storage.put(
+          'presets',
+          { id: AGENT_DELIVERY_ROW_ID, mode } as never,
+        )
+      } catch {
+        // 偏好写不进去不该打断对话；当前会话仍按内存里的选择生效
       }
     },
     async loadSkillFavorites() {

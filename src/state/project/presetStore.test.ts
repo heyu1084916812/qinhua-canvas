@@ -85,6 +85,22 @@ describe('Agent 默认模型 · UI 偏好', () => {
     await s.saveAgentDefaultSkill(null)
     expect(await s.loadAgentDefaultSkill()).toBeNull()
   })
+
+  it('Agent 运行中发送偏好默认引导，保存排队后换实例仍能读回', async () => {
+    const platform = createMemoryPlatform()
+    const s = createPresetStore(platform.storage)
+    expect(await s.loadAgentDeliveryMode()).toBe('steer')
+    await s.saveAgentDeliveryMode('queue')
+    expect(await createPresetStore(platform.storage).loadAgentDeliveryMode()).toBe('queue')
+  })
+
+  it('Agent 发送偏好缺字段或坏值一律回退引导', async () => {
+    const platform = createMemoryPlatform()
+    for (const mode of [undefined, null, 'queue-ish', 1]) {
+      await platform.storage.put('presets', { id: 'agent:delivery', mode } as never)
+      expect(await createPresetStore(platform.storage).loadAgentDeliveryMode()).toBe('steer')
+    }
+  })
 })
 
 /**

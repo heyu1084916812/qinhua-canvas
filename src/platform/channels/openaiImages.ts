@@ -36,6 +36,7 @@ import {
   openAiBaseUrl,
   IMAGE_ASSET_DOWNLOAD_TIMEOUT_MS,
   IMAGE_GENERATE_TIMEOUT_MS,
+  IMAGE_TASK_POLL_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
 
@@ -965,7 +966,7 @@ export function createOpenAiImagesAdapter(
               ...(background ? { background } : {}),
               ...geminiFields,
             } satisfies Record<string, unknown>),
-          timeoutMs: VERIFY_TIMEOUT_MS,
+          timeoutMs: IMAGE_GENERATE_TIMEOUT_MS,
         },
         signal,
       )
@@ -1015,7 +1016,7 @@ export function createOpenAiImagesAdapter(
             url: pollUrl,
             method: 'GET',
             headers: authHeader(config.apiKey),
-            timeoutMs: VERIFY_TIMEOUT_MS,
+            timeoutMs: IMAGE_TASK_POLL_TIMEOUT_MS,
           },
           signal,
         )

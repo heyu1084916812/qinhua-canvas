@@ -820,6 +820,12 @@ export function CanvasExecutionProvider({
       const unbindAbort = bindAbortToCancel(signal, () => cancelRun(plan.id))
       try {
         await startRun(plan)
+        /**
+         * `runEngine` 结束后，节点结果与 RunRecord 仍可能留在 store 的防抖队列里。
+         * `runNode()` 的 Promise 只有在这里等到 flush 完成，调用方读 `runRecords`
+         * 才不会把一张已经成功的图误判成“没有留下记录”。
+         */
+        await store.flush()
       } finally {
         unbindAbort()
       }
