@@ -591,8 +591,38 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
   const refresh = useCallback(async () => {
     let rows = await sessions.list(projectId)
-    for (const row of rows) {
+    for (let row of rows) {
       const liveHere = isSessionActivityActive(row.id)
+      if (!liveHere && row.pendingConfirmation && row.pendingSteers.length > 0) {
+        const repaired = await sessions.repairConfirmationSteerCollision(row.id)
+        if (repaired) {
+          row = repaired
+          const staleJob = await jobs.active(row.id).catch(() => null)
+          if (staleJob) {
+            await jobs
+              .transition(
+                staleJob.id,
+                'canceled',
+                'canceled',
+                {},
+                { reason: 'recovered_confirmation_steer_collision' },
+              )
+              .catch(() => null)
+          }
+          setStatusFor(row.id, IDLE_STATUS)
+          store.notify(
+            '已恢复一条卡在确认步骤的引导，并转成排队消息；可点“继续”重发',
+            'info',
+          )
+        } else {
+          /*
+           * 开发模式会并发执行两次 refresh。另一路可能刚修完，这一路拿到的
+           * repair=null，但手里仍是修复前的旧快照；必须回库重读，否则后面会把
+           * 已清掉的 pendingConfirmation 重新写回界面状态。
+           */
+          row = (await sessions.get(row.id)) ?? row
+        }
+      }
       if (row.activeTurnId && !liveHere) {
         await sessions.releaseActiveTurn(row.id)
       }
@@ -612,7 +642,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     rows = await sessions.list(projectId)
     setList(rows)
     return rows
-  }, [sessions, jobs, projectId, setStatusFor])
+  }, [sessions, jobs, projectId, setStatusFor, store])
 
   const ensureAgentJob = useCallback(
     async (session: AgentSession, turnId: string): Promise<AgentJob> => {
@@ -2361,7 +2391,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     const queuedJob = await jobs.forTurn(current.id, turn.id)
 
-    if (status.kind === 'awaitingConfirm') {
+    const pendingConfirmation =
+      status.kind === 'awaitingConfirm' ? status.request : current.pendingConfirmation
+    if (pendingConfirmation) {
       const withoutTurn = await sessions.removeQueuedTurn(current.id, turn.id)
       if (!withoutTurn) return
       applySessionSnapshot(withoutTurn)
@@ -2376,7 +2408,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       const settled = await settleInterruptedSession(
         withoutTurn,
-        status.request,
+        pendingConfirmation,
         'canceled',
       )
       const target = settled ?? withoutTurn
@@ -2396,6 +2428,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ? '带新素材的消息不能中途引导，请等它按队列发送'
           : promoted.reason === 'steer_full'
             ? '当前任务的引导已达上限'
+            : promoted.reason === 'awaiting_confirmation'
+              ? 'Agent 正在等待确认，请重新点击引导'
             : '这条排队消息已经不存在',
         'error',
       )

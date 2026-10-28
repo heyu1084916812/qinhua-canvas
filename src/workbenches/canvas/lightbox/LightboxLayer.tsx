@@ -179,6 +179,8 @@ export function LightboxLayer() {
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [vp, setVp] = useState<Viewport | null>(null)
   const [mode, setMode] = useState<EditorMode>('view')
+  const previousAssetHashRef = useRef<string | undefined>(undefined)
+  const refitAfterMediaLoadRef = useRef(false)
 
   /**
    * 两种「框选模式」（见 store 里 `lightbox` 的注释）：
@@ -429,11 +431,28 @@ export function LightboxLayer() {
     return () => window.removeEventListener('keydown', onKey)
   }, [assetHash, close, hasGalleryNavigation, mode, navigateGallery])
 
-  // 换素材 = 重新来过：尺寸未知、落位未定
+  /**
+   * 同一次多选灯箱里切换上一张 / 下一张时，**保留上一帧的 natural + viewport**，
+   * 直到新图真正解码完成再一次性替换。
+   *
+   * 不能在这里无条件清空：`useAssetMeta(assetHash)` 的新 URL 是异步到达的，
+   * 清空后的那一帧仍会拿旧 URL 渲染 `.mediaPlain`，旧图会被短暂放大到舞台 90%，
+   * 然后才切到下一张。真正打开 / 关闭灯箱或换到另一组素材时仍需复位。
+   */
   useEffect(() => {
+    const switchingGalleryFrame =
+      !!previousAssetHashRef.current &&
+      previousAssetHashRef.current !== assetHash &&
+      hasGalleryNavigation
+    previousAssetHashRef.current = assetHash
+    if (switchingGalleryFrame) {
+      refitAfterMediaLoadRef.current = true
+      return
+    }
+    refitAfterMediaLoadRef.current = false
     setNatural(null)
     setVp(null)
-  }, [assetHash])
+  }, [assetHash, hasGalleryNavigation])
 
   /** 换图 / 换模式 = 选区作废（否则会把上一张图的框带到下一张上） */
   useEffect(() => {
@@ -880,6 +899,21 @@ export function LightboxLayer() {
   if (!lightbox) return null
 
   const placed = natural !== null && vp !== null
+  const settleNaturalSize = (w: number, h: number) => {
+    const next = { w, h }
+    setNatural(next)
+    if (!refitAfterMediaLoadRef.current) return
+    refitAfterMediaLoadRef.current = false
+    const r = stageRef.current?.getBoundingClientRect()
+    if (!r) return
+    setVp(
+      fitViewport(
+        [{ x: 0, y: 0, w: next.w, h: next.h }],
+        { x: r.x, y: r.y, w: r.width, h: r.height },
+        FIT_PADDING,
+      ),
+    )
+  }
   const box = placed
     ? {
         left: -vp.x * vp.zoom,
@@ -1088,9 +1122,9 @@ export function LightboxLayer() {
               playsInline
               autoPlay
               style={mediaStyle}
-              onLoadedMetadata={(e) =>
-                setNatural({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
-              }
+              onLoadedMetadata={(e) => {
+                settleNaturalSize(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
+              }}
               /**
                * ⚠️ **`pointerdown` 一律放行给舞台**（用户 2026-10-16：「拖动无法进行拖动图片」）。
                *
@@ -1116,7 +1150,10 @@ export function LightboxLayer() {
                  * assetHash 那张的尺寸算，两张尺寸万一不同也不会让整块视图跳一下。
                  */
                 if (!showSecondOnly) {
-                  setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+                  settleNaturalSize(
+                    e.currentTarget.naturalWidth,
+                    e.currentTarget.naturalHeight,
+                  )
                 }
               }}
               /** 同上：`pointerdown` 让给舞台起手平移（框选模式下本来就是让的） */

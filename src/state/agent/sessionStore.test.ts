@@ -178,6 +178,104 @@ describe('Agent 会话 · 待执行任务队列', () => {
     ).toEqual({ ok: false, reason: 'has_assets' })
   })
 
+  it('★ 有确认卡时不允许把排队消息写成下一步引导', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.enqueueTurn(a.id, turn('1', '我要粗野风'))
+    await s.updateFields(a.id, {
+      pendingConfirmation: {
+        callId: 'call-1',
+        name: 'proposeTaskPlan',
+        args: {},
+      },
+    })
+
+    expect(
+      await s.promoteQueuedTurnToSteer(a.id, '1', 'steer-1'),
+    ).toEqual({ ok: false, reason: 'awaiting_confirmation' })
+    const reopened = await s.get(a.id)
+    expect(reopened?.pendingSteers).toEqual([])
+    expect(reopened?.queuedTurns.map((item) => item.id)).toEqual(['1'])
+  })
+
+  it('★★ 旧版确认卡与引导并存时恢复成排队消息并补齐工具结果', async () => {
+    const s = store()
+    const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })
+    await s.saveMessages(a.id, [
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'proposeTaskPlan', args: '{}' }],
+      },
+    ])
+    await s.enqueueSteer(a.id, { id: 'steer-1', text: '我要粗野风', createdAt: 1 })
+    await s.updateFields(a.id, {
+      pendingConfirmation: {
+        callId: 'call-1',
+        name: 'proposeTaskPlan',
+        args: {},
+      },
+    })
+
+    const repaired = await s.repairConfirmationSteerCollision(a.id)
+    expect(repaired?.pendingConfirmation).toBeUndefined()
+    expect(repaired?.pendingSteers).toEqual([])
+    expect(repaired?.queuedTurns).toMatchObject([
+      {
+        id: 'recovered-steer-1',
+        text: '我要粗野风',
+        channelId: 'c1',
+        model: 'm1',
+      },
+    ])
+    expect(repaired?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call-1',
+      toolName: 'proposeTaskPlan',
+    })
+    expect(repaired?.messages.at(-1)?.content).toContain('"canceled":true')
+    expect(await s.repairConfirmationSteerCollision(a.id)).toBeNull()
+
+    // The same repair is all-or-nothing when recovery cannot fit every steer in the queue.
+    {
+      const overflow = store()
+      const overflowSession = await overflow.create({
+        projectId: 'p1',
+        channelId: 'c1',
+        model: 'm1',
+      })
+      for (let i = 0; i < 20; i += 1) {
+        await overflow.enqueueTurn(
+          overflowSession.id,
+          turn(String(i), `queued ${i}`),
+        )
+      }
+      await overflow.enqueueSteer(overflowSession.id, {
+        id: 'steer-overflow',
+        text: 'keep me',
+        createdAt: 21,
+      })
+      await overflow.updateFields(overflowSession.id, {
+        pendingConfirmation: {
+          callId: 'call-overflow',
+          name: 'proposeTaskPlan',
+          args: {},
+        },
+      })
+
+      const recovered = await overflow.repairConfirmationSteerCollision(
+        overflowSession.id,
+      )
+      expect(recovered).toBeNull()
+      const untouched = await overflow.get(overflowSession.id)
+      expect(untouched?.pendingConfirmation?.callId).toBe('call-overflow')
+      expect(untouched?.queuedTurns).toHaveLength(20)
+      expect(untouched?.pendingSteers).toMatchObject([
+        { id: 'steer-overflow', text: 'keep me' },
+      ])
+    }
+  })
+
   it('★★ 消息写回只更新 messages，不会把运行中后来入队的任务整行覆盖掉', async () => {
     const s = store()
     const a = await s.create({ projectId: 'p1', channelId: 'c1', model: 'm1' })

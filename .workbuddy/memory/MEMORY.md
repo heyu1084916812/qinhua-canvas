@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 确认 / 引导冲突与灯箱换图（2026-10-28 → 对账 #798）
+
+- **确认卡与待引导不能同时存在**：停在 `pendingConfirmation` 时，引导必须先取消未执行动作，
+  再作为新用户回合发送。旧数据冲突由 `repairConfirmationSteerCollision` 转回普通队列项，
+  并补配对 `tool(canceled)`；队列满时全有或全无，既不能丢消息，也不能留下无任务可挂的 steer。
+- **修复成功不等于 UI 已经正确**：开发模式会并发刷新两次；第二路拿旧快照且 repair 返回
+  `null` 时必须重新 `sessions.get()`，否则会把刚清掉的确认卡重新写回 `statusBySession`。
+- **灯箱换图先保几何、后换尺寸**：同 gallery 的 URL 异步到达期间保留上一帧 `natural / vp`，
+  新图解码完成后再用新尺寸重新 fit；不能先清空尺寸，让旧 URL 套 `.mediaPlain` 放大。
+- 验证：G798 四种视口 / 主题组合各 **3/3**；G795 四种组合各 **7/7**；
+  全量 Vitest **3530 passed / 1 skipped**；check / build / 脚本语法 / diff 校验通过。
+
 ### 灯箱点击、活动槽位与 SoonStudio 两段结果（2026-10-28 → 对账 #795 / #796 / #797）
 
 - **空节点不等于空槽**：只有 `assetHash` 为空还不够。节点若已被另一条计划的

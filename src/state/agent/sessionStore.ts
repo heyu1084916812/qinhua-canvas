@@ -19,6 +19,7 @@ import {
   normalizeStoredTaskPlan,
   type AgentTaskPlan,
 } from '../../domain/agent/taskPlan'
+import { confirmationSettlementMessages } from '../../domain/agent/confirmation'
 
 /**
  * Agent 会话存储（设计文档 §8 / §12）。
@@ -173,8 +174,18 @@ export interface AgentSessionStore {
     steerId: string,
   ): Promise<
     | { ok: true; session: AgentSession }
-    | { ok: false; reason: 'missing' | 'has_assets' | 'steer_full' }
+    | {
+        ok: false
+        reason: 'missing' | 'has_assets' | 'steer_full' | 'awaiting_confirmation'
+      }
   >
+  /**
+   * 修复旧版本留下的坏状态：确认卡与待发送引导同时存在。
+   *
+   * 引导被转成普通排队项，确认调用补一条 canceled 工具结果后清除；
+   * 返回 null 表示这条会话本来就不需要修复。
+   */
+  repairConfirmationSteerCollision(id: string): Promise<AgentSession | null>
   enqueueSteer(
     id: string,
     steer: AgentSteer,
@@ -393,6 +404,9 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         const rows = await tx.query('agentSessions', { id })
         if (!rows[0]) return { ok: false as const, reason: 'missing' as const }
         const latest = toSession(rows[0])
+        if (latest.pendingConfirmation) {
+          return { ok: false as const, reason: 'awaiting_confirmation' as const }
+        }
         const turn = latest.queuedTurns.find((item) => item.id === turnId)
         if (!turn) return { ok: false as const, reason: 'missing' as const }
         if (turn.pendingAssetIds?.length) {
@@ -414,6 +428,66 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         }
         await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
         return { ok: true as const, session: next }
+      })
+    },
+
+    async repairConfirmationSteerCollision(id) {
+      return storage.transaction(['agentSessions'], async (tx) => {
+        const rows = await tx.query('agentSessions', { id })
+        if (!rows[0]) return null
+        const latest = toSession(rows[0])
+        if (!latest.pendingConfirmation || latest.pendingSteers.length === 0) {
+          return null
+        }
+
+        let queuedTurns = normalizeQueuedTurns(latest.queuedTurns)
+        const recoveredSteerIds = new Set<string>()
+        let recoveredAll = true
+        for (const steer of normalizeAgentSteers(latest.pendingSteers)) {
+          const recovered = enqueueAgentTurn(queuedTurns, {
+            id: `recovered-${steer.id}`,
+            text: steer.text,
+            createdAt: steer.createdAt,
+            channelId: latest.channelId,
+            model: latest.model,
+            ...(latest.imageModel ? { imageModel: latest.imageModel } : {}),
+            ...(latest.videoModel ? { videoModel: latest.videoModel } : {}),
+            ...(latest.skillId ? { skillId: latest.skillId } : {}),
+            ...(latest.autoRun ? { autoRun: true } : {}),
+            ...(steer.imageNodeIds?.length
+              ? { pendingAssetIds: [...steer.imageNodeIds] }
+              : {}),
+          })
+          if (!recovered.ok) {
+            recoveredAll = false
+            break
+          }
+          queuedTurns = recovered.turns
+          recoveredSteerIds.add(steer.id)
+        }
+        /*
+         * 不做半恢复：队列已满时若先清确认卡、再把 steer 留在原地，
+         * 会留下一个没有任务可挂靠的待发送消息。保持整行原状，等用户腾出队列后重试。
+         */
+        if (!recoveredAll) return null
+
+        const next: AgentSession = {
+          ...latest,
+          messages: confirmationSettlementMessages(
+            latest.messages,
+            latest.pendingConfirmation,
+            'canceled',
+          ),
+          queuedTurns,
+          pendingSteers: [],
+          pendingConfirmation: undefined,
+          continuation: undefined,
+          activeTurnId: undefined,
+          activeTurnStartedAt: undefined,
+          updatedAt: Date.now(),
+        }
+        await tx.put('agentSessions', next as unknown as RowOf<'agentSessions'>)
+        return next
       })
     },
 

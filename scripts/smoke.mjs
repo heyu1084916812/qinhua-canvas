@@ -41101,21 +41101,13 @@ async function g795(browser) {
     const second = await dropPng(520, 210, [70, 90, 220])
     const firstId = await first.getAttribute('data-node-id')
     const secondId = await second.getAttribute('data-node-id')
-    await moveNode(page, firstId, 100, 120)
-    await moveNode(page, secondId, 100, 430)
-    const creationPanel = page.locator('[data-creation-panel]')
-    if ((await creationPanel.count()) > 0) {
-      await creationPanel.click({ position: { x: 20, y: 20 } }).catch(() => {})
-      await page.keyboard.press('Escape')
-      await sleep(250)
+    if (!(await placeNode(page, firstId, 80, 120))) {
+      await moveNode(page, firstId, 80, 120)
     }
-    if ((await page.locator('[data-creation-panel]').count()) > 0) {
-      await page
-        .locator('[data-canvas-surface]')
-        .click({ force: true, position: { x: 20, y: 420 } })
-      await sleep(250)
+    if (!(await placeNode(page, secondId, 650, 120))) {
+      await moveNode(page, secondId, 650, 120)
     }
-    await clickBlankCanvas(page)
+    await sleep(250)
 
     await first.click({ position: { x: 60, y: 10 } })
     await page.keyboard.down('Shift')
@@ -41152,7 +41144,39 @@ async function g795(browser) {
     )
 
     const beforeHash = await root.getAttribute('data-lightbox-hash')
-    if (thumbCount >= 2) await thumbs.nth(1).click()
+    const beforeMedia = await page.locator('[data-lightbox-media]').boundingBox()
+    const sizeSamples =
+      thumbCount >= 2 && beforeMedia
+        ? await page.evaluate(async () => {
+            const thumb = document.querySelectorAll('[data-lightbox-thumbnail]')[1]
+            if (!(thumb instanceof HTMLElement)) return []
+            thumb.click()
+            const samples = []
+            for (let i = 0; i < 90; i += 1) {
+              await new Promise((resolve) => requestAnimationFrame(() => resolve()))
+              const media = document.querySelector('[data-lightbox-media]')
+              if (!(media instanceof HTMLElement)) continue
+              const rect = media.getBoundingClientRect()
+              samples.push({
+                width: rect.width,
+                height: rect.height,
+                position: getComputedStyle(media).position,
+              })
+            }
+            return samples
+          })
+        : []
+    const maxSampleWidth = Math.max(0, ...sizeSamples.map((sample) => sample.width))
+    const maxSampleHeight = Math.max(0, ...sizeSamples.map((sample) => sample.height))
+    rec(
+      g,
+      '★ 切换缩略图过程中旧图不会先被放大',
+      !!beforeMedia &&
+        sizeSamples.length > 0 &&
+        maxSampleWidth <= beforeMedia.width * 1.15 &&
+        maxSampleHeight <= beforeMedia.height * 1.15,
+      `before=${beforeMedia?.width ?? 0}x${beforeMedia?.height ?? 0} max=${maxSampleWidth}x${maxSampleHeight}`,
+    )
     const switched = await page
       .waitForFunction(
         (hash) =>
@@ -41210,7 +41234,128 @@ async function g795(browser) {
   }
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769, g795]
+/**
+ * G798 确认卡与引导冲突恢复。
+ *
+ * 旧版曾允许一个会话同时存在 `pendingConfirmation` 与 `pendingSteers`：
+ * 界面既显示“等你确认”，又说“1 条引导将在下一步生效”，两边都不会继续。
+ * 这里用真实会话行验证：打开面板即修复，确认卡消失，引导转成可手动继续的排队项。
+ */
+async function g798(browser) {
+  const g = 'G798 Agent 确认与引导冲突恢复'
+  const compact = process.env.SMOKE_VIEWPORT === '1024'
+  const viewport = compact ? { width: 1024, height: 700 } : { width: 1440, height: 900 }
+  const theme = process.env.SMOKE_DARK === '1' ? 'dark' : 'light'
+  const variant = `${theme}-${viewport.width}`
+  const ctx = await newCtx(browser, { viewport })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error).slice(0, 200)))
+  const projectId = `p-agent-confirm-steer-${variant}`
+  const sessionId = `chat-agent-confirm-steer-${variant}`
+  const now = Date.now()
+
+  try {
+    await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+    await sharedPut(page, 'projects', {
+      id: projectId,
+      name: 'Agent 冲突恢复验证',
+      workbench: 'canvas',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await sharedPut(page, 'agentSessions', {
+      id: sessionId,
+      projectId,
+      title: '确认与引导冲突',
+      channelId: '',
+      model: 'GPT-6 Astra',
+      messages: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'call-confirm-steer', name: 'proposeTaskPlan', args: '{}' }],
+        },
+      ],
+      queuedTurns: [],
+      pendingSteers: [{ id: 'steer-recover', text: '我要粗野风', createdAt: now }],
+      pendingConfirmation: {
+        callId: 'call-confirm-steer',
+        name: 'proposeTaskPlan',
+        args: {},
+      },
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await page.goto(`${BASE}/canvas/${projectId}`, { waitUntil: 'domcontentloaded' })
+    await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'attached', timeout: 20000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-panel]').waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('[data-agent-queue]').waitFor({ state: 'visible', timeout: 10000 })
+
+    const repaired = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 打开面板后旧冲突被修复：确认卡与引导不再并存',
+      repaired?.pendingConfirmation == null &&
+        repaired?.pendingSteers?.length === 0 &&
+        repaired?.queuedTurns?.length === 1 &&
+        repaired.queuedTurns[0]?.text === '我要粗野风',
+      `confirm=${repaired?.pendingConfirmation ? 'yes' : 'no'} steers=${repaired?.pendingSteers?.length ?? 0} queue=${repaired?.queuedTurns?.length ?? 0}`,
+    )
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelectorAll('[data-agent-confirm]').length === 0 &&
+          document.querySelectorAll('[data-agent-steer-pending]').length === 0 &&
+          document
+            .querySelector('[data-agent-queue]')
+            ?.getAttribute('data-agent-queue-count') === '1',
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => {})
+    const repairedUi = {
+      steerPending: await page.locator('[data-agent-steer-pending]').count(),
+      confirm: await page.locator('[data-agent-confirm]').count(),
+      queueCount: await page
+        .locator('[data-agent-queue]')
+        .getAttribute('data-agent-queue-count')
+        .catch(() => null),
+      queueVisible: await page
+        .locator('[data-agent-queue]')
+        .isVisible()
+        .catch(() => false),
+      status: await page
+        .locator('[data-agent-status]')
+        .getAttribute('data-agent-status')
+        .catch(() => null),
+      confirmText: await page
+        .locator('[data-agent-confirm]')
+        .innerText()
+        .catch(() => ''),
+    }
+    rec(
+      g,
+      '★★ 原引导保留成可手动继续的排队消息',
+      repairedUi.steerPending === 0 &&
+        repairedUi.confirm === 0 &&
+        repairedUi.queueCount === '1',
+      JSON.stringify(repairedUi),
+    )
+    await page.screenshot({
+      path: `${OUT}/798-agent-confirm-steer-${theme}-${viewport.width}.png`,
+    })
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await sharedDelete(page, 'agentSessions', sessionId).catch(() => {})
+    await sharedDelete(page, 'projects', projectId).catch(() => {})
+    await ctx.close()
+  }
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167, g168, g735, g769, g795, g798]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),
