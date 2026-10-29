@@ -181,6 +181,10 @@ import {
   toolRunningLabel,
   type ConversationItem,
 } from './conversation'
+import {
+  explicitMediaModelsFromMentions,
+  preferredGeneratedModel,
+} from './mediaMentions'
 import { TaskPlanCard } from './TaskPlanCard'
 import {
   AGENT_COMPOSER_HEIGHT_KEY,
@@ -656,6 +660,10 @@ export function AgentPanel({
   const planAliasesRef = useRef(new Map<string, Map<string, string>>())
   /** 自动生成是“实时开关”：用户在本轮运行中切换，已经发出的这一轮也要立刻认新值 */
   const autoRunRef = useRef(new Map<string, boolean>())
+  /** 本轮正文里明确 @ 的图片 / 视频模型；只约束这一次用户回合。 */
+  const explicitMediaModelsRef = useRef(
+    new Map<string, { image?: string; video?: string }>(),
+  )
   /**
    * 一次用户回合解析出的实际渠道。
    *
@@ -1301,16 +1309,26 @@ export function AgentPanel({
         const planned = typeof node.data.model === 'string' ? node.data.model.trim() : ''
         /**
          * 优先级（用户 2026-10-16 定的口径）：
-         *   ① 计划点名 —— 你在对话框里说了模型，就用它；
-         *   ② **本会话上次用过的那个模型** —— 你不说就一直沿用（连续迭代就是这么来的）；
-         *   ③ 画布上选中的那个节点用的模型 —— 会话还没有历史时的起点；
-         *   ④ `undefined` —— 保持渠道默认配方不动。
+         *   ① 本轮正文里的模型 chip —— 明确选择最高优先；
+         *   ② 计划自己写的模型；
+         *   ③ 本会话当前图片 / 视频模型；
+         *   ④ 本会话上次用过的那个模型 —— 连续迭代时沿用；
+         *   ⑤ 画布上选中的节点模型 —— 会话还没有历史时的起点；
+         *   ⑥ `undefined` —— 保持渠道默认配方不动。
          *
-         * ② 在 ③ 之上是有意的：同一段对话里用户已经交代过一次模型，后面没说就是「还用那个」，
-         * 不该因为中途点选了别的节点而自己换掉。
+         * ④ 在 ⑤ 之上是有意的：同一段对话里用户已经交代过一次模型，后面没说就是「还用那个」，
+         * 不该因为中途点选了别的节点而自己换掉。③ 又高于 ④，用户当轮改了会话模型时要立刻生效。
          */
-        const stored = stickyModelRef.current[kind] ?? (kind === 'video' ? current?.videoModel : current?.imageModel)
-        const model = planned || stored || selectedModelOf(kind)
+        const explicit = explicitMediaModelsRef.current.get(sessionId)?.[kind]
+        const sessionPicked = kind === 'video' ? current?.videoModel : current?.imageModel
+        const stored = stickyModelRef.current[kind]
+        const model = preferredGeneratedModel({
+          explicit,
+          planned,
+          sessionPicked,
+          sticky: stored,
+          selected: selectedModelOf(kind),
+        })
         if (!model) return undefined
         const channelId = channelIdForLogical(enabled, model, current?.channelId)
         if (!channelId) return undefined
@@ -1328,6 +1346,14 @@ export function AgentPanel({
           }
         }
         return { channelId, model }
+      },
+      explicitRecipeForGenerated: (type, node) => {
+        if (type !== 'generation') return undefined
+        const kind = node.data.mode === 'video' ? 'video' : 'image'
+        const model = explicitMediaModelsRef.current.get(sessionId)?.[kind]
+        if (!model) return undefined
+        const channelId = channelIdForLogical(enabled, model, current?.channelId)
+        return { channelId: channelId ?? '', model }
       },
       channelIdForModel: (model) => channelIdForLogical(enabled, model),
       /**
@@ -2361,6 +2387,11 @@ export function AgentPanel({
         const prompt = typeof raw === 'string' ? raw.trim().slice(0, 160) : ''
         return { ...m, ...(prompt ? { prompt } : {}) }
       })
+    const explicitMediaModels = explicitMediaModelsFromMentions(
+      mentions,
+      (model) => capabilityOfLogical(allChannels, model)?.category,
+    )
+    explicitMediaModelsRef.current.set(session.id, explicitMediaModels)
     /** 用户点选的三档模型里的图片 / 视频那两个（对话模型由 `inherited` 报） */
     const mediaModels = {
       ...(session.imageModel ? { image: session.imageModel } : {}),

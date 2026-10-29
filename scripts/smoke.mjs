@@ -42194,6 +42194,71 @@ async function g795(browser) {
       .then(() => true)
       .catch(() => false)
     rec(g, '★★ 点击第二张缩略图，灯箱主素材与选中态一起切换', switched)
+
+    const stageBox = await page.locator('[data-lightbox-stage]').boundingBox()
+    if (stageBox) {
+      await page.mouse.move(
+        stageBox.x + stageBox.width / 2,
+        stageBox.y + stageBox.height / 2,
+      )
+      await page.mouse.wheel(0, -120)
+      await page.mouse.wheel(0, -120)
+      await sleep(180)
+      await page.mouse.down()
+      await page.mouse.move(
+        stageBox.x + stageBox.width / 2 + 36,
+        stageBox.y + stageBox.height / 2 + 24,
+      )
+      await page.mouse.up()
+      await sleep(120)
+    }
+    const viewportBeforeSwitch = await page.evaluate(() => {
+      const media = document.querySelector('[data-lightbox-media]')
+      if (!(media instanceof HTMLElement)) return null
+      return {
+        zoom: document.querySelector('[data-lightbox-zoom]')?.textContent ?? '',
+        left: media.style.left,
+        top: media.style.top,
+        width: media.style.width,
+        height: media.style.height,
+      }
+    })
+    const hashBeforePreserveSwitch = await root.getAttribute('data-lightbox-hash')
+    await thumbs.nth(0).click()
+    await page
+      .waitForFunction(
+        (hash) =>
+          document.querySelector('[data-lightbox]')?.getAttribute('data-lightbox-hash') !==
+          hash,
+        hashBeforePreserveSwitch,
+        { timeout: 5000 },
+      )
+      .catch(() => {})
+    await sleep(350)
+    const viewportAfterSwitch = await page.evaluate(() => {
+      const media = document.querySelector('[data-lightbox-media]')
+      if (!(media instanceof HTMLElement)) return null
+      return {
+        zoom: document.querySelector('[data-lightbox-zoom]')?.textContent ?? '',
+        left: media.style.left,
+        top: media.style.top,
+        width: media.style.width,
+        height: media.style.height,
+      }
+    })
+    rec(
+      g,
+      '★★ 灯箱已放大并平移后切图，缩放与视图位置保持不变',
+      !!viewportBeforeSwitch &&
+        !!viewportAfterSwitch &&
+        viewportAfterSwitch.zoom === viewportBeforeSwitch.zoom &&
+        viewportAfterSwitch.left === viewportBeforeSwitch.left &&
+        viewportAfterSwitch.top === viewportBeforeSwitch.top &&
+        viewportAfterSwitch.width === viewportBeforeSwitch.width &&
+        viewportAfterSwitch.height === viewportBeforeSwitch.height,
+      JSON.stringify({ before: viewportBeforeSwitch, after: viewportAfterSwitch }),
+    )
+
     await page.screenshot({
       path: `${OUT}/795-lightbox-thumbs-${theme}-${viewport.width}.png`,
     })

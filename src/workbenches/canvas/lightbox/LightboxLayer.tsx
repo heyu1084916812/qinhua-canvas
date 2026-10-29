@@ -180,7 +180,7 @@ export function LightboxLayer() {
   const [vp, setVp] = useState<Viewport | null>(null)
   const [mode, setMode] = useState<EditorMode>('view')
   const previousAssetHashRef = useRef<string | undefined>(undefined)
-  const refitAfterMediaLoadRef = useRef(false)
+  const preserveViewportAfterMediaLoadRef = useRef(false)
 
   /**
    * 两种「框选模式」（见 store 里 `lightbox` 的注释）：
@@ -433,7 +433,7 @@ export function LightboxLayer() {
 
   /**
    * 同一次多选灯箱里切换上一张 / 下一张时，**保留上一帧的 natural + viewport**，
-   * 直到新图真正解码完成再一次性替换。
+   * 新图解码完成后只替换尺寸，不重置用户已经调好的缩放与平移。
    *
    * 不能在这里无条件清空：`useAssetMeta(assetHash)` 的新 URL 是异步到达的，
    * 清空后的那一帧仍会拿旧 URL 渲染 `.mediaPlain`，旧图会被短暂放大到舞台 90%，
@@ -446,10 +446,10 @@ export function LightboxLayer() {
       hasGalleryNavigation
     previousAssetHashRef.current = assetHash
     if (switchingGalleryFrame) {
-      refitAfterMediaLoadRef.current = true
+      preserveViewportAfterMediaLoadRef.current = true
       return
     }
-    refitAfterMediaLoadRef.current = false
+    preserveViewportAfterMediaLoadRef.current = false
     setNatural(null)
     setVp(null)
   }, [assetHash, hasGalleryNavigation])
@@ -902,8 +902,10 @@ export function LightboxLayer() {
   const settleNaturalSize = (w: number, h: number) => {
     const next = { w, h }
     setNatural(next)
-    if (!refitAfterMediaLoadRef.current) return
-    refitAfterMediaLoadRef.current = false
+    if (!preserveViewportAfterMediaLoadRef.current) return
+    preserveViewportAfterMediaLoadRef.current = false
+    /** 已经放大/平移过就原样保留；只有尚未落位时才补一次适配。 */
+    if (vp) return
     const r = stageRef.current?.getBoundingClientRect()
     if (!r) return
     setVp(

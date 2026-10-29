@@ -664,6 +664,99 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(gen.model).toBe('Plan Model')
   })
 
+  it('★★ 用户本轮 @ 的模型压过参考图旧模型，并进入 applyPlan 自检', async () => {
+    const { store, ctx } = setup()
+    const source = addNode(store, 'generation', {
+      mode: 'image',
+      model: 'Nano Banana 2.1',
+      ratio: '16:9',
+      quality: 'high',
+    })
+    const explicitCtx: AgentToolContext = {
+      ...ctx,
+      defaultsForNewNode: vi.fn(async () => ({
+        generation: { channelId: 'ch-default', model: 'Nano Banana 2.1' },
+      })),
+      recipeForGenerated: () => ({
+        channelId: 'ch-default',
+        model: 'Nano Banana 2.1',
+      }),
+      explicitRecipeForGenerated: () => ({
+        channelId: 'ch-user',
+        model: 'GPT Image 2',
+      }),
+    }
+
+    const result = (await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '用用户点名的模型生成一张',
+        attach: [{ localId: 'src', existingNodeId: source }],
+        nodes: [
+          { localId: 'src', type: 'generation', data: {}, order: 0 },
+          {
+            localId: 'g1',
+            type: 'generation',
+            data: { mode: 'image', prompt: '海边玩水' },
+            order: 1,
+          },
+        ],
+        edges: [{ source: 'src', target: 'g1' }],
+      },
+      explicitCtx,
+    )) as { ok: boolean; problems: string[]; createdNodeIds: string[] }
+
+    expect(result.ok).toBe(true)
+    expect(result.problems).toEqual([])
+    const data = store.getSnapshot().nodes.find((node) => node.id === result.createdNodeIds[0])!
+      .data as Record<string, unknown>
+    expect(data).toMatchObject({
+      channelId: 'ch-user',
+      model: 'GPT Image 2',
+      ratio: '16:9',
+      quality: 'high',
+    })
+  })
+
+  it('★★ applyPlan 自检会拦住“实际写入模型与用户点名不一致”', async () => {
+    const { store, ctx } = setup()
+    const source = addNode(store, 'generation', { mode: 'image', model: 'Nano Banana 2.1' })
+    let explicitCalls = 0
+    const explicitCtx: AgentToolContext = {
+      ...ctx,
+      defaultsForNewNode: vi.fn(async () => ({
+        generation: { channelId: 'ch-default', model: 'Nano Banana 2.1' },
+      })),
+      explicitRecipeForGenerated: () => ({
+        channelId: 'ch-user',
+        model: explicitCalls++ === 0 ? 'GPT Image 2' : 'Another Model',
+      }),
+    }
+
+    const result = (await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '模型自检',
+        attach: [{ localId: 'src', existingNodeId: source }],
+        nodes: [
+          { localId: 'src', type: 'generation', data: {}, order: 0 },
+          {
+            localId: 'g1',
+            type: 'generation',
+            data: { mode: 'image', prompt: '一只猫' },
+            order: 1,
+          },
+        ],
+        edges: [{ source: 'src', target: 'g1' }],
+      },
+      explicitCtx,
+    )) as { ok: boolean; problems: string[] }
+
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('明确要求使用 Another Model')
+    expect(result.problems.join('\n')).toContain('实际写入的是 GPT Image 2')
+  })
+
   it('★ updateNode 改参数；节点不存在则如实报错', async () => {
     const { store, ctx } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })

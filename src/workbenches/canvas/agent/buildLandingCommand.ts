@@ -65,6 +65,14 @@ export interface BuildLandingInput {
     type: AgentNodeType,
     node: AgentPlan['nodes'][number],
   ) => Record<string, unknown>
+  /**
+   * 本轮用户明确点名的生成模型。只由界面层从模型 chip 解析而来，优先级高于
+   * 参考图继承值，避免“图片素材的旧模型把用户刚选的模型盖回去”。
+   */
+  explicitFor?: (
+    type: AgentNodeType,
+    node: AgentPlan['nodes'][number],
+  ) => Record<string, unknown>
 }
 
 export interface LandingPayload {
@@ -279,14 +287,13 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
       title: node.title ?? spec?.label ?? node.type,
       disabled: false,
       /**
-       * 三层打底：spec 默认 → 渠道解出来的默认（渠道 + 模型 + 生成参数）→ 计划数据。
+       * 分层合并：spec 默认 → 渠道解出来的默认 → 参考图继承 → 计划数据 → 本轮显式模型。
        *
        * 与 `node.create` 同口径（有 data 用 data、没有用 createDefaultData），
        * 但这里**合并**而不是二选一：模型通常只给几个关键字段（比例、张数），
        * 其余（比如 generation 的 mode/count）由默认值补齐才是一份合法的节点数据。
        *
-       * 顺序不能反：计划数据最后压上去 —— 用户在对话里点名要某条渠道 / 某个模型时，
-       * 它得盖过默认值。
+       * 显式模型必须最后压上去：参考图旧模型不能盖掉用户本轮刚选的模型。
        */
       data: {
         ...(spec?.createDefaultData() ?? {}),
@@ -297,6 +304,7 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
          */
         ...recipeFromAttached({ plan, graph, node }),
         ...nonEmptyPlannedData(node.data),
+        ...(input.explicitFor?.(node.type, node) ?? {}),
       } as NodeData,
     })
   }

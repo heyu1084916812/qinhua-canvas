@@ -307,6 +307,23 @@ describe('buildLandingCommand：沿用被引用节点的模型与参数', () => 
     expect(data.ratio).toBe('1:1')
   })
 
+  it('★★ 用户本轮明确点名的模型压过参考图继承值，且仍沿用旧图其余参数', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith({}),
+      graph: graph([srcNode()]),
+      origin: { x: 0, y: 0 },
+      newId,
+      dataFor: () => ({ channelId: 'ch-def', model: '默认模型', ratio: '9:16' }),
+      explicitFor: () => ({ channelId: 'ch-user', model: 'GPT Image 2' }),
+    })
+    const data = r.command.nodes[0]!.data as Record<string, unknown>
+    expect(data.model).toBe('GPT Image 2')
+    expect(data.channelId).toBe('ch-user')
+    expect(data.ratio).toBe('1:1')
+    expect(data.quality).toBe('high')
+  })
+
   it('★ 没有 attach（纯文生图）时不继承，照旧走 dataFor 的默认', () => {
     seq = 0
     const plan: AgentPlan = {

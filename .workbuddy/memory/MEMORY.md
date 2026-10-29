@@ -10423,3 +10423,17 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   独立 `data-scroll-active=true`，1 秒后转 false，CSS 只匹配该元素，不能写 `root *` 后代规则。
 - **本批证据**：定向 Vitest **63/63**；G769 浅色 **33/33**、深色 **33/33**，新增过程正文/时间
   和滚动隔离断言；全量 Vitest **3605 passed / 1 skipped**。
+### 用户点名生成模型与灯箱切图视图（2026-10-30，对账 #821）
+
+- **模型覆盖根因**：`buildLandingCommand` 原顺序是 `dataFor → recipeFromAttached → 计划值`，
+  参考图继承值会盖掉本轮已经选好的模型。用户 `@GPT Image 2` 建 6 个节点，实际用了
+  参考图的 `Nano Banana 2.1`；后续 runResult 只是**发现**问题，不是问题发生点。
+- **正确层级**：spec 默认 → 渠道 / 会话默认 → 参考图继承 → 计划显式 → 用户本轮显式模型。
+  模型 chip 必须先解析成 image/video 显式模型；`applyPlan` 自检要比较创建后节点的
+  `data.model`，不要只验节点数 / 连线 / 提示词。
+- **不能总让 `dataFor` 赢**：只有当用户本轮明确选择模型时才启用最后覆盖层；否则仍应
+  沿用用户 @ 的参考图配方，这是原有产品口径。
+- **灯箱切图不是重新打开**：同一 gallery 换图只更新 natural size，保留当前 `vp`。
+  关闭再打开才重置并 fit；否则会把“保持放大细节”变成“所有图片都错误沿用上次视图”。
+- **本批证据**：定向 **74/74**；全量 Vitest **3611 passed / 1 skipped**；
+  G795 四组视口 / 主题均 **8/8**，切图前后 zoom / left / top / width / height 完全一致。

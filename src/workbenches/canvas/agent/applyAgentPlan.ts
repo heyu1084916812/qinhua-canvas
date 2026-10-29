@@ -65,6 +65,10 @@ export function applyAgentPlan(
       type: AgentPlan['nodes'][number]['type'],
       node: AgentPlan['nodes'][number],
     ) => Record<string, unknown>
+    explicitFor?: (
+      type: AgentPlan['nodes'][number]['type'],
+      node: AgentPlan['nodes'][number],
+    ) => Record<string, unknown>
     viewportWorld?: Rect
   },
 ): ApplyAgentPlanResult {
@@ -78,6 +82,7 @@ export function applyAgentPlan(
     ...(opts?.viewportWorld ? { viewportWorld: opts.viewportWorld } : {}),
     newId: () => createId('node'),
     ...(opts?.dataFor ? { dataFor: opts.dataFor } : {}),
+    ...(opts?.explicitFor ? { explicitFor: opts.explicitFor } : {}),
   })
 
   // 一次 dispatch = 一个 standalone 事务 = 一次撤销全回退

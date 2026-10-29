@@ -870,6 +870,14 @@ export interface AgentToolContext {
     node: { data: Record<string, unknown> },
   ) => { channelId: string; model: string } | undefined
   /**
+   * 仅在本轮用户明确 @ 了图片 / 视频模型时提供。它必须压过参考图继承的旧模型，
+   * 并参与 applyPlan 落前自检。
+   */
+  explicitRecipeForGenerated?: (
+    type: AgentNodeType,
+    node: { data: Record<string, unknown> },
+  ) => { channelId: string; model: string } | undefined
+  /**
    * 逻辑模型 → 能提供它的渠道。`updateNode` 只接受用户点选的模型，
    * 渠道必须和创建面板一样由系统反查，不能让模型自己填。
    */
@@ -1597,12 +1605,38 @@ export async function executeConfirmedTool(
           const picked = ctx.recipeForGenerated?.(type, node)
           return picked ? { ...base, channelId: picked.channelId, model: picked.model } : base
         },
+        ...(ctx.explicitRecipeForGenerated
+          ? {
+              explicitFor: (type: AgentNodeType, node: AgentPlan['nodes'][number]) => {
+                const picked = ctx.explicitRecipeForGenerated?.(type, node)
+                return picked ? { channelId: picked.channelId, model: picked.model } : {}
+              },
+            }
+          : {}),
         ...(ctx.viewportWorld ? { viewportWorld: ctx.viewportWorld } : {}),
+      })
+      const attachedLocalIds = new Set((finalPlan.attach ?? []).map((item) => item.localId))
+      const explicitProblems = finalPlan.nodes.flatMap((node) => {
+        if (node.type !== 'generation' || attachedLocalIds.has(node.localId)) return []
+        const expected = ctx.explicitRecipeForGenerated?.(node.type, node)
+        if (!expected) return []
+        const resolved = applied.resolvedNodes.find((item) => item.localId === node.localId)
+        const actual = resolved
+          ? (ctx.store.getSnapshot().nodes.find((item) => item.id === resolved.nodeId)?.data as
+              | { model?: unknown }
+              | undefined)?.model
+          : undefined
+        return typeof actual === 'string' && actual === expected.model
+          ? []
+          : [
+              `节点「${node.title ?? node.localId}」明确要求使用 ${expected.model}，` +
+                `实际写入的是 ${typeof actual === 'string' && actual ? actual : '(空)'}。`,
+            ]
       })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）
       return {
-        ok: applied.ok,
-        problems: applied.problems,
+        ok: applied.ok && explicitProblems.length === 0,
+        problems: [...applied.problems, ...explicitProblems],
         createdNodeIds: applied.createdNodeIds,
         ...(aligned.notes.length > 0 ? { notes: aligned.notes } : {}),
       }
