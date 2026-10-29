@@ -121,6 +121,10 @@
   `HarnessRuntimePort.open()` 已透传 `mcpServers`。真实 Harness 配置与端到端仍待接。
 - **工具桥证据**：全量 Vitest **3597 passed / 1 skipped**；`npm run check`、`npm run build`、
   Rust `cargo check`、`git diff --check` 通过。不涉及 UI。
+- **Harness 伪流式兼容（2026-10-29）**：`qinghua-local` 接受 `stream=true`，但上游仍只跑一次
+  非流式 RouteExecutionPort；完整结果返回后由 loopback 宿主生成 OpenAI
+  `chat.completion.chunk`、最终 finish_reason 与 `[DONE]`，Content-Type 为
+  `text/event-stream`。这不是 token 级透传，也不得改变 timeout / cancel / 不自动重发规则。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，

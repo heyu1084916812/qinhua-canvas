@@ -119,6 +119,25 @@ describe('Tauri Harness provider host', () => {
       200,
       expect.stringContaining('"readGraph"'),
     )
+
+    fake.emit({
+      requestId: 'stream-1',
+      method: 'POST',
+      path: '/v1/chat/completions',
+      body: JSON.stringify({
+        model: 'GPT-6 Astra',
+        stream: true,
+        messages: [{ role: 'user', content: '流式读取' }],
+      }),
+    })
+    await tick()
+    expect(fake.bridge.respond).toHaveBeenNthCalledWith(
+      4,
+      'stream-1',
+      200,
+      expect.stringMatching(/^data: .*data: \[DONE\]/s),
+      'text/event-stream; charset=utf-8',
+    )
     await host.stop()
     expect(fake.bridge.stop).toHaveBeenCalled()
   })

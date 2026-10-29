@@ -56,9 +56,6 @@ export function createHarnessLocalProviderBridge(input: {
   return {
     listModels: input.listModels,
     async complete(request, signal = new AbortController().signal) {
-      if (request.stream) {
-        throw new Error('轻画本地路由桥当前只支持非流式模型请求')
-      }
       const route = await input.resolveRoute(request)
       const compacted = compactHarnessContext(request.messages)
       const result = await input.execution.execute({

@@ -61,15 +61,36 @@ describe('HarnessLocalProviderBridge', () => {
     )
   })
 
-  it('rejects Harness streaming until a safe streaming implementation exists', async () => {
+  it('accepts a Harness stream flag while the upstream stays safely non-streaming', async () => {
+    const execute = vi.fn(async () => ({
+      text: '完成',
+      finishReason: 'stop' as const,
+    }))
     const bridge = createHarnessLocalProviderBridge({
-      execution: { execute: vi.fn() },
+      execution: { execute },
       listModels: async () => [],
-      resolveRoute: vi.fn(),
+      resolveRoute: async () => ({
+        channelId: 'channel-1',
+        upstreamModel: 'upstream-chat-1',
+        candidates: [{ channelId: 'channel-1', model: 'upstream-chat-1' }],
+        routePlanId: 'plan-1',
+        trace: directTextTrace({
+          projectId: 'p1',
+          workbench: 'canvas',
+          subjectId: 's1',
+          scopeId: 'session:s1',
+          operationId: 'op-1',
+          purpose: 'agent',
+          channelId: 'channel-1',
+          model: 'upstream-chat-1',
+          prompt: '继续',
+        }),
+      }),
     })
     await expect(
       bridge.complete({ ...request, stream: true }),
-    ).rejects.toThrow('只支持非流式')
+    ).resolves.toMatchObject({ requestId: 'req-1', text: '完成' })
+    expect(execute).toHaveBeenCalledOnce()
   })
 
   it('compacts old tool results before they enter the model request', async () => {

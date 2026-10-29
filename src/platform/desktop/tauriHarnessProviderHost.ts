@@ -20,7 +20,12 @@ interface ProviderEndpoint {
 export interface TauriHarnessProviderBridge {
   start(): Promise<ProviderEndpoint>
   stop(): Promise<void>
-  respond(requestId: string, status: number, body: string): Promise<void>
+  respond(
+    requestId: string,
+    status: number,
+    body: string,
+    contentType?: string,
+  ): Promise<void>
   listen(handler: (event: ProviderRequestEvent) => void): Promise<UnlistenFn>
 }
 
@@ -33,12 +38,13 @@ export const defaultTauriHarnessProviderBridge: TauriHarnessProviderBridge = {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke<boolean>('acp_provider_stop')
   },
-  async respond(requestId, status, body) {
+  async respond(requestId, status, body, contentType) {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke<boolean>('acp_provider_respond', {
       requestId,
       status,
       body,
+      ...(contentType ? { contentType } : {}),
     })
   },
   async listen(handler) {
@@ -84,6 +90,44 @@ function completionBody(input: {
   })
 }
 
+function streamingCompletionBody(input: {
+  request: HarnessLocalChatRequest
+  text: string
+  finishReason?: string
+  toolCalls?: { id: string; name: string; args: string }[]
+}): string {
+  const base = {
+    id: input.request.requestId,
+    object: 'chat.completion.chunk',
+    model: input.request.model,
+  }
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+    `data: ${JSON.stringify({
+      ...base,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    })}\n\n`
+  const parts = [chunk({ role: 'assistant' }, null)]
+  if (input.text) parts.push(chunk({ content: input.text }, null))
+  if (input.toolCalls?.length) {
+    parts.push(
+      chunk(
+        {
+          tool_calls: input.toolCalls.map((call, index) => ({
+            index,
+            id: call.id,
+            type: 'function',
+            function: { name: call.name, arguments: call.args },
+          })),
+        },
+        null,
+      ),
+    )
+  }
+  parts.push(chunk({}, input.finishReason ?? 'stop'))
+  parts.push('data: [DONE]\n\n')
+  return parts.join('')
+}
+
 export async function startTauriHarnessProviderHost(input: {
   provider: HarnessLocalProviderBridge
   tools?: HarnessMcpToolBridge
@@ -120,22 +164,38 @@ export async function startTauriHarnessProviderHost(input: {
             HarnessLocalChatRequest,
             'requestId'
           >
-          const result = await input.provider.complete({
+          const request = {
             ...body,
             requestId: event.requestId,
-          })
-          await bridge.respond(
-            event.requestId,
-            200,
-            completionBody({
-              request: { ...body, requestId: event.requestId },
-              text: result.text,
-              ...(result.finishReason
-                ? { finishReason: result.finishReason }
-                : {}),
-              ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
-            }),
-          )
+          }
+          const result = await input.provider.complete(request)
+          const responseBody = body.stream
+            ? streamingCompletionBody({
+                request,
+                text: result.text,
+                ...(result.finishReason
+                  ? { finishReason: result.finishReason }
+                  : {}),
+                ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
+              })
+            : completionBody({
+                request,
+                text: result.text,
+                ...(result.finishReason
+                  ? { finishReason: result.finishReason }
+                  : {}),
+                ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
+              })
+          if (body.stream) {
+            await bridge.respond(
+              event.requestId,
+              200,
+              responseBody,
+              'text/event-stream; charset=utf-8',
+            )
+          } else {
+            await bridge.respond(event.requestId, 200, responseBody)
+          }
           return
         }
         if (event.path === '/mcp' && input.tools) {

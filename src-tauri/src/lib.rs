@@ -2062,7 +2062,12 @@ struct AcpRegistry(Mutex<std::collections::HashMap<String, AcpProcess>>);
 struct AcpProviderRuntime {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pending: std::sync::Arc<
-        Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<(u16, String)>>>,
+        Mutex<
+            std::collections::HashMap<
+                String,
+                std::sync::mpsc::Sender<(u16, String, Option<String>)>,
+            >,
+        >,
     >,
 }
 
@@ -2113,9 +2118,20 @@ fn acp_provider_response(
     status: u16,
     body: String,
 ) {
+    acp_provider_response_with_type(request, status, body, None);
+}
+
+fn acp_provider_response_with_type(
+    request: tiny_http::Request,
+    status: u16,
+    body: String,
+    content_type: Option<String>,
+) {
+    let content_type =
+        content_type.unwrap_or_else(|| "application/json; charset=utf-8".to_string());
     let header = tiny_http::Header::from_bytes(
         &b"Content-Type"[..],
-        &b"application/json; charset=utf-8"[..],
+        content_type.as_bytes(),
     )
     .expect("static provider header");
     let cache = tiny_http::Header::from_bytes(
@@ -2159,7 +2175,7 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let pending = std::sync::Arc::new(Mutex::new(std::collections::HashMap::<
         String,
-        std::sync::mpsc::Sender<(u16, String)>,
+        std::sync::mpsc::Sender<(u16, String, Option<String>)>,
     >::new()));
     let thread_stop = stop.clone();
     let thread_pending = pending.clone();
@@ -2232,7 +2248,9 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
                 },
             );
             match rx.recv_timeout(std::time::Duration::from_secs(300)) {
-                Ok((status, body)) => acp_provider_response(request, status, body),
+                Ok((status, body, content_type)) => {
+                    acp_provider_response_with_type(request, status, body, content_type)
+                }
                 Err(_) => acp_provider_response(
                     request,
                     504,
@@ -2257,6 +2275,7 @@ fn acp_provider_respond(
     request_id: String,
     status: u16,
     body: String,
+    content_type: Option<String>,
 ) -> bool {
     let registry = app.state::<AcpProviderRegistry>();
     let Ok(slot) = registry.0.lock() else {
@@ -2270,7 +2289,7 @@ fn acp_provider_respond(
     };
     pending
         .remove(&request_id)
-        .is_some_and(|sender| sender.send((status, body)).is_ok())
+        .is_some_and(|sender| sender.send((status, body, content_type)).is_ok())
 }
 
 #[tauri::command]
