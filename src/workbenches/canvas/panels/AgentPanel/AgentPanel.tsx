@@ -202,6 +202,12 @@ import {
   agentRevealCharacters,
   nextAgentRevealLength,
 } from './agentOutputReveal'
+import {
+  clearAgentDraft,
+  loadAgentDraft,
+  pendingAssetIdsAfterDraft,
+  saveAgentDraft,
+} from './agentDraft'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
@@ -2310,7 +2316,17 @@ export function AgentPanel({
     ]
     if (currentIdRef.current === session.id) {
       setDraft('')
+      saveAgentDraft(session.id, '')
       setMessages(withSystem)
+    }
+    const clearedAssets = await sessions.updateFields(session.id, {
+      pendingAssetIds: [],
+    })
+    if (clearedAssets) {
+      setList((prev) =>
+        prev.map((item) => (item.id === clearedAssets.id ? clearedAssets : item)),
+      )
+      if (currentIdRef.current === clearedAssets.id) setCurrent(clearedAssets)
     }
     const visualNodeIds = [...new Set([
       ...sentAssetIds,
@@ -2475,7 +2491,11 @@ export function AgentPanel({
     requestQueueDrain(current.id)
     applySessionSnapshot(queued.session)
     if (currentIdRef.current === current.id) {
-      setDraft((value) => (value.trim() === text ? '' : value))
+      setDraft((value) => {
+        const next = value.trim() === text ? '' : value
+        if (next !== value) saveAgentDraft(current.id, next)
+        return next
+      })
     }
     return true
   }, [applySessionSnapshot, controller, current, setStatusFor, store])
@@ -2823,7 +2843,11 @@ export function AgentPanel({
     }
     applySessionSnapshot(steered.session)
     if (currentIdRef.current === current.id) {
-      setDraft((value) => (value.trim() === text ? '' : value))
+      setDraft((value) => {
+        const next = value.trim() === text ? '' : value
+        if (next !== value) saveAgentDraft(current.id, next)
+        return next
+      })
     }
     store.notify('已作为引导发送，将在 Agent 下一次动作前应用', 'info')
     return true
@@ -3115,6 +3139,27 @@ export function AgentPanel({
   )
 
   /**
+   * 草稿和“本次待发送图片”是一个整体：正文里删掉 chip，就不能再从会话字段里
+   * 把旧图片补回来。文本按会话持久化到本地，图片集合按正文里的 node 引用反向校正。
+   */
+  const replaceDraft = useCallback(
+    (next: string) => {
+      setDraft(next)
+      if (!current) return
+      saveAgentDraft(current.id, next)
+      const before = current.pendingAssetIds ?? []
+      const after = pendingAssetIdsAfterDraft(before, next)
+      if (
+        before.length !== after.length ||
+        before.some((id, index) => id !== after[index])
+      ) {
+        void patchSession({ pendingAssetIds: after })
+      }
+    },
+    [current, patchSession],
+  )
+
+  /**
    * 选模型：只保存固定的前端逻辑名。
    *
    * 渠道由下一次真实发送时的 `resolveRoutedChatTarget()` 按全局策略解析，
@@ -3267,6 +3312,7 @@ export function AgentPanel({
       return
     }
     setConfirmDelete(false)
+    clearAgentDraft(current.id)
     await sessions.remove(current.id)
     const rows = await refresh()
     if (rows.length > 0) await switchTo(rows[0]!)
@@ -3606,12 +3652,29 @@ export function AgentPanel({
     if (!current || restoredSessionRef.current === current.id) return
     restoredSessionRef.current = current.id
     if (draft.trim()) return
+    const saved = loadAgentDraft(current.id)
+    if (saved !== null) {
+      setDraft(saved)
+      const before = current.pendingAssetIds ?? []
+      const after = pendingAssetIdsAfterDraft(before, saved)
+      if (
+        before.length !== after.length ||
+        before.some((id, index) => id !== after[index])
+      ) {
+        void patchSession({ pendingAssetIds: after })
+      }
+      return
+    }
     const tokens: string[] = []
     for (const id of current.pendingAssetIds ?? []) {
       tokens.push(mentionToken('node', id, nodeLabelOf(id)))
     }
-    if (tokens.length > 0) setDraft(tokens.join(''))
-  }, [current, draft, nodeLabelOf])
+    if (tokens.length > 0) {
+      const next = tokens.join('')
+      setDraft(next)
+      saveAgentDraft(current.id, next)
+    }
+  }, [current, draft, nodeLabelOf, patchSession])
 
   /**
    * 正文 chip → 会话字段（反向）：用户把主动插入的技能 chip 删掉 = **这次不用这个技能**。
@@ -4343,7 +4406,7 @@ export function AgentPanel({
         <MentionEditor
           ref={editorRef}
           value={draft}
-          onChange={setDraft}
+          onChange={replaceDraft}
           className={styles.composerEditor}
           /** 语义锚点：冒烟按 `[data-agent-input]` 定位这个输入框 */
           anchorAttr={{

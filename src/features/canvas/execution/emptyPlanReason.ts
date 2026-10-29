@@ -2,6 +2,7 @@ import type { Channel } from '../../../domain/project/channel'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { presetPromptSuffix } from '../../../domain/canvas/layout/presets'
+import { channelIdForLogical } from '../../../domain/project/modelCatalog'
 
 /**
  * 「这个节点为什么进不了执行计划」（用户 2026-09-23 报「点生成没有反应」）。
@@ -40,11 +41,19 @@ export function emptyPlanReason(
   if (enabled.length === 0) {
     return channels.length > 0 ? '已配置的渠道都未启用' : '还没有配置任何渠道'
   }
-  if (!data.channelId) return '还没有选择渠道'
-
   const active = enabled.find((c) => c.id === data.channelId)
-  if (!active) return '所选渠道已停用'
-  if (!data.model) return '该渠道还没勾选模型'
+  /**
+   * 能否运行先只看逻辑模型：节点上的 channelId 可能来自历史版本、已删除渠道或
+   * 一次测试夹具，它不参与成功判断。只要任一启用渠道能映射这个模型，就交给 RoutePlan。
+   */
+  const mappedChannelId = data.model
+    ? channelIdForLogical(enabled, data.model)
+    : undefined
+  if (!mappedChannelId) {
+    if (!data.channelId) return '还没有选择渠道'
+    if (!active) return '所选渠道已停用'
+    if (!data.model) return '该渠道还没勾选模型'
+  }
 
   // 生成节点允许「自己没写提示词、只连了上游提示词节点」——那条路是通的，
   // 所以只有在上游也拿不到文本时，才判定为「没内容可发」。

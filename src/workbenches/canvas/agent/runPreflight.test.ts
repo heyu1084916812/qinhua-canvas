@@ -3,6 +3,7 @@ import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { registerAllSpecs } from '../../../domain/canvas/nodeSpecs'
 import { createChannel } from '../../../domain/project/channel'
+import type { ModelCapability } from '../../../domain/shared/capability'
 import { runPreflightProblems } from './runPreflight'
 
 registerAllSpecs()
@@ -51,6 +52,33 @@ describe('runPreflightProblems', () => {
 
   it('渠道、模型、提示词都齐时不阻塞', () => {
     expect(runPreflightProblems(['gen-1'], graph([node()]), [channel])).toEqual([])
+  })
+
+  it('节点残留旧渠道时，仍按逻辑模型映射到已启用渠道', () => {
+    const mapped = {
+      ...channel,
+      id: 'ch-chat2api',
+      modelMap: { 'GPT Image 2': 'gpt-image-2' },
+      models: [
+        {
+          id: 'gpt-image-2',
+          category: 'image',
+          inputTypes: ['text', 'image'],
+        },
+      ] as ModelCapability[],
+    }
+    expect(
+      runPreflightProblems(
+        ['gen-1'],
+        graph([
+          node({
+            channelId: 'ch-smoke-removed',
+            model: 'GPT Image 2',
+          }),
+        ]),
+        [mapped],
+      ),
+    ).toEqual([])
   })
 
   it('渠道已启用但没有令牌时也提前拦住', () => {

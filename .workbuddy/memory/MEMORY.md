@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 草稿与路由预检（2026-10-30，对账 #817 / #818）
+
+- **草稿不能只活在组件里**：收起 Agent 会卸载面板，重新打开只剩 `pendingAssetIds`，于是删掉的图片
+  会被 chip 恢复。草稿按 session 持久化，显式空文本也要保存；删除正文 chip 后同步裁掉待发送图片。
+- **预检先看逻辑模型，不看旧 channelId**：`GPT Image 2 → gpt-image-2` 已映射时，节点残留旧测试
+  渠道不能挡路。先查任一启用渠道能否映射模型，能映射就进入 RoutePlan；旧渠道只用于最终错误说明。
+- **本轮证据**：定向预检/草稿 **20/20**；G769 **31/31**；全量 Vitest
+  **3593 passed / 1 skipped**；`npm run check`、`npm run build` 通过。
+
 ### Agent 工具结果需要渐进展开（2026-10-29，对账 #816）
 
 - **不要条件挂载直接跳高**：步骤详情使用常驻 `stepReveal` 网格层，`grid-template-rows` 从

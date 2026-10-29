@@ -82,6 +82,18 @@ describe('emptyPlanReason · 计划为空时必须给出可读理由', () => {
     expect(emptyPlanReason(node, [channel()], graph([node]))).toBe('所选渠道已停用')
   })
 
+  it('旧 channelId 失效，但逻辑模型能被其它启用渠道映射时，不提前挡住路由', () => {
+    const node = genNode({
+      channelId: 'ch-smoke-removed',
+      model: 'GPT Image 2',
+    })
+    const relay = channel({
+      id: 'ch-relay',
+      modelMap: { 'GPT Image 2': 'gpt-image-2' },
+    })
+    expect(emptyPlanReason(node, [relay], graph([node]))).not.toBe('所选渠道已停用')
+  })
+
   it('渠道在、但没选模型 → 指向「去勾选模型」', () => {
     const node = genNode({ model: '' })
     expect(emptyPlanReason(node, [channel()], graph([node]))).toBe('该渠道还没勾选模型')

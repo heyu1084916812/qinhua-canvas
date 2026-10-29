@@ -41079,6 +41079,7 @@ async function g769(browser) {
 
   try {
     await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(() => window.localStorage.clear())
     priorDeliveryRow = await sharedRow(page, 'presets', 'agent:delivery')
     await sharedPut(page, 'presets', { id: 'agent:delivery', mode: 'steer' })
     await sharedPut(page, 'projects', {
@@ -41388,6 +41389,7 @@ async function g769(browser) {
           }),
         },
       ],
+      pendingAssetIds: [thumbNodeId],
       pendingConfirmation: {
         callId: 'call-plan-confirm',
         name: 'requestTaskConfirmation',
@@ -41449,6 +41451,55 @@ async function g769(browser) {
           .locator('[data-agent-composer]')
           .getAttribute('data-agent-delivery-mode')) === 'steer',
     )
+    await page.locator('[data-agent-input]').click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('新的草稿内容')
+    await page.waitForFunction(
+      async () => {
+        const response = await fetch('http://127.0.0.1:18765/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            table: 'agentSessions',
+            filter: { id: 'chat-agent-queue' },
+            includePayload: false,
+          }),
+        })
+        const row = (await response.json()).rows?.[0]
+        return Array.isArray(row?.pendingAssetIds) && row.pendingAssetIds.length === 0
+      },
+      null,
+      { timeout: 5000 },
+    ).catch(() => {})
+    const editedDraft = await page.locator('[data-agent-input]').evaluate((editor) => ({
+      text: editor.innerText,
+      chips: editor.querySelectorAll('[data-token]').length,
+    }))
+    const editedSession = await sharedRow(page, 'agentSessions', sessionId)
+    rec(
+      g,
+      '★★ 删除输入框图片引用后，待发送图片同步移除',
+      editedDraft.text.includes('新的草稿内容') &&
+        editedDraft.chips === 0 &&
+        (editedSession?.pendingAssetIds?.length ?? -1) === 0,
+      JSON.stringify({ editor: editedDraft, pendingAssetIds: editedSession?.pendingAssetIds }),
+    )
+    await page.locator('[data-agent-close]').click()
+    await page.locator('[data-canvas-agent]').waitFor({ state: 'visible', timeout: 5000 })
+    await page.locator('[data-canvas-agent]').click()
+    await page.locator('[data-agent-input]').waitFor({ state: 'visible', timeout: 5000 })
+    const restoredDraft = await page.locator('[data-agent-input]').evaluate((editor) => ({
+      text: editor.innerText,
+      chips: editor.querySelectorAll('[data-token]').length,
+    }))
+    rec(
+      g,
+      '★★ 收起再展开 Agent 后恢复最后输入的文字，不复活已删除的图片',
+      restoredDraft.text.includes('新的草稿内容') && restoredDraft.chips === 0,
+      JSON.stringify(restoredDraft),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-draft-restored.png` })
     const skillIconShape = await page.evaluate(() => ({
       agentPaths:
         document.querySelector('[data-agent-skill-open] svg')?.querySelectorAll('path').length ?? 0,
