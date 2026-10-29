@@ -1,5 +1,17 @@
 # CanvasFlow（轻画）项目记忆
 
+### Harness 集成回退（2026-10-29，对账 #809）
+
+- **当前状态**：按用户要求撤回 DeepSeek Harness Worker 运行时、ACP/MCP 桥、签名资源包、
+  安装入口和相关前端测试；当前项目未接入官方 DSH，也没有 Harness 隐藏开关。
+- **保留边界**：应用壳 Agent 面板、`AgentController`、`ToolRegistry`、`ModelRoutePort`、
+  `RouteExecutionPort` 与 `MemoryPort` 是现有 Agent 的宿主能力，不应随 Harness 一起删除。
+- **混合提交教训**：`e639fd1` 同时提交了 Harness ACP 与存储目录修复。反向整段回退会让
+  存储 V1 源选择、产品目录选择和空 V2 隔离逻辑回退到 0.1.9 状态，必须先恢复 `HEAD`
+  存储逻辑，再只删除 Harness 段；不能对包含混合改动的 commit 直接整文件反向应用。
+- **验证**：全量 Vitest **3571 passed / 1 skipped**；`npm run check`、`cargo check`
+  通过。资源目录 `.harness-pack/` 与 `release/harness/` 已删除。
+
 ### 0.1.9 发布包与 release 门禁单实例冲突（2026-10-29 → 对账 #802）
 
 - **发布门禁必须在没有开发壳运行时执行**：开发版 `target/debug/qinghua.exe` 与 release
@@ -18,10 +30,6 @@
   线上安装包完整回读尺寸与 SHA-256 均与本地一致。
 - **发布边界**：构建成功不等于已发布。后续每次仍须先列完整待推提交和摘要，用户显式确认后才能
   `git push`；之后才创建 tag / GitHub Release 并运行匿名发布验收。
-- **提交夹带事故（2026-10-29）**：`e639fd1` 本应只放 ACP 宿主，却同时带入了当时工作区里的
-  V1/V2 迁移改动；`2250025` 还带入了 `Cargo.toml / Cargo.lock` 的 `0.1.10` 版本行。
-  两笔都还在本地、未推送，不做破坏性改写历史；后续 Agent 提交必须按暂存路径逐个核对，
-  发布 / 存储脏文件不得被顺手吸收，推送前另做提交清单审计。
 
 ### 画布 Agent Harness、应用壳面板与记忆迁移方案（2026-10-29 → 对账 #803–#808）
 
@@ -69,22 +77,6 @@
 - **RouteExecutionPort（2026-10-29）**：Agent 普通文本、工具能力探测和视觉验收都改为
   `RouteExecutionPort.execute()`，只提交已冻结消息、工具、候选与 trace；渠道/Key 解析、
   安全降级、RunRecord 和重试仍由轻画执行层负责。Harness 后续不得直接调用 ChannelStore。
-- **Harness ACP 基础层（2026-10-29）**：新增 ACP JSON-RPC stdio 编解码与客户端，覆盖
-  initialize、session/new/list/resume/close、prompt/cancel、set_config_option、
-  session/update 与 request_permission。
-- **Harness ACP 进程宿主（2026-10-29）**：Tauri 只启动已安装的固定
-  `resources/harness/dsh`，不接受前端传任意命令；支持 stdin、stdout/stderr/exit 事件和
-  显式 stop。前端 Tauri 传输懒启动 sidecar，异常退出会拒绝所有挂起 ACP 请求。
-  尚未打包签名 sidecar，也未接 `qinghua-local` 桥。
-- **HarnessRuntimePort（2026-10-29）**：新增稳定 runtime 端口和 ACP 更新适配器，上层只接收
-  thought/message/toolCall/toolUpdate/usage/unknown 事件；ACP client session id 与轻画
-  logical session id 分开保存，prompt/cancel/close 使用真实 ACP id。
-- **`qinghua-local` 业务桥（2026-10-29）**：只接收固定前端模型名、消息、工具与图片输入，
-  通过现有 RoutePlan 和 RouteExecutionPort 发送；不允许 Harness 自定义 provider、base URL、
-  Key 或 retry。当前明确拒绝 stream，本地 HTTP provider 端点和签名 sidecar 仍未完成。
-- **`qinghua-local` 本地 HTTP 端点（2026-10-29）**：Tauri 只在 127.0.0.1 随机端口监听，
-  使用一次性 Bearer token；Rust 把 `/v1/models` 与 `/v1/chat/completions` 转成 Tauri 事件，
-  前端交给业务桥处理后回传 OpenAI 兼容 JSON。Rust 不接触渠道 Key。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
@@ -109,48 +101,6 @@
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是
   工具结果头尾剪枝、旧图片只读占位、跨会话有界不可信快照和持久压缩开始/结束标记。
-- **Harness 上下文压缩（2026-10-29）**：新增 `HarnessContextCompaction`。工具消息不删骨架，
-  最近 3 条按 6000 字符、较旧结果按 1200 字符保留头尾；内嵌媒体直接变 hash / 节点回读占位。
-  `ContextBundle` 用 `trust=reference_only` 包成带 digest 和上限的快照，明确当前用户消息优先。
-  `qinghua-local` 发送前已统一裁剪；仍未新增第二套记忆表或 Worker 私有长期文件。
-- **本批证据**：全量 Vitest **3591 passed / 1 skipped**；`npm run check`、`npm run build`、
-  `git diff --check` 通过。此改动不涉及 UI，未生成截图或测试项目。
-- **Harness MCP 工具桥（2026-10-29）**：`HarnessMcpToolBridge` 提供 initialize / ping /
-  tools/list / tools/call，只发布 `ToolRegistry` 已登记工具；未知工具返回 MCP `isError`，
-  不进入执行器。loopback `/mcp` 复用 provider 的随机端口和一次性 Bearer token，
-  `HarnessRuntimePort.open()` 已透传 `mcpServers`。真实 Harness 配置与端到端仍待接。
-- **工具桥证据**：全量 Vitest **3597 passed / 1 skipped**；`npm run check`、`npm run build`、
-  Rust `cargo check`、`git diff --check` 通过。不涉及 UI。
-- **Harness 伪流式兼容（2026-10-29）**：`qinghua-local` 接受 `stream=true`，但上游仍只跑一次
-  非流式 RouteExecutionPort；完整结果返回后由 loopback 宿主生成 OpenAI
-  `chat.completion.chunk`、最终 finish_reason 与 `[DONE]`，Content-Type 为
-  `text/event-stream`。这不是 token 级透传，也不得改变 timeout / cancel / 不自动重发规则。
-- **Harness 可选资源包（2026-10-29）**：固定 `@deepseek-ai/dsh@0.2.2-alpha.2`、commit
-  `f3803c96974ad4a94195fb97e5c637e9c2a3afe3`、Node `v24.14.1`；资源包约 256 MiB，
-  SHA-256 `AD602ABCBD194526EF68C36DF6CA479BE4F4868ACD2EE52460F3A7A952DC6E75`，
-  使用原更新私钥签名，不进入主安装包。
-- **DSH 不是单文件 exe**：它要求 Node >= 24.9，ACP 只是 `dsh --profile acp` 的一个 profile。
-  资源包必须带 Node、完整 npm 依赖和 profile；轻画固定 `qinghua-local/qinghua-agent`
-  一个合成模型，真实轻画模型由本地 provider 按当前会话解析，DSH `llm-retry` 关闭。
-- **资源包安装边界**：Rust 用 `tauri.conf.json` 更新公钥做 Minisign Ed25519 验签；
-  ZIP 拒绝绝对路径、`..` 和符号链接，条目上限 200,000、解压上限 2 GiB；安装到应用本地
-  数据 `harness/packs/<id>`，profile 到 `harness/home/profiles/acp`，最后才写 `current.json`。
-- **Windows `.cmd` 启动坑**：`Command::arg` 会把引号变成普通字符，导致 `"C:\...\dsh.cmd"`
-  被当成完整文件名；必须用 `CommandExt::raw_arg` 组成
-  `cmd.exe /D /S /C ""C:\...\dsh.cmd" --profile acp"`，已有单测锁住。
-- **本批证据**：真实资源包 71,236 个 ZIP 条目；Rust 真验签、完整解压安装 **1/1**，耗时
-  230.14 秒；ACP mock-provider `initialize → session/new → prompt → close` 返回“收到”；
-  全量 Vitest **3601 passed / 1 skipped**；`npm run check`、`npm run build`、Rust
-  `cargo test --lib` **54/54**、`cargo check`、`git diff --check` 通过。
-- **构建脚本**：`node scripts/build-harness-pack.mjs` 生成并签名；
-  `node scripts/verify-harness-pack.mjs <unpacked-pack>` 做真实 ACP 端到端；
-  临时 staging 位于 gitignore 的 `.harness-pack/`，正式产物位于 gitignore 的 `release/harness/`。
-- **Harness 会话隔离（2026-10-29）**：`AcpProviderRegistry` 从全局单例改为
-  `providerId -> runtime` 映射；每条事件带 providerId，前端只处理自己的宿主。
-  `openTauriHarnessSession` 为每个 local session 独占 provider、MCP、ACP 进程、runtime、
-  事件与权限回调，关闭按 runtime → provider 顺序释放。多个会话不能共用一个 provider 端口。
-- **会话隔离证据**：全量 Vitest **3602 passed / 1 skipped**；Rust `cargo test --lib`
-  **54/54**；`npm run check`、`npm run build` 通过。此刀仍不改 UI，AgentPanel 尚未切换。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，

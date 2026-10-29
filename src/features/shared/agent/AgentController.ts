@@ -72,7 +72,7 @@ export interface AgentController {
  * 画布 Agent 的宿主控制器。
  *
  * 第一刀只抽出“会话列表 + Job 恢复”这层确定性生命周期；模型循环、确认执行和
- * React 展示仍由现有 AgentPanel 持有。这样 HarnessRuntimePort 接入时，
+ * React 展示仍由现有 AgentPanel 持有。这样后续运行时接入时，
  * 可以直接复用同一套会话恢复规则，而不用再复制一份。
  */
 export function createAgentController(input: {

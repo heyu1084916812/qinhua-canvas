@@ -1,4 +1,4 @@
-export type AgentToolCategory = 'harness-internal' | 'canvas' | 'host-service'
+export type AgentToolCategory = 'agent-internal' | 'canvas' | 'host-service'
 export type AgentToolAccess = 'read' | 'write' | 'confirm'
 export type AgentToolName =
   | 'readGraph'
@@ -33,7 +33,7 @@ export interface AgentToolDefinition {
 }
 
 export const AGENT_TOOL_GROUP_LABELS: Record<AgentToolCategory, string> = {
-  'harness-internal': 'Harness 内部',
+  'agent-internal': 'Agent 内部',
   canvas: '画布',
   'host-service': '宿主服务',
 }
@@ -63,19 +63,19 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
   { name: 'runFrom', category: 'canvas', access: 'confirm', sideEffect: 'paid' },
   {
     name: 'proposeTaskPlan',
-    category: 'harness-internal',
+    category: 'agent-internal',
     access: 'confirm',
     sideEffect: 'none',
   },
   {
     name: 'updateTaskStep',
-    category: 'harness-internal',
+    category: 'agent-internal',
     access: 'write',
     sideEffect: 'none',
   },
   {
     name: 'requestTaskConfirmation',
-    category: 'harness-internal',
+    category: 'agent-internal',
     access: 'confirm',
     sideEffect: 'none',
   },

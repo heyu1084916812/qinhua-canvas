@@ -38,7 +38,7 @@ const TABS: readonly { id: AgentSettingsTab; label: string }[] = [
 ]
 
 const TOOL_GROUP_DETAILS: Record<AgentToolCategory, string> = {
-  'harness-internal': '任务规划、上下文整理、状态汇报与受限子任务。',
+  'agent-internal': '任务规划、上下文整理、状态汇报与受限子任务。',
   canvas: '读取图、创建与修改节点、连线、生成、裁剪与视觉验收。',
   'host-service': '轻画托管的记忆与业务服务；未登记工具默认不可用。',
 }
@@ -188,13 +188,8 @@ export function AgentSettingsPanel({
         {tab === 'model' ? (
           <section className={styles.section} data-agent-settings-model>
             <div className={styles.sectionHead}>
-              <h3>
-                模型与路由
-                <span className={styles.previewBadge}>方案预览</span>
-              </h3>
-              <p>
-                Harness 尚未接入；当前仍由经典 Agent 使用现有模型服务。下面是接入后的唯一口径。
-              </p>
+              <h3>模型与路由</h3>
+              <p>Agent 使用现有模型服务；请求按已启用渠道和已勾选 Key 分组进入 RoutePlan。</p>
             </div>
             <dl className={styles.facts}>
               <div>
@@ -225,11 +220,8 @@ export function AgentSettingsPanel({
         {tab === 'tools' ? (
           <section className={styles.section} data-agent-settings-tools>
             <div className={styles.sectionHead}>
-              <h3>
-                工具权限
-                <span className={styles.previewBadge}>方案预览</span>
-              </h3>
-              <p>Harness 接入后按来源分组；当前经典 Agent 继续使用既有工具集。</p>
+              <h3>工具权限</h3>
+              <p>工具按来源分组；所有调用都经过 ToolRegistry 的权限与确认检查。</p>
             </div>
             <div className={styles.toolGroups}>
               {TOOL_GROUPS.map((group) => (

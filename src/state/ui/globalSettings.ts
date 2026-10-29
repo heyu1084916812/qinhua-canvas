@@ -199,7 +199,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
     group: '生成',
     keywords: [
       'agent',
-      'harness',
+      '任务',
       '模型',
       '工具',
       '技能',

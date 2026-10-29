@@ -30,9 +30,9 @@ export interface RouteExecutionPort {
 }
 
 /**
- * Harness 唯一的文本发送入口。
+ * Agent 唯一的文本发送入口。
  *
- * Worker 只能提交已冻结的消息、工具和 RoutePlan；渠道解析、凭据读取、安全降级、
+ * Agent 只能提交已冻结的消息、工具和 RoutePlan；渠道解析、凭据读取、安全降级、
  * RunRecord 与重试边界仍由轻画执行层负责。
  */
 export function createRouteExecutionPort(

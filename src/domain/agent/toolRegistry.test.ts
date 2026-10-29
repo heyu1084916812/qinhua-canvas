@@ -41,7 +41,7 @@ describe('Agent tool registry', () => {
   })
 
   it('groups tools by their actual owner', () => {
-    expect(agentToolsInCategory('harness-internal')).toEqual([
+    expect(agentToolsInCategory('agent-internal')).toEqual([
       'proposeTaskPlan',
       'updateTaskStep',
       'requestTaskConfirmation',

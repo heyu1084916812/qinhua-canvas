@@ -13,7 +13,6 @@ coverage/
 .playwright-verify/
 .market-research/
 .vitest/
-.harness-pack/
 
 # 一次性诊断探针（scripts/probe-*.mjs）
 #

@@ -1,5 +1,11 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-29 Harness 集成回退（对账 #809）**：按用户要求撤回 DeepSeek Harness
+> Worker 运行时、ACP/MCP 桥、签名资源包与安装入口；未接入官方 DSH，也不再以 Harness
+> 作为当前实现目标。保留的应用壳 Agent 面板、AgentController、ToolRegistry、
+> ModelRoutePort、RouteExecutionPort 与 MemoryPort 仅服务现有 Agent。下文涉及 Harness
+> 的段落属于历史方案，不代表已接入。
+
 > **2026-10-29：画布 Agent 永久切换 Harness，改为应用壳右侧面板（方案已确认，尚未实施；对账 #803）。**
 > 本决定只覆盖画布工作台，永久替换现有画布 Agent 循环，不保留面向用户的“旧 Agent / Harness”
 > 切换；开发期可存在内部迁移开关，发布前删除。入口仍是画布浮球，面板固定跟随应用壳右侧与高度，
@@ -1027,10 +1033,10 @@ bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`�
 | **H1a 应用壳面板** | `AgentShellSlot`、canvas portal、可调宽壳层、浮球独立坐标 | ✅ 已交付：G735 14/14；浮球与节点坐标 0 变化 |
 | **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB、确认与完整队列生命周期已抽出**：Controller 持有 session→job、Job 创建/迁移/恢复、确认批准链、入队/删除/编辑、queued Job 取消、队首领取与结束；`AgentToolRequest` 已上移 `domain/agent`。调度触发、实际工具执行与模型循环仍在 AgentPanel，H3 前继续拆 |
 | **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort，普通调用 / 工具探测 / 视觉验收统一走 RouteExecutionPort；401 安全降级与超时分支有单测；`AgentToolEffectLedger` 使用 `tool_started / tool_finished / tool_failed` 持久账本，确认、建图与只读工具全部接入；已开始未完成会直接停止本轮并转 `needs_attention` |
-| **H3 Harness Worker** | 签名资源包、ACP sidecar、session 恢复、Harness retry 关闭 | 🧩 **ACP RuntimePort 与 `qinghua-local` HTTP 端点已落地**：固定资源路径启动、ACP 全生命周期和语义更新、随机 loopback 端口与一次性 Bearer token、`/v1/models`、`/v1/chat/completions` 到现有 RoutePlan/RouteExecutionPort 的桥接均有测试；`HarnessContextCompaction` 已在 provider 发送前压缩旧工具结果与内嵌媒体；`HarnessMcpToolBridge + /mcp` 已提供注册表过滤、MCP tools/list/call 和标准 HTTP `mcpServers`；`stream=true` 由本地把完整非流式结果转成 SSE，不改变上游请求；**签名资源包已真实生成、验签、解压安装并通过 ACP mock-provider 端到端**（DSH `0.2.2-alpha.2` / Node `v24.14.1`）；真实 AgentPanel 切换与画布工具等价回归待完成 |
-| **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；`formatHarnessMemorySnapshot` 已提供有界、带 digest 和信任边界的 Harness 投影，使用统计与真实端到端回归仍待 H3 |
+| **H3 Harness Worker** | 签名资源包、Worker 握手、session 恢复、Harness retry 关闭 | 内部开关下完成同等画布任务；Worker 崩溃不重发付费请求；包体独立且可验签 |
+| **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；Harness 使用投影与压缩策略待 H3 |
 | **H5 等价切换与删除旧循环** | 跑完整回归，删除内部开关与旧主循环 | 没有用户可见双模式；旧计划、队列、引导、确认、停止、检查点行为全部保留 |
-| **H6 打包与发布门禁** | 主安装包 + 可选 Harness 资源包、更新清单、签名、真机启动 | 🧩 独立资源包构建脚本与运行时验证脚本已落地；资源包 **267,996,877 B**，不进入主安装包，原更新私钥验签通过；失败回退旧 pack、下载 UI 与 GitHub 发布资产仍待完成 |
+| **H6 打包与发布门禁** | 主安装包 + 可选 Harness 资源包、更新清单、签名、真机启动 | 不显著增大主安装包；资源包签名和版本可核验；失败可回退到上一个已验签资源包 |
 
 前置依赖：H1 的壳层几何先稳定，再接 Harness；H2 的路由与幂等先稳定，再让 Worker
 拥有工具；H4 在 H3 后做一次真实记忆回归，避免把旧面板移动了却没有接上新 Runtime。

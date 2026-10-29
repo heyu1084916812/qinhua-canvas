@@ -8,7 +8,7 @@ import type { ContextRepository } from '../../../state/shared/contextRepository'
 export interface AgentMemoryPort {
   /** 读取已按作用域、冲突和字符预算裁剪的上下文。 */
   read(input: Parameters<ContextRepository['bundleForProject']>[0]): Promise<ContextBundle>
-  /** 只接受用户确认后的候选；Harness 不能直接持有记忆仓储。 */
+  /** 只接受用户确认后的候选；Agent 不能直接持有记忆仓储。 */
   remember(candidate: MemoryCandidate): Promise<ContextMemory>
 }
 

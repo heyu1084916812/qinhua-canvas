@@ -1,6 +1,6 @@
 import type { RouteCapability, RoutePlanResult } from '../../../domain/project/routePlan'
 
-/** Harness 唯一可见的合成 provider；它不代表新的渠道配置。 */
+/** Agent 内部使用的合成 provider；它不代表新的渠道配置。 */
 export const AGENT_LOCAL_PROVIDER_ID = 'qinghua-local'
 
 export type AgentRouteCapability = Extract<RouteCapability, 'chat' | 'image' | 'video'>
@@ -15,8 +15,8 @@ export interface ModelRoutePort {
 }
 
 /**
- * Agent 路由端口只做一件薄事：把 Harness 的合成 provider 请求转给轻画现有
- * ChannelStore / RoutePlan。Harness 不读取 Key，也不自己决定重试次数。
+ * Agent 路由端口只做一件薄事：把合成 provider 请求转给轻画现有
+ * ChannelStore / RoutePlan。Agent 不读取 Key，也不自己决定重试次数。
  */
 export function createModelRoutePort(
   planGenerationRoute: (request: {
