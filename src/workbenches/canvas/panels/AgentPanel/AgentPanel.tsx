@@ -185,6 +185,10 @@ import {
   agentShouldShowJumpLatest,
 } from './agentConversationScroll'
 import {
+  agentThinkingSummary,
+  agentToolActivitySummary,
+} from './agentActivitySummary'
+import {
   AGENT_REVEAL_TICK_MS,
   agentRevealCharacters,
   nextAgentRevealLength,
@@ -851,6 +855,7 @@ export function AgentPanel({
     current?.queuedTurns.length,
     current?.pendingSteers.length,
     messageReveal?.visibleLength,
+    composerHeight,
   ])
 
   const onConversationScroll = () => {
@@ -4707,7 +4712,11 @@ function currentTurnSteps(items: readonly ConversationItem[]): ConversationStep[
     .filter((item): item is ConversationStep => item.kind === 'step')
 }
 
-function activityTextOf(status: Status, generationPhraseIndex: number): string {
+function activityTextOf(
+  status: Status,
+  generationPhraseIndex: number,
+  items: readonly ConversationItem[],
+): string {
   if (status.kind === 'executing') {
     if (status.tool === 'runNode' || status.tool === 'runFrom') {
       return GENERATION_ACTIVITY_PHRASES[
@@ -4716,8 +4725,13 @@ function activityTextOf(status: Status, generationPhraseIndex: number): string {
     }
     return '正在执行这一步操作'
   }
-  if (status.kind === 'thinking') return '正在理解你的要求'
-  if (status.kind === 'toolRunning') return '正在查看画布和结果'
+  if (status.kind === 'thinking') {
+    const lastUser = [...items].reverse().find((item) => item.kind === 'user')
+    return agentThinkingSummary(lastUser?.kind === 'user' ? lastUser.text : '')
+  }
+  if (status.kind === 'toolRunning') {
+    return agentToolActivitySummary(currentTurnSteps(items).at(-1)?.label)
+  }
   if (status.kind === 'awaitingConfirm') return '这一步需要你确认'
   return STATUS_LABEL[status.kind]
 }
@@ -4790,7 +4804,7 @@ function AgentActivityStrip({
     return () => window.clearInterval(timer)
   }, [generationTool, status.kind])
 
-  const currentText = activityTextOf(status, generationPhraseIndex)
+  const currentText = activityTextOf(status, generationPhraseIndex, items)
 
   return (
     <section

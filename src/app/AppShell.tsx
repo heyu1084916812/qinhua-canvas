@@ -6,6 +6,7 @@ import { TitleBar } from './TitleBar'
 import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
 import { GettingStarted } from '../features/onboarding/GettingStarted'
+import { GlobalTooltip } from './GlobalTooltip'
 import {
   SIDEBAR_COLLAPSED_W,
   getSidebarOpen,
@@ -115,6 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <GettingStarted />
       {/* 存量素材缩略图的一次性补图（对账 #232）：没有界面，进画布自动让路 */}
       <ThumbBackfill />
+      <GlobalTooltip />
     </div>
   )
 }

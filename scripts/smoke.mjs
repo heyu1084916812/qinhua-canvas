@@ -40222,7 +40222,29 @@ async function g735(browser) {
   }
   const hiddenToggle = page.locator(`[data-route-map-uncommon="${hiddenModel}"]`)
   if (!(await hiddenToggle.isChecked())) await hiddenToggle.click()
-  await sleep(500)
+  await page
+    .waitForFunction(
+      async (name) => {
+        const response = await fetch(
+          'http://127.0.0.1:18765/query',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              table: 'presets',
+              filter: { id: 'models:uncommon' },
+              includePayload: false,
+            }),
+          },
+        )
+        if (!response.ok) return false
+        const row = (await response.json()).rows?.[0]
+        return Array.isArray(row?.names) && row.names.includes(name)
+      },
+      hiddenModel,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
 
   await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -40464,6 +40486,32 @@ async function g735(browser) {
   const composerHandle = page.locator('[data-agent-composer-resize]')
   const composerInitial = await composer.boundingBox()
   const composerHandleBox = await composerHandle.boundingBox()
+  await composerHandle.hover()
+  await sleep(220)
+  const tooltipState = await page.evaluate(() => {
+    const tooltip = document.querySelector('[data-global-tooltip]')
+    const handle = document.querySelector('[data-agent-composer-resize]')
+    if (!tooltip || !handle) return null
+    const style = getComputedStyle(tooltip)
+    const rect = tooltip.getBoundingClientRect()
+    return {
+      text: tooltip.textContent?.trim() ?? '',
+      radius: style.borderTopLeftRadius,
+      visible: rect.width > 0 && rect.height > 0 && style.opacity !== '0',
+      sourceTitle: handle.getAttribute('title'),
+    }
+  })
+  rec(
+    g,
+    '全局原生标题提示统一为圆角矩形浮层',
+    !!tooltipState &&
+      tooltipState.visible &&
+      tooltipState.radius === '8px' &&
+      tooltipState.text.includes('向上拖动加高输入框') &&
+      tooltipState.sourceTitle === null,
+    JSON.stringify(tooltipState),
+  )
+  await page.mouse.move(10, 10)
   rec(
     g,
     'Agent 输入框保留 104px 最小高度且顶边命中区足够大',
@@ -40484,12 +40532,26 @@ async function g735(browser) {
   )
   await page.mouse.up()
   const composerResized = await composer.boundingBox()
+  const composerLayout = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')?.getBoundingClientRect()
+    const input = document.querySelector('[data-agent-composer]')?.getBoundingClientRect()
+    return {
+      contentBottom: content?.bottom ?? -1,
+      composerTop: input?.top ?? -1,
+    }
+  })
   rec(
     g,
     'Agent 输入框可向上拖动加高',
     composerResized.height >= composerInitial.height + 96 &&
       composerResized.height <= composerInitial.height + 112,
     `高度=${composerInitial.height.toFixed(1)}→${composerResized.height.toFixed(1)}`,
+  )
+  rec(
+    g,
+    '加高输入框时对话区同步收缩，不覆盖消息',
+    composerLayout.contentBottom <= composerLayout.composerTop - 20,
+    JSON.stringify(composerLayout),
   )
   const orbWhenOpen = await orb.boundingBox()
   rec(
@@ -40665,6 +40727,9 @@ async function g735(browser) {
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     return {
       overflow: content.scrollHeight > content.clientHeight,
+      documentOverflow: document.documentElement.scrollHeight - innerHeight,
+      bodyOverflow: document.body.scrollHeight - innerHeight,
+      bodyOverflowY: getComputedStyle(document.body).overflowY,
       messageCount: document.querySelectorAll('[data-agent-message]').length,
       shortHopVisible,
       longHopVisible: !!document.querySelector('[data-agent-jump-latest]'),
@@ -40676,6 +40741,9 @@ async function g735(browser) {
     'Agent 向上阅读超过三行才出现跳至最新按钮',
     !!jumpScrollState &&
       jumpScrollState.overflow &&
+      jumpScrollState.documentOverflow <= 0 &&
+      jumpScrollState.bodyOverflow <= 0 &&
+      jumpScrollState.bodyOverflowY === 'hidden' &&
       !jumpScrollState.shortHopVisible &&
       jumpScrollState.longHopVisible,
     JSON.stringify({
@@ -40707,6 +40775,57 @@ async function g735(browser) {
       jumpedToLatest.distance <= 4 &&
       !jumpedToLatest.buttonVisible,
     JSON.stringify(jumpedToLatest),
+  )
+  const jumpComposerHandle = await composerHandle.boundingBox()
+  const contentBeforeComposerGrowth = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')
+    const input = document.querySelector('[data-agent-composer]')?.getBoundingClientRect()
+    return content && input
+      ? {
+          bottom: content.getBoundingClientRect().bottom,
+          composerTop: input.top,
+          height: input.height,
+        }
+      : null
+  })
+  await page.mouse.move(
+    jumpComposerHandle.x + jumpComposerHandle.width / 2,
+    jumpComposerHandle.y + jumpComposerHandle.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    jumpComposerHandle.x + jumpComposerHandle.width / 2,
+    jumpComposerHandle.y + jumpComposerHandle.height / 2 - 72,
+    { steps: 6 },
+  )
+  await page.mouse.up()
+  await sleep(250)
+  const contentAfterComposerGrowth = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')
+    const input = document.querySelector('[data-agent-composer]')?.getBoundingClientRect()
+    return content && input
+      ? {
+          bottom: content.getBoundingClientRect().bottom,
+          composerTop: input.top,
+          height: input.height,
+          distanceFromBottom: Math.round(
+            content.scrollHeight - content.scrollTop - content.clientHeight,
+          ),
+        }
+      : null
+  })
+  rec(
+    g,
+    '阅读最新记录时加高输入框，对话区向上让位并保持底部可见',
+    !!contentBeforeComposerGrowth &&
+      !!contentAfterComposerGrowth &&
+      contentAfterComposerGrowth.height >= contentBeforeComposerGrowth.height + 64 &&
+      contentAfterComposerGrowth.bottom <= contentAfterComposerGrowth.composerTop - 20 &&
+      contentAfterComposerGrowth.distanceFromBottom <= 4,
+    JSON.stringify({
+      before: contentBeforeComposerGrowth,
+      after: contentAfterComposerGrowth,
+    }),
   )
   await page.locator('[data-agent-close]').click()
   await page.locator('[data-agent-orb]').waitFor({ state: 'visible', timeout: 5000 })
@@ -40791,7 +40910,29 @@ async function g735(browser) {
   }
   const restoreToggle = page.locator(`[data-route-map-uncommon="${hiddenModel}"]`)
   if (await restoreToggle.isChecked()) await restoreToggle.click()
-  await sleep(400)
+  await page
+    .waitForFunction(
+      async (name) => {
+        const response = await fetch(
+          'http://127.0.0.1:18765/query',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              table: 'presets',
+              filter: { id: 'models:uncommon' },
+              includePayload: false,
+            }),
+          },
+        )
+        if (!response.ok) return false
+        const row = (await response.json()).rows?.[0]
+        return !Array.isArray(row?.names) || !row.names.includes(name)
+      },
+      hiddenModel,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
   await page.screenshot({ path: `${OUT}/735-settings-1280.png` })
   await page.setViewportSize({ width: 1024, height: 700 })
   await sleep(300)

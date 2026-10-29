@@ -80,6 +80,11 @@
   outline-offset: 4px;
 }
 
+.orb[data-agent-expanded='true'] {
+  /* 面板打开后，浮球仍停在原位但退到壳层栏后面，避免挡住输入与发送按钮。 */
+  z-index: 46;
+}
+
 .orbSwirl,
 .orbGlint {
   position: absolute;
