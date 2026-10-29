@@ -56,6 +56,14 @@ export interface AgentController {
     turnId: string,
     text: string,
   ) => Promise<AgentSession | null>
+  claimNextQueuedTurn: (
+    sessionId: string,
+  ) => ReturnType<AgentSessionStore['claimNextQueuedTurn']>
+  finishQueuedTurn: (
+    sessionId: string,
+    turnId: string,
+    completed: boolean,
+  ) => Promise<AgentSession | null>
   /** 读回项目会话，并修复上次进程中断留下的运行态。 */
   refresh: () => Promise<AgentSession[]>
 }
@@ -213,6 +221,16 @@ export function createAgentController(input: {
     text,
   ) => sessions.updateQueuedTurnText(sessionId, turnId, text)
 
+  const claimNextQueuedTurn: AgentController['claimNextQueuedTurn'] = (
+    sessionId,
+  ) => sessions.claimNextQueuedTurn(sessionId)
+
+  const finishQueuedTurn: AgentController['finishQueuedTurn'] = (
+    sessionId,
+    turnId,
+    completed,
+  ) => sessions.finishActiveQueuedTurn(sessionId, turnId, completed)
+
   const refresh = async (): Promise<AgentSession[]> => {
     const rows = await sessions.list(projectId)
     for (let row of rows) {
@@ -275,6 +293,8 @@ export function createAgentController(input: {
     enqueueTurn,
     removeQueuedTurn,
     editQueuedTurn,
+    claimNextQueuedTurn,
+    finishQueuedTurn,
     refresh,
   }
 }

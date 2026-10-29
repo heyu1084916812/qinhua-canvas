@@ -2128,7 +2128,7 @@ export function AgentPanel({
       )
       if (!outcome) {
         if (opts.queueTurnId) {
-          const next = await sessions.finishActiveQueuedTurn(
+          const next = await controller.finishQueuedTurn(
             session.id,
             opts.queueTurnId,
             false,
@@ -2143,7 +2143,7 @@ export function AgentPanel({
         outcome.kind === 'stopped' && outcome.checkpoint !== undefined
       if (outcome.kind !== 'confirm' && !paused) {
         if (opts.queueTurnId) {
-          const next = await sessions.finishActiveQueuedTurn(
+          const next = await controller.finishQueuedTurn(
             session.id,
             opts.queueTurnId,
             outcome.kind === 'message',
@@ -2179,7 +2179,11 @@ export function AgentPanel({
         aborted ? IDLE_STATUS : { kind: 'error', message: errText(error) },
       )
       if (opts.queueTurnId) {
-        const next = await sessions.finishActiveQueuedTurn(session.id, opts.queueTurnId, false)
+        const next = await controller.finishQueuedTurn(
+          session.id,
+          opts.queueTurnId,
+          false,
+        )
         if (next) applySessionSnapshot(next)
       }
       releaseSessionActivity(session.id, opts.queueTurnId)
@@ -2187,9 +2191,9 @@ export function AgentPanel({
     return outcome
   }, [
     applySessionSnapshot,
+    controller,
     current,
     runSendText,
-    sessions,
     setStatusFor,
     transitionSessionJob,
   ])
@@ -2269,7 +2273,7 @@ export function AgentPanel({
     queuePumpingRef.current.add(sessionId)
     try {
       if (!claimSessionActivity(sessionId)) return
-      const next = await sessions.claimNextQueuedTurn(sessionId)
+      const next = await controller.claimNextQueuedTurn(sessionId)
       if (!next) {
         clearQueueDrain(sessionId)
         releaseSessionActivity(sessionId)
@@ -2289,7 +2293,7 @@ export function AgentPanel({
     } finally {
       queuePumpingRef.current.delete(sessionId)
     }
-  }, [applySessionSnapshot, sendText, sessions, setStatusFor])
+  }, [applySessionSnapshot, controller, sendText, setStatusFor])
 
   queuePumpRef.current = (sessionId) => {
     if (!shouldDrainQueue(sessionId)) return
@@ -2311,14 +2315,18 @@ export function AgentPanel({
     if (kind === 'stopped' && outcome.checkpoint) return
     const queueTurnId = activeQueueTurnOf(sessionId)
     if (queueTurnId) {
-      const next = await sessions.finishActiveQueuedTurn(sessionId, queueTurnId, kind === 'message')
+      const next = await controller.finishQueuedTurn(
+        sessionId,
+        queueTurnId,
+        kind === 'message',
+      )
       if (next) applySessionSnapshot(next)
     }
     releaseSessionActivity(sessionId, queueTurnId)
     if (kind === 'message' && shouldDrainQueue(sessionId)) {
       queueMicrotask(() => queuePumpRef.current(sessionId))
     }
-  }, [applySessionSnapshot, sessions])
+  }, [applySessionSnapshot, controller])
 
   useEffect(() => {
     if (!current || status.kind !== 'idle') return
@@ -2412,7 +2420,7 @@ export function AgentPanel({
       await attempt(async () => {
         if (queueTurnId) {
           latest =
-            (await sessions.finishActiveQueuedTurn(
+            (await controller.finishQueuedTurn(
               session.id,
               queueTurnId,
               false,
@@ -2734,7 +2742,7 @@ export function AgentPanel({
         queueTurnId &&
         current.queuedTurns[0]?.id === queueTurnId
       ) {
-        const claimed = await sessions.claimNextQueuedTurn(current.id)
+        const claimed = await controller.claimNextQueuedTurn(current.id)
         if (claimed?.session) applySessionSnapshot(claimed.session)
         queueTurnId = claimed?.turn.id
       } else {

@@ -291,6 +291,11 @@ describe('AgentController', () => {
       enqueueTurn: vi.fn(async () => ({ ok: true, session: queuedSession })),
       removeQueuedTurn: vi.fn(async () => queuedSession),
       updateQueuedTurnText: vi.fn(async () => queuedSession),
+      claimNextQueuedTurn: vi.fn(async () => ({
+        session: queuedSession,
+        turn: { id: 'turn-q' },
+      })),
+      finishActiveQueuedTurn: vi.fn(async () => queuedSession),
     }
     const controller = createAgentController({
       projectId: 'p1',
@@ -333,6 +338,15 @@ describe('AgentController', () => {
       's1',
       'turn-q',
       '改过的任务',
+    )
+    await expect(controller.claimNextQueuedTurn('s1')).resolves.toMatchObject({
+      turn: { id: 'turn-q' },
+    })
+    await controller.finishQueuedTurn('s1', 'turn-q', true)
+    expect(sessions.finishActiveQueuedTurn).toHaveBeenCalledWith(
+      's1',
+      'turn-q',
+      true,
     )
   })
 })

@@ -82,6 +82,9 @@
 - **队列记录证据**：全量 Vitest **3571 passed / 1 skipped**；`npm run check`、
   `npm run build` 通过。G769 隔离回归被真实桌面应用占用的 18765 端口阻塞，未擅自结束
   用户进程；本轮不作为 UI 通过证据。
+- **H1b 队列领取与结束（2026-10-29）**：`claimNextQueuedTurn` 和
+  `finishActiveQueuedTurn` 也移入 Controller；AgentPanel 只决定何时触发队列泵和如何更新
+  React 快照，不再直接调用 queue runtime store。
 - **MemoryPort 唯一入口（2026-10-29）**：Agent 面板读取 `ContextBundle` 与保存确认后的
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是
