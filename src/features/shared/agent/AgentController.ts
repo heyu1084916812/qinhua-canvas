@@ -1,6 +1,12 @@
 import type { AgentSession, AgentSessionStore } from '../../../state/agent/sessionStore'
 import type { AgentJobStore } from '../../../state/agent/jobStore'
 import type { AgentToolRequest } from '../../../domain/agent/toolRequest'
+import type {
+  AgentEventType,
+  AgentJob,
+  AgentJobPatch,
+  AgentJobStatus,
+} from '../../../domain/agent/job'
 
 export interface AgentControllerHooks {
   isSessionActivityActive: (sessionId: string) => boolean
@@ -14,6 +20,15 @@ export interface AgentControllerHooks {
 export interface AgentController {
   sessions: AgentSessionStore
   jobs: AgentJobStore
+  jobId: (sessionId: string) => string | undefined
+  ensureJob: (session: AgentSession, turnId: string) => Promise<AgentJob>
+  transition: (
+    sessionId: string,
+    to: AgentJobStatus,
+    eventType?: AgentEventType,
+    patch?: AgentJobPatch,
+    payload?: Record<string, unknown>,
+  ) => Promise<{ job: AgentJob; event: import('../../../domain/agent/job').AgentEvent } | null>
   /** 读回项目会话，并修复上次进程中断留下的运行态。 */
   refresh: () => Promise<AgentSession[]>
 }
@@ -32,6 +47,74 @@ export function createAgentController(input: {
   hooks: AgentControllerHooks
 }): AgentController {
   const { projectId, sessions, jobs, hooks } = input
+  const jobIds = new Map<string, string>()
+
+  const jobId = (sessionId: string): string | undefined =>
+    jobIds.get(sessionId)
+
+  const ensureJob = async (
+    session: AgentSession,
+    turnId: string,
+  ): Promise<AgentJob> => {
+    const mappedId = jobIds.get(session.id)
+    if (mappedId) {
+      const mapped = await jobs.get(mappedId)
+      if (mapped) return mapped
+      jobIds.delete(session.id)
+    }
+    let existing = await jobs.forTurn(session.id, turnId)
+    if (!existing) {
+      const active = await jobs.active(session.id)
+      if (active?.status === 'needs_attention') {
+        await jobs
+          .transition(
+            active.id,
+            'canceled',
+            'canceled',
+            {},
+            { reason: 'new_turn_after_needs_attention' },
+          )
+          .catch(() => null)
+      } else {
+        existing = active
+      }
+    }
+    const job =
+      existing ??
+      (await jobs.create({
+        sessionId: session.id,
+        projectId,
+        turnId,
+      })).job
+    jobIds.set(session.id, job.id)
+    return job
+  }
+
+  const transition: AgentController['transition'] = async (
+    sessionId,
+    to,
+    eventType = 'status_changed',
+    patch = {},
+    payload = {},
+  ) => {
+    let id = jobIds.get(sessionId)
+    if (!id) {
+      const active = await jobs.active(sessionId)
+      if (active) {
+        id = active.id
+        jobIds.set(sessionId, id)
+      }
+    }
+    if (!id) return null
+    const result = await jobs.transition(id, to, eventType, patch, payload)
+    if (
+      result &&
+      (to === 'completed' || to === 'failed' || to === 'canceled')
+    ) {
+      jobIds.delete(sessionId)
+    }
+    return result
+  }
 
   const refresh = async (): Promise<AgentSession[]> => {
     const rows = await sessions.list(projectId)
@@ -84,5 +167,5 @@ export function createAgentController(input: {
     return sessions.list(projectId)
   }
 
-  return { sessions, jobs, refresh }
+  return { sessions, jobs, jobId, ensureJob, transition, refresh }
 }

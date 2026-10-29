@@ -21,12 +21,6 @@ import {
   type AgentSession,
 } from '../../../../state/agent/sessionStore'
 import { createAgentJobStore } from '../../../../state/agent/jobStore'
-import type {
-  AgentEventType,
-  AgentJob,
-  AgentJobPatch,
-  AgentJobStatus,
-} from '../../../../domain/agent/job'
 import type { AgentDeliveryMode } from '../../../../domain/agent/delivery'
 import {
   confirmationApprovalSteps,
@@ -309,6 +303,8 @@ export function AgentPanel({
     [platform.storage, projectId, setStatusFor, store],
   )
   const { sessions, jobs } = controller
+  const ensureAgentJob = controller.ensureJob
+  const transitionSessionJob = controller.transition
   const toolEffects = useMemo(() => createAgentToolEffectLedger(jobs), [jobs])
   const memory = useMemo(
     () => createAgentMemoryPort(createContextRepository(platform.storage)),
@@ -344,7 +340,6 @@ export function AgentPanel({
     getAgentDeliveryMode,
   )
   const queuePumpingRef = useRef(new Set<string>())
-  const jobIdsRef = useRef(new Map<string, string>())
   const confirmingRef = useRef(new Set<string>())
   const stoppingRef = useRef(new Set<string>())
   /** 已批准、正在执行的确认工具；停止时要给这条 tool_call 补一个中断结果。 */
@@ -681,73 +676,6 @@ export function AgentPanel({
     setList(rows)
     return rows
   }, [controller])
-
-  const ensureAgentJob = useCallback(
-    async (session: AgentSession, turnId: string): Promise<AgentJob> => {
-      const mappedId = jobIdsRef.current.get(session.id)
-      if (mappedId) {
-        const mapped = await jobs.get(mappedId)
-        if (mapped) return mapped
-        jobIdsRef.current.delete(session.id)
-      }
-      let existing = await jobs.forTurn(session.id, turnId)
-      if (!existing) {
-        const active = await jobs.active(session.id)
-        if (active?.status === 'needs_attention') {
-          await jobs
-            .transition(
-              active.id,
-              'canceled',
-              'canceled',
-              {},
-              { reason: 'new_turn_after_needs_attention' },
-            )
-            .catch(() => null)
-        } else {
-          existing = active
-        }
-      }
-      const job =
-        existing ??
-        (await jobs.create({
-          sessionId: session.id,
-          projectId,
-          turnId,
-        })).job
-      jobIdsRef.current.set(session.id, job.id)
-      return job
-    },
-    [jobs, projectId],
-  )
-
-  const transitionSessionJob = useCallback(
-    async (
-      sessionId: string,
-      to: AgentJobStatus,
-      eventType: AgentEventType = 'status_changed',
-      patch: AgentJobPatch = {},
-      payload: Record<string, unknown> = {},
-    ) => {
-      let id = jobIdsRef.current.get(sessionId)
-      if (!id) {
-        const active = await jobs.active(sessionId)
-        if (active) {
-          id = active.id
-          jobIdsRef.current.set(sessionId, id)
-        }
-      }
-      if (!id) return null
-      const result = await jobs.transition(id, to, eventType, patch, payload)
-      if (
-        result &&
-        (to === 'completed' || to === 'failed' || to === 'canceled')
-      ) {
-        jobIdsRef.current.delete(sessionId)
-      }
-      return result
-    },
-    [jobs],
-  )
 
   useEffect(() => {
     let alive = true
@@ -1126,12 +1054,11 @@ export function AgentPanel({
       execute: () => Promise<unknown>,
     ): Promise<unknown> => {
       const jobId =
-        jobIdsRef.current.get(session.id) ??
+        controller.jobId(session.id) ??
         (await jobs.active(session.id))?.id
       if (!jobId) {
         return execute()
       }
-      jobIdsRef.current.set(session.id, jobId)
       const latest = (await sessions.get(session.id)) ?? session
       const stepId = latest.taskPlan?.currentStepId ?? 'unplanned'
       const outcome = await toolEffects.run({
@@ -1161,7 +1088,7 @@ export function AgentPanel({
         outcome,
       )
     },
-    [jobs, sessions, store, toolEffects],
+    [controller, jobs, sessions, store, toolEffects],
   )
 
   const executeConfirmedToolWithLedger = useCallback(
@@ -1640,10 +1567,6 @@ export function AgentPanel({
       if (deliveredSteerIds.length > 0) {
         latest = await sessions.removeSteers(session.id, deliveredSteerIds)
         deliveredSteersRef.current.delete(session.id)
-      }
-      if (!jobIdsRef.current.has(session.id)) {
-        const active = await jobs.active(session.id)
-        if (active) jobIdsRef.current.set(session.id, active.id)
       }
       if (outcome.kind === 'confirm') {
         await transitionSessionJob(

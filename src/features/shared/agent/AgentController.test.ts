@@ -179,4 +179,63 @@ describe('AgentController', () => {
       '结果未知，未自动重发',
     )
   })
+
+  it('owns session-to-job mapping and lifecycle transitions', async () => {
+    const job = {
+      id: 'job-1',
+      sessionId: 's1',
+      projectId: 'p1',
+      turnId: 'turn-1',
+      status: 'queued' as const,
+      revision: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const jobs = {
+      get: vi.fn(async () => job),
+      forTurn: vi.fn(async () => null),
+      active: vi.fn(async () => null),
+      create: vi.fn(async () => ({
+        job,
+        event: { id: 'e1' },
+        created: true,
+      })),
+      transition: vi.fn(async () => ({
+        job: { ...job, status: 'planning' as const },
+        event: { id: 'e2' },
+      })),
+      recoverSession: vi.fn(async () => []),
+    }
+    const controller = createAgentController({
+      projectId: 'p1',
+      sessions: {
+        list: vi.fn(async () => []),
+        get: vi.fn(),
+        repairConfirmationSteerCollision: vi.fn(),
+        releaseActiveTurn: vi.fn(),
+      } as never,
+      jobs: jobs as never,
+      hooks: {
+        isSessionActivityActive: () => false,
+        onPendingConfirmation: vi.fn(),
+        onContinuation: vi.fn(),
+        onNeedsAttention: vi.fn(),
+        onIdle: vi.fn(),
+        notify: vi.fn(),
+      },
+    })
+
+    await expect(controller.ensureJob(session(), 'turn-1')).resolves.toBe(job)
+    expect(controller.jobId('s1')).toBe('job-1')
+    await expect(
+      controller.transition('s1', 'planning'),
+    ).resolves.toMatchObject({ job: { status: 'planning' } })
+    expect(jobs.transition).toHaveBeenCalledWith(
+      'job-1',
+      'planning',
+      'status_changed',
+      {},
+      {},
+    )
+  })
 })

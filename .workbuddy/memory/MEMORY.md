@@ -69,6 +69,11 @@
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
   模型循环、队列和确认执行仍在 AgentPanel，不能把这一刀说成完整 Controller。
+- **H1b Job 生命周期（2026-10-29）**：session→job 映射、Job 创建、主动状态迁移和
+  `needs_attention` 旧任务收口也移入 `AgentController`；AgentPanel 只保留 `ensureJob /
+  transition / jobId` 调用和 React 投影，不再持有 Job id Map 或复制状态机。
+- **H1b Job 生命周期证据**：全量 Vitest **3570 passed / 1 skipped**；`npm run check`、
+  `npm run build` 通过；隔离存储 G769 **28/28**，测试目录已删除。
 - **MemoryPort 唯一入口（2026-10-29）**：Agent 面板读取 `ContextBundle` 与保存确认后的
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是
