@@ -1027,7 +1027,7 @@ bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`�
 | **H1a 应用壳面板** | `AgentShellSlot`、canvas portal、可调宽壳层、浮球独立坐标 | ✅ 已交付：G735 14/14；浮球与节点坐标 0 变化 |
 | **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB、确认与完整队列生命周期已抽出**：Controller 持有 session→job、Job 创建/迁移/恢复、确认批准链、入队/删除/编辑、queued Job 取消、队首领取与结束；`AgentToolRequest` 已上移 `domain/agent`。调度触发、实际工具执行与模型循环仍在 AgentPanel，H3 前继续拆 |
 | **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort，普通调用 / 工具探测 / 视觉验收统一走 RouteExecutionPort；401 安全降级与超时分支有单测；`AgentToolEffectLedger` 使用 `tool_started / tool_finished / tool_failed` 持久账本，确认、建图与只读工具全部接入；已开始未完成会直接停止本轮并转 `needs_attention` |
-| **H3 Harness Worker** | 签名资源包、ACP sidecar、session 恢复、Harness retry 关闭 | 🧩 **ACP 协议、客户端与 Tauri 进程宿主已落地**：固定资源路径启动、stdin 写入、stdout/stderr/exit 事件、异常退出清理挂起请求，以及 session/new|list|resume|close、prompt/cancel、set_config_option、request_permission 均有测试；签名 sidecar 打包、`qinghua-local` 桥和真实 Harness 等价任务待完成 |
+| **H3 Harness Worker** | 签名资源包、ACP sidecar、session 恢复、Harness retry 关闭 | 🧩 **ACP RuntimePort 已落地**：固定资源路径启动、stdin/stdout/stderr/exit、异常退出清理、session new/resume/close、prompt/cancel、permission，以及 thought/message/tool/usage 语义事件适配均有测试；签名 sidecar 打包、`qinghua-local` 桥和真实 Harness 等价任务待完成 |
 | **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；Harness 使用投影与压缩策略待 H3 |
 | **H5 等价切换与删除旧循环** | 跑完整回归，删除内部开关与旧主循环 | 没有用户可见双模式；旧计划、队列、引导、确认、停止、检查点行为全部保留 |
 | **H6 打包与发布门禁** | 主安装包 + 可选 Harness 资源包、更新清单、签名、真机启动 | 不显著增大主安装包；资源包签名和版本可核验；失败可回退到上一个已验签资源包 |

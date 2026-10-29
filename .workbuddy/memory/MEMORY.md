@@ -72,6 +72,9 @@
   `resources/harness/dsh`，不接受前端传任意命令；支持 stdin、stdout/stderr/exit 事件和
   显式 stop。前端 Tauri 传输懒启动 sidecar，异常退出会拒绝所有挂起 ACP 请求。
   尚未打包签名 sidecar，也未接 `qinghua-local` 桥。
+- **HarnessRuntimePort（2026-10-29）**：新增稳定 runtime 端口和 ACP 更新适配器，上层只接收
+  thought/message/toolCall/toolUpdate/usage/unknown 事件；ACP client session id 与轻画
+  logical session id 分开保存，prompt/cancel/close 使用真实 ACP id。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
