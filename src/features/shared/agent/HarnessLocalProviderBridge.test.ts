@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { ChatMessage } from '../../../domain/shared/execution/types'
 import { directTextTrace } from '../../../state/shared/directRun'
 import { createHarnessLocalProviderBridge } from './HarnessLocalProviderBridge'
 
@@ -69,5 +70,54 @@ describe('HarnessLocalProviderBridge', () => {
     await expect(
       bridge.complete({ ...request, stream: true }),
     ).rejects.toThrow('只支持非流式')
+  })
+
+  it('compacts old tool results before they enter the model request', async () => {
+    let sentMessages: readonly ChatMessage[] = []
+    const execute = vi.fn(
+      async (input: { messages: readonly ChatMessage[] }) => {
+        sentMessages = input.messages
+        return {
+          text: '继续',
+          finishReason: 'stop' as const,
+        }
+      },
+    )
+    const route = {
+      channelId: 'channel-1',
+      upstreamModel: 'upstream-chat-1',
+      candidates: [{ channelId: 'channel-1', model: 'upstream-chat-1' }],
+      routePlanId: 'plan-1',
+      trace: directTextTrace({
+        projectId: 'p1',
+        workbench: 'canvas',
+        subjectId: 's1',
+        scopeId: 'session:s1',
+        operationId: 'op-1',
+        purpose: 'agent',
+        channelId: 'channel-1',
+        model: 'upstream-chat-1',
+        prompt: '继续',
+      }),
+    }
+    const bridge = createHarnessLocalProviderBridge({
+      execution: { execute },
+      listModels: async () => [],
+      resolveRoute: async () => route,
+    })
+    const messages = Array.from({ length: 5 }, (_, index) => ({
+      role: 'tool' as const,
+      content: `结果 ${index} ${'x'.repeat(8_000)}`,
+      toolCallId: `call-${index}`,
+      toolName: 'readGraph',
+    }))
+
+    await bridge.complete({ ...request, messages })
+
+    expect(sentMessages[0]!.content).toContain('中间省略')
+    expect(sentMessages[4]!.content).toContain('中间省略')
+    expect(sentMessages[4]!.content.length).toBeGreaterThan(
+      sentMessages[0]!.content.length,
+    )
   })
 })

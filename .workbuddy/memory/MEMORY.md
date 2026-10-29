@@ -18,6 +18,10 @@
   线上安装包完整回读尺寸与 SHA-256 均与本地一致。
 - **发布边界**：构建成功不等于已发布。后续每次仍须先列完整待推提交和摘要，用户显式确认后才能
   `git push`；之后才创建 tag / GitHub Release 并运行匿名发布验收。
+- **提交夹带事故（2026-10-29）**：`e639fd1` 本应只放 ACP 宿主，却同时带入了当时工作区里的
+  V1/V2 迁移改动；`2250025` 还带入了 `Cargo.toml / Cargo.lock` 的 `0.1.10` 版本行。
+  两笔都还在本地、未推送，不做破坏性改写历史；后续 Agent 提交必须按暂存路径逐个核对，
+  发布 / 存储脏文件不得被顺手吸收，推送前另做提交清单审计。
 
 ### 画布 Agent Harness、应用壳面板与记忆迁移方案（2026-10-29 → 对账 #803–#808）
 
@@ -105,6 +109,12 @@
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是
   工具结果头尾剪枝、旧图片只读占位、跨会话有界不可信快照和持久压缩开始/结束标记。
+- **Harness 上下文压缩（2026-10-29）**：新增 `HarnessContextCompaction`。工具消息不删骨架，
+  最近 3 条按 6000 字符、较旧结果按 1200 字符保留头尾；内嵌媒体直接变 hash / 节点回读占位。
+  `ContextBundle` 用 `trust=reference_only` 包成带 digest 和上限的快照，明确当前用户消息优先。
+  `qinghua-local` 发送前已统一裁剪；仍未新增第二套记忆表或 Worker 私有长期文件。
+- **本批证据**：全量 Vitest **3591 passed / 1 skipped**；`npm run check`、`npm run build`、
+  `git diff --check` 通过。此改动不涉及 UI，未生成截图或测试项目。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，

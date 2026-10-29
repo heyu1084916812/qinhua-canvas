@@ -8,6 +8,7 @@ import type {
   DirectRunRouteCandidate,
   DirectRunTraceInput,
 } from '../../../state/shared/directRun'
+import { compactHarnessContext } from './HarnessContextCompaction'
 import type { RouteExecutionPort } from './RouteExecutionPort'
 
 export interface HarnessLocalChatRequest {
@@ -59,12 +60,13 @@ export function createHarnessLocalProviderBridge(input: {
         throw new Error('轻画本地路由桥当前只支持非流式模型请求')
       }
       const route = await input.resolveRoute(request)
+      const compacted = compactHarnessContext(request.messages)
       const result = await input.execution.execute({
         channelId: route.channelId,
         model: route.upstreamModel,
         modelIsUpstream: true,
         tools: request.tools ?? [],
-        messages: request.messages,
+        messages: compacted.messages,
         ...(request.inputs?.length ? { inputs: request.inputs } : {}),
         signal,
         routeCandidates: route.candidates,
