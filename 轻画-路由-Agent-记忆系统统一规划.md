@@ -10,7 +10,8 @@
 > 电商与漫剧 Agent 范围不变。实施计划见《轻画-Agent设计文档.md》§17–§21。
 > 同日 H1a / H4 UI 已交付：壳层 portal、360–720px 拖宽、浮球独立坐标、六页签 Agent 设置
 > 与记忆迁移完成；G735 14/14、G769 28/28。Harness Worker、Controller、ToolRegistry 与
-> RouteExecutionPort 仍未实施。
+> RouteExecutionPort 仍未全部实施；当前 ToolRegistry、Agent ModelRoutePort 与
+> 401 安全降级已完成。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。

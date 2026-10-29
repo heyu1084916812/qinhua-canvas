@@ -1,4 +1,10 @@
 import type { ChatMessage, NodeInput, ToolDeclaration } from '../../../domain/shared/execution/types'
+import {
+  AGENT_CONFIRM_TOOL_NAMES,
+  AGENT_READ_TOOL_NAMES,
+  AGENT_WRITE_TOOL_NAMES,
+  agentToolDefinitionOf,
+} from '../../../domain/agent/toolRegistry'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { errorTextOf } from '../../../shared/result'
 import { parseJsonAgentAction } from './jsonToolFallback'
@@ -21,7 +27,7 @@ import { parseJsonAgentAction } from './jsonToolFallback'
 export const AGENT_DEFAULT_MAX_STEPS = 8
 
 /** 读类：循环里直接跑，结果回填给模型 */
-const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult', 'visualReview'])
+const READ_TOOLS = new Set<string>(AGENT_READ_TOOL_NAMES)
 /**
  * 建图类：循环里**直接落地**，不问用户。
  *
@@ -34,27 +40,9 @@ const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult', 'visualRevie
  * 和「点确认 = 批准花钱」混成了一件事 —— 用户点完发现画布还是空的（那是另一个
  * bug），体验上完全分不清发生了什么。
  */
-const WRITE_TOOLS = new Set([
-  'applyPlan',
-  'updateTaskStep',
-  'moveNodes',
-  'arrangeNodes',
-  'compareNodes',
-  'resizeNodes',
-  'sliceImage',
-  'splitGrid',
-])
+const WRITE_TOOLS = new Set<string>(AGENT_WRITE_TOOL_NAMES)
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set([
-  'proposeTaskPlan',
-  'requestTaskConfirmation',
-  'updateNode',
-  'runNode',
-  'runFrom',
-  'deleteEdges',
-  'deleteNodes',
-  'rememberMemory',
-])
+const CONFIRM_TOOLS = new Set<string>(AGENT_CONFIRM_TOOL_NAMES)
 
 export interface AgentToolRequest {
   callId: string
@@ -335,7 +323,7 @@ export async function runAgentTurn(
         outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
       messages.push(toolResult(call.id, call.name, outcome))
-      if (call.name === 'visualReview') visualReviewRan = true
+      if (agentToolDefinitionOf(call.name)?.terminalAfter) visualReviewRan = true
     }
   }
 

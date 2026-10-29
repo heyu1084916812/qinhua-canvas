@@ -3,6 +3,7 @@ import {
   backoffMs,
   isRequestResendSafe,
   isRetryableStatus,
+  isRouteFallbackSafe,
   trimLog,
   isInterruptible,
   isTerminal,
@@ -38,6 +39,23 @@ describe('重试与退避', () => {
     ).toBe(false)
     expect(isRequestResendSafe({ kind: 'network', detail: 'dns' })).toBe(false)
     expect(isRequestResendSafe({ kind: 'http', status: 408 })).toBe(false)
+  })
+})
+
+describe('路由候选降级', () => {
+  it('HTTP 401 归一成 missingKey 后仍可安全换下一个候选', () => {
+    expect(isRouteFallbackSafe({ kind: 'channel', detail: 'missingKey' })).toBe(true)
+    expect(isRouteFallbackSafe({ kind: 'http', status: 401 })).toBe(true)
+    expect(isRouteFallbackSafe({ kind: 'http', status: 403 })).toBe(true)
+    expect(isRouteFallbackSafe({ kind: 'http', status: 429 })).toBe(true)
+  })
+
+  it('超时、408、响应丢失和内容错误不换候选', () => {
+    expect(
+      isRouteFallbackSafe({ kind: 'network', detail: 'timeout', sendPhase: 'unknown' }),
+    ).toBe(false)
+    expect(isRouteFallbackSafe({ kind: 'http', status: 408 })).toBe(false)
+    expect(isRouteFallbackSafe({ kind: 'channel', detail: 'unsupported' })).toBe(false)
   })
 })
 

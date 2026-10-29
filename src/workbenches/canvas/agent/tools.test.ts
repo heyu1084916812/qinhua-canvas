@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { registerAllSpecs } from '../../../domain/canvas/nodeSpecs'
 import type { AgentPlan } from '../../../domain/agent/plan'
+import { AGENT_TOOL_DEFINITIONS } from '../../../domain/agent/toolRegistry'
 import { createMemoryPlatform } from '../../../platform/memory'
 import { createCanvasStore, type CanvasStore } from '../../../state/workbenches/canvas/store'
 import {
@@ -73,6 +74,12 @@ describe('工具声明', () => {
       'visualReview',
     ])
     for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
+  })
+
+  it('★★ 模型可见的 schema 与领域 ToolRegistry 完全同源', () => {
+    expect(AGENT_TOOLS.map((tool) => tool.name).sort()).toEqual(
+      AGENT_TOOL_DEFINITIONS.map((tool) => tool.name).sort(),
+    )
   })
 
   it('★ rememberMemory 把当前项目 / 会话补进候选并交给记忆存储', async () => {

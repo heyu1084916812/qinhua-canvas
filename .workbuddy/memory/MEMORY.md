@@ -50,6 +50,12 @@
   1440×900 / 1024×700、明暗主题以及 360/420/720 宽度实拍，无横向溢出。
 - **下一道门仍不能跳**：当前只是 UI 外壳与设置迁移，不代表 Harness 已接好。下一步仍是
   `AgentController` 抽取、ToolRegistry / RouteExecutionPort 和 Worker runtime（H1b–H3）。
+- **H2 已推进（2026-10-29）**：`domain/agent/toolRegistry` 成为 20 个工具的唯一清单，
+  `agentLoop` 的读 / 写 / 确认集合与设置页分组都从它派生；`tools.test` 断言模型 schema
+  与注册表完全同名。Agent 文本路由新增 `ModelRoutePort`，仍进现有 RoutePlan。
+- **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，
+  原先 `isRouteFallbackSafe` 不认这一档，导致候选链误停。现在 `missingKey` 可安全切下一
+  候选；timeout / 408 / 响应丢失仍不重发。全量 Vitest **3550 passed / 1 skipped**。
 
 ### Agent 运行状态、投递偏好与执行落库（2026-10-28 → 对账 #801）
 

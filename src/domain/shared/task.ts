@@ -74,6 +74,12 @@ export function isRequestResendSafe(error: AppError): boolean {
  */
 export function isRouteFallbackSafe(error: AppError): boolean {
   if (error.kind === 'network') return isRequestResendSafe(error)
+  /**
+   * OpenAI 兼容 HTTP 401 在协议层归一为 `channel/missingKey`，用来让设置页
+   * 说清“凭据无效”；它仍是上游明确拒绝、没有受理付费任务，可以安全换候选。
+   * 真正的本地“没填 Key”发生在发送前，同样不需要重发当前候选。
+   */
+  if (error.kind === 'channel' && error.detail === 'missingKey') return true
   if (error.kind === 'http') {
     return (
       error.status === 401 ||

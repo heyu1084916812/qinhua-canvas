@@ -119,6 +119,7 @@ import {
   decideToolMode,
   ensureToolSupport,
 } from '../../../../features/shared/agent/toolSupport'
+import { createModelRoutePort } from '../../../../features/shared/agent/ModelRoutePort'
 import {
   directTextTrace,
   type DirectRunRouteCandidate,
@@ -479,6 +480,13 @@ export function AgentPanel({
     >(),
   )
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const modelRoute = useMemo(
+    () =>
+      createModelRoutePort((request) =>
+        channels.planGenerationRoute(request),
+      ),
+    [channels],
+  )
 
   /**
    * 已启用渠道。`useMemo` 不是为了省那一次 filter，而是为了让**依赖它的
@@ -574,8 +582,8 @@ export function AgentPanel({
       }
       const cached = cachedChatRoute(session)
       if (!fresh && cached) return { ok: true, route: cached }
-      const planned = await channels.planGenerationRoute({
-        category: 'chat',
+      const planned = await modelRoute.plan({
+        capability: 'chat',
         logicalModel,
       })
       if (!planned.ok) {
@@ -608,7 +616,7 @@ export function AgentPanel({
       chatRouteRef.current.set(session.id, route)
       return { ok: true, route }
     },
-    [allChannels, cachedChatRoute, channels],
+    [allChannels, cachedChatRoute, modelRoute],
   )
 
   /**

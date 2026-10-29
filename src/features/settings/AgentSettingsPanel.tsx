@@ -9,6 +9,11 @@ import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
 import type { AgentDeliveryMode } from '../../domain/agent/delivery'
+import {
+  AGENT_TOOL_GROUP_LABELS,
+  agentToolsInCategory,
+  type AgentToolCategory,
+} from '../../domain/agent/toolRegistry'
 import { createPresetStore } from '../../state/project/presetStore'
 import {
   closeGlobalSettings,
@@ -32,39 +37,20 @@ const TABS: readonly { id: AgentSettingsTab; label: string }[] = [
   { id: 'advanced', label: '高级' },
 ]
 
-const TOOL_GROUPS = [
-  {
-    title: 'Harness 内部',
-    detail: '任务规划、上下文整理、状态汇报与受限子任务。',
-    tools: ['任务计划', '上下文整理', '运行状态', '检查点'],
-  },
-  {
-    title: '画布',
-    detail: '读取图、创建与修改节点、连线、生成、裁剪与视觉验收。',
-    tools: [
-      'readGraph',
-      'applyPlan',
-      'updateNode',
-      'moveNodes',
-      'resizeNodes',
-      'deleteNodes',
-      'arrangeNodes',
-      'deleteEdges',
-      'compareNodes',
-      'sliceImage',
-      'splitGrid',
-      'runNode',
-      'runFrom',
-      'readResult',
-      'visualReview',
-    ],
-  },
-  {
-    title: '宿主服务',
-    detail: '素材、技能、记忆、套件、日志和模型路由由轻画托管。',
-    tools: ['素材读取', '技能', '记忆', 'ContextBundle', 'RunRecord', 'RoutePlan'],
-  },
-] as const
+const TOOL_GROUP_DETAILS: Record<AgentToolCategory, string> = {
+  'harness-internal': '任务规划、上下文整理、状态汇报与受限子任务。',
+  canvas: '读取图、创建与修改节点、连线、生成、裁剪与视觉验收。',
+  'host-service': '轻画托管的记忆与业务服务；未登记工具默认不可用。',
+}
+
+const TOOL_GROUPS = (
+  Object.keys(AGENT_TOOL_GROUP_LABELS) as AgentToolCategory[]
+).map((category) => ({
+  category,
+  title: AGENT_TOOL_GROUP_LABELS[category],
+  detail: TOOL_GROUP_DETAILS[category],
+  tools: agentToolsInCategory(category),
+}))
 
 function DeliverySettings() {
   const platform = usePlatform()
