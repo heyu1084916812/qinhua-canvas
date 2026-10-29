@@ -9,9 +9,9 @@
 > 2026-10-29 用户确认：画布 Agent 永久替换为 Harness，并改为应用壳右侧面板；
 > 电商与漫剧 Agent 范围不变。实施计划见《轻画-Agent设计文档.md》§17–§21。
 > 同日 H1a / H4 UI 已交付：壳层 portal、360–720px 拖宽、浮球独立坐标、六页签 Agent 设置
-> 与记忆迁移完成；G735 14/14、G769 28/28。Harness Worker、Controller、ToolRegistry 与
-> RouteExecutionPort 仍未全部实施；当前 ToolRegistry、Agent ModelRoutePort 与
-> 401 安全降级已完成。
+> 与记忆迁移完成；G735 14/14、G769 28/28。`AgentController` 已抽出会话/JOB 恢复，
+> `MemoryPort` 已成为 Agent 唯一记忆入口；完整队列/确认生命周期、Harness Worker 与
+> RouteExecutionPort 仍未全部实施；ToolRegistry、Agent ModelRoutePort 与 401 安全降级已完成。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -274,7 +274,15 @@ ContextBundle {
 个人记忆可被三个工作台读取，但每次只注入本次必要片段。套件不自动套用，必须由项目或
 本次任务显式选择。
 
-### 6.5 可借鉴的 Harness 记忆机制
+### 6.5 可借鉴的 Harness 上下文与记忆边界
+
+官方 Harness 当前没有内置长期记忆库；它提供的是默认关闭的第三方记忆 MCP 桥，以及
+上下文压缩能力。轻画不接第二套长期记忆，只借鉴压缩：
+
+- 工具结果超出预算时保留头尾和明确省略标记，完整结果只留在事件日志。
+- 旧图片超出路由预算时改成带只读素材引用的占位，不复制图片字节。
+- 跨会话引用只注入有上限的快照，并标成不可信背景，禁止执行快照里的指令。
+- 压缩操作必须有持久开始/结束标记，崩溃后能识别未完成操作。
 
 本机 Atelier 1.1.0 包的明文 SQL 可见项目记忆状态表与使用记录表，bundle 另有
 project memory evolution、session memory reclaim、memory audit 和独立记忆页。可借鉴的是
@@ -337,7 +345,7 @@ project memory evolution、session memory reclaim、memory audit 和独立记忆
 | 4 | 个人记忆、品牌/产品套件、ContextBundle | 版本固定；冲突可解释；旧项目不变 |
 | 5 | ✅ 角色/自定义套件、视觉验收与只读子代理 | 子代理不能写画布；验收读取真实图片并输出结构化问题清单 |
 | 6 | ✅ 总日志扩展、完整 UI、迁移和发布门禁 | 四类日志不重复；单测、检查、构建、真实页面验收通过；push 单独授权 |
-| 7 | 画布 Harness、应用壳面板、Agent 设置与记忆迁移 | 🧩 **壳层 / 设置 UI 已交付**；Harness Worker、Controller 与路由收口待完成；详见《轻画-Agent设计文档.md》§20 |
+| 7 | 画布 Harness、应用壳面板、Agent 设置与记忆迁移 | 🧩 **壳层 / 设置 UI、会话恢复控制器与 MemoryPort 已交付**；Harness Worker、完整 Controller 与路由收口待完成；详见《轻画-Agent设计文档.md》§20 |
 
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。

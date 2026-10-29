@@ -17,7 +17,9 @@
 > 仍按 H1b–H3 继续，当前不得把“UI 已切换”误报成“Harness 已完成”。
 > H2 已进一步收口：20 个工具由 `domain/agent/toolRegistry` 单一登记，`agentLoop`
 > 与设置页共用；Agent 文本路由改走 `ModelRoutePort`，HTTP 401 归一为
-> `channel/missingKey` 后可安全切换候选。持久化幂等账本与 Controller 抽取仍未完成。
+> `channel/missingKey` 后可安全切换候选。H1b 第一刀已抽出会话/JOB 恢复控制器；
+> H4 已接入 `MemoryPort`，Agent 面板不再直接操作记忆仓储。持久化幂等账本、完整
+> 队列/确认控制器和 Harness Worker 仍未完成。
 
 > **2026-10-28：严格单步、结果验收与队列直发（对账 #788 / #789）。** 计划同一时间只能有
 > 一个进行中步骤；`done / skipped` 只结束当前步骤，不会自动启动下一步。设计、生成、页面等
@@ -976,6 +978,21 @@ sliceImage / splitGrid`。
 
 ### 19.2 从 Atelier 可验证借鉴的部分
 
+先划清 Harness 自身边界：官方 `deepseek-harness` 当前是 developer preview，没有内置
+长期记忆库。它只提供默认关闭的第三方记忆 MCP 参考配置，存储、账户、embedding、
+迁移和运维都由上游负责；真正能复用的是上下文压缩能力，而不是再接一个“Harness 记忆库”。
+
+轻画可借鉴其四类压缩机制：
+
+1. **工具结果剪枝**：超出预算只保留头部、明确省略标记和尾部；完整结果仍在事件日志，
+   可回放，不重复交给模型。
+2. **图片省略**：旧图片超过当前路由预算时改成带只读素材引用的文本占位，后续请求保持
+   同一省略决定；新加的同一素材仍可重新读取。
+3. **跨会话引用**：只注入有上限的快照，并明确标成不可信背景，不能把其中的指令、权限
+   声明或工具请求当成当前用户要求。
+4. **持久压缩标记**：先记录开始，再写摘要/替换，最后记录结束；崩溃后能识别未完成操作，
+   不假装压缩已经成功。
+
 本机 Atelier 1.1.0 单文件包的明文 SQL 可见
 `project_memory_state(id, payload, updated_at)` 与
 `project_memory_usage(id, memory_id, project_id, agent, run_id, query_text, used_at)`；
@@ -1007,10 +1024,10 @@ bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`�
 | --- | --- | --- |
 | **H0 契约与基线** | 本文、架构、统一规划、对账清单；补当前 Agent UI / 行为截图基线 | ✅ 文档与基线完成 |
 | **H1a 应用壳面板** | `AgentShellSlot`、canvas portal、可调宽壳层、浮球独立坐标 | ✅ 已交付：G735 14/14；浮球与节点坐标 0 变化 |
-| **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 📝 未实施；H3 前完成 |
+| **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB 恢复层已抽出**：`AgentController` 持有 sessions / jobs、修复中断活动回合和确认/引导冲突；`AgentToolRequest` 已上移 `domain/agent`。队列、确认执行与模型循环仍在 AgentPanel，H3 前继续拆 |
 | **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort；401 安全降级与超时分支有单测；持久幂等账本待接 Job/Step |
 | **H3 Harness Worker** | 签名资源包、Worker 握手、session 恢复、Harness retry 关闭 | 内部开关下完成同等画布任务；Worker 崩溃不重发付费请求；包体独立且可验签 |
-| **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；Harness 记忆使用投影待 H3 |
+| **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；Harness 使用投影与压缩策略待 H3 |
 | **H5 等价切换与删除旧循环** | 跑完整回归，删除内部开关与旧主循环 | 没有用户可见双模式；旧计划、队列、引导、确认、停止、检查点行为全部保留 |
 | **H6 打包与发布门禁** | 主安装包 + 可选 Harness 资源包、更新清单、签名、真机启动 | 不显著增大主安装包；资源包签名和版本可核验；失败可回退到上一个已验签资源包 |
 

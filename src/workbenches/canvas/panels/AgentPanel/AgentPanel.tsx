@@ -120,6 +120,8 @@ import {
   ensureToolSupport,
 } from '../../../../features/shared/agent/toolSupport'
 import { createModelRoutePort } from '../../../../features/shared/agent/ModelRoutePort'
+import { createAgentController } from '../../../../features/shared/agent/AgentController'
+import { createAgentMemoryPort } from '../../../../features/shared/agent/MemoryPort'
 import {
   directTextTrace,
   type DirectRunRouteCandidate,
@@ -271,10 +273,36 @@ export function AgentPanel({
   const execution = useCanvasExecution()
   const skills = useSkillsOptional()
 
-  const sessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
-  const jobs = useMemo(() => createAgentJobStore(platform.storage), [platform])
-  const contextRepo = useMemo(
-    () => createContextRepository(platform.storage),
+  const [statusBySession, setStatusBySession] = useState<Record<string, Status>>({})
+  const setStatusFor = useCallback((sessionId: string, next: Status) => {
+    setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
+  }, [])
+  const controller = useMemo(
+    () =>
+      createAgentController({
+        projectId,
+        sessions: createAgentSessionStore(platform.storage),
+        jobs: createAgentJobStore(platform.storage),
+        hooks: {
+          isSessionActivityActive,
+          onPendingConfirmation: (sessionId, request) => {
+            setStatusFor(sessionId, { kind: 'awaitingConfirm', request })
+          },
+          onContinuation: (sessionId, maxSteps) => {
+            setStatusFor(sessionId, {
+              kind: 'paused',
+              message: `已完成 ${maxSteps} 步，可继续`,
+            })
+          },
+          onIdle: (sessionId) => setStatusFor(sessionId, IDLE_STATUS),
+          notify: (message, tone) => store.notify(message, tone),
+        },
+      }),
+    [platform.storage, projectId, setStatusFor, store],
+  )
+  const { sessions, jobs } = controller
+  const memory = useMemo(
+    () => createAgentMemoryPort(createContextRepository(platform.storage)),
     [platform],
   )
   const presets = useMemo(() => createPresetStore(platform.storage), [platform])
@@ -298,23 +326,8 @@ export function AgentPanel({
   const [list, setList] = useState<AgentSession[]>([])
   const [current, setCurrent] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  /**
-   * **每个会话一份运行态**（用户 2026-10-05 第 3 条：「两次不同的对话会先完成一个再
-   * 完成另外一个」）。
-   *
-   * 原先是组件级**单份** `status`：会话 A 在跑时切到 B，B 的输入区也跟着变成「停止」，
-   * 想发第二条只能等 A 跑完 —— 看起来就是「两个对话排队」。记忆本来就是按会话隔离的
-   * （§8.2），运行态也该如此：`sessionId → Status`，各记各的。
-   *
-   * `status` 是**当前会话那一份**（下面 `current` 一定在 `statusBySession` 之后定义，
-   * 所以这里先取值、在 `current` 声明处再算）。
-   */
-  const [statusBySession, setStatusBySession] = useState<Record<string, Status>>({})
   /** 当前会话那一份运行态（别的会话在跑不影响这里） */
   const status: Status = (current && statusBySession[current.id]) || IDLE_STATUS
-  const setStatusFor = useCallback((sessionId: string, next: Status) => {
-    setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
-  }, [])
   const [queueExpanded, setQueueExpanded] = useState(false)
   const deliveryMode = useSyncExternalStore(
     subscribeAgentDeliveryMode,
@@ -648,59 +661,10 @@ export function AgentPanel({
 
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
   const refresh = useCallback(async () => {
-    let rows = await sessions.list(projectId)
-    for (let row of rows) {
-      const liveHere = isSessionActivityActive(row.id)
-      if (!liveHere && row.pendingConfirmation && row.pendingSteers.length > 0) {
-        const repaired = await sessions.repairConfirmationSteerCollision(row.id)
-        if (repaired) {
-          row = repaired
-          const staleJob = await jobs.active(row.id).catch(() => null)
-          if (staleJob) {
-            await jobs
-              .transition(
-                staleJob.id,
-                'canceled',
-                'canceled',
-                {},
-                { reason: 'recovered_confirmation_steer_collision' },
-              )
-              .catch(() => null)
-          }
-          setStatusFor(row.id, IDLE_STATUS)
-          store.notify(
-            '已恢复一条卡在确认步骤的引导，并转成排队消息；可点“继续”重发',
-            'info',
-          )
-        } else {
-          /*
-           * 开发模式会并发执行两次 refresh。另一路可能刚修完，这一路拿到的
-           * repair=null，但手里仍是修复前的旧快照；必须回库重读，否则后面会把
-           * 已清掉的 pendingConfirmation 重新写回界面状态。
-           */
-          row = (await sessions.get(row.id)) ?? row
-        }
-      }
-      if (row.activeTurnId && !liveHere) {
-        await sessions.releaseActiveTurn(row.id)
-      }
-      if (!liveHere) await jobs.recoverSession(row.id)
-      if (row.pendingConfirmation) {
-        setStatusFor(row.id, {
-          kind: 'awaitingConfirm',
-          request: row.pendingConfirmation,
-        })
-      } else if (row.continuation) {
-        setStatusFor(row.id, {
-          kind: 'paused',
-          message: `已完成 ${row.continuation.maxSteps} 步，可继续`,
-        })
-      }
-    }
-    rows = await sessions.list(projectId)
+    const rows = await controller.refresh()
     setList(rows)
     return rows
-  }, [sessions, jobs, projectId, setStatusFor, store])
+  }, [controller])
 
   const ensureAgentJob = useCallback(
     async (session: AgentSession, turnId: string): Promise<AgentJob> => {
@@ -1088,25 +1052,11 @@ export function AgentPanel({
         splitNodeToGrid({ platform, store }, { nodeId, rows, cols }),
       rememberMemory: async (candidate) => {
         try {
-          const memory = await contextRepo.createMemory({
-            kind: candidate.kind,
-            text: candidate.text,
-            scope: candidate.scope,
-            ...(candidate.workbench ? { workbench: candidate.workbench } : {}),
-            ...(candidate.projectId ? { projectId: candidate.projectId } : {}),
-            ...(candidate.sessionId ? { sessionId: candidate.sessionId } : {}),
-            ...(candidate.key ? { key: candidate.key } : {}),
-            ...(candidate.expiresAt ? { expiresAt: candidate.expiresAt } : {}),
-            ...(candidate.replaceMemoryId
-              ? { replaceMemoryId: candidate.replaceMemoryId }
-              : {}),
-            source: 'agent',
-            confidence: candidate.confidence,
-          })
+          const saved = await memory.remember(candidate)
           return {
             ok: true,
-            memoryId: memory.id,
-            text: memory.text,
+            memoryId: saved.id,
+            text: saved.text,
           }
         } catch (error) {
           return {
@@ -1127,7 +1077,7 @@ export function AgentPanel({
       selectedModelOf,
       sessions,
       platform,
-      contextRepo,
+      memory,
     ],
   )
 
@@ -1802,7 +1752,7 @@ export function AgentPanel({
     let contextPrompt = ''
     const cleanRequest = stripMentionMarkup(text)
     try {
-      const bundle = await contextRepo.bundleForProject({
+      const bundle = await memory.read({
         projectId: store.getSnapshot().projectId,
         workbench: 'canvas',
         request: cleanRequest,
@@ -2114,7 +2064,7 @@ export function AgentPanel({
     viewport,
     prepareChatRoute,
     sessions,
-    contextRepo,
+    memory,
     generationAvailability,
     ensureAgentJob,
     transitionSessionJob,

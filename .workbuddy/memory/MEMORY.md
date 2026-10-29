@@ -53,6 +53,16 @@
 - **H2 已推进（2026-10-29）**：`domain/agent/toolRegistry` 成为 20 个工具的唯一清单，
   `agentLoop` 的读 / 写 / 确认集合与设置页分组都从它派生；`tools.test` 断言模型 schema
   与注册表完全同名。Agent 文本路由新增 `ModelRoutePort`，仍进现有 RoutePlan。
+- **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
+  active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
+  `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
+  模型循环、队列和确认执行仍在 AgentPanel，不能把这一刀说成完整 Controller。
+- **MemoryPort 唯一入口（2026-10-29）**：Agent 面板读取 `ContextBundle` 与保存确认后的
+  记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
+  官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是
+  工具结果头尾剪枝、旧图片只读占位、跨会话有界不可信快照和持久压缩开始/结束标记。
+- **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
+  通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，
   原先 `isRouteFallbackSafe` 不认这一档，导致候选链误停。现在 `missingKey` 可安全切下一
   候选；timeout / 408 / 响应丢失仍不重发。全量 Vitest **3550 passed / 1 skipped**。

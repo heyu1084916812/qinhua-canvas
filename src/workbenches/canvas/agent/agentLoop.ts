@@ -1,4 +1,5 @@
 import type { ChatMessage, NodeInput, ToolDeclaration } from '../../../domain/shared/execution/types'
+import type { AgentToolRequest } from '../../../domain/agent/toolRequest'
 import {
   AGENT_CONFIRM_TOOL_NAMES,
   AGENT_READ_TOOL_NAMES,
@@ -44,11 +45,7 @@ const WRITE_TOOLS = new Set<string>(AGENT_WRITE_TOOL_NAMES)
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
 const CONFIRM_TOOLS = new Set<string>(AGENT_CONFIRM_TOOL_NAMES)
 
-export interface AgentToolRequest {
-  callId: string
-  name: string
-  args: unknown
-}
+export type { AgentToolRequest } from '../../../domain/agent/toolRequest'
 
 export interface AgentLoopCheckpoint {
   kind: 'max_steps'
