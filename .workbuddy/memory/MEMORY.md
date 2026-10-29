@@ -1,5 +1,26 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 工具结果需要渐进展开（2026-10-29，对账 #816）
+
+- **不要条件挂载直接跳高**：步骤详情使用常驻 `stepReveal` 网格层，`grid-template-rows` 从
+  `0fr` 过渡到 `1fr`，配合 opacity 与 3px 上移；关闭时反向收拢。
+- **可访问状态要跟动画一起走**：按钮维护 `aria-expanded / aria-controls`，收起内容
+  `aria-hidden=true`。失败步骤始终默认展开，报错不能被折叠层藏住。
+- **缩略图只在展开后挂载**：折叠状态不提前加载大图；减少动效模式取消全部过渡。
+- **本轮证据**：G769 浅色 **29/29**、深色 **29/29**；70ms 中段高度约 152px、透明度 0.82，
+  250ms 后稳定完整高度。全量 Vitest **3589 passed / 1 skipped**。
+
+### Agent 输入框加高不能吃掉正文（2026-10-29，对账 #815）
+
+- **测量与补偿必须在绘制前**：输入框先变高、对话区后变矮；普通 `useEffect` 会先让底部正文被裁一帧。
+  使用 `useLayoutEffect`，把对话区实际减少的 `clientHeight` 等量加到 `scrollTop`。
+- **向上阅读不等于贴底**：原逻辑只在距底 4px 内 follow-latest；用户上滚后加高输入框，底部正文会被
+  新占空间盖掉。`agentScrollTopAfterShrink()` 必须无条件补偿视口收缩，仅在用户原本贴底时再跟到最新。
+- **手动滚动要更新基线**：`onConversationScroll` 同步保存 `clientHeight / scrollHeight / scrollTop`；
+  后续 resize 使用用户最后一刻的阅读位置，不能拿旧的 effect 指标。
+- **本轮证据**：G735 **34/34**；新增断言验证同一 `data-md-block` 行在输入框加高前后都完整可见，
+  并且距底 120px 的阅读位置保持不变；全量 Vitest **3589 passed / 1 skipped**。
+
 ### Agent 活动流与视觉验收硬基准（2026-10-29，对账 #814）
 
 - **活动流只报可核实动作**：`ConversationStep.activityLabel / activityKind` 由真实发收数据派生；

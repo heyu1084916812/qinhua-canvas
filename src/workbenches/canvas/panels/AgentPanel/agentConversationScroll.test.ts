@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_JUMP_LATEST_THRESHOLD,
   agentDistanceFromBottom,
+  agentScrollTopAfterShrink,
   agentShouldFollowLatest,
   agentShouldShowJumpLatest,
 } from './agentConversationScroll'
@@ -31,5 +32,26 @@ describe('Agent conversation scroll position', () => {
 
   it('never returns a negative distance', () => {
     expect(agentDistanceFromBottom({ scrollTop: 800, scrollHeight: 1200, clientHeight: 500 })).toBe(0)
+  })
+
+  it('compensates the exact height lost when the composer grows', () => {
+    expect(
+      agentScrollTopAfterShrink(
+        { scrollTop: 640, clientHeight: 500 },
+        380,
+      ),
+    ).toBe(760)
+    expect(
+      agentScrollTopAfterShrink(
+        { scrollTop: 0, clientHeight: 500 },
+        380,
+      ),
+    ).toBe(0)
+    expect(
+      agentScrollTopAfterShrink(
+        { scrollTop: 320, clientHeight: 380 },
+        500,
+      ),
+    ).toBe(320)
   })
 })

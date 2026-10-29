@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -190,6 +191,7 @@ import {
 import {
   agentShouldFollowLatest,
   agentShouldShowJumpLatest,
+  agentScrollTopAfterShrink,
 } from './agentConversationScroll'
 import {
   agentThinkingSummary,
@@ -597,6 +599,11 @@ export function AgentPanel({
     >(),
   )
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const conversationViewportRef = useRef<{
+    clientHeight: number
+    scrollHeight: number
+    scrollTop: number
+  } | null>(null)
   const modelRoute = useMemo(
     () =>
       createModelRoutePort((request) =>
@@ -866,11 +873,24 @@ export function AgentPanel({
     return () => window.clearTimeout(timer)
   }, [messageReveal])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    if (stickToLatestRef.current) el.scrollTop = el.scrollHeight
+    const previous = conversationViewportRef.current
+    const wasFollowing = previous
+      ? agentShouldFollowLatest(previous)
+      : stickToLatestRef.current
+    if (previous && previous.clientHeight > el.clientHeight) {
+      el.scrollTop = agentScrollTopAfterShrink(previous, el.clientHeight)
+    }
+    if (wasFollowing) el.scrollTop = el.scrollHeight
+    stickToLatestRef.current = agentShouldFollowLatest(el)
     setShowJumpToLatest(agentShouldShowJumpLatest(el))
+    conversationViewportRef.current = {
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    }
   }, [
     messages,
     status,
@@ -886,6 +906,11 @@ export function AgentPanel({
     if (!el) return
     stickToLatestRef.current = agentShouldFollowLatest(el)
     setShowJumpToLatest(agentShouldShowJumpLatest(el))
+    conversationViewportRef.current = {
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    }
   }
 
   const jumpToLatest = () => {
@@ -3953,6 +3978,8 @@ export function AgentPanel({
                 data-agent-step-detail={item.tool}
                 onClick={() => hasDetail && toggleStep(item.id)}
                 title={hasDetail ? (isOpen ? '收起细节' : '看这一步的细节') : item.label}
+                aria-expanded={hasDetail ? isOpen : undefined}
+                aria-controls={hasDetail ? `agent-step-detail-${item.id}` : undefined}
               >
                 <span className={styles.stepLabel}>{item.label}</span>
                 {hasDetail && (
@@ -3966,22 +3993,37 @@ export function AgentPanel({
                 「它又问了我一遍」而不是「这件事被拒了，因为……」（2026-10-02 报的
                 那个「重复确认」的现象里，被拒的理由就一直没露出来过）。
               */}
-              {(isOpen || item.failed) && item.lines.length > 0 && (
-                <ul className={styles.stepLines}>
-                  {item.lines.map((l, k) => (
-                    <li key={k}>{l}</li>
-                  ))}
-                </ul>
-              )}
-              {isOpen && thumbs.length > 0 && (
-                <div className={styles.thumbs}>
-                  {thumbs.map((t) => (
-                    <span key={t.id} className={styles.thumb} data-agent-thumb={t.id}>
-                      <StepThumb hash={t.hash} />
-                    </span>
-                  ))}
+              {hasDetail ? (
+                <div
+                  id={`agent-step-detail-${item.id}`}
+                  className={
+                    isOpen || item.failed
+                      ? `${styles.stepReveal} ${styles.stepRevealOpen}`
+                      : styles.stepReveal
+                  }
+                  data-agent-step-reveal={isOpen || item.failed ? 'open' : 'closed'}
+                  aria-hidden={!(isOpen || item.failed)}
+                >
+                  <div className={styles.stepRevealInner}>
+                    {item.lines.length > 0 ? (
+                      <ul className={styles.stepLines}>
+                        {item.lines.map((l, k) => (
+                          <li key={k}>{l}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {(isOpen || item.failed) && thumbs.length > 0 ? (
+                      <div className={styles.thumbs}>
+                        {thumbs.map((t) => (
+                          <span key={t.id} className={styles.thumb} data-agent-thumb={t.id}>
+                            <StepThumb hash={t.hash} />
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              )}
+              ) : null}
             </div>
           )
         })}

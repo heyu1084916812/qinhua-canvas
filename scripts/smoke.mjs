@@ -40253,6 +40253,11 @@ async function g735(browser) {
       { timeout: 5000 },
     )
     .catch(() => {})
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('[data-settings-global-route]').waitFor({
+    state: 'visible',
+    timeout: 15000,
+  })
 
   await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -40835,6 +40840,91 @@ async function g735(browser) {
       after: contentAfterComposerGrowth,
     }),
   )
+  await page.locator('[data-agent-content]').evaluate((element) => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 120)
+  })
+  await sleep(150)
+  const readingBeforeGrowth = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')
+    const contentRect = content?.getBoundingClientRect()
+    const lastVisibleLine = contentRect
+      ? [...content.querySelectorAll('[data-md-block]')]
+          .map((line) => ({
+            text: line.textContent ?? '',
+            rect: line.getBoundingClientRect(),
+          }))
+          .filter((line) => line.rect.height > 0 && line.rect.bottom <= contentRect.bottom + 1)
+          .sort((a, b) => b.rect.bottom - a.rect.bottom)[0]
+      : undefined
+    return content
+      ? {
+          scrollTop: content.scrollTop,
+          clientHeight: content.clientHeight,
+          distanceFromBottom: content.scrollHeight - content.scrollTop - content.clientHeight,
+          lastVisibleLine: lastVisibleLine?.text ?? '',
+        }
+      : null
+  })
+  const readingComposerHandle = await page
+    .locator('[data-agent-composer-resize]')
+    .boundingBox()
+  if (readingComposerHandle) {
+    await page.mouse.move(
+      readingComposerHandle.x + readingComposerHandle.width / 2,
+      readingComposerHandle.y + readingComposerHandle.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      readingComposerHandle.x + readingComposerHandle.width / 2,
+      readingComposerHandle.y + readingComposerHandle.height / 2 - 64,
+      { steps: 6 },
+    )
+    await page.mouse.up()
+    await sleep(220)
+  }
+  const readingAfterGrowth = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')
+    const contentRect = content?.getBoundingClientRect()
+    const lastVisibleLine = contentRect
+      ? [...content.querySelectorAll('[data-md-block]')]
+          .map((line) => ({
+            text: line.textContent ?? '',
+            rect: line.getBoundingClientRect(),
+          }))
+          .filter((line) => line.rect.height > 0 && line.rect.bottom <= contentRect.bottom + 1)
+          .sort((a, b) => b.rect.bottom - a.rect.bottom)[0]
+      : undefined
+    return content
+      ? {
+          scrollTop: content.scrollTop,
+          clientHeight: content.clientHeight,
+          distanceFromBottom: content.scrollHeight - content.scrollTop - content.clientHeight,
+          lastVisibleLine: lastVisibleLine?.text ?? '',
+        }
+      : null
+  })
+  const expectedReadingScroll =
+    readingBeforeGrowth && readingAfterGrowth
+      ? readingBeforeGrowth.scrollTop +
+        Math.max(0, readingBeforeGrowth.clientHeight - readingAfterGrowth.clientHeight)
+      : 0
+  rec(
+    g,
+    '滚动阅读中加高输入框，最后几行不会被输入框吃掉',
+    !!readingBeforeGrowth &&
+      !!readingAfterGrowth &&
+      readingBeforeGrowth.distanceFromBottom > 4 &&
+      readingAfterGrowth.clientHeight < readingBeforeGrowth.clientHeight &&
+      Math.abs(readingAfterGrowth.scrollTop - expectedReadingScroll) <= 2 &&
+      readingAfterGrowth.distanceFromBottom > 4 &&
+      readingAfterGrowth.lastVisibleLine === readingBeforeGrowth.lastVisibleLine,
+    JSON.stringify({
+      before: readingBeforeGrowth,
+      after: readingAfterGrowth,
+      expectedScrollTop: expectedReadingScroll,
+    }),
+  )
+  await page.screenshot({ path: `${OUT}/735-agent-reading-growth.png` })
   await page.locator('[data-agent-close]').click()
   await page.locator('[data-agent-orb]').waitFor({ state: 'visible', timeout: 5000 })
   await sleep(300)
@@ -41497,10 +41587,44 @@ async function g769(browser) {
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1024.png` })
     await page.setViewportSize({ width: 1440, height: 900 })
     await sleep(250)
-    await page.locator('[data-agent-step-detail="runNode"]').first().evaluate((node) => {
-      if (node instanceof HTMLElement) node.click()
+    const runStepReveal = page
+      .locator('[data-agent-step="runNode"] [data-agent-step-reveal]')
+      .first()
+    const runStepDetail = page.locator('[data-agent-step-detail="runNode"]').first()
+    const revealBefore = await runStepReveal.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return {
+        state: node.getAttribute('data-agent-step-reveal'),
+        height: node.getBoundingClientRect().height,
+        transitionDuration: style.transitionDuration,
+      }
     })
-    await sleep(250)
+    await runStepDetail.click()
+    await sleep(70)
+    const revealMid = await runStepReveal.evaluate((node) => ({
+      state: node.getAttribute('data-agent-step-reveal'),
+      height: node.getBoundingClientRect().height,
+      opacity: Number(getComputedStyle(node).opacity),
+    }))
+    await sleep(260)
+    const revealAfter = await runStepReveal.evaluate((node) => ({
+      state: node.getAttribute('data-agent-step-reveal'),
+      height: node.getBoundingClientRect().height,
+      opacity: Number(getComputedStyle(node).opacity),
+    }))
+    rec(
+      g,
+      '★★ Agent 工具结果展开时按高度和透明度逐渐加载',
+      revealBefore.state === 'closed' &&
+        revealBefore.height <= 1 &&
+        revealBefore.transitionDuration !== '0s' &&
+        revealMid.state === 'open' &&
+        revealMid.height > 0 &&
+        revealMid.height < revealAfter.height &&
+        revealAfter.opacity >= 0.99,
+      JSON.stringify({ before: revealBefore, mid: revealMid, after: revealAfter }),
+    )
+    await page.screenshot({ path: `${OUT}/769-agent-step-reveal.png` })
     await page
       .locator(`[data-agent-thumb-open="${thumbHash}"]`)
       .waitFor({ state: 'visible', timeout: 10000 })
