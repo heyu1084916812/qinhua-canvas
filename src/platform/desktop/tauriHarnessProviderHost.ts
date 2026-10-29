@@ -3,6 +3,7 @@ import type {
   HarnessLocalChatRequest,
   HarnessLocalProviderBridge,
 } from '../../features/shared/agent/HarnessLocalProviderBridge'
+import type { HarnessMcpToolBridge } from '../../features/shared/agent/HarnessMcpToolBridge'
 
 interface ProviderRequestEvent {
   requestId: string
@@ -85,9 +86,14 @@ function completionBody(input: {
 
 export async function startTauriHarnessProviderHost(input: {
   provider: HarnessLocalProviderBridge
+  tools?: HarnessMcpToolBridge
   bridge?: TauriHarnessProviderBridge
 }): Promise<{
   endpoint: ProviderEndpoint
+  mcp?: {
+    url: string
+    headers: { Authorization: string }
+  }
   stop: () => Promise<void>
 }> {
   const bridge = input.bridge ?? defaultTauriHarnessProviderBridge
@@ -132,6 +138,15 @@ export async function startTauriHarnessProviderHost(input: {
           )
           return
         }
+        if (event.path === '/mcp' && input.tools) {
+          const response = await input.tools.handle(JSON.parse(event.body))
+          await bridge.respond(
+            event.requestId,
+            response ? 200 : 202,
+            response ? JSON.stringify(response) : '',
+          )
+          return
+        }
         await bridge.respond(
           event.requestId,
           404,
@@ -152,6 +167,14 @@ export async function startTauriHarnessProviderHost(input: {
   })
   return {
     endpoint,
+    ...(input.tools
+      ? {
+          mcp: {
+            url: `${endpoint.baseUrl}/mcp`,
+            headers: { Authorization: `Bearer ${endpoint.token}` },
+          },
+        }
+      : {}),
     async stop() {
       unlisten()
       await bridge.stop()

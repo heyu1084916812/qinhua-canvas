@@ -29,6 +29,7 @@ export interface HarnessRuntimePort {
     sessionId: string
     cwd: string
     resume?: boolean
+    mcpServers?: readonly unknown[]
   }): Promise<HarnessSession>
   prompt(sessionId: string, text: string): Promise<unknown>
   cancel(sessionId: string): Promise<void>
@@ -87,11 +88,11 @@ export function createHarnessRuntimePort(input: {
         ? await client.resumeSession({
             sessionId: session.sessionId,
             cwd: session.cwd,
-            mcpServers: [],
+            mcpServers: [...(session.mcpServers ?? [])],
           })
         : await client.newSession({
             cwd: session.cwd,
-            mcpServers: [],
+            mcpServers: [...(session.mcpServers ?? [])],
           })
       const clientSessionId = sessionIdOf(result)
       clients.set(session.sessionId, { client, clientSessionId })

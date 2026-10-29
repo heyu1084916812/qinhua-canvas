@@ -46,10 +46,32 @@ describe('HarnessRuntimePort', () => {
     port.onEvent(events)
 
     await expect(
-      port.open({ sessionId: 'local-s1', cwd: 'E:/project' }),
+      port.open({
+        sessionId: 'local-s1',
+        cwd: 'E:/project',
+        mcpServers: [
+          {
+            name: 'qinghua-canvas',
+            command: 'mcp-server',
+            args: [],
+            env: [],
+          },
+        ],
+      }),
     ).resolves.toMatchObject({
       sessionId: 'local-s1',
       clientSessionId: 'acp-session-1',
+    })
+    expect(fake.client.newSession).toHaveBeenCalledWith({
+      cwd: 'E:/project',
+      mcpServers: [
+        {
+          name: 'qinghua-canvas',
+          command: 'mcp-server',
+          args: [],
+          env: [],
+        },
+      ],
     })
     await port.prompt('local-s1', '做一张主图')
     expect(fake.client.prompt).toHaveBeenCalledWith('acp-session-1', [

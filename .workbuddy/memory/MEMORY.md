@@ -115,6 +115,12 @@
   `qinghua-local` 发送前已统一裁剪；仍未新增第二套记忆表或 Worker 私有长期文件。
 - **本批证据**：全量 Vitest **3591 passed / 1 skipped**；`npm run check`、`npm run build`、
   `git diff --check` 通过。此改动不涉及 UI，未生成截图或测试项目。
+- **Harness MCP 工具桥（2026-10-29）**：`HarnessMcpToolBridge` 提供 initialize / ping /
+  tools/list / tools/call，只发布 `ToolRegistry` 已登记工具；未知工具返回 MCP `isError`，
+  不进入执行器。loopback `/mcp` 复用 provider 的随机端口和一次性 Bearer token，
+  `HarnessRuntimePort.open()` 已透传 `mcpServers`。真实 Harness 配置与端到端仍待接。
+- **工具桥证据**：全量 Vitest **3597 passed / 1 skipped**；`npm run check`、`npm run build`、
+  Rust `cargo check`、`git diff --check` 通过。不涉及 UI。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，

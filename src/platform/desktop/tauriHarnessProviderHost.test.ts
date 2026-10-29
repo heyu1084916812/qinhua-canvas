@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHarnessMcpToolBridge } from '../../features/shared/agent/HarnessMcpToolBridge'
 import type { TauriHarnessProviderBridge } from './tauriHarnessProviderHost'
 import { startTauriHarnessProviderHost } from './tauriHarnessProviderHost'
 
@@ -49,11 +50,26 @@ describe('Tauri Harness provider host', () => {
         toolCalls: [{ id: 'call-1', name: 'readGraph', args: '{"scope":"all"}' }],
       })),
     }
+    const tools = createHarnessMcpToolBridge({
+      tools: [
+        {
+          name: 'readGraph',
+          description: '读取画布',
+          parameters: { type: 'object' },
+        },
+      ],
+      execute: vi.fn(async () => ({ nodes: 2 })),
+    })
     const host = await startTauriHarnessProviderHost({
       provider,
+      tools,
       bridge: fake.bridge,
     })
     expect(host.endpoint.baseUrl).toBe('http://127.0.0.1:1234')
+    expect(host.mcp).toEqual({
+      url: 'http://127.0.0.1:1234/mcp',
+      headers: { Authorization: 'Bearer token' },
+    })
 
     fake.emit({
       requestId: 'models-1',
@@ -84,6 +100,24 @@ describe('Tauri Harness provider host', () => {
       'provider-1',
       200,
       expect.stringContaining('"tool_calls"'),
+    )
+
+    fake.emit({
+      requestId: 'mcp-1',
+      method: 'POST',
+      path: '/mcp',
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+      }),
+    })
+    await tick()
+    expect(fake.bridge.respond).toHaveBeenNthCalledWith(
+      3,
+      'mcp-1',
+      200,
+      expect.stringContaining('"readGraph"'),
     )
     await host.stop()
     expect(fake.bridge.stop).toHaveBeenCalled()

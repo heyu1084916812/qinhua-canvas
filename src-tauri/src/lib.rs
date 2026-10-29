@@ -2190,7 +2190,7 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
                 );
                 continue;
             }
-            if path != "/v1/models" && path != "/v1/chat/completions" {
+            if path != "/v1/models" && path != "/v1/chat/completions" && path != "/mcp" {
                 acp_provider_response(
                     request,
                     404,
