@@ -2505,11 +2505,12 @@ struct AcpProviderRuntime {
 }
 
 #[derive(Default)]
-struct AcpProviderRegistry(Mutex<Option<AcpProviderRuntime>>);
+struct AcpProviderRegistry(Mutex<std::collections::HashMap<String, AcpProviderRuntime>>);
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AcpProviderRequestEvent {
+    provider_id: String,
     request_id: String,
     method: String,
     path: String,
@@ -2519,6 +2520,7 @@ struct AcpProviderRequestEvent {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AcpProviderEndpoint {
+    provider_id: String,
     base_url: String,
     token: String,
 }
@@ -2536,8 +2538,8 @@ impl Drop for AcpRegistry {
 
 impl Drop for AcpProviderRegistry {
     fn drop(&mut self) {
-        if let Ok(mut runtime) = self.0.lock() {
-            if let Some(server) = runtime.take() {
+        if let Ok(mut runtimes) = self.0.lock() {
+            for (_, server) in runtimes.drain() {
                 server
                     .stop
                     .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -2581,14 +2583,20 @@ fn acp_provider_response_with_type(
 }
 
 #[tauri::command]
-fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, String> {
+fn acp_provider_start(
+    app: tauri::AppHandle,
+    provider_id: String,
+) -> Result<AcpProviderEndpoint, String> {
+    if provider_id.trim().is_empty() {
+        return Err("本地 provider id 不能为空".into());
+    }
     let registry = app.state::<AcpProviderRegistry>();
     let mut slot = registry
         .0
         .lock()
         .map_err(|_| "本地 provider 进程表不可用".to_string())?;
-    if slot.is_some() {
-        return Err("本地 provider 已在运行".into());
+    if slot.contains_key(&provider_id) {
+        return Err(format!("本地 provider 已存在：{provider_id}"));
     }
     let server = tiny_http::Server::http((std::net::Ipv4Addr::LOCALHOST, 0))
         .map_err(|err| format!("启动本地 provider 失败：{err}"))?;
@@ -2614,6 +2622,7 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
     let thread_pending = pending.clone();
     let thread_token = token.clone();
     let thread_app = app.clone();
+    let thread_provider_id = provider_id.clone();
     std::thread::spawn(move || {
         let next_id = AtomicUsize::new(1);
         while !thread_stop.load(std::sync::atomic::Ordering::SeqCst) {
@@ -2674,6 +2683,7 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
             let _ = thread_app.emit(
                 "acp:provider-request",
                 AcpProviderRequestEvent {
+                    provider_id: thread_provider_id.clone(),
                     request_id: request_id.clone(),
                     method: request.method().as_str().to_string(),
                     path,
@@ -2695,16 +2705,24 @@ fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, Stri
             }
         }
     });
-    *slot = Some(AcpProviderRuntime {
-        stop,
-        pending,
-    });
-    Ok(AcpProviderEndpoint { base_url, token })
+    slot.insert(
+        provider_id.clone(),
+        AcpProviderRuntime {
+            stop,
+            pending,
+        },
+    );
+    Ok(AcpProviderEndpoint {
+        provider_id,
+        base_url,
+        token,
+    })
 }
 
 #[tauri::command]
 fn acp_provider_respond(
     app: tauri::AppHandle,
+    provider_id: String,
     request_id: String,
     status: u16,
     body: String,
@@ -2714,7 +2732,7 @@ fn acp_provider_respond(
     let Ok(slot) = registry.0.lock() else {
         return false;
     };
-    let Some(runtime) = slot.as_ref() else {
+    let Some(runtime) = slot.get(&provider_id) else {
         return false;
     };
     let Ok(mut pending) = runtime.pending.lock() else {
@@ -2726,12 +2744,12 @@ fn acp_provider_respond(
 }
 
 #[tauri::command]
-fn acp_provider_stop(app: tauri::AppHandle) -> bool {
+fn acp_provider_stop(app: tauri::AppHandle, provider_id: String) -> bool {
     let registry = app.state::<AcpProviderRegistry>();
     let Ok(mut slot) = registry.0.lock() else {
         return false;
     };
-    match slot.take() {
+    match slot.remove(&provider_id) {
         Some(runtime) => {
             runtime
                 .stop

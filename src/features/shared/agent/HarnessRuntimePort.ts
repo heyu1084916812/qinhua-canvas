@@ -31,6 +31,7 @@ export interface HarnessRuntimePort {
     resume?: boolean
     mcpServers?: readonly unknown[]
     provider?: { url: string; token: string }
+    onPermission?: (request: JsonRpcRequest) => Promise<unknown> | unknown
   }): Promise<HarnessSession>
   prompt(sessionId: string, text: string): Promise<unknown>
   cancel(sessionId: string): Promise<void>
@@ -68,9 +69,17 @@ export function createHarnessRuntimePort(input: {
   const unsubscribers = new Map<string, () => void>()
   const listeners = new Set<(event: HarnessRuntimeEvent) => void>()
 
-  const emit = (notification: JsonRpcNotification) => {
+  const emit = (
+    notification: JsonRpcNotification,
+    localSessionId: string,
+    clientSessionId: string,
+  ) => {
     for (const event of harnessEventsFromAcpNotification(notification)) {
-      for (const listener of listeners) listener(event)
+      const translated =
+        'sessionId' in event && event.sessionId === clientSessionId
+          ? { ...event, sessionId: localSessionId }
+          : event
+      for (const listener of listeners) listener(translated)
     }
   }
 
@@ -82,12 +91,9 @@ export function createHarnessRuntimePort(input: {
       const client = input.createClient(session)
       await client.initialize()
       client.onRequest(
-        input.onPermission ??
+        session.onPermission ??
+          input.onPermission ??
           (() => ({ outcome: 'deny' })),
-      )
-      unsubscribers.set(
-        session.sessionId,
-        client.onNotification(emit),
       )
       const result = session.resume
         ? await client.resumeSession({
@@ -100,6 +106,12 @@ export function createHarnessRuntimePort(input: {
             mcpServers: [...(session.mcpServers ?? [])],
           })
       const clientSessionId = sessionIdOf(result)
+      unsubscribers.set(
+        session.sessionId,
+        client.onNotification((notification) =>
+          emit(notification, session.sessionId, clientSessionId),
+        ),
+      )
       clients.set(session.sessionId, { client, clientSessionId })
       return {
         sessionId: session.sessionId,

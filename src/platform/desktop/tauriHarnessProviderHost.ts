@@ -10,6 +10,7 @@ import {
 } from '../../features/shared/agent/HarnessProfile'
 
 interface ProviderRequestEvent {
+  providerId: string
   requestId: string
   method: string
   path: string
@@ -17,14 +18,16 @@ interface ProviderRequestEvent {
 }
 
 interface ProviderEndpoint {
+  providerId: string
   baseUrl: string
   token: string
 }
 
 export interface TauriHarnessProviderBridge {
-  start(): Promise<ProviderEndpoint>
-  stop(): Promise<void>
+  start(providerId: string): Promise<ProviderEndpoint>
+  stop(providerId: string): Promise<void>
   respond(
+    providerId: string,
     requestId: string,
     status: number,
     body: string,
@@ -34,17 +37,18 @@ export interface TauriHarnessProviderBridge {
 }
 
 export const defaultTauriHarnessProviderBridge: TauriHarnessProviderBridge = {
-  async start() {
+  async start(providerId) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke<ProviderEndpoint>('acp_provider_start')
+    return invoke<ProviderEndpoint>('acp_provider_start', { providerId })
   },
-  async stop() {
+  async stop(providerId) {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke<boolean>('acp_provider_stop')
+    await invoke<boolean>('acp_provider_stop', { providerId })
   },
-  async respond(requestId, status, body, contentType) {
+  async respond(providerId, requestId, status, body, contentType) {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke<boolean>('acp_provider_respond', {
+      providerId,
       requestId,
       status,
       body,
@@ -133,6 +137,7 @@ function streamingCompletionBody(input: {
 }
 
 export async function startTauriHarnessProviderHost(input: {
+  providerId: string
   provider: HarnessLocalProviderBridge
   tools?: HarnessMcpToolBridge
   bridge?: TauriHarnessProviderBridge
@@ -142,12 +147,15 @@ export async function startTauriHarnessProviderHost(input: {
   stop: () => Promise<void>
 }> {
   const bridge = input.bridge ?? defaultTauriHarnessProviderBridge
-  const endpoint = await bridge.start()
+  if (!input.providerId.trim()) throw new Error('Harness providerId 不能为空')
+  const endpoint = await bridge.start(input.providerId)
   const unlisten = await bridge.listen((event) => {
+    if (event.providerId !== input.providerId) return
     void (async () => {
       try {
         if (event.path === '/v1/models') {
           await bridge.respond(
+            event.providerId,
             event.requestId,
             200,
             JSON.stringify({
@@ -189,19 +197,26 @@ export async function startTauriHarnessProviderHost(input: {
               })
           if (body.stream) {
             await bridge.respond(
+              event.providerId,
               event.requestId,
               200,
               responseBody,
               'text/event-stream; charset=utf-8',
             )
           } else {
-            await bridge.respond(event.requestId, 200, responseBody)
+            await bridge.respond(
+              event.providerId,
+              event.requestId,
+              200,
+              responseBody,
+            )
           }
           return
         }
         if (event.path === '/mcp' && input.tools) {
           const response = await input.tools.handle(JSON.parse(event.body))
           await bridge.respond(
+            event.providerId,
             event.requestId,
             response ? 200 : 202,
             response ? JSON.stringify(response) : '',
@@ -209,12 +224,14 @@ export async function startTauriHarnessProviderHost(input: {
           return
         }
         await bridge.respond(
+          event.providerId,
           event.requestId,
           404,
           JSON.stringify({ error: { message: 'not found' } }),
         )
       } catch (error) {
         await bridge.respond(
+          event.providerId,
           event.requestId,
           500,
           JSON.stringify({
@@ -238,7 +255,7 @@ export async function startTauriHarnessProviderHost(input: {
       : {}),
     async stop() {
       unlisten()
-      await bridge.stop()
+      await bridge.stop(input.providerId)
     },
   }
 }

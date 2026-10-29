@@ -61,6 +61,7 @@ describe('HarnessRuntimePort', () => {
           url: 'http://127.0.0.1:3210/v1',
           token: 'provider-token',
         },
+        onPermission: () => ({ outcome: 'allow_once' }),
       }),
     ).resolves.toMatchObject({
       sessionId: 'local-s1',
@@ -95,7 +96,7 @@ describe('HarnessRuntimePort', () => {
     })
     expect(events).toHaveBeenCalledWith({
       kind: 'message',
-      sessionId: 'acp-session-1',
+      sessionId: 'local-s1',
       messageId: 'm1',
       content: { type: 'text', text: '开始生成' },
     })

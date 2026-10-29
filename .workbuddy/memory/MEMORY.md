@@ -145,6 +145,12 @@
 - **构建脚本**：`node scripts/build-harness-pack.mjs` 生成并签名；
   `node scripts/verify-harness-pack.mjs <unpacked-pack>` 做真实 ACP 端到端；
   临时 staging 位于 gitignore 的 `.harness-pack/`，正式产物位于 gitignore 的 `release/harness/`。
+- **Harness 会话隔离（2026-10-29）**：`AcpProviderRegistry` 从全局单例改为
+  `providerId -> runtime` 映射；每条事件带 providerId，前端只处理自己的宿主。
+  `openTauriHarnessSession` 为每个 local session 独占 provider、MCP、ACP 进程、runtime、
+  事件与权限回调，关闭按 runtime → provider 顺序释放。多个会话不能共用一个 provider 端口。
+- **会话隔离证据**：全量 Vitest **3602 passed / 1 skipped**；Rust `cargo test --lib`
+  **54/54**；`npm run check`、`npm run build` 通过。此刀仍不改 UI，AgentPanel 尚未切换。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，

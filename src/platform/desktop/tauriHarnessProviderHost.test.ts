@@ -5,6 +5,7 @@ import { startTauriHarnessProviderHost } from './tauriHarnessProviderHost'
 
 function fakeBridge() {
   let handler: ((event: {
+    providerId: string
     requestId: string
     method: string
     path: string
@@ -13,6 +14,7 @@ function fakeBridge() {
   return {
     bridge: {
       start: vi.fn(async () => ({
+        providerId: 'session-1',
         baseUrl: 'http://127.0.0.1:1234',
         token: 'token',
       })),
@@ -26,6 +28,7 @@ function fakeBridge() {
       }),
     } satisfies TauriHarnessProviderBridge,
     emit(event: {
+      providerId: string
       requestId: string
       method: string
       path: string
@@ -61,11 +64,13 @@ describe('Tauri Harness provider host', () => {
       execute: vi.fn(async () => ({ nodes: 2 })),
     })
     const host = await startTauriHarnessProviderHost({
+      providerId: 'session-1',
       provider,
       tools,
       bridge: fake.bridge,
     })
     expect(host.endpoint.baseUrl).toBe('http://127.0.0.1:1234')
+    expect(fake.bridge.start).toHaveBeenCalledWith('session-1')
     expect(host.mcp).toEqual({
       name: 'qinghua-canvas',
       type: 'http',
@@ -74,6 +79,7 @@ describe('Tauri Harness provider host', () => {
     })
 
     fake.emit({
+      providerId: 'session-1',
       requestId: 'models-1',
       method: 'GET',
       path: '/v1/models',
@@ -82,12 +88,14 @@ describe('Tauri Harness provider host', () => {
     await tick()
     expect(fake.bridge.respond).toHaveBeenNthCalledWith(
       1,
+      'session-1',
       'models-1',
       200,
       expect.stringContaining('GPT-6 Astra'),
     )
 
     fake.emit({
+      providerId: 'session-1',
       requestId: 'provider-1',
       method: 'POST',
       path: '/v1/chat/completions',
@@ -99,12 +107,14 @@ describe('Tauri Harness provider host', () => {
     await tick()
     expect(fake.bridge.respond).toHaveBeenNthCalledWith(
       2,
+      'session-1',
       'provider-1',
       200,
       expect.stringContaining('"tool_calls"'),
     )
 
     fake.emit({
+      providerId: 'session-1',
       requestId: 'mcp-1',
       method: 'POST',
       path: '/mcp',
@@ -117,12 +127,14 @@ describe('Tauri Harness provider host', () => {
     await tick()
     expect(fake.bridge.respond).toHaveBeenNthCalledWith(
       3,
+      'session-1',
       'mcp-1',
       200,
       expect.stringContaining('"readGraph"'),
     )
 
     fake.emit({
+      providerId: 'session-1',
       requestId: 'stream-1',
       method: 'POST',
       path: '/v1/chat/completions',
@@ -135,12 +147,13 @@ describe('Tauri Harness provider host', () => {
     await tick()
     expect(fake.bridge.respond).toHaveBeenNthCalledWith(
       4,
+      'session-1',
       'stream-1',
       200,
       expect.stringMatching(/^data: .*data: \[DONE\]/s),
       'text/event-stream; charset=utf-8',
     )
     await host.stop()
-    expect(fake.bridge.stop).toHaveBeenCalled()
+    expect(fake.bridge.stop).toHaveBeenCalledWith('session-1')
   })
 })
