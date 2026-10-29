@@ -75,6 +75,9 @@
 - **HarnessRuntimePort（2026-10-29）**：新增稳定 runtime 端口和 ACP 更新适配器，上层只接收
   thought/message/toolCall/toolUpdate/usage/unknown 事件；ACP client session id 与轻画
   logical session id 分开保存，prompt/cancel/close 使用真实 ACP id。
+- **`qinghua-local` 业务桥（2026-10-29）**：只接收固定前端模型名、消息、工具与图片输入，
+  通过现有 RoutePlan 和 RouteExecutionPort 发送；不允许 Harness 自定义 provider、base URL、
+  Key 或 retry。当前明确拒绝 stream，本地 HTTP provider 端点和签名 sidecar 仍未完成。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
