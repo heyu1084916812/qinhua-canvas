@@ -19,6 +19,27 @@
 - **发布边界**：构建成功不等于已发布。后续每次仍须先列完整待推提交和摘要，用户显式确认后才能
   `git push`；之后才创建 tag / GitHub Release 并运行匿名发布验收。
 
+### 画布 Agent Harness、应用壳面板与记忆迁移方案（2026-10-29 → 对账 #803–#808）
+
+- **只换画布 Agent**：用户确认永久替换成 Harness，不保留用户可见“旧 Agent / Harness”
+  双模式；开发期内部开关只用于等价验收，发布前删除。电商 / 漫剧范围不变。
+- **壳层动画不能碰画布坐标**：入口仍是浮球；面板固定在应用壳右侧并跟随高度，默认 420px、
+  可调 360–720px。打开、关闭、拖宽前后，浮球 rect 与画布节点世界坐标必须 0 变化。
+- **Harness 不是第二套模型服务**：内部只有一个合成 provider `qinghua-local`，仍走
+  `ChannelStore / RoutePlan / RouteExecution`。Harness 原生 retry 关闭；401/403/429/5xx
+  才允许安全降级，timeout/408/响应丢失不重发。
+- **工具与记忆必须有唯一入口**：ToolRegistry 统一 schema、权限、确认和
+  `(jobId, stepId, toolCallId)` 幂等；MemoryPort / ContextBundle 是 Agent 记忆唯一入口，
+  Worker 不拥有长期记忆库。
+- **记忆 UI 只保留一处**：删除全局设置一级“Agent 记忆”，迁入
+  `全局设置 → 生成 → Agent → 记忆`；投递偏好迁入 `基础`，旧深链兼容跳转。
+- **可借鉴 Atelier 的记忆分层**：本机 1.1.0 bundle 可见项目记忆状态 / 使用表，以及
+  project memory evolution、session reclaim、audit、独立记忆页。轻画只借项目作用域、
+  使用审计、会话回收和演化确认，不搬 `project_memory_state`，不永久保存原始 query。
+- **文档落点**：完整计划见 `轻画-Agent设计文档.md` 的 H0–H6、风险和 UI 矩阵；
+  架构边界见 `轻画-架构设计文档.md` §5.12；统一规划 §5.4 / §6.5 已同步，
+  对账 #803–#808 状态均为 📝，尚未改应用代码。
+
 ### Agent 运行状态、投递偏好与执行落库（2026-10-28 → 对账 #801）
 
 - **运行中投递偏好只住全局设置**：默认 `steer`，Agent 面板不再放排队 / 引导切换。

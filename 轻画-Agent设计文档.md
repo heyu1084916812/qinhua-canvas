@@ -1,5 +1,13 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-29：画布 Agent 永久切换 Harness，改为应用壳右侧面板（方案已确认，尚未实施；对账 #803）。**
+> 本决定只覆盖画布工作台，永久替换现有画布 Agent 循环，不保留面向用户的“旧 Agent / Harness”
+> 切换；开发期可存在内部迁移开关，发布前删除。入口仍是画布浮球，面板固定跟随应用壳右侧与高度，
+> 默认宽 `420px`、可拖 `360–720px`。开关面板或拖宽度都不能移动浮球，也不能改变画布节点坐标。
+> Agent 右上方齿轮进入 `全局设置 → 生成 → Agent`；页签为
+> `基础 / 模型 / 工具 / 技能 / 记忆 / 高级`。原全局设置里的“Agent 记忆”不再是一级导航，
+> 内容迁入 `Agent → 记忆`。完整目标架构、分期、风险和验收见本文 §17–§21。
+
 > **2026-10-28：严格单步、结果验收与队列直发（对账 #788 / #789）。** 计划同一时间只能有
 > 一个进行中步骤；`done / skipped` 只结束当前步骤，不会自动启动下一步。设计、生成、页面等
 > 有产出的步骤在用户验收前保持“结果待验收”，工具层会阻断下一阶段建图与生成。
@@ -482,17 +490,22 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 **还没做**：`streamChat` 的 `toolCall` 分片。第一版 agent 走**非流式** `completeText`
 （少一条要同时维护的路径），流式留到体验优化时再补。
 
-## 8. 形态：画布浮球与可移动浮窗
+## 8. 形态：画布浮球与应用壳右侧面板
 
 用户最初拍板：「对话框需要有」+「放在画布的右边，能多个对话，每个对话之间隔离记忆，
-能选择模型，能默认模型」。2026-10-23 进一步改为浮球入口 + 可移动、可调高度的浮窗。
+能选择模型，能默认模型」。2026-10-23 曾改为浮球入口 + 可移动、可调高度的浮窗；
+**2026-10-29 起该形态由应用壳右侧固定面板取代**。浮球仍是入口和收起按钮，下面的输入区、
+会话、素材 chip、技能和模型交互继续有效；凡下文旧句仍写“浮窗”，都只指会话内容的外层容器，
+不得再把面板拖到画布中央、改变画布宽度或回写浮球坐标。
 
 | 项 | 规格 |
 | --- | --- |
-| 位置 | 右下角彩色玻璃浮球；点击后在工作区内展开浮窗，不占满屏、不挤压画布 |
-| 浮窗尺寸 | 首次约为画布工作区高度的 52%，默认宽 420px；底部把手可继续拉高 |
-| 移动与记忆 | 浮球可拖动；浮窗拖标题栏移动；位置与高度按本机记忆，窗口尺寸变化时自动钳回工作区 |
-| 开合 | 浮球始终留在画布；展开时点击浮球收起浮窗，浮窗只隐藏、不卸载当前会话，再次打开时草稿仍保留 |
+| 位置 | 画布浮球仍是唯一入口；点击后在**应用壳右侧**展开面板。面板是壳层浮层，不放进画布视口，也不参与节点坐标计算 |
+| 面板尺寸 | 默认宽 `420px`，范围 `360–720px`；上下跟随应用壳，四周留圆角与轻微壳层间距。拖左边缘改宽，宽度按本机记忆 |
+| 移动 | 面板本身不可拖走；仅允许左侧宽度把手。浮球可拖动，但开关面板时只读取浮球位置作为视觉锚点，不修改它 |
+| 开合 | 浮球在开合前后保持同一矩形；点击球打开，再点同一球收起。面板隐藏时保留会话运行态与草稿，不卸载当前会话 |
+| 壳层观感 | 复用应用壳的底色、圆角、描边和明暗令牌；不使用把画布切成两列的竖向分割线，也不在卡片里再套卡片 |
+| 设置入口 | 面板右上角齿轮打开 `全局设置 → 生成 → Agent`，并保留当前画布项目上下文 |
 | 会话 | 多个，可**新建 / 切换 / 重命名 / 删除**；列表在对话窗内。改名是**就地编辑**（Enter 提交 / Esc 取消，不弹原生 prompt —— 那会打断画布操作）；删除走**两步确认**（第一次点只换文案，第二次才真删），删掉当前会话后自动切到剩下那条，一条不剩就直接开新的 |
 | 记忆隔离 | 每个会话一套独立上下文，**切换 = 换一套**，不是接着上一个聊 |
 | 选择模型 | 每个会话可单独选对话模型 |
@@ -532,7 +545,8 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 > ④ **头部「设为默认模型」整个撤掉**：它只影响「以后新建的会话」，按下当下没有任何可见
 > 变化，用户读成「这个按钮没用」；存量偏好仍沿读路径生效；
 > ⑤ **Agent 不再占右上角按钮位**：原先对话窗展开要靠平移右上角按钮避让，现改为画布内
-> 浮球入口与可移动浮窗，日志按钮固定在右上角，不再参与避让。
+> 浮球入口与可移动浮窗，日志按钮固定在右上角，不再参与避让。**其中“可移动浮窗”已被
+> 2026-10-29 的应用壳右侧固定面板决定取代，浮球入口保留。**
 
 > **2026-10-05 的第六处：画布多选浮层上的「添加到 agent」**（第 11 条的后半）。
 > 入口在**画布**上（多选虚线框那排功能栏的最后一枚），对话窗在**兄弟槽位**里 ——
@@ -680,6 +694,30 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 > 三个问题，收益是「agent 也能被连线」。第一版没有这个需求，先做对话窗把
 > **建图 + 跑图**这条主链路跑通。
 
+### 8.3 Agent 设置与记忆迁移
+
+Agent 设置入口只在面板右上方，不新增一级导航。齿轮打开现有全局设置浮层，深链到
+`生成 → Agent`；浏览器直接访问设置时仍可打开同一页，不依赖 Agent 面板是否挂载。
+
+| 页签 | 放什么 | 不重复什么 |
+| --- | --- | --- |
+| 基础 | 运行中投递默认值（引导 / 排队）、自动生成边界、语言与交互偏好 | 不在 Agent 输入区再放第二套投递切换 |
+| 模型 | 当前 Agent 文本模型、固定前端名映射、参与路由的启用渠道与 Key 分组 | 不出现 Harness 自己的 provider / key / base URL 表单 |
+| 工具 | Harness 内部工具、画布工具、宿主服务的可用性和确认级别 | 不把所有工具混成一个无分组勾选列表 |
+| 技能 | 全局技能库、收藏、当前工作台允许的技能来源 | 不复制技能正文到 Agent 设置 |
+| 记忆 | 现有个人记忆、项目记忆、会话决定、候选确认、修订和关系图 | 不再有“全局设置 → Agent 记忆”重复入口 |
+| 高级 | Harness 资源包版本、Worker 诊断、上下文预算、日志级别、内部迁移状态 | 普通用户不需要接触渠道协议或密钥 |
+
+**记忆迁移口径**
+
+1. 全局设置的“Agent 记忆”导航项删除，`AgentMemoryPanel` 原样迁入 `Agent → 记忆`，
+   保留 global / workbench / project / session 四层作用域、候选确认、冲突、过期、忘记、
+   字符预算和关系图。
+2. 原“投递偏好”从记忆页移到 `Agent → 基础`；它属于交互行为，不属于长期记忆。
+3. 旧书签 / 深链 `Agent 记忆` 做一次兼容跳转到 `Agent → 记忆`，不能落到空页。
+4. Harness 只能通过 `ContextBundle` / `MemoryPort` 读取和提议记忆，不得在 worker 内
+   自建第二个长期记忆库。
+
 ## 9. 钱与确认
 
 **建图立刻落地，只有花钱才问** —— 用户 2026-10-02 对着参考产品截图定的口径：
@@ -759,9 +797,15 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 | 领域（纯） | `domain/agent/plan.ts` | `AgentPlan` 形状 + 校验 | 纯数据纯函数，node 下可测 |
 | 领域（纯） | `domain/agent/landing.ts` | 布局 + 落地自检 | 同上；自检是这条链路最该被钉死的一环 |
 | 共享特性 | `features/shared/agent/toolSupport.ts` | 能力探测（渠道 + 模型支不支持 function calling，带缓存） | 与工作台无关，画布与未来工作台共用 |
-| 画布工作台 | `workbenches/canvas/agent/` | 循环（`agentLoop`）、工具集（`tools`）、落地命令（`buildLandingCommand` / `applyAgentPlan`）、系统提示词（`agentSystemPrompt`） | **不能**放 shared：它要 `nodeSpecs` 与 `NodeSnapshot`（画布私有层），而 `no-shared-to-workbench` 禁止共享层反向依赖工作台 |
+| 共享控制器（目标） | `features/shared/agent/AgentController.ts` | 会话状态、队列 / 引导、计划确认、取消与检查点；只暴露 UI 可消费的状态和命令 | 从 `AgentPanel` 抽走编排，避免视图继续持有业务真相 |
+| Harness 端口（目标） | `features/shared/agent/harness/HarnessRuntimePort.ts` | 启动、恢复、终止 session-scoped Worker；规范化事件与错误 | 不让 UI 直接依赖 Harness 包或 Worker 消息格式 |
+| 工具注册表（目标） | `features/shared/agent/ToolRegistry.ts` | 工具 schema、权限、确认级别、幂等键和可用范围 | 替换散落在循环中的硬编码工具名单 |
+| 模型路由端口（目标） | `features/shared/agent/ModelRoutePort.ts` | 把唯一合成 provider `qinghua-local` 映射到现有 RoutePlan / RouteExecution | Harness 不读取轻画 Key，不拥有第二套渠道表单 |
+| 画布工作台 | `workbenches/canvas/agent/` | 画布工具实现、落地命令（`buildLandingCommand` / `applyAgentPlan`）、系统提示词、画布词表 | **不能**放 shared：它要 `nodeSpecs` 与 `NodeSnapshot`（画布私有层），而 `no-shared-to-workbench` 禁止共享层反向依赖工作台 |
 | 状态 | `state/agent/` | 会话存储（§12 那张表） | 与既有 store 同层 |
-| 界面 | `workbenches/canvas/panels/AgentPanel/` | 对话窗 UI（§8） | 属画布工作台私有视图 |
+| Worker 平台适配（目标） | `platform/agent/harnessWorkerClient.ts` | 加载签名资源包、创建 WebWorker、带版本握手、崩溃恢复 | Harness 不进入主 bundle，不让 Worker 直接接触 DOM |
+| 应用壳宿主（目标） | `app/AgentShellSlot.tsx` + `pages/CanvasPage/AgentShellHost.tsx` | AppShell 只提供 portal 目标；画布页把自己的面板内容和浮球入口 portal 进去 | `AppShell` 不反向 import 画布工作台私有实现 |
+| 界面 | `workbenches/canvas/panels/AgentPanel/` | 对话窗视图（§8）；迁移完成后不再持有循环与付费确认编排 | 属画布工作台私有视图 |
 | 平台 | `platform/channels/` | `tools` 透传与解析（`openaiChat` + `mock` 会演 agent） | 渠道能力属平台层 |
 
 > `domain/agent` **不许** import 画布私有层（`domain/canvas/nodeSpecs` 之类）。
@@ -777,6 +821,9 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 | **M2** | 接素材（你给的图）+ 读画布现状 | 能复用画布上已有素材节点，不重复建 | ✅ **已完成**：`readGraph` / `readAsset` 工具；对话窗可**拖图或点「加素材」**——素材**先落成画布节点**、再以可移除的标签记进会话，系统提示词里报节点 id 并要求 `attach` 复用（冒烟 G95 实测：给一张图 → 画布多一个节点 + 一个标签） |
 | **M3** | 执行 + 出图前确认 + 读结果 | 点确认后真出图，失败能重试 | ✅ **已完成并已验**：`runNode` + 确认卡 + `readResult`；循环里绝不自动执行花钱动作（建图直落，确认卡只剩「真正跑」这一步）。**v1.1 修掉一个真 bug**：v1.0 落地时漏了「默认配方」，agent 建的生成节点没渠道没模型 ⇒ 点生成无反应（详见 §6）。冒烟 G95 新增 3 条，末条直达产物：`runNode` 确认 → **节点上真出现 blob 图**（★★★） |
 | **M4** | 接技能（把 TVC / 创作分镜展开成计划） | 选一个技能 + 一句话，能建出多阶段链路 | ✅ **已完成**：对话窗可选技能（含内置 11 个），正文按 id 现取并进系统提示词驱动规划；**不做专门的「技能展开器」** —— 技能负责怎么做、agent 负责真的去做，展开交给模型。**提示词组装抽成纯函数**（`buildAgentSystemPromptWithContext`：通用三段 + 随对话给的素材 + 本会话启用的技能），「技能正文 / 素材节点 id 到底进没进提示词」有断言钉住（界面上看不见这两段，只能靠发出去的消息证明） |
+| **M5** | AgentController、ToolRegistry、RouteExecutionPort | 视图不再持有编排；工具权限和幂等键可单测；所有付费调用仍只走轻画路由 | 📝 **计划已确认，未实施** |
+| **M6** | Harness Worker Runtime | session-scoped Worker 能恢复、停止、崩溃重启；Harness 原生重试关闭 | 📝 **计划已确认，未实施** |
+| **M7** | 应用壳右侧面板、Agent 设置与记忆迁移 | 浮球不位移、画布坐标不变、宽度可调；记忆只保留 `Agent → 记忆` 一处 | 📝 **计划已确认，未实施** |
 
 ## 15. 未决问题
 
@@ -789,6 +836,13 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
    节点压垮画布。等 M1 跑起来拿到实际规模再定案
 2. **工具调用轮数预算**：单段初值 8（§4 的刹车）；达到后保存检查点并非终态。
   后续可用真实长任务数据调整单段大小。
+3. **Harness 资源包版本与签名**：正式包固定版本、SHA-256 与签名来源；升级只替换资源包，
+   不要求重装主应用。包名与发布清单在阶段 0 定稿。
+4. **Harness 记忆使用统计是否落表**：先复用 AgentJob / RunRecord 的 `memoryRefs` 做审计投影；
+   只有在真实查询证明需要时才增加追加式 `contextMemoryUsage`，不复制 Atelier 的整份
+   `project_memory_state`。
+5. **迁移开关的移除时点**：内部开关只用于灰度对比，验收完成后删除；发布包里不得出现
+   用户可见的旧 Agent / Harness 二选一。
 
 ## 16. 选型参考（2026-10-01 检索）
 
@@ -800,3 +854,194 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
 **轻画借哪一支**：形态上属第二支（节点产出图），但要做 agent 就得借第一支的
 **状态 + 图 + 人审中断 + 可重放**。**不抄 ComfyUI 的执行模型** —— 那是生成管线的形态，
 管不了「规划 → 执行 → 看结果 → 改主意」这个循环。
+
+## 17. Harness 目标架构（2026-10-29 方案，尚未实施）
+
+### 17.1 总图
+
+```text
+AppShell
+  └─ AgentShellSlot（壳层 portal 目标，不 import 工作台）
+       └─ Canvas AgentShellHost（由画布项目页 portal 挂入）
+            ├─ Agent ball（现有入口，坐标独立）
+            └─ AgentController（唯一编排状态）
+            ├─ HarnessRuntimePort
+            │    └─ session-scoped Harness WebWorker
+            ├─ ToolRegistry
+            │    ├─ CanvasToolBridge -> 现有 dispatch / runEngine
+            │    └─ HostServiceBridge -> 素材、记忆、日志、视觉验收
+            ├─ ModelRoutePort
+            │    └─ qinghua-local -> 现有 ChannelStore / RoutePlan / RouteExecution
+            ├─ MemoryPort
+            │    └─ ContextBundle / contextMemories / revisions
+            └─ SessionEventAdapter
+                 └─ agentSessions / agentJobs / agentEvents
+```
+
+职责边界：
+
+| 组件 | 只负责 | 绝不负责 |
+| --- | --- | --- |
+| `AgentShellHost` | 画布路由判断、壳层面板挂载、浮球与面板开合 | 运行循环、计费确认、直接操作画布 |
+| `AgentController` | 会话、队列、引导、确认、取消、检查点、UI 状态投影 | 直接发渠道 HTTP、直接写画布、复制记忆数据 |
+| `HarnessRuntimePort` | Worker 启停、消息协议、健康检查、崩溃恢复 | 渠道密钥、UI 布局、持久库 |
+| `ToolRegistry` | 工具 schema、权限、确认、幂等、按上下文过滤 | 偷塞未登记工具或第二套执行入口 |
+| `ModelRoutePort` | 把合成 provider 映射到现有 RoutePlan | 新建 provider / key 面板，绕过现有路由 |
+| `MemoryPort` | 读取预算裁剪后的 ContextBundle、提交候选记忆 | 自动把一次性对话写成永久记忆 |
+
+`AppShell` 只提供稳定的 `AgentShellSlot`，不 import `workbenches/canvas/*`。画布页在自身
+路由内挂载 Agent 内容，再通过 React portal 放进壳层 slot；这样“面板在应用壳层”与
+“`AppShell` 不反向依赖工作台”同时成立。
+
+### 17.2 Worker 生命周期
+
+1. 打开画布 Agent 时创建 session-scoped Worker；关闭面板只隐藏 UI，不丢当前会话与运行态。
+2. 项目切换、用户停止或应用关闭时，Controller 先发中断与检查点，再终止 Worker；
+   已提交的付费请求只进入结果查询或 `needs_attention`，不重新提交。
+3. Worker 崩溃只允许恢复“未提交的规划”和“可查询的已提交任务”；不得因为 Worker
+   重启再发一次生成请求。
+4. Harness 原生 retry 必须关闭。重试策略只能由现有 `isRouteFallbackSafe` 与
+   RoutePlan 决定，超时 / 408 / 响应丢失不换目标。
+5. Worker 不直接接触 DOM、文件系统、任意 shell 或用户密钥；所有能力经 ToolRegistry。
+6. Harness 作为可选签名资源包发布，不塞进主安装包。官方预览拆包估算为基础
+   `9.20 MiB` 加约 `4.45 MiB` 懒加载资源，合计约 `13.65 MiB`；最终以构建产物实测为准。
+
+### 17.3 模型与路由
+
+Harness 内部只暴露一个合成 provider：`qinghua-local`。它的“模型列表”来自现有
+固定前端名、渠道勾选和 `modelMap`，不允许 Harness 再拥有 provider、base URL 或 Key UI。
+
+路由必须收口到 `ModelRoutePort -> RouteResolver / RouteExecution`：
+
+- 候选只在已启用渠道、已勾选 Key 分组、已勾选模型中产生；停用渠道不出现在路由设置。
+- 默认策略可以展开跨渠道候选；如果用户只配置一个请求地址，多 Key 分组仍在同一渠道内路由。
+- 节点显式锁定渠道时，只允许在该渠道内换 Key 分组，不跨渠道漂移。
+- 401 / 403 / 正常 429 / 提交前 5xx 才允许按策略继续；超时、408、取消、响应丢失不自动重发。
+- 401 的 `channel/missingKey` 归一化必须保留“请求未发送”语义，否则候选链会在错误层级被误停。
+- 无令牌 localhost / 本机 CLI 与 HTTP Key 渠道共用一份 `channelIsRoutable` 判定，
+  不能在 UI 视为可用、执行时又因另一套规则失败。
+- 画布生成和 Agent 文本都记录 `routeAttempts`；用户看到的“参与路由的 Key”与实际发送候选同源。
+
+### 17.4 幂等
+
+- 工具效果键：`(jobId, stepId, toolCallId)`。
+- 付费任务键：`(operationId, runPlanId, taskId, attempt)`。
+- 同一键重复到达只返回已有结果；不能重复 dispatch、重复扣费或把同一结果写两份。
+- 结果未知进入 `needs_attention`，由用户决定“查结果 / 结束 / 明确重新发起”；
+  不把“重试”按钮默认做成再次付费。
+
+## 18. 工具所有权
+
+Agent 设置和运行日志必须按三类展示，不能把所有工具混成一份无来源的勾选列表。
+
+| 类别 | 示例 | 写权限 | 确认规则 |
+| --- | --- | --- | --- |
+| Harness 内部工具 | 任务规划、上下文压缩、状态汇报、受限子任务 | 不改业务数据 | 仍受总步数、Token、墙钟与无进展检测 |
+| 画布工具 | `readGraph / applyPlan / updateNode / moveNodes / resizeNodes / deleteNodes / arrangeNodes / deleteEdges / compareNodes / sliceImage / splitGrid / runNode / runFrom / readResult / visualReview` | 只能经画布命令和执行引擎 | 删除、改已有节点、付费生成按现有门禁 |
+| 宿主服务 | 素材读取、RunRecord、技能、记忆、套件、灯箱打开、路由预检 | 经明确端口 | 记忆写入只提议，用户确认后落库 |
+
+默认禁用：任意 shell、任意文件系统浏览、浏览器自动化、插件市场安装、直接渠道 HTTP、
+任意 URL 下载、自建持久记忆。以后若增加，必须单独登记 schema、权限、确认和幂等测试。
+
+现有工具清单要从硬编码数组迁入 ToolRegistry；迁移期间逐个对照，不能靠“新 runtime
+看起来也能跑”就删旧实现。至少保留的现有能力：
+
+`readGraph / readAsset / applyPlan / updateNode / proposeTaskPlan / updateTaskStep /
+requestTaskConfirmation / runNode / runFrom / readResult / visualReview / rememberMemory /
+moveNodes / resizeNodes / deleteNodes / arrangeNodes / deleteEdges / compareNodes /
+sliceImage / splitGrid`。
+
+## 19. 设置、记忆与 Harness 借鉴边界
+
+### 19.1 设置入口
+
+- 面板右上角齿轮是唯一 Agent 设置入口，点击进入现有全局设置浮层的 Agent 页。
+- `基础` 管投递默认值、自动生成和语言；`模型` 管模型映射与路由；
+  `工具` 分三类；`技能` 读取技能库；`记忆` 放原 `AgentMemoryPanel`；
+  `高级` 放 Worker 健康、资源包、上下文预算和诊断。
+- 深链至少保证：Agent 齿轮、设置左侧导航、旧的“Agent 记忆”链接最终都落到同一个真实组件。
+- 设置改变在保存后生效：模型路由影响每次冻结 RoutePlan；工具权限影响下一次模型调用；
+  记忆启用只影响后续 ContextBundle，不改写已发生的 RunRecord。
+
+### 19.2 从 Atelier 可验证借鉴的部分
+
+本机 Atelier 1.1.0 单文件包的明文 SQL 可见
+`project_memory_state(id, payload, updated_at)` 与
+`project_memory_usage(id, memory_id, project_id, agent, run_id, query_text, used_at)`；
+bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`、
+`StudioMemoryPage`、`CanvasProjectMemoryPanel` 等资源。能确认的是它把“项目记忆状态、使用记录、
+演化、审计、会话回收和独立记忆页”分开处理，而不是把所有对话塞进一个 prompt。
+
+轻画只借下面四类机制：
+
+1. **项目作用域**：项目记忆继续用现有 `contextMemories.scope=project`，不增加第二份
+   `project_memory_state`。
+2. **使用证据**：先由 AgentJob / RunRecord 的 `memoryRefs` 生成“哪次任务用了哪条记忆”的审计；
+   只有在性能或查询证明必要时，才考虑追加 `contextMemoryUsage`。
+3. **会话回收**：工具输出、临时检索和未确认候选只活在当前 Job / session working set；
+   任务结束或切换会话时回收，用户明确确认的 session decision 才保留。
+4. **演化与审计**：候选提取、冲突、过期、修订和忘记继续走现有 revisions；UI 提供来源、
+   使用次数、最近命中和冲突说明，不自动提升为长期记忆。
+
+明确不借鉴：
+
+- 不复制 `query_text` 等原始检索文本作为永久日志，除非用户明确开启且完成隐私与清理设计。
+- 不让 Harness Worker 自己维护长期记忆文件、向量库或项目数据库。
+- 不自动把聊天内容写进品牌事实、技能正文或项目约束。
+- 不因为 Harness 有记忆 API 就绕过 `ContextBundle` 的预算和硬冲突门禁。
+
+## 20. 实施分期
+
+| 阶段 | 改动 | 退出条件 |
+| --- | --- | --- |
+| **H0 契约与基线** | 本文、架构、统一规划、对账清单；补当前 Agent UI / 行为截图基线 | 文档一致；旧 Agent 行为有可回归基线；没有代码改动 |
+| **H1 应用壳面板与 Controller** | `AgentShellHost`、可调宽壳层、从 `AgentPanel` 抽 `AgentController` | 浮球 rect 开关前后 0px 变化；画布节点世界坐标与 store 0 变化；1440 / 1024 明暗无溢出 |
+| **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 20 个现有能力逐项对照；停用渠道不入候选；401 / 429 / 5xx 与超时分支有单测；无重复付费请求 |
+| **H3 Harness Worker** | 签名资源包、Worker 握手、session 恢复、Harness retry 关闭 | 内部开关下完成同等画布任务；Worker 崩溃不重发付费请求；包体独立且可验签 |
+| **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 仅有 `Agent → 记忆` 一处；旧深链可跳转；记忆使用与修订可追溯；基础页承接投递偏好 |
+| **H5 等价切换与删除旧循环** | 跑完整回归，删除内部开关与旧主循环 | 没有用户可见双模式；旧计划、队列、引导、确认、停止、检查点行为全部保留 |
+| **H6 打包与发布门禁** | 主安装包 + 可选 Harness 资源包、更新清单、签名、真机启动 | 不显著增大主安装包；资源包签名和版本可核验；失败可回退到上一个已验签资源包 |
+
+前置依赖：H1 的壳层几何先稳定，再接 Harness；H2 的路由与幂等先稳定，再让 Worker
+拥有工具；H4 在 H3 后做一次真实记忆回归，避免把旧面板移动了却没有接上新 Runtime。
+
+## 21. 风险、验收与 UI 测试矩阵
+
+### 21.1 主要风险
+
+| 风险 | 防线 |
+| --- | --- |
+| Harness 与轻画各重试一次 ⇒ 双重扣费 | Harness 原生 retry 关闭；RouteExecution 是唯一发送入口；幂等键与 `needs_attention` |
+| Harness provider 变成第二套模型服务 | UI 只显示 `qinghua-local` 映射；禁止 provider / key / baseURL 表单；路由设置仍读现有渠道 |
+| 壳层面板改变画布尺寸或浮球坐标 | 面板 overlay 与画布 store 解耦；打开、关闭、拖宽都断言浮球 rect 与节点世界坐标 |
+| Worker 内存泄漏或崩溃后状态复活 | session-scoped 生命周期；停止先落检查点；旧 AbortController / job revision 身份校验 |
+| 工具权限回归，Agent 可以删图或付费 | ToolRegistry 的权限、确认、幂等是硬门禁；未登记工具默认禁用 |
+| 记忆被复制两份或泄露 | MemoryPort 唯一入口；不建第二长期库；不存密钥；不默认记录原始 query |
+| 资源包变大或供应链风险 | 可选签名资源包，固定版本、SHA-256、来源与回退；主安装包不含 Harness |
+| 长任务再次变成 8 步即失败 | 8 步只是检查点；队列、生成和验收不占工具轮；完成后可继续，不丢计划与结果 |
+
+### 21.2 UI 与交互矩阵
+
+每一档都至少覆盖浅色 / 深色：
+
+| 视口 | 必测 |
+| --- | --- |
+| `1440×900` | 面板默认宽、可拉到 720、内容滚动、设置齿轮、浮球 0px 位移 |
+| `1024×700` | 面板最小宽 360、底部输入区完整、无横向溢出、圆角与壳层高度 |
+| `1178×762` | 窄桌面下设置浮层、工具分组、记忆 textarea 与关系图 |
+| 窗口拖动缩放 | 宽度 clamp、面板不跑出应用壳、画布坐标不漂移 |
+
+还必须验证：
+
+1. 打开 / 关闭 Agent 前后，浮球 `getBoundingClientRect()` 完全一致；画布节点 store 坐标不变。
+2. 面板没有竖分割线和第二层卡片；圆角、描边、底色与当前应用壳令牌一致。
+3. 齿轮进入 `全局设置 → 生成 → Agent`；六页签只有一个可见选中态。
+4. 全局设置不再有独立“Agent 记忆”；旧记忆深链跳到 `Agent → 记忆`。
+5. 工具页清楚区分 Harness / 画布 / 宿主工具，危险与付费动作有确认说明。
+6. 关闭面板再打开，当前会话、草稿、队列与运行态仍在；切项目后不会串会话。
+7. 生成中可停止、可排队、可引导；停止不复活旧确认卡；App/Worker 崩溃后不重发已提交请求。
+8. 只启用渠道和勾选 Key 分组参与路由；停用渠道不显示；401 / 403 / 429 / 5xx 与超时分别有确定结果。
+9. 记忆候选必须用户确认；删除或停用后下一次 ContextBundle 不再引用；RunRecord 能看到使用引用。
+10. Harness 资源包验证失败时明确报错，不偷偷回退到旧 Agent，也不使用未验签文件。
+
+**本轮尚未实施代码。** 用户审阅这四份现有文档的同一口径后，才能从 H1 开始修改。

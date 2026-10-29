@@ -1,18 +1,21 @@
 # 轻画：路由、Agent Runtime、记忆与套件统一规划
 
-> 状态：v1.8，2026-10-27。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
+> 状态：v1.9，2026-10-29。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
 > Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 完成 AgentJob/AgentEvent、
 > Interrupt、运行中 Steer、文本 RoutePlan、DirectRun 尝试留痕与轮数检查点续跑；
 > 阶段 4 完成个人记忆、品牌/产品套件、项目版本绑定与 ContextBundle；个人记忆已补
 > global / workbench / project / session 四类作用域、Agent 提议确认、冲突、过期、
 > 忘记和字符预算。阶段 5–6 的代码路径已完成；GitHub push / Release 仍需用户逐次批准。
+> 2026-10-29 用户确认：画布 Agent 永久替换为 Harness，并改为应用壳右侧面板；
+> 电商与漫剧 Agent 范围不变。实施计划见《轻画-Agent设计文档.md》§17–§21。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
 
 ## 1. 结论
 
-1. 不整体替换成 Harness，也不把现有 Agent 改写成多个自由聊天的 Agent。
+1. **画布 Agent 永久替换成 Harness**，但不把 Agent 改写成多个自由聊天窗口；不保留
+   面向用户的“旧 Agent / Harness”切换。电商与漫剧仍使用各自现有能力，不随画布升级。
 2. 先建立“任务”这一层：一个会话同一时刻只允许一个活动任务，后续消息默认排队。
 3. 路由、任务队列、记忆解析是公共能力；画布、电商、漫剧各自拥有业务 Planner 与
    Placement，不能共享业务大脑。
@@ -21,7 +24,7 @@
 5. 已提交给上游的付费请求不可修改；超时或结果不明时不自动重发。
 6. 品牌/角色/产品套件必须版本化。旧项目固定旧版本，不自动跟随最新套件。
 7. 不新增“记忆、路由、队列、Agent 管理”一级菜单。相关入口放进现有设置、素材库、
-   Agent 浮窗和项目设置。
+   Agent 面板和项目设置。
 
 ## 2. 产品 Agent 分工
 
@@ -187,6 +190,26 @@ RouteCandidate = 渠道 × Key 分组 × 前端逻辑模型 × 能力类型
 
 每次尝试都要记录渠道、分组、上游模型、阶段、HTTP 状态、耗时和降级原因。
 
+### 5.4 Harness 接入边界
+
+Harness 是画布 Agent 的推理与工具循环 runtime，不是新的渠道系统：
+
+```text
+AgentController
+  -> HarnessRuntimePort -> session-scoped Worker
+  -> ModelRoutePort -> 合成 provider(qinghua-local)
+       -> 现有 RouteResolver / RouteExecution / ChannelStore
+```
+
+- Harness 只看到一个合成 provider `qinghua-local`，模型名仍是轻画固定前端名。
+- Harness 不拥有 provider / key / base URL / 代理设置；模型服务页仍是唯一渠道入口。
+- 路由设置只列已启用渠道和用户勾选的 Key 分组。用户若只配置一个请求地址，仍可在该渠道
+  内使用多 Key 分组；RoutePlan 需要跨候选时按已确认策略排序，显式锁渠道则不得跨渠道。
+- Harness 原生 retry 关闭；`RouteExecution` 是唯一发送入口。401 / 403 / 429 / 5xx
+  的安全降级与 timeout / 408 / 响应丢失的不重发规则不变。
+- 工具按 `(jobId, stepId, toolCallId)` 幂等，付费任务按
+  `(operationId, runPlanId, taskId, attempt)` 幂等。
+
 ## 6. 记忆与套件
 
 ### 6.1 五层边界
@@ -247,6 +270,21 @@ ContextBundle {
 个人记忆可被三个工作台读取，但每次只注入本次必要片段。套件不自动套用，必须由项目或
 本次任务显式选择。
 
+### 6.5 可借鉴的 Harness 记忆机制
+
+本机 Atelier 1.1.0 包的明文 SQL 可见项目记忆状态表与使用记录表，bundle 另有
+project memory evolution、session memory reclaim、memory audit 和独立记忆页。可借鉴的是
+“项目作用域 + 使用审计 + 会话回收 + 演化确认”的分层，不是把它的数据库搬过来。
+
+- 项目记忆继续落在现有 `contextMemories.scope=project` 与 revision，不新增
+  `project_memory_state`。
+- “哪次任务用了哪条记忆”先从 AgentJob / RunRecord 的 `memoryRefs` 投影；真实查询证明
+  不足时才增加追加式 `contextMemoryUsage`。
+- Harness session 的临时工具输出、检索缓存和未确认候选在任务结束后回收；用户确认的
+  session decision 才保留。
+- 候选、冲突、过期、修订和忘记继续走现有流程；不自动把一次性要求升级成长期事实。
+- 不永久保存原始 `query_text`，不让 Worker 自建长期记忆文件或向量库。
+
 ## 7. 数据与迁移
 
 第一阶段先复用 `agentSessions` 保存 `queuedTurns`，避免为了一个队列立即升级整库 schema。
@@ -273,8 +311,12 @@ ContextBundle {
 
 ## 8. UI 位置
 
+- Agent 面板：只出现在画布项目路由，固定跟随应用壳右侧与高度；默认宽 `420px`、
+  可调 `360–720px`。浮球开关前后坐标不变，面板不改变画布尺寸或节点坐标。
 - 队列：Agent 输入框上方，可折叠、显示数量、单项删除、空闲时手动继续。
-- 个人记忆：全局设置里的“Agent 与记忆”，不新增一级菜单。
+- 个人记忆：从全局设置一级导航移除，迁入 `全局设置 → 生成 → Agent → 记忆`；
+  旧的“Agent 记忆”深链兼容跳转。投递偏好迁入 `Agent → 基础`。
+- Agent 设置：面板右上角齿轮是唯一入口，页签为 `基础 / 模型 / 工具 / 技能 / 记忆 / 高级`。
 - 套件：现有“我的素材”内的二级切换，分类为品牌、角色、产品、自定义。
 - 项目绑定：项目设置或 Agent 上下文入口。
 - 路由：现有模型服务的“路由”子面板，直接勾选并排序已有渠道/Key 分组。
@@ -291,6 +333,7 @@ ContextBundle {
 | 4 | 个人记忆、品牌/产品套件、ContextBundle | 版本固定；冲突可解释；旧项目不变 |
 | 5 | ✅ 角色/自定义套件、视觉验收与只读子代理 | 子代理不能写画布；验收读取真实图片并输出结构化问题清单 |
 | 6 | ✅ 总日志扩展、完整 UI、迁移和发布门禁 | 四类日志不重复；单测、检查、构建、真实页面验收通过；push 单独授权 |
+| 7 | 画布 Harness、应用壳面板、Agent 设置与记忆迁移 | 等价验收后删除旧循环；浮球与画布坐标不变；路由与付费幂等有回归；详见《轻画-Agent设计文档.md》§20 |
 
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。
@@ -322,9 +365,10 @@ ContextBundle {
 
 ## 11. 明确不做
 
-- 不因为参考 Harness 就整体替换现有 Agent。
+- 不保留用户可见的“旧 Agent / Harness”二选一；画布旧循环在等价验收后删除。
 - 不让多个 Agent 同时直接写同一画布。
 - 不把渠道库存、路由策略和 Key 分组混成同一个布尔配置。
+- 不让 Harness 拥有第二套 provider / key / base URL 或长期记忆库。
 - 不把权重随机命名为轮询。
 - 不把个人记忆当作品牌事实。
 - 不把品牌 Markdown 当作精确色值/尺寸的唯一来源。
@@ -338,7 +382,14 @@ ContextBundle {
 | --- | --- |
 | Agent 队列纯领域规则 | `src/domain/agent/queuedTurn.ts` |
 | Agent 会话持久化 | `src/state/agent/sessionStore.ts` |
-| Agent 浮窗与队列 UI | `src/workbenches/canvas/panels/AgentPanel/` |
+| Agent 编排控制器（目标） | `src/features/shared/agent/AgentController.ts` |
+| Harness Runtime 端口（目标） | `src/features/shared/agent/harness/HarnessRuntimePort.ts` |
+| Harness Worker 平台适配（目标） | `src/platform/agent/harnessWorkerClient.ts` |
+| 工具注册表（目标） | `src/features/shared/agent/ToolRegistry.ts` |
+| Agent 路由端口（目标） | `src/features/shared/agent/ModelRoutePort.ts` |
+| 应用壳面板宿主（目标） | `src/app/AgentShellSlot.tsx` + `src/pages/CanvasPage/AgentShellHost.tsx` |
+| Agent 壳层视图与队列 UI | `src/workbenches/canvas/panels/AgentPanel/` |
+| Agent 设置与记忆迁移（目标） | `src/app/GlobalSettingsOverlay.tsx` / `src/features/settings/AgentMemoryPanel.tsx` |
 | 路由纯函数 | `src/domain/project/modelRouting.ts` 及后续 `routePlan.ts` |
 | 路由执行与日志 | `src/features/shared/execution/` / `src/platform/generation/` |
 | 共享 Agent Runtime | 后续 `src/features/shared/agent/` |
