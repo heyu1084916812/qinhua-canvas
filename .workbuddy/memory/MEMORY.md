@@ -2,6 +2,9 @@
 
 ### Harness 集成回退（2026-10-29，对账 #809）
 
+- **Agent 右侧壳层栏（对账 #810）**：面板只在画布页由 `AgentDock` 挂载；`AppShell`
+  的 slot 固定右沿并铺满壳高。右坐标不得再传入浮球位置。视觉使用 `border-left` 分割、
+  壳表面背景、`border-radius: 0`、`box-shadow: none`；保留 360–720px 拖宽。G735 15/15。
 - **当前状态**：按用户要求撤回 DeepSeek Harness Worker 运行时、ACP/MCP 桥、签名资源包、
   安装入口和相关前端测试；当前项目未接入官方 DSH，也没有 Harness 隐藏开关。
 - **保留边界**：应用壳 Agent 面板、`AgentController`、`ToolRegistry`、`ModelRoutePort`、

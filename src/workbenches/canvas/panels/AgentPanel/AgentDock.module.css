@@ -146,10 +146,8 @@
   box-sizing: border-box;
   /* 参数菜单可能比面板更宽，外框不能裁掉浮层。 */
   overflow: visible;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-node);
+  border-left: 1px solid var(--stroke);
   background: var(--bg-surface);
-  box-shadow: var(--shadow-float);
   isolation: isolate;
 }
 

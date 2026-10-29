@@ -5,7 +5,6 @@ import {
   AGENT_SHELL_WIDTH_DEFAULT,
   AGENT_SHELL_WIDTH_MAX,
   AGENT_SHELL_WIDTH_MIN,
-  agentPanelRightInset,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
@@ -34,30 +33,6 @@ describe('Agent shell layout', () => {
     expect(agentShellWidth(100, 1440)).toBe(AGENT_SHELL_WIDTH_MIN)
     expect(agentShellWidth(5000, 1920)).toBe(AGENT_SHELL_WIDTH_MAX)
     expect(resizedAgentShellWidth(420, 800, 700, 1440)).toBe(520)
-  })
-
-  it('lets the panel avoid the unchanged orb when the two would overlap', () => {
-    expect(agentPanelRightInset(1337, 420, 1440)).toBe(103)
-    expect(agentPanelRightInset(320, 420, 1440)).toBe(0)
-  })
-
-  it('never pushes a maximum-width panel outside the viewport', () => {
-    const inset = agentPanelRightInset(300, 720, 1024)
-    expect(inset).toBe(274)
-    expect(1024 - AGENT_SHELL_GAP - inset - 720).toBe(AGENT_SHELL_GAP)
-  })
-
-  it.each([
-    { orbX: 80, width: 720 },
-    { orbX: 300, width: 720 },
-    { orbX: 500, width: 420 },
-    { orbX: 900, width: 420 },
-  ])('keeps the panel rect valid for orb x=$orbX and width=$width', ({ orbX, width }) => {
-    const viewport = 1024
-    const inset = agentPanelRightInset(orbX, width, viewport)
-    const left = viewport - AGENT_SHELL_GAP - inset - width
-    expect(left).toBeGreaterThanOrEqual(AGENT_SHELL_GAP)
-    expect(left + width).toBeLessThanOrEqual(viewport - AGENT_SHELL_GAP)
   })
 
   it('clamps persisted state against the current viewport', () => {

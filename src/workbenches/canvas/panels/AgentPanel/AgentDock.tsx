@@ -14,7 +14,6 @@ import {
   AGENT_SHELL_STORAGE_KEY,
   AGENT_SHELL_WIDTH_MAX,
   AGENT_SHELL_WIDTH_MIN,
-  agentPanelRightInset,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
@@ -263,11 +262,6 @@ export function AgentDock({
             className={styles.panelFrame}
             style={{
               width: shell.width,
-              right: agentPanelRightInset(
-                shell.orb.x,
-                shell.width,
-                typeof window === 'undefined' ? 1440 : window.innerWidth,
-              ),
             }}
             data-agent-floating-panel
             data-agent-shell-panel

@@ -40278,11 +40278,11 @@ async function g735(browser) {
   })
   rec(
     g,
-    'Agent 面板固定跟随应用壳高度，并在会覆盖球时向左让位',
+    'Agent 面板固定贴应用壳右沿并铺满壳层高度',
     Math.abs(panelBox.y - shellSlotBox.y) <= 1 &&
       Math.abs(panelBox.y + panelBox.height - (shellSlotBox.y + shellSlotBox.height)) <= 1 &&
-      panelBox.x + panelBox.width <= orbDragged.x - 10,
-    `球=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 槽=${Math.round(shellSlotBox.x)},${Math.round(shellSlotBox.y)},${Math.round(shellSlotBox.height)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)},${Math.round(panelBox.width)}×${Math.round(panelBox.height)}`,
+      Math.abs(panelBox.x + panelBox.width - shellSlotBox.x) <= 1,
+    `壳右沿=${Math.round(shellSlotBox.x)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)},${Math.round(panelBox.width)}×${Math.round(panelBox.height)}`,
   )
   rec(
     g,
@@ -40302,22 +40302,19 @@ async function g735(browser) {
   rec(
     g,
     '拖左边缘能加宽 Agent 面板',
-    panelResized.width >= panelBox.width + 70 && panelResized.width <= panelBox.width + 110,
-    `改前=${Math.round(panelBox.width)} 改后=${Math.round(panelResized.width)}`,
+    panelResized.width >= panelBox.width + 70 &&
+      panelResized.width <= panelBox.width + 110 &&
+      Math.abs(panelResized.x + panelResized.width - shellSlotBox.x) <= 1,
+    `改前=${Math.round(panelBox.width)} 改后=${Math.round(panelResized.width)} 右沿=${Math.round(panelResized.x + panelResized.width)}`,
   )
   const orbWhenOpen = await orb.boundingBox()
-  const orbHitWhenOpen = await orb.evaluate((node) => {
-    const rect = node.getBoundingClientRect()
-    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === node
-  })
   rec(
     g,
-    '★★★★ Agent 浮窗展开后浮球仍留在画布且保持可点',
+    'Agent 壳层展开不改变浮球坐标',
     (await orb.isVisible()) &&
-      orbHitWhenOpen &&
       Math.abs(orbWhenOpen.x - orbDragged.x) <= 1 &&
       Math.abs(orbWhenOpen.y - orbDragged.y) <= 1,
-    `展开后=${Math.round(orbWhenOpen.x)},${Math.round(orbWhenOpen.y)} 命中=${orbHitWhenOpen}`,
+    `展开后=${Math.round(orbWhenOpen.x)},${Math.round(orbWhenOpen.y)}`,
   )
   await page.screenshot({ path: `${OUT}/735-agent-1280.png` })
 
@@ -40405,6 +40402,12 @@ async function g735(browser) {
 
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'domcontentloaded' })
   await page.locator('[data-ecommerce-create]').waitFor({ state: 'visible', timeout: 20_000 })
+  rec(
+    g,
+    'Agent 只在画布项目出现，电商页没有浮球或面板',
+    (await page.locator('[data-agent-orb]').count()) === 0 &&
+      (await page.locator('[data-agent-shell-panel]').count()) === 0,
+  )
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
   await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })

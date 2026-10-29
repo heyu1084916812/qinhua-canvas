@@ -120,7 +120,7 @@
   top: calc(var(--title-bar-h) + var(--shell-gap));
   right: var(--shell-gap);
   bottom: var(--shell-gap);
-  z-index: 47;
+  z-index: 49;
   width: 0;
   pointer-events: none;
 }

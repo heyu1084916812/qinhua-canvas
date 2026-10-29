@@ -86,30 +86,6 @@ export function resizedAgentShellWidth(
   return agentShellWidth(originWidth - (clientX - startX), availableWidth)
 }
 
-/**
- * 面板正常贴壳层右边；只有会覆盖浮球时，才向左让出球与间距。
- * 返回值是相对 AppShell slot 的 right 偏移：正常为 0，向左让位时为正数。
- * 球的坐标从不回写，用户仍能在同一位置收起面板。
- */
-export function agentPanelRightInset(
-  orbX: number,
-  panelWidth: number,
-  viewportWidth: number,
-): number {
-  const desiredLeft = viewportWidth - AGENT_SHELL_GAP - panelWidth
-  const coversOrb =
-    orbX < viewportWidth - AGENT_SHELL_GAP &&
-    orbX + AGENT_ORB_SIZE > desiredLeft
-  if (!coversOrb) return 0
-
-  const avoidOrb = Math.round(viewportWidth - orbX)
-  const keepPanelInside = Math.max(
-    0,
-    Math.round(viewportWidth - AGENT_SHELL_GAP * 2 - panelWidth),
-  )
-  return Math.min(avoidOrb, keepPanelInside)
-}
-
 export function parseAgentShellState(raw: string | null): AgentShellState | null {
   if (!raw) return null
   try {
