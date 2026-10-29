@@ -71,4 +71,19 @@ describe('agentRunOutcomeOf', () => {
       ),
     ).toEqual({ nodeId: 'n1', ok: false, error: '这次运行没有留下记录，无法确认是否出图' })
   })
+
+  it('执行层没有留下记录时，优先回报真实前置阻塞原因', () => {
+    expect(
+      agentRunOutcomeOf(
+        [],
+        'n1',
+        new Set(),
+        '「婴童泳圈三视图」无法运行：所选渠道已停用',
+      ),
+    ).toEqual({
+      nodeId: 'n1',
+      ok: false,
+      error: '「婴童泳圈三视图」无法运行：所选渠道已停用',
+    })
+  })
 })

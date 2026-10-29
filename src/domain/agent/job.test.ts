@@ -79,4 +79,22 @@ describe('AgentJob 状态机', () => {
   it('规划阶段遇到未知工具结果时可转 needs_attention，不伪装成失败或完成', () => {
     expect(canTransitionAgentJob('planning', 'needs_attention')).toBe(true)
   })
+
+  it('暂停恢复遇到终态错误时允许正常失败收口', () => {
+    expect(canTransitionAgentJob('paused', 'failed')).toBe(true)
+    expect(
+      transitionAgentJob(
+        job({ status: 'paused', startedAt: 20, revision: 3 }),
+        'failed',
+        40,
+        { lastError: '渠道已停用' },
+      ),
+    ).toMatchObject({
+      status: 'failed',
+      revision: 4,
+      startedAt: 20,
+      finishedAt: 40,
+      lastError: '渠道已停用',
+    })
+  })
 })

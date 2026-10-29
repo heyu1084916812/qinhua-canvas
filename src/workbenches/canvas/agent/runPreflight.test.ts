@@ -59,6 +59,19 @@ describe('runPreflightProblems', () => {
     ).toEqual(['「婴童泳圈三视图」无法运行：所选渠道缺少有效令牌、地址或可用协议'])
   })
 
+  it('确认后渠道被停用时返回与节点一致的明确原因', () => {
+    expect(
+      runPreflightProblems(
+        ['gen-1'],
+        graph([node()]),
+        [
+          { ...channel, enabled: false },
+          { ...channel, id: 'ch-2', name: '备用渠道', enabled: true },
+        ],
+      ),
+    ).toEqual(['「婴童泳圈三视图」无法运行：所选渠道已停用'])
+  })
+
   it('非生成节点和不存在节点都如实处理', () => {
     const prompt = { ...node(), id: 'prompt-1', type: 'prompt' } as NodeSnapshot
     expect(runPreflightProblems(['prompt-1', 'missing'], graph([prompt]), [channel])).toEqual([

@@ -52,7 +52,7 @@ const TRANSITIONS: Record<AgentJobStatus, readonly AgentJobStatus[]> = {
     'failed',
     'canceled',
   ],
-  paused: ['planning', 'canceled'],
+  paused: ['planning', 'failed', 'canceled'],
   needs_attention: ['completed', 'failed', 'canceled'],
   completed: [],
   failed: [],

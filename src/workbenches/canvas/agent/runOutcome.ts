@@ -28,13 +28,20 @@ export function agentRunOutcomeOf(
   records: readonly RunRecord[],
   nodeId: string,
   beforeIds: ReadonlySet<string>,
+  fallbackError?: string,
 ): AgentRunOutcome {
   const fresh = records
     .filter((record) => record.nodeId === nodeId && !beforeIds.has(record.id))
     .sort((a, b) => b.createdAt - a.createdAt)[0]
 
   if (!fresh) {
-    return { nodeId, ok: false, error: '这次运行没有留下记录，无法确认是否出图' }
+    return {
+      nodeId,
+      ok: false,
+      error:
+        fallbackError?.trim() ||
+        '这次运行没有留下记录，无法确认是否出图',
+    }
   }
 
   const outcome: AgentRunOutcome = {

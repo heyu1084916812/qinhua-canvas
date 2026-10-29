@@ -1002,6 +1002,10 @@ export function AgentPanel({
             (typeof data.title === 'string' ? data.title.trim() : '')
           )
         }
+        const preflightFailureText = (problem: string): string =>
+          problem.includes('无法运行：')
+            ? problem.slice(problem.indexOf('无法运行：') + '无法运行：'.length)
+            : problem
         const waves = runWaves(ids, store.getSnapshot().edges)
         const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
         for (const wave of waves) {
@@ -1019,6 +1023,25 @@ export function AgentPanel({
           const beforeIds = new Set(beforeRows.map((record) => record.id))
           const thrown = await Promise.all(
             wave.map(async (id) => {
+              /**
+               * 确认卡与真正执行之间可能隔着用户操作：期间渠道被停用、
+               * 凭据被移除或节点被改了。执行前必须再跑同一份 preflight，
+               * 否则 execution 会直接返回、没有 RunRecord，Agent 只能误报
+               * “没有留下记录”。这里与节点自身使用完全相同的阻塞原因。
+               */
+              const problem = runPreflightProblems(
+                [id],
+                store.getSnapshot(),
+                channels.getState().channels,
+                channels.protocolCatalog(),
+              )[0]
+              if (problem) {
+                return {
+                  nodeId: id,
+                  ok: false,
+                  error: preflightFailureText(problem),
+                }
+              }
               try {
                 await execution.runNode(id, {
                   signal:
@@ -1049,7 +1072,24 @@ export function AgentPanel({
             })) as unknown as RunRecord[]
             outcomes = wave.map((id, index) => {
               const failure = thrown[index]
-              const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+              const fallbackProblem = failure
+                ? undefined
+                : runPreflightProblems(
+                    [id],
+                    store.getSnapshot(),
+                    channels.getState().channels,
+                    channels.protocolCatalog(),
+                  )[0]
+              const base =
+                failure ??
+                agentRunOutcomeOf(
+                  afterRows,
+                  id,
+                  beforeIds,
+                  fallbackProblem
+                    ? preflightFailureText(fallbackProblem)
+                    : undefined,
+                )
               const title = titleOf(id)
               return title ? { ...base, title } : base
             })

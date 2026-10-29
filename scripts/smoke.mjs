@@ -40217,6 +40217,14 @@ async function g735(browser) {
   await sleep(500)
   await page.locator('[data-channel-id="ch_smoke_mock"]').click()
   await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-settings-provider-head]')
+        ?.textContent?.includes('Smoke Mock'),
+    null,
+    { timeout: 5000 },
+  )
   if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
     await page.locator('[data-route-map-show-uncommon]').check()
   }
@@ -40905,6 +40913,14 @@ async function g735(browser) {
   await gotoSettings(page)
   await page.locator('[data-channel-id="ch_smoke_mock"]').click()
   await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-settings-provider-head]')
+        ?.textContent?.includes('Smoke Mock'),
+    null,
+    { timeout: 5000 },
+  )
   if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
     await page.locator('[data-route-map-show-uncommon]').check()
   }

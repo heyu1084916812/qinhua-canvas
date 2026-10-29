@@ -2,6 +2,11 @@
 
 ### Harness 集成回退（2026-10-29，对账 #809）
 
+- **Agent 生成失败原因与 paused 收口（对账 #813）**：确认前 precheck 不够，执行层调用前
+  必须用最新 GraphSnapshot / ChannelStore 再跑 `runPreflightProblems()`；否则渠道在确认后
+  被停用会静默返回，Agent 只能误报“没有留下记录”。`paused` 遇到终态错误应允许转 `failed`。
+- **本轮证据**：runOutcome / runPreflight / AgentJob 定向 **15/15**；全量 Vitest
+  **3583 passed / 1 skipped**；`npm run check`、`npm run build` 通过。
 - **页面溢白与 Agent 输入框让位（对账 #812）**：白底不是画布尺寸问题，而是对话区
   滚动到底后继续滚动 `body`；`body` 必须锁定 `overflow: hidden`，可滚区域自己加
   `overscroll-behavior: contain`。输入框增高时保持底边不动、对话区同步收缩并跟到最新。
