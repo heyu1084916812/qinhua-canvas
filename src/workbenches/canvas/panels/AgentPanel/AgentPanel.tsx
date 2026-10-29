@@ -1111,17 +1111,17 @@ export function AgentPanel({
    * - 已开始未完成：转 needs_attention，不自动重发；
    * - 相同 callId 却换了参数：按失败处理，避免把两次不同操作混成一次。
    */
-  const executeConfirmedToolWithLedger = useCallback(
-    async (session: AgentSession, request: AgentToolRequest): Promise<unknown> => {
+  const executeToolWithLedger = useCallback(
+    async (
+      session: AgentSession,
+      request: AgentToolRequest,
+      execute: () => Promise<unknown>,
+    ): Promise<unknown> => {
       const jobId =
         jobIdsRef.current.get(session.id) ??
         (await jobs.active(session.id))?.id
       if (!jobId) {
-        return executeConfirmedTool(
-          request.name,
-          request.args,
-          toolCtx(originOf(viewport)),
-        )
+        return execute()
       }
       jobIdsRef.current.set(session.id, jobId)
       const latest = (await sessions.get(session.id)) ?? session
@@ -1132,12 +1132,7 @@ export function AgentPanel({
         toolCallId: request.callId,
         toolName: request.name,
         args: request.args,
-        execute: () =>
-          executeConfirmedTool(
-            request.name,
-            request.args,
-            toolCtx(originOf(viewport)),
-          ),
+        execute,
       })
       if (outcome.kind === 'completed') {
         if (outcome.replayed) {
@@ -1158,7 +1153,19 @@ export function AgentPanel({
         outcome,
       )
     },
-    [jobs, sessions, store, toolCtx, toolEffects, viewport],
+    [jobs, sessions, store, toolEffects],
+  )
+
+  const executeConfirmedToolWithLedger = useCallback(
+    (session: AgentSession, request: AgentToolRequest): Promise<unknown> =>
+      executeToolWithLedger(session, request, () =>
+        executeConfirmedTool(
+          request.name,
+          request.args,
+          toolCtx(originOf(viewport)),
+        ),
+      ),
+    [executeToolWithLedger, toolCtx, viewport],
   )
 
   const loopDeps = useCallback(
@@ -1452,11 +1459,16 @@ export function AgentPanel({
        * 「他直接给我新建进去，但是生成与否需要让我确认，取消后也不会撤回
        * 已经新建到画布中的工作流」。
        */
-      executeWrite: async (name: string, args: unknown) => {
-        const result = await executeConfirmedTool(
-          name,
-          args,
-          toolCtx(originOf(viewport), session.id),
+      executeWrite: async (name: string, args: unknown, callId: string) => {
+        const result = await executeToolWithLedger(
+          session,
+          { callId, name, args },
+          () =>
+            executeConfirmedTool(
+              name,
+              args,
+              toolCtx(originOf(viewport), session.id),
+            ),
         )
         if (name === 'applyPlan') {
           const resolved = (result as { resolvedNodes?: { localId?: unknown; nodeId?: unknown }[] })
@@ -1476,12 +1488,14 @@ export function AgentPanel({
         }
         return result
       },
-      executeRead: (name: string, args: unknown) => {
+      executeRead: (name: string, args: unknown, callId: string) => {
         const base = toolCtx(originOf(viewport), session.id)
-        return executeReadTool(name, args, {
-          ...base,
-          ...(name === 'visualReview' ? { visualReview: runVisualReview } : {}),
-        })
+        return executeToolWithLedger(session, { callId, name, args }, () =>
+          executeReadTool(name, args, {
+            ...base,
+            ...(name === 'visualReview' ? { visualReview: runVisualReview } : {}),
+          }),
+        )
       },
       takeSteering: async () => {
         try {
@@ -1524,6 +1538,7 @@ export function AgentPanel({
       store,
       sessions,
       jobs,
+      executeToolWithLedger,
     ],
   )
 
@@ -1641,6 +1656,22 @@ export function AgentPanel({
               completedSteps: outcome.checkpoint.completedSteps,
               savedAt: Date.now(),
             },
+          },
+        )
+      } else if (outcome.kind === 'error' && outcome.needsAttention) {
+        await transitionSessionJob(
+          session.id,
+          'needs_attention',
+          'tool_failed',
+          {
+            lastError: outcome.needsAttention.reason,
+            ...(outcome.needsAttention.toolCallId
+              ? { pendingCallId: outcome.needsAttention.toolCallId }
+              : {}),
+          },
+          {
+            phase: 'tool_effect_pending',
+            reason: outcome.needsAttention.reason,
           },
         )
       } else if (outcome.kind === 'message') {

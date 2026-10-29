@@ -9,6 +9,7 @@ import {
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { errorTextOf } from '../../../shared/result'
 import { createId } from '../../../shared/id'
+import { AgentToolEffectBlockedError } from '../../../features/shared/agent/AgentToolEffectLedger'
 import { parseJsonAgentAction } from './jsonToolFallback'
 
 /**
@@ -60,7 +61,13 @@ export type AgentLoopOutcome =
   /** 模型要做写 / 花钱的动作，等用户确认（界面据此出预览卡） */
   | { kind: 'confirm'; request: AgentToolRequest; messages: ChatMessage[] }
   /** 渠道 / 解析错误，中止本轮 */
-  | { kind: 'error'; message: string; messages: ChatMessage[] }
+  | {
+      kind: 'error'
+      message: string
+      messages: ChatMessage[]
+      /** 工具副作用可能已发生；界面必须转 needs_attention，不能当普通失败重试。 */
+      needsAttention?: { toolCallId?: string; reason: string }
+    }
   /** 触发刹车（轮数上限 / 反复调同一个工具） */
   | {
       kind: 'stopped'
@@ -82,9 +89,9 @@ export interface AgentLoopDeps {
    */
   toolMode?: 'native' | 'json'
   /** 执行**读类**工具，返回要回填给模型的结果（失败也照常返回一个说明对象） */
-  executeRead: (name: string, args: unknown) => Promise<unknown>
+  executeRead: (name: string, args: unknown, callId: string) => Promise<unknown>
   /** 执行**建图类**工具（`applyPlan`）：直接落到画布上，不等确认 */
-  executeWrite: (name: string, args: unknown) => Promise<unknown>
+  executeWrite: (name: string, args: unknown, callId: string) => Promise<unknown>
   /** 用户这次明确提供的节点素材；各轮模型请求复用同一批节点引用。 */
   inputs?: readonly NodeInput[]
   /**
@@ -306,8 +313,23 @@ export async function runAgentTurn(
       if (WRITE_TOOLS.has(call.name)) {
         let wrote: unknown
         try {
-          wrote = await deps.executeWrite(call.name, args)
+          wrote = await deps.executeWrite(call.name, args, call.id)
         } catch (e) {
+          if (e instanceof AgentToolEffectBlockedError) {
+            return {
+              kind: 'error',
+              message: e.message,
+              messages,
+              ...(e.status === 'needs_attention'
+                ? {
+                    needsAttention: {
+                      toolCallId: e.outcome.effect.toolCallId,
+                      reason: e.message,
+                    },
+                  }
+                : {}),
+            }
+          }
           wrote = { ok: false, problems: [e instanceof Error ? e.message : errText(e)] }
         }
         messages.push(toolResult(call.id, call.name, wrote))
@@ -322,8 +344,23 @@ export async function runAgentTurn(
 
       let outcome: unknown
       try {
-        outcome = await deps.executeRead(call.name, args)
+        outcome = await deps.executeRead(call.name, args, call.id)
       } catch (e) {
+        if (e instanceof AgentToolEffectBlockedError) {
+          return {
+            kind: 'error',
+            message: e.message,
+            messages,
+            ...(e.status === 'needs_attention'
+              ? {
+                  needsAttention: {
+                    toolCallId: e.outcome.effect.toolCallId,
+                    reason: e.message,
+                  },
+                }
+              : {}),
+          }
+        }
         outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
       messages.push(toolResult(call.id, call.name, outcome))

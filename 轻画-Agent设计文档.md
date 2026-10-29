@@ -19,7 +19,7 @@
 > 与设置页共用；Agent 文本路由改走 `ModelRoutePort`，HTTP 401 归一为
 > `channel/missingKey` 后可安全切换候选。H1b 第一刀已抽出会话/JOB 恢复控制器；
 > H4 已接入 `MemoryPort`，Agent 面板不再直接操作记忆仓储。持久化幂等账本、完整
-> 工具效果账本已接 AgentJob 事件并覆盖确认型工具；完整队列/确认控制器和 Harness
+> 工具效果账本已接 AgentJob 事件并覆盖全部 Agent 工具；完整队列/确认控制器和 Harness
 > Worker 仍未完成。
 
 > **2026-10-28：严格单步、结果验收与队列直发（对账 #788 / #789）。** 计划同一时间只能有
@@ -835,7 +835,7 @@ Agent 设置入口只在面板右上方，不新增一级导航。齿轮打开�
 | **M2** | 接素材（你给的图）+ 读画布现状 | 能复用画布上已有素材节点，不重复建 | ✅ **已完成**：`readGraph` / `readAsset` 工具；对话窗可**拖图或点「加素材」**——素材**先落成画布节点**、再以可移除的标签记进会话，系统提示词里报节点 id 并要求 `attach` 复用（冒烟 G95 实测：给一张图 → 画布多一个节点 + 一个标签） |
 | **M3** | 执行 + 出图前确认 + 读结果 | 点确认后真出图，失败能重试 | ✅ **已完成并已验**：`runNode` + 确认卡 + `readResult`；循环里绝不自动执行花钱动作（建图直落，确认卡只剩「真正跑」这一步）。**v1.1 修掉一个真 bug**：v1.0 落地时漏了「默认配方」，agent 建的生成节点没渠道没模型 ⇒ 点生成无反应（详见 §6）。冒烟 G95 新增 3 条，末条直达产物：`runNode` 确认 → **节点上真出现 blob 图**（★★★） |
 | **M4** | 接技能（把 TVC / 创作分镜展开成计划） | 选一个技能 + 一句话，能建出多阶段链路 | ✅ **已完成**：对话窗可选技能（含内置 11 个），正文按 id 现取并进系统提示词驱动规划；**不做专门的「技能展开器」** —— 技能负责怎么做、agent 负责真的去做，展开交给模型。**提示词组装抽成纯函数**（`buildAgentSystemPromptWithContext`：通用三段 + 随对话给的素材 + 本会话启用的技能），「技能正文 / 素材节点 id 到底进没进提示词」有断言钉住（界面上看不见这两段，只能靠发出去的消息证明） |
-| **M5** | AgentController、ToolRegistry、RouteExecutionPort | 视图不再持有编排；工具权限和幂等键可单测；所有付费调用仍只走轻画路由 | 🧩 **ToolRegistry / ModelRoutePort / 401 安全降级 / AgentToolEffectLedger 已落地；确认型工具已接入持久账本，Controller 与其他写工具待继续迁移** |
+| **M5** | AgentController、ToolRegistry、RouteExecutionPort | 视图不再持有编排；工具权限和幂等键可单测；所有付费调用仍只走轻画路由 | 🧩 **ToolRegistry / ModelRoutePort / 401 安全降级 / AgentToolEffectLedger 已落地；确认、建图与只读工具全部接入持久账本，完整 Controller 与 RouteExecutionPort 待继续迁移** |
 | **M6** | Harness Worker Runtime | session-scoped Worker 能恢复、停止、崩溃重启；Harness 原生重试关闭 | 📝 **计划已确认，未实施** |
 | **M7** | 应用壳右侧面板、Agent 设置与记忆迁移 | 浮球不位移、画布坐标不变、宽度可调；记忆只保留 `Agent → 记忆` 一处 | 🧩 **壳层与设置 UI 已交付（2026-10-29）；Harness 设置数据源待 H3** |
 
@@ -1026,7 +1026,7 @@ bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`�
 | **H0 契约与基线** | 本文、架构、统一规划、对账清单；补当前 Agent UI / 行为截图基线 | ✅ 文档与基线完成 |
 | **H1a 应用壳面板** | `AgentShellSlot`、canvas portal、可调宽壳层、浮球独立坐标 | ✅ 已交付：G735 14/14；浮球与节点坐标 0 变化 |
 | **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB 恢复层已抽出**：`AgentController` 持有 sessions / jobs、修复中断活动回合和确认/引导冲突；`AgentToolRequest` 已上移 `domain/agent`。队列、确认执行与模型循环仍在 AgentPanel，H3 前继续拆 |
-| **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort；401 安全降级与超时分支有单测；`AgentToolEffectLedger` 使用 `tool_started / tool_finished / tool_failed` 持久账本，确认型工具已接入，已开始未完成会转 `needs_attention`；write/read 工具迁移与 RouteExecutionPort 待继续 |
+| **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort；401 安全降级与超时分支有单测；`AgentToolEffectLedger` 使用 `tool_started / tool_finished / tool_failed` 持久账本，确认、建图与只读工具全部接入；已开始未完成会直接停止本轮并转 `needs_attention`，不会回填给模型继续换工具；RouteExecutionPort 待继续 |
 | **H3 Harness Worker** | 签名资源包、Worker 握手、session 恢复、Harness retry 关闭 | 内部开关下完成同等画布任务；Worker 崩溃不重发付费请求；包体独立且可验签 |
 | **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；Harness 使用投影与压缩策略待 H3 |
 | **H5 等价切换与删除旧循环** | 跑完整回归，删除内部开关与旧主循环 | 没有用户可见双模式；旧计划、队列、引导、确认、停止、检查点行为全部保留 |

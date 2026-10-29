@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { AgentToolEffect } from '../../../domain/agent/job'
 import type { ChatMessage } from '../../../domain/shared/execution/types'
+import { AgentToolEffectBlockedError } from '../../../features/shared/agent/AgentToolEffectLedger'
 import { AGENT_DEFAULT_MAX_STEPS, errText, resumeAgentTurn, runAgentTurn } from './agentLoop'
 
 /**
@@ -137,7 +139,7 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('画布上有什么'), deps)
 
-    expect(executeRead).toHaveBeenCalledWith('readGraph', { scope: 'all' })
+    expect(executeRead).toHaveBeenCalledWith('readGraph', { scope: 'all' }, 'c1')
     expect(adapter.completeText).toHaveBeenCalledTimes(2)
     expect(r.kind).toBe('message')
     if (r.kind === 'message') {
@@ -205,9 +207,100 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('建个流程'), deps)
 
-    expect(executeWrite).toHaveBeenCalledWith('applyPlan', { summary: 'x', nodes: [], edges: [] })
+    expect(executeWrite).toHaveBeenCalledWith(
+      'applyPlan',
+      { summary: 'x', nodes: [], edges: [] },
+      'c1',
+    )
     expect(executeRead).not.toHaveBeenCalled()
     expect(r.kind).toBe('message')
+  })
+
+  it('★★ 建图工具已开始但结果未知时，本轮直接转 needs_attention，不再问模型下一步', async () => {
+    const effect: AgentToolEffect = {
+      effectKey: 'agent:job:step:call',
+      stepId: 'step',
+      toolCallId: 'c1',
+      toolName: 'applyPlan',
+      argsDigest: 'digest',
+      state: 'started',
+      startedAt: 1,
+    }
+    const blocked = new AgentToolEffectBlockedError(
+      '工具已经开始但结果未知，不会自动重发',
+      'needs_attention',
+      { kind: 'pending', reason: '工具已经开始但结果未知，不会自动重发', effect },
+    )
+    const { deps, adapter } = depsWith(
+      [
+        {
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'applyPlan',
+              args: '{"summary":"x","nodes":[],"edges":[]}',
+            },
+          ],
+        },
+        { text: '不该继续' },
+      ],
+      undefined,
+      vi.fn(async () => {
+        throw blocked
+      }),
+    )
+
+    const r = await runAgentTurn(user('建个流程'), deps)
+    expect(r).toMatchObject({
+      kind: 'error',
+      message: '工具已经开始但结果未知，不会自动重发',
+      needsAttention: {
+        toolCallId: 'c1',
+        reason: '工具已经开始但结果未知，不会自动重发',
+      },
+    })
+    expect(adapter.completeText).toHaveBeenCalledTimes(1)
+  })
+
+  it('★★ 读工具或视觉验收遇到未决副作用时也停止，不把阻塞当成普通工具错误', async () => {
+    const effect: AgentToolEffect = {
+      effectKey: 'agent:job:step:review',
+      stepId: 'step',
+      toolCallId: 'review',
+      toolName: 'visualReview',
+      argsDigest: 'digest',
+      state: 'started',
+      startedAt: 1,
+    }
+    const blocked = new AgentToolEffectBlockedError(
+      '还有未决工具调用',
+      'needs_attention',
+      { kind: 'pending', reason: '还有未决工具调用', effect },
+    )
+    const { deps, adapter } = depsWith(
+      [
+        {
+          toolCalls: [
+            {
+              id: 'review',
+              name: 'visualReview',
+              args: '{"nodeIds":["n1"]}',
+            },
+          ],
+        },
+        { text: '不该继续' },
+      ],
+      vi.fn(async () => {
+        throw blocked
+      }),
+    )
+
+    const r = await runAgentTurn(user('验收'), deps)
+    expect(r).toMatchObject({
+      kind: 'error',
+      needsAttention: { toolCallId: 'review' },
+    })
+    expect(adapter.completeText).toHaveBeenCalledTimes(1)
   })
 
   it('★★ 节点移动与排列直接复用画布命令，不误弹确认卡', async () => {
@@ -225,11 +318,15 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('把节点往右下移动'), deps)
 
-    expect(executeWrite).toHaveBeenCalledWith('moveNodes', {
-      nodeIds: ['n1'],
-      dx: 40,
-      dy: 20,
-    })
+    expect(executeWrite).toHaveBeenCalledWith(
+      'moveNodes',
+      {
+        nodeIds: ['n1'],
+        dx: 40,
+        dy: 20,
+      },
+      'c1',
+    )
     expect(executeRead).not.toHaveBeenCalled()
     expect(r.kind).toBe('message')
   })
@@ -315,10 +412,14 @@ describe('runAgentTurn · 基本往复', () => {
     if (r.kind === 'stopped') {
       expect(r.reason).toContain('不会自动修改画布或重新生成')
     }
-    expect(executeRead).toHaveBeenCalledWith('visualReview', {
-      nodeIds: ['n1'],
-      checklist: '检查文字',
-    })
+    expect(executeRead).toHaveBeenCalledWith(
+      'visualReview',
+      {
+        nodeIds: ['n1'],
+        checklist: '检查文字',
+      },
+      'review',
+    )
     expect(executeWrite).not.toHaveBeenCalled()
   })
 
@@ -405,7 +506,11 @@ describe('runAgentTurn · JSON 工具调用降级（路线 B）', () => {
       { text: '{"tool":"final","args":{"message":"建好了"}}' },
     ])
     const r = await runAgentTurn(user('建个流程'), { ...deps, toolMode: 'json' })
-    expect(executeWrite).toHaveBeenCalledWith('applyPlan', expect.anything())
+    expect(executeWrite).toHaveBeenCalledWith(
+      'applyPlan',
+      expect.anything(),
+      expect.stringMatching(/^jsoncall/),
+    )
     expect(r.kind).toBe('message')
     if (r.kind === 'message') expect(r.text).toBe('建好了')
   })

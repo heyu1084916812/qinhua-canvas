@@ -54,13 +54,14 @@
 - **H2 已推进（2026-10-29）**：`domain/agent/toolRegistry` 成为 20 个工具的唯一清单，
   `agentLoop` 的读 / 写 / 确认集合与设置页分组都从它派生；`tools.test` 断言模型 schema
   与注册表完全同名。Agent 文本路由新增 `ModelRoutePort`，仍进现有 RoutePlan。
-- **确认型工具持久幂等账本（2026-10-29）**：`AgentJob` 事件新增
+- **全部工具持久幂等账本（2026-10-29）**：`AgentJob` 事件新增
   `tool_started / tool_finished / tool_failed`，以 `(jobId, stepId, toolCallId)` 派生效果键；
   工具名 + 参数摘要防止同一个 callId 被复用成另一件事。完成结果直接回放；开始后没有完成
-  时转 `needs_attention`，且同 Job 有未决工具时阻止任何新工具执行，绝不自动重发。
+  时直接停止 AgentLoop 并转 `needs_attention`，且同 Job 有未决工具时阻止任何新工具执行，
+  绝不自动重发或让模型换个工具继续试；确认、建图、只读三类入口均已接入。
 - **幂等账本不是第二套任务表**：它只投影在既有 `agentEvents`，不新增 AgentJob 或数据库表；
   JSON 工具调用的 callId 改为每次生成的唯一 id，避免续跑时旧 `json-0` 撞上新调用。
-- **本批证据**：全量 Vitest **3565 passed / 1 skipped**；`npm run check`、`npm run build`
+- **本批证据**：全量 Vitest **3567 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录已删除。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
