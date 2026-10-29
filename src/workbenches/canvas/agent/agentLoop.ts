@@ -122,6 +122,8 @@ export interface AgentLoopDeps {
     | Promise<readonly ChatMessage[]>
   /** 公开工作进度：只上报真实的阶段与工具状态，不包含模型私有思维链。 */
   onActivity?: (activity: AgentLoopActivity) => void
+  /** 推送当前消息快照，让过程正文在任务结束前就能进入时间线。 */
+  onProgress?: (messages: readonly ChatMessage[]) => void
   signal: AbortSignal
   maxSteps?: number
 }
@@ -142,6 +144,7 @@ const toolResult = (callId: string, toolName: string, value: unknown): ChatMessa
   toolCallId: callId,
   toolName,
   content: JSON.stringify(value ?? {}),
+  createdAt: Date.now(),
 })
 
 const failedToolValue = (value: unknown): boolean => {
@@ -165,7 +168,11 @@ async function askModel(history: ChatMessage[], deps: AgentLoopDeps) {
       inputs: [...(deps.inputs ?? [])],
       params: {},
       tools: deps.toolMode === 'json' ? [] : deps.tools,
-      messages: history.map((message) => ({ ...message })),
+      messages: history.map((message) => {
+        const protocolMessage = { ...message }
+        delete protocolMessage.createdAt
+        return protocolMessage
+      }),
     },
     deps.signal,
   )
@@ -180,11 +187,13 @@ export async function runAgentTurn(
   const maxSteps = deps.maxSteps ?? AGENT_DEFAULT_MAX_STEPS
   const seenCalls = new Map<string, number>()
   let visualReviewRan = false
+  const emitProgress = () => deps.onProgress?.([...messages])
   const pullSteering = async (): Promise<number> => {
     if (!deps.takeSteering) return 0
     const steering = await deps.takeSteering()
     if (steering.length > 0) {
       messages.push(...steering)
+      emitProgress()
       /**
        * 引导是新的用户指令。它到达后，视觉验收“只读终点”只约束验收刚结束的旧回合，
        * 不能再把用户明确发出的下一步挡回去。
@@ -209,6 +218,7 @@ export async function runAgentTurn(
     }
 
     let calls = result.toolCalls ?? []
+    let showAssistantText = true
     /**
      * 路线 B：渠道不支持原生 tools 时，模型每次只输出一个 JSON 工具调用。
      * 解析不出来就如实拒绝，不让它把“我无法调用工具”当成最终回答。
@@ -223,11 +233,15 @@ export async function runAgentTurn(
           typeof (action.args as { message?: unknown }).message === 'string'
             ? String((action.args as { message: string }).message)
             : result.text
-        messages.push({ role: 'assistant', content: message })
+        messages.push({ role: 'assistant', content: message, createdAt: Date.now() })
         return { kind: 'message', text: message, messages }
       }
       if (!action) {
-        messages.push({ role: 'assistant', content: result.text })
+        messages.push({
+          role: 'assistant',
+          content: result.text,
+          createdAt: Date.now(),
+        })
         return {
           kind: 'error',
           message:
@@ -242,10 +256,15 @@ export async function runAgentTurn(
           args: JSON.stringify(action.args ?? {}),
         },
       ]
+      showAssistantText = false
     }
     if (calls.length === 0) {
       if ((await pullSteering()) > 0) continue
-      messages.push({ role: 'assistant', content: result.text })
+      messages.push({
+        role: 'assistant',
+        content: result.text,
+        createdAt: Date.now(),
+      })
       return { kind: 'message', text: result.text, messages }
     }
 
@@ -285,9 +304,11 @@ export async function runAgentTurn(
 
     messages.push({
       role: 'assistant',
-      content: result.text,
+      content: showAssistantText ? result.text : '',
+      createdAt: Date.now(),
       toolCalls: calls.map((c) => ({ id: c.id, name: c.name, args: c.args })),
     })
+    emitProgress()
 
     for (const call of calls) {
       const args = parseArgs(call.args)
@@ -448,11 +469,13 @@ export async function runAgentTurn(
       messages.push(toolResult(call.id, call.name, outcome))
       if (agentToolDefinitionOf(call.name)?.terminalAfter) visualReviewRan = true
     }
+    emitProgress()
     if (reviewBlocksTurn) {
       const message =
         '视觉验收已完成，问题清单已返回。子代理不会自动修改画布或重新生成；' +
         '请先查看验收摘要，再决定下一步。'
-      messages.push({ role: 'assistant', content: message })
+      messages.push({ role: 'assistant', content: message, createdAt: Date.now() })
+      emitProgress()
       return { kind: 'message', text: message, messages }
     }
   }

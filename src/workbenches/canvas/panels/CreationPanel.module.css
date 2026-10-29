@@ -747,14 +747,9 @@
   background: transparent;
 }
 
-/* 拇指：细圆角、半透明，悬停时略实一点 */
+/* 拇指颜色和显隐统一由 base.css 的滚动容器活动状态控制。 */
 .prompt::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-3) 45%, transparent);
   border-radius: 999px;
-}
-
-.prompt::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text-3) 75%, transparent);
 }
 
 /* 右下角那个「两条斜线凑成的小三角」是滚动条的 corner，一并去掉 */

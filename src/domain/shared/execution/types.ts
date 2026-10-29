@@ -121,6 +121,8 @@ export interface ToolDeclaration {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** 仅供会话时间线显示，不参与模型协议；旧消息没有这个字段。 */
+  createdAt?: number
   /**
    * 给**界面**看的原文（与 `content` 同一句话，但保留 `@[名字](node:id)` 这类 chip 标记）。
    *

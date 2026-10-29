@@ -1448,6 +1448,7 @@ export function AgentPanel({
       operationId: string,
       toolMode: 'native' | 'json' = 'native',
       visualNodeIds: readonly string[] = [],
+      onProgress?: (messages: readonly ChatMessage[]) => void,
     ) => {
       const route = cachedChatRoute(session)
       const logicalModel =
@@ -1782,6 +1783,7 @@ export function AgentPanel({
           setStatusFor(session.id, { kind: 'toolRunning' })
         }
       },
+      ...(onProgress ? { onProgress } : {}),
       takeSteering: async () => {
         try {
           const latest = await sessions.get(session.id)
@@ -2440,6 +2442,7 @@ export function AgentPanel({
         role: 'user',
         content: stripMentionMarkup(text),
         display: text,
+        createdAt: Date.now(),
         imageNodeIds: [...new Set([
           ...sentAssetIds,
           ...mentions
@@ -2468,7 +2471,17 @@ export function AgentPanel({
         .filter((mention): mention is MentionRef & { kind: 'node' } => mention.kind === 'node')
         .map((mention) => mention.id),
     ])]
-    const currentLoopDeps = loopDeps(session, operationId, toolMode, visualNodeIds)
+    const currentLoopDeps = loopDeps(
+      session,
+      operationId,
+      toolMode,
+      visualNodeIds,
+      (next) => {
+        if (currentIdRef.current !== session.id) return
+        setMessageReveal(null)
+        setMessages(withHidden(next))
+      },
+    )
     const initial = await runAgentTurn(withSystem, currentLoopDeps)
     const outcome = await continueAutoConfirmations(
       session,
@@ -4167,6 +4180,16 @@ export function AgentPanel({
               <div key={i} className={styles.msgUser} data-agent-message="user">
                 {/* 引用 chip 要**长得和输入框里一样**（用户 2026-10-05 第 5 条） */}
                 <MentionRichText text={item.text} thumbOf={thumbOf} />
+                {item.createdAt ? (
+                  <time
+                    className={styles.msgTime}
+                    dateTime={new Date(item.createdAt).toISOString()}
+                    title={new Date(item.createdAt).toLocaleString('zh-CN')}
+                    data-agent-message-time
+                  >
+                    {messageTimeText(item.createdAt)}
+                  </time>
+                ) : null}
               </div>
             )
           }
@@ -4189,6 +4212,16 @@ export function AgentPanel({
                 {streaming && (
                   <span className={styles.streamCaret} aria-hidden="true" />
                 )}
+                {item.createdAt ? (
+                  <time
+                    className={styles.msgTime}
+                    dateTime={new Date(item.createdAt).toISOString()}
+                    title={new Date(item.createdAt).toLocaleString('zh-CN')}
+                    data-agent-message-time
+                  >
+                    {messageTimeText(item.createdAt)}
+                  </time>
+                ) : null}
                 {/* 复制 / 重试（用户 2026-10-14 第 1 条） */}
                 {!streaming && <div className={styles.msgActions}>
                   <button
@@ -5613,4 +5646,12 @@ function previewOf(
     }
   }
   return { tool: name, title: name, lines: [], action: '执行' }
+}
+
+function messageTimeText(createdAt: number): string {
+  return new Date(createdAt).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }

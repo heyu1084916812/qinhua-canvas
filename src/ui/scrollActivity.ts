@@ -1,12 +1,14 @@
 /**
- * Global scrollbar activity flag.
+ * Per-scroller activity flags.
  *
- * Scroll events do not bubble. Capture mode lets one lightweight listener
- * cover page scrollers and nested panels without attaching per component.
+ * Scroll events do not bubble, so a capture listener can observe every nested
+ * scroller. The flag must still live on the element that actually scrolled:
+ * one global flag makes an unrelated panel light up its scrollbar at the same
+ * time.
  */
 export const SCROLL_ACTIVITY_IDLE_MS = 1000
 
-type ScrollActivityRoot = {
+type ScrollActivityElement = {
   dataset: Record<string, string | undefined>
 }
 
@@ -28,36 +30,52 @@ export function installScrollActivity({
   target = document,
   idleMs = SCROLL_ACTIVITY_IDLE_MS,
 }: {
-  root?: ScrollActivityRoot
+  root?: ScrollActivityElement
   target?: ScrollActivityTarget
   idleMs?: number
 } = {}): () => void {
-  let active = false
-  let timer: ReturnType<typeof setTimeout> | null = null
+  const timers = new WeakMap<ScrollActivityElement, ReturnType<typeof setTimeout>>()
+  const touched = new Set<ScrollActivityElement>()
 
   root.dataset.scrollActive = 'false'
   const listenerOptions: AddEventListenerOptions = { capture: true, passive: true }
 
-  const onScroll: EventListener = () => {
-    if (!active) {
-      active = true
-      root.dataset.scrollActive = 'true'
+  const elementFor = (event: Event): ScrollActivityElement => {
+    const candidate = event.target
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      'dataset' in candidate &&
+      candidate.dataset
+    ) {
+      return candidate as ScrollActivityElement
     }
-    if (timer !== null) clearTimeout(timer)
-    timer = setTimeout(() => {
-      active = false
-      timer = null
-      root.dataset.scrollActive = 'false'
+    return root
+  }
+
+  const onScroll: EventListener = (event) => {
+    const element = elementFor(event)
+    touched.add(element)
+    element.dataset.scrollActive = 'true'
+    const previous = timers.get(element)
+    if (previous !== undefined) clearTimeout(previous)
+    const timer = setTimeout(() => {
+      element.dataset.scrollActive = 'false'
+      timers.delete(element)
     }, idleMs)
+    timers.set(element, timer)
   }
 
   target.addEventListener('scroll', onScroll, listenerOptions)
 
   return () => {
     target.removeEventListener('scroll', onScroll, listenerOptions)
-    if (timer !== null) clearTimeout(timer)
-    timer = null
-    active = false
+    for (const element of touched) {
+      const timer = timers.get(element)
+      if (timer !== undefined) clearTimeout(timer)
+      element.dataset.scrollActive = 'false'
+    }
+    touched.clear()
     root.dataset.scrollActive = 'false'
   }
 }

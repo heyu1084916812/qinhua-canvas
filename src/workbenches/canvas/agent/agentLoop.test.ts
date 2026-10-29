@@ -128,8 +128,56 @@ describe('runAgentTurn · 基本往复', () => {
     expect(r.kind).toBe('message')
     if (r.kind === 'message') {
       expect(r.text).toBe('好，我来建')
-      expect(r.messages.at(-1)).toEqual({ role: 'assistant', content: '好，我来建' })
+      expect(r.messages.at(-1)).toMatchObject({
+        role: 'assistant',
+        content: '好，我来建',
+        createdAt: expect.any(Number),
+      })
     }
+  })
+
+  it('★★ 工具执行前先推送过程正文，工具完成后再推送结果快照', async () => {
+    let finishRead: ((value: { nodes: never[] }) => void) | undefined
+    const executeRead = vi.fn(
+      () =>
+        new Promise<{ nodes: never[] }>((resolve) => {
+          finishRead = resolve
+        }),
+    )
+    const { deps } = depsWith(
+      [
+        {
+          text: '我先看一下画布，再决定怎么建。',
+          toolCalls: [{ id: 'c1', name: 'readGraph', args: '{"scope":"all"}' }],
+        },
+        { text: '看完了，画布目前是空的。' },
+      ],
+      executeRead,
+    )
+    const snapshots: ChatMessage[][] = []
+
+    const running = runAgentTurn(user('画布上有什么'), {
+      ...deps,
+      onProgress: (next) => snapshots.push([...next]),
+    })
+
+    await vi.waitFor(() => expect(snapshots.length).toBeGreaterThanOrEqual(1))
+    expect(snapshots[0]!.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: '我先看一下画布，再决定怎么建。',
+      toolCalls: [{ id: 'c1', name: 'readGraph', args: '{"scope":"all"}' }],
+    })
+    expect(snapshots[0]!.some((message) => message.role === 'tool')).toBe(false)
+
+    finishRead?.({ nodes: [] })
+    await running
+
+    expect(snapshots.length).toBeGreaterThanOrEqual(2)
+    expect(snapshots[1]!.at(-1)).toMatchObject({
+      role: 'tool',
+      toolCallId: 'c1',
+      toolName: 'readGraph',
+    })
   })
 
   it('★★ 读类工具在循环里直接执行，结果回填后继续问模型', async () => {

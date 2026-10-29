@@ -58,6 +58,7 @@ describe('agent steering', () => {
     ).toEqual([
       {
         role: 'user',
+        createdAt: 1,
         content: '节点 改成横版',
         display: '@[节点](node:node-a) 改成横版',
         imageNodeIds: ['node-a'],

@@ -14,6 +14,8 @@ import type { ChatMessage } from '../../../../domain/shared/execution/types'
 
 export interface ConversationStep {
   kind: 'step'
+  /** 这条步骤发生在什么时候；旧会话可能没有。 */
+  createdAt?: number
   /** 工具调用 id —— 结果消息靠它找回自己那一步 */
   id: string
   tool: string
@@ -31,8 +33,8 @@ export interface ConversationStep {
 }
 
 export type ConversationItem =
-  | { kind: 'user'; text: string; imageNodeIds?: string[] }
-  | { kind: 'text'; text: string }
+  | { kind: 'user'; text: string; createdAt?: number; imageNodeIds?: string[] }
+  | { kind: 'text'; text: string; createdAt?: number }
   | ConversationStep
 
 /** 工具 → 用户看得懂的一行标题。没登记的走兜底，不假装认识 */
@@ -530,6 +532,12 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     'updateTaskStep',
     'requestTaskConfirmation',
   ])
+  const timeOf = (message: ChatMessage) =>
+    typeof message.createdAt === 'number' &&
+    Number.isFinite(message.createdAt) &&
+    message.createdAt > 0
+      ? { createdAt: message.createdAt }
+      : {}
 
   for (const m of messages) {
     if (m.role === 'system') continue
@@ -551,6 +559,7 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
         out.push({
           kind: 'user',
           text: shown,
+          ...timeOf(m),
           ...(imageNodeIds.length > 0 ? { imageNodeIds } : {}),
         })
       }
@@ -559,21 +568,21 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
 
     if (m.role === 'assistant') {
       /**
-       * **带工具调用的那一轮不显示正文**（用户 2026-10-05 第 6 条：对话里会冒出
-       * 「画布是空的。用户说继续……」这类中间叙述，用户看不出那是什么）。
+       * 带工具调用的正文也要进时间线。
        *
-       * 那一轮的文字是模型**做事过程中的自言自语**（后面紧跟 toolCalls），对用户没有信息量；
-       * 真正要说的话在最后那条**不带工具调用**的收尾回复里。失败原因也不会因此丢 ——
-       * 它由步骤卡（`role:'tool'` 的结果）承担。
+       * 用户要看到 Codex 式的过程，而不是任务完成前只剩「正在理解」。模型在调用工具前
+       * 写下的计划、判断和下一步行动正是公开过程；工具结果仍由步骤卡承接，二者不冲突。
+       * 空正文依旧不生成空气泡。
        */
-      if (m.content.trim() && (m.toolCalls?.length ?? 0) === 0) {
-        out.push({ kind: 'text', text: m.content })
+      if (m.content.trim()) {
+        out.push({ kind: 'text', text: m.content, ...timeOf(m) })
       }
       for (const call of m.toolCalls ?? []) {
         if (planUiTools.has(call.name)) continue
         stepAt.set(call.id, out.length)
         out.push({
           kind: 'step',
+          ...timeOf(m),
           id: call.id,
           tool: call.name,
           label: toolLabel(call.name),

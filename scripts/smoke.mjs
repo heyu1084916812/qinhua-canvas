@@ -41367,7 +41367,8 @@ async function g769(browser) {
       messages: [
         {
           role: 'assistant',
-          content: '',
+          content: '我先检查画布和产物，再继续做验收。',
+          createdAt: now - 1_000,
           toolCalls: [{ id: 'call-g769-thumb', name: 'runNode', args: '{}' }],
         },
         {
@@ -41460,6 +41461,54 @@ async function g769(browser) {
         (await page
           .locator('[data-agent-composer]')
           .getAttribute('data-agent-delivery-mode')) === 'steer',
+    )
+    const processTimeline = await page.evaluate(() => ({
+      assistantText: document.querySelector(
+        '[data-agent-message="assistant"]',
+      )?.textContent ?? '',
+      messageTimes: document.querySelectorAll('[data-agent-message-time]').length,
+    }))
+    rec(
+      g,
+      '★★ 带工具调用的过程正文与消息时间在任务结束前可见',
+      processTimeline.assistantText.includes('我先检查画布和产物') &&
+        processTimeline.messageTimes >= 1,
+      JSON.stringify(processTimeline),
+    )
+    const scrollbarIsolation = await page.evaluate(async () => {
+      const agentContent = document.querySelector('[data-agent-content]')
+      if (!(agentContent instanceof HTMLElement)) {
+        return null
+      }
+      const source = document.createElement('div')
+      source.style.cssText =
+        'position:fixed;left:-200px;top:0;width:20px;height:40px;overflow:auto;'
+      const content = document.createElement('div')
+      content.style.height = '400px'
+      source.append(content)
+      document.body.append(source)
+      source.scrollTop = 24
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const during = {
+        source: source.getAttribute('data-scroll-active'),
+        agent: agentContent.getAttribute('data-scroll-active'),
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      const after = {
+        source: source.getAttribute('data-scroll-active'),
+        agent: agentContent.getAttribute('data-scroll-active'),
+      }
+      source.remove()
+      return { during, after }
+    })
+    rec(
+      g,
+      '★★ 只有实际滚动的容器激活滚动条，并在停止后渐隐',
+      scrollbarIsolation?.during.source === 'true' &&
+        scrollbarIsolation?.during.agent !== 'true' &&
+        scrollbarIsolation?.after.source === 'false' &&
+        scrollbarIsolation?.after.agent !== 'true',
+      JSON.stringify(scrollbarIsolation),
     )
     await page.locator('[data-agent-input]').click()
     await page.keyboard.press('End')
@@ -41641,7 +41690,6 @@ async function g769(browser) {
     const runStepReveal = page
       .locator('[data-agent-step="runNode"] [data-agent-step-reveal]')
       .first()
-    const runStepDetail = page.locator('[data-agent-step-detail="runNode"]').first()
     const revealBefore = await runStepReveal.evaluate((node) => {
       const style = getComputedStyle(node)
       return {
@@ -41650,13 +41698,20 @@ async function g769(browser) {
         transitionDuration: style.transitionDuration,
       }
     })
-    await runStepDetail.click()
-    await sleep(70)
-    const revealMid = await runStepReveal.evaluate((node) => ({
-      state: node.getAttribute('data-agent-step-reveal'),
-      height: node.getBoundingClientRect().height,
-      opacity: Number(getComputedStyle(node).opacity),
-    }))
+    const revealMid = await page.evaluate(async () => {
+      const button = document.querySelector('[data-agent-step-detail="runNode"]')
+      const reveal = document.querySelector('[data-agent-step="runNode"] [data-agent-step-reveal]')
+      if (!(button instanceof HTMLButtonElement) || !(reveal instanceof HTMLElement)) return null
+      button.click()
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      )
+      return {
+        state: reveal.getAttribute('data-agent-step-reveal'),
+        height: reveal.getBoundingClientRect().height,
+        opacity: Number(getComputedStyle(reveal).opacity),
+      }
+    })
     await sleep(260)
     const revealAfter = await runStepReveal.evaluate((node) => ({
       state: node.getAttribute('data-agent-step-reveal'),

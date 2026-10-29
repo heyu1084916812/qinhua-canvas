@@ -87,6 +87,7 @@ export function steerMessagesOf(
     role: 'user',
     content: stripMarkup(steer.text),
     display: steer.text,
+    createdAt: steer.createdAt,
     ...(steer.imageNodeIds?.length
       ? { imageNodeIds: [...steer.imageNodeIds] }
       : {}),

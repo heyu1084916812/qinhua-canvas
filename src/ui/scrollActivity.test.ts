@@ -79,4 +79,35 @@ describe('installScrollActivity', () => {
       expect.objectContaining({ capture: true, passive: true }),
     )
   })
+
+  it('tracks nested scrollers independently instead of lighting every scrollbar', () => {
+    const root = { dataset: {} as Record<string, string | undefined> }
+    const canvas = { dataset: {} as Record<string, string | undefined> }
+    const agent = { dataset: {} as Record<string, string | undefined> }
+    let listener: EventListener = () => {
+      throw new Error('scroll listener not installed')
+    }
+    const target = {
+      addEventListener: vi.fn((_type: string, next: EventListener) => {
+        listener = next
+      }),
+      removeEventListener: vi.fn(),
+    }
+    const fire = (eventTarget: unknown) =>
+      listener({ target: eventTarget } as unknown as Event)
+
+    installScrollActivity({ root, target, idleMs: 50 })
+
+    fire(canvas)
+    expect(canvas.dataset.scrollActive).toBe('true')
+    expect(agent.dataset.scrollActive).toBeUndefined()
+
+    fire(agent)
+    expect(canvas.dataset.scrollActive).toBe('true')
+    expect(agent.dataset.scrollActive).toBe('true')
+
+    vi.advanceTimersByTime(50)
+    expect(canvas.dataset.scrollActive).toBe('false')
+    expect(agent.dataset.scrollActive).toBe('false')
+  })
 })

@@ -289,6 +289,32 @@ describe('消息 → 对话条目', () => {
     ])
   })
 
+  it('★★ 带工具调用的过程正文仍然进入时间线，并保留消息时间', () => {
+    const items = toConversation([
+      {
+        role: 'user',
+        content: '换个背心和短裤',
+        createdAt: 100,
+      },
+      {
+        role: 'assistant',
+        content: '先确认人物基准，再换服装。',
+        createdAt: 200,
+        toolCalls: [{ id: 'c1', name: 'requestTaskConfirmation', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'c1',
+        content: '{"ok":true,"approved":true}',
+      },
+    ])
+
+    expect(items).toEqual([
+      { kind: 'user', text: '换个背心和短裤', createdAt: 100 },
+      { kind: 'text', text: '先确认人物基准，再换服装。', createdAt: 200 },
+    ])
+  })
+
   it('★ 对不上 toolCallId 的结果被丢掉，不凭空冒出一张卡', () => {
     const items = toConversation([
       { role: 'tool', toolCallId: 'ghost', content: '{"ok":true}' },
