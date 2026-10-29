@@ -2059,6 +2059,32 @@ struct AcpProcess {
 #[derive(Default)]
 struct AcpRegistry(Mutex<std::collections::HashMap<String, AcpProcess>>);
 
+struct AcpProviderRuntime {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pending: std::sync::Arc<
+        Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<(u16, String)>>>,
+    >,
+}
+
+#[derive(Default)]
+struct AcpProviderRegistry(Mutex<Option<AcpProviderRuntime>>);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpProviderRequestEvent {
+    request_id: String,
+    method: String,
+    path: String,
+    body: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpProviderEndpoint {
+    base_url: String,
+    token: String,
+}
+
 impl Drop for AcpRegistry {
     fn drop(&mut self) {
         if let Ok(mut processes) = self.0.lock() {
@@ -2067,6 +2093,200 @@ impl Drop for AcpRegistry {
                 let _ = process.child.wait();
             }
         }
+    }
+}
+
+impl Drop for AcpProviderRegistry {
+    fn drop(&mut self) {
+        if let Ok(mut runtime) = self.0.lock() {
+            if let Some(server) = runtime.take() {
+                server
+                    .stop
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+}
+
+fn acp_provider_response(
+    request: tiny_http::Request,
+    status: u16,
+    body: String,
+) {
+    let header = tiny_http::Header::from_bytes(
+        &b"Content-Type"[..],
+        &b"application/json; charset=utf-8"[..],
+    )
+    .expect("static provider header");
+    let cache = tiny_http::Header::from_bytes(
+        &b"Cache-Control"[..],
+        &b"no-store"[..],
+    )
+    .expect("static provider header");
+    let _ = request.respond(
+        tiny_http::Response::from_string(body)
+            .with_status_code(status)
+            .with_header(header)
+            .with_header(cache),
+    );
+}
+
+#[tauri::command]
+fn acp_provider_start(app: tauri::AppHandle) -> Result<AcpProviderEndpoint, String> {
+    let registry = app.state::<AcpProviderRegistry>();
+    let mut slot = registry
+        .0
+        .lock()
+        .map_err(|_| "本地 provider 进程表不可用".to_string())?;
+    if slot.is_some() {
+        return Err("本地 provider 已在运行".into());
+    }
+    let server = tiny_http::Server::http((std::net::Ipv4Addr::LOCALHOST, 0))
+        .map_err(|err| format!("启动本地 provider 失败：{err}"))?;
+    let address = server
+        .server_addr()
+        .to_ip()
+        .ok_or_else(|| "本地 provider 缺少 IP 地址".to_string())?;
+    let token = format!(
+        "{:x}{:x}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or_default()
+    );
+    let base_url = format!("http://127.0.0.1:{}", address.port());
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending = std::sync::Arc::new(Mutex::new(std::collections::HashMap::<
+        String,
+        std::sync::mpsc::Sender<(u16, String)>,
+    >::new()));
+    let thread_stop = stop.clone();
+    let thread_pending = pending.clone();
+    let thread_token = token.clone();
+    let thread_app = app.clone();
+    std::thread::spawn(move || {
+        let next_id = AtomicUsize::new(1);
+        while !thread_stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let Ok(Some(mut request)) =
+                server.recv_timeout(std::time::Duration::from_millis(100))
+            else {
+                continue;
+            };
+            let path = request.url().split('?').next().unwrap_or("").to_string();
+            if path == "/health" {
+                acp_provider_response(request, 200, r#"{"ok":true}"#.into());
+                continue;
+            }
+            let authorized = request.headers().iter().any(|header| {
+                header.field.equiv("Authorization")
+                    && header.value.as_str() == format!("Bearer {thread_token}")
+            });
+            if !authorized {
+                acp_provider_response(
+                    request,
+                    401,
+                    r#"{"error":{"message":"invalid local provider token"}}"#.into(),
+                );
+                continue;
+            }
+            if path != "/v1/models" && path != "/v1/chat/completions" {
+                acp_provider_response(
+                    request,
+                    404,
+                    r#"{"error":{"message":"not found"}}"#.into(),
+                );
+                continue;
+            }
+            let mut body = String::new();
+            if request.as_reader().read_to_string(&mut body).is_err() {
+                acp_provider_response(
+                    request,
+                    400,
+                    r#"{"error":{"message":"invalid request body"}}"#.into(),
+                );
+                continue;
+            }
+            let request_id = format!(
+                "provider-{}",
+                next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            );
+            let (tx, rx) = std::sync::mpsc::channel();
+            if let Ok(mut pending) = thread_pending.lock() {
+                pending.insert(request_id.clone(), tx);
+            } else {
+                acp_provider_response(
+                    request,
+                    500,
+                    r#"{"error":{"message":"provider request table unavailable"}}"#.into(),
+                );
+                continue;
+            }
+            let _ = thread_app.emit(
+                "acp:provider-request",
+                AcpProviderRequestEvent {
+                    request_id: request_id.clone(),
+                    method: request.method().as_str().to_string(),
+                    path,
+                    body,
+                },
+            );
+            match rx.recv_timeout(std::time::Duration::from_secs(300)) {
+                Ok((status, body)) => acp_provider_response(request, status, body),
+                Err(_) => acp_provider_response(
+                    request,
+                    504,
+                    r#"{"error":{"message":"local provider bridge timed out"}}"#.into(),
+                ),
+            }
+            if let Ok(mut pending) = thread_pending.lock() {
+                pending.remove(&request_id);
+            }
+        }
+    });
+    *slot = Some(AcpProviderRuntime {
+        stop,
+        pending,
+    });
+    Ok(AcpProviderEndpoint { base_url, token })
+}
+
+#[tauri::command]
+fn acp_provider_respond(
+    app: tauri::AppHandle,
+    request_id: String,
+    status: u16,
+    body: String,
+) -> bool {
+    let registry = app.state::<AcpProviderRegistry>();
+    let Ok(slot) = registry.0.lock() else {
+        return false;
+    };
+    let Some(runtime) = slot.as_ref() else {
+        return false;
+    };
+    let Ok(mut pending) = runtime.pending.lock() else {
+        return false;
+    };
+    pending
+        .remove(&request_id)
+        .is_some_and(|sender| sender.send((status, body)).is_ok())
+}
+
+#[tauri::command]
+fn acp_provider_stop(app: tauri::AppHandle) -> bool {
+    let registry = app.state::<AcpProviderRegistry>();
+    let Ok(mut slot) = registry.0.lock() else {
+        return false;
+    };
+    match slot.take() {
+        Some(runtime) => {
+            runtime
+                .stop
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        }
+        None => false,
     }
 }
 
@@ -3369,6 +3589,7 @@ pub fn run() {
          */
         .manage(CliRegistry::default())
         .manage(AcpRegistry::default())
+        .manage(AcpProviderRegistry::default())
         /*
          * 窗口几何的自动记盘（用户 2026-10-06 第 11 批第 7 条："记住上次窗口尺寸和位置"）。
          *
@@ -3440,6 +3661,9 @@ pub fn run() {
             acp_start,
             acp_write,
             acp_stop,
+            acp_provider_start,
+            acp_provider_respond,
+            acp_provider_stop,
             rh_set_api_key,
             ui_heartbeat
         ])

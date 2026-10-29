@@ -1,6 +1,6 @@
 [package]
 name = "qinghua"
-version = "0.1.9"
+version = "0.1.10"
 description = "轻画 · 无限画布（桌面壳）"
 authors = ["轻画"]
 edition = "2021"
@@ -35,3 +35,4 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 tauri-plugin-notification = "2"
 # 单实例：再次启动时恢复并聚焦已有窗口，避免“进程还在、窗口最小化/消失，看起来打不开”
 tauri-plugin-single-instance = "2.5.4"
+tiny_http = "0.12"
