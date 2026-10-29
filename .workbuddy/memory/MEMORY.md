@@ -74,6 +74,9 @@
   transition / jobId` 调用和 React 投影，不再持有 Job id Map 或复制状态机。
 - **H1b Job 生命周期证据**：全量 Vitest **3570 passed / 1 skipped**；`npm run check`、
   `npm run build` 通过；隔离存储 G769 **28/28**，测试目录已删除。
+- **H1b 确认生命周期（2026-10-29）**：确认卡清空、`waiting_confirmation → planning →
+  waiting_generation` 批准链、工具完成后回到 planning 的 Job 迁移也移入 Controller；
+  视图只执行工具和更新 React 状态。
 - **MemoryPort 唯一入口（2026-10-29）**：Agent 面板读取 `ContextBundle` 与保存确认后的
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是

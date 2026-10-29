@@ -23,7 +23,6 @@ import {
 import { createAgentJobStore } from '../../../../state/agent/jobStore'
 import type { AgentDeliveryMode } from '../../../../domain/agent/delivery'
 import {
-  confirmationApprovalSteps,
   confirmationRequiresExplicitApproval,
   confirmationRunsGeneration,
   confirmationSettlementMessages,
@@ -1704,13 +1703,7 @@ export function AgentPanel({
       const done = await executeConfirmedToolWithLedger(session, outcome.request)
       onMessages(outcome.messages)
       if (runsGeneration) {
-        await transitionSessionJob(
-          session.id,
-          'planning',
-          'generation_finished',
-          { pendingCallId: undefined },
-          { tool: outcome.request.name, auto: true },
-        )
+        await controller.finishConfirmedTool(session.id, outcome.request)
       }
       outcome = await resumeAgentTurn(
         outcome.messages,
@@ -1743,7 +1736,12 @@ export function AgentPanel({
       }
     }
     return outcome
-  }, [executeConfirmedToolWithLedger, setStatusFor, transitionSessionJob])
+  }, [
+    controller,
+    executeConfirmedToolWithLedger,
+    setStatusFor,
+    transitionSessionJob,
+  ])
 
   const runSendText = useCallback(async (
     text: string,
@@ -2649,16 +2647,7 @@ export function AgentPanel({
     try {
       abortRefs.current.set(current.id, new AbortController())
       inFlightConfirmationRef.current.set(current.id, request)
-      await sessions.updateFields(current.id, { pendingConfirmation: undefined })
-      for (const step of confirmationApprovalSteps(request)) {
-        await transitionSessionJob(
-          current.id,
-          step.to,
-          step.eventType,
-          step.patch,
-          { tool: request.name, approved: true },
-        )
-      }
+      await controller.beginConfirmation(current.id, request)
       setStatusFor(current.id, { kind: 'executing', tool: request.name })
       const result = await executeConfirmedToolWithLedger(current, request)
       const imageNodeIds = [...new Set(
@@ -2671,13 +2660,7 @@ export function AgentPanel({
         imageNodeIds,
       )
       if (confirmationRunsGeneration(request.name)) {
-        await transitionSessionJob(
-          current.id,
-          'planning',
-          'generation_finished',
-          { pendingCallId: undefined },
-          { tool: request.name },
-        )
+        await controller.finishConfirmedTool(current.id, request)
       }
       setStatusFor(current.id, { kind: 'thinking' })
       const resumed = await resumeAgentTurn(
@@ -2727,6 +2710,7 @@ export function AgentPanel({
     status,
     current,
     messages,
+    controller,
     executeConfirmedToolWithLedger,
     loopDeps,
     handleOutcome,

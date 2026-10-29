@@ -7,6 +7,11 @@ import type {
   AgentJobPatch,
   AgentJobStatus,
 } from '../../../domain/agent/job'
+import {
+  confirmationApprovalSteps,
+  confirmationRunsGeneration,
+  type ConfirmationRequestRef,
+} from '../../../domain/agent/confirmation'
 
 export interface AgentControllerHooks {
   isSessionActivityActive: (sessionId: string) => boolean
@@ -29,6 +34,14 @@ export interface AgentController {
     patch?: AgentJobPatch,
     payload?: Record<string, unknown>,
   ) => Promise<{ job: AgentJob; event: import('../../../domain/agent/job').AgentEvent } | null>
+  beginConfirmation: (
+    sessionId: string,
+    request: ConfirmationRequestRef,
+  ) => Promise<void>
+  finishConfirmedTool: (
+    sessionId: string,
+    request: ConfirmationRequestRef,
+  ) => Promise<void>
   /** 读回项目会话，并修复上次进程中断留下的运行态。 */
   refresh: () => Promise<AgentSession[]>
 }
@@ -116,6 +129,36 @@ export function createAgentController(input: {
     return result
   }
 
+  const beginConfirmation: AgentController['beginConfirmation'] = async (
+    sessionId,
+    request,
+  ) => {
+    await sessions.updateFields(sessionId, { pendingConfirmation: undefined })
+    for (const step of confirmationApprovalSteps(request)) {
+      await transition(
+        sessionId,
+        step.to,
+        step.eventType,
+        step.patch,
+        { tool: request.name, approved: true },
+      )
+    }
+  }
+
+  const finishConfirmedTool: AgentController['finishConfirmedTool'] = async (
+    sessionId,
+    request,
+  ) => {
+    if (!confirmationRunsGeneration(request.name)) return
+    await transition(
+      sessionId,
+      'planning',
+      'generation_finished',
+      { pendingCallId: undefined },
+      { tool: request.name },
+    )
+  }
+
   const refresh = async (): Promise<AgentSession[]> => {
     const rows = await sessions.list(projectId)
     for (let row of rows) {
@@ -167,5 +210,14 @@ export function createAgentController(input: {
     return sessions.list(projectId)
   }
 
-  return { sessions, jobs, jobId, ensureJob, transition, refresh }
+  return {
+    sessions,
+    jobs,
+    jobId,
+    ensureJob,
+    transition,
+    beginConfirmation,
+    finishConfirmedTool,
+    refresh,
+  }
 }

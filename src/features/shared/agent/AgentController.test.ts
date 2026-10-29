@@ -211,6 +211,7 @@ describe('AgentController', () => {
       sessions: {
         list: vi.fn(async () => []),
         get: vi.fn(),
+        updateFields: vi.fn(async () => session()),
         repairConfirmationSteerCollision: vi.fn(),
         releaseActiveTurn: vi.fn(),
       } as never,
@@ -236,6 +237,41 @@ describe('AgentController', () => {
       'status_changed',
       {},
       {},
+    )
+    await controller.beginConfirmation('s1', {
+      callId: 'call-1',
+      name: 'runNode',
+    })
+    expect(controller.sessions.updateFields).toHaveBeenCalledWith('s1', {
+      pendingConfirmation: undefined,
+    })
+    expect(jobs.transition).toHaveBeenNthCalledWith(
+      2,
+      'job-1',
+      'planning',
+      'confirmation_resolved',
+      { pendingCallId: undefined },
+      { tool: 'runNode', approved: true },
+    )
+    expect(jobs.transition).toHaveBeenNthCalledWith(
+      3,
+      'job-1',
+      'waiting_generation',
+      'generation_started',
+      { pendingCallId: 'call-1' },
+      { tool: 'runNode', approved: true },
+    )
+    await controller.finishConfirmedTool('s1', {
+      callId: 'call-1',
+      name: 'runNode',
+    })
+    expect(jobs.transition).toHaveBeenNthCalledWith(
+      4,
+      'job-1',
+      'planning',
+      'generation_finished',
+      { pendingCallId: undefined },
+      { tool: 'runNode' },
     )
   })
 })
