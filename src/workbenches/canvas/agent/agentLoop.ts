@@ -55,6 +55,13 @@ export interface AgentLoopCheckpoint {
   completedSteps: number
 }
 
+export interface AgentLoopActivity {
+  id: string
+  phase: 'thinking' | 'tool'
+  status: 'running' | 'done' | 'failed'
+  tool?: string
+}
+
 export type AgentLoopOutcome =
   /** 模型给了文字回答，本轮结束 */
   | { kind: 'message'; text: string; messages: ChatMessage[] }
@@ -113,6 +120,8 @@ export interface AgentLoopDeps {
   takeSteering?: () =>
     | readonly ChatMessage[]
     | Promise<readonly ChatMessage[]>
+  /** 公开工作进度：只上报真实的阶段与工具状态，不包含模型私有思维链。 */
+  onActivity?: (activity: AgentLoopActivity) => void
   signal: AbortSignal
   maxSteps?: number
 }
@@ -134,6 +143,12 @@ const toolResult = (callId: string, toolName: string, value: unknown): ChatMessa
   toolName,
   content: JSON.stringify(value ?? {}),
 })
+
+const failedToolValue = (value: unknown): boolean => {
+  if (!value || typeof value !== 'object') return false
+  const row = value as { ok?: unknown; problems?: unknown }
+  return row.ok === false || (Array.isArray(row.problems) && row.problems.length > 0)
+}
 
 /** 工具调用的指纹，用于发现「反复调同一个」 */
 const callFingerprint = (name: string, args: unknown): string =>
@@ -168,12 +183,23 @@ export async function runAgentTurn(
   const pullSteering = async (): Promise<number> => {
     if (!deps.takeSteering) return 0
     const steering = await deps.takeSteering()
-    if (steering.length > 0) messages.push(...steering)
+    if (steering.length > 0) {
+      messages.push(...steering)
+      /**
+       * 引导是新的用户指令。它到达后，视觉验收“只读终点”只约束验收刚结束的旧回合，
+       * 不能再把用户明确发出的下一步挡回去。
+       */
+      visualReviewRan = false
+    }
     return steering.length
+  }
+  const emitActivity = (activity: AgentLoopActivity) => {
+    deps.onActivity?.(activity)
   }
 
   for (let step = 0; step < maxSteps; step += 1) {
     await pullSteering()
+    emitActivity({ id: `thinking-${step}`, phase: 'thinking', status: 'running' })
     let result: Awaited<ReturnType<typeof askModel>>
     try {
       result = await askModel(messages, deps)
@@ -223,6 +249,40 @@ export async function runAgentTurn(
       return { kind: 'message', text: result.text, messages }
     }
 
+    const isPostReviewBlocked = (name: string) =>
+      name !== 'requestTaskConfirmation' &&
+      (WRITE_TOOLS.has(name) || CONFIRM_TOOLS.has(name))
+    const terminalIndex = calls.findIndex(
+      (call) => agentToolDefinitionOf(call.name)?.terminalAfter,
+    )
+    const reviewGuardActive =
+      terminalIndex >= 0
+        ? calls.some(
+            (call, index) => index > terminalIndex && isPostReviewBlocked(call.name),
+          )
+        : visualReviewRan && calls.some((call) => isPostReviewBlocked(call.name))
+    let reviewBlocksTurn = false
+    if (reviewGuardActive) {
+      /**
+       * 引导可能恰好在这次模型请求期间到达。此时先取一次：
+       * 有引导就丢掉这份旧动作、带着用户最新要求重新问模型；
+       * 没有引导才过滤掉验收后的写操作，并把本轮正常收口成说明。
+       */
+      const steering = deps.takeSteering ? await deps.takeSteering() : []
+      if (steering.length > 0) {
+        messages.push(...steering)
+        visualReviewRan = false
+        continue
+      }
+      calls = calls.filter((call, index) => {
+        if (terminalIndex >= 0) {
+          return index <= terminalIndex || !isPostReviewBlocked(call.name)
+        }
+        return !isPostReviewBlocked(call.name)
+      })
+      reviewBlocksTurn = true
+    }
+
     messages.push({
       role: 'assistant',
       content: result.text,
@@ -239,26 +299,6 @@ export async function runAgentTurn(
           }),
         )
         continue
-      }
-
-      /**
-       * 视觉验收是只读终点：它只负责交付问题清单。验收后同一轮里若模型继续建图、
-       * 改图或发起生成，就停在这里，把决定权交回用户。唯一允许的是发起一次
-       * `requestTaskConfirmation`，让用户看到结果问题并明确决定是否继续；不能替用户
-       * 把计划步骤自动打勾，也不能接着建下一阶段。
-       */
-      if (
-        visualReviewRan &&
-        call.name !== 'requestTaskConfirmation' &&
-        (WRITE_TOOLS.has(call.name) || CONFIRM_TOOLS.has(call.name))
-      ) {
-        return {
-          kind: 'stopped',
-          reason:
-            '视觉验收已完成，问题清单已返回。本轮的视觉验收子代理不会自动修改画布或重新生成；' +
-            '请先查看问题，再由你明确决定是否修改和运行。',
-          messages,
-        }
       }
 
       /**
@@ -311,11 +351,23 @@ export async function runAgentTurn(
        * 模型靠它决定补连线还是改图。
        */
       if (WRITE_TOOLS.has(call.name)) {
+        emitActivity({
+          id: call.id,
+          phase: 'tool',
+          status: 'running',
+          tool: call.name,
+        })
         let wrote: unknown
         try {
           wrote = await deps.executeWrite(call.name, args, call.id)
         } catch (e) {
           if (e instanceof AgentToolEffectBlockedError) {
+            emitActivity({
+              id: call.id,
+              phase: 'tool',
+              status: 'failed',
+              tool: call.name,
+            })
             return {
               kind: 'error',
               message: e.message,
@@ -332,10 +384,22 @@ export async function runAgentTurn(
           }
           wrote = { ok: false, problems: [e instanceof Error ? e.message : errText(e)] }
         }
+        emitActivity({
+          id: call.id,
+          phase: 'tool',
+          status: failedToolValue(wrote) ? 'failed' : 'done',
+          tool: call.name,
+        })
         messages.push(toolResult(call.id, call.name, wrote))
         continue
       }
       if (!READ_TOOLS.has(call.name)) {
+        emitActivity({
+          id: call.id,
+          phase: 'tool',
+          status: 'failed',
+          tool: call.name,
+        })
         messages.push(
           toolResult(call.id, call.name, { ok: false, error: `没有这个工具：${call.name}` }),
         )
@@ -343,10 +407,22 @@ export async function runAgentTurn(
       }
 
       let outcome: unknown
+      emitActivity({
+        id: call.id,
+        phase: 'tool',
+        status: 'running',
+        tool: call.name,
+      })
       try {
         outcome = await deps.executeRead(call.name, args, call.id)
       } catch (e) {
         if (e instanceof AgentToolEffectBlockedError) {
+          emitActivity({
+            id: call.id,
+            phase: 'tool',
+            status: 'failed',
+            tool: call.name,
+          })
           return {
             kind: 'error',
             message: e.message,
@@ -363,8 +439,21 @@ export async function runAgentTurn(
         }
         outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
+      emitActivity({
+        id: call.id,
+        phase: 'tool',
+        status: failedToolValue(outcome) ? 'failed' : 'done',
+        tool: call.name,
+      })
       messages.push(toolResult(call.id, call.name, outcome))
       if (agentToolDefinitionOf(call.name)?.terminalAfter) visualReviewRan = true
+    }
+    if (reviewBlocksTurn) {
+      const message =
+        '视觉验收已完成，问题清单已返回。子代理不会自动修改画布或重新生成；' +
+        '请先查看验收摘要，再决定下一步。'
+      messages.push({ role: 'assistant', content: message })
+      return { kind: 'message', text: message, messages }
     }
   }
 

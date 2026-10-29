@@ -34,7 +34,14 @@ import {
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
 import { FlowChildFrame, FlowFlowNode, type FlowNodeData } from './FlowNode'
-import { childrenByParent, isContainerType, topLevelNodes } from './flowGraph'
+import {
+  childrenByParent,
+  isContainerType,
+  nodeMeasurementKey,
+  nodesIntersectingMarquee,
+  topLevelNodes,
+  type MarqueeRect,
+} from './flowGraph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeViewEvent } from '../nodes/registry'
@@ -215,7 +222,7 @@ function blockNativeNodeDrag(target: EventTarget | null): void {
  * 由调用方决定是退回节点中心还是放弃 —— 不要在这里猜一个坐标出来。
  */
 function pointerWorldPoint(
-  ev: MouseEvent | TouchEvent | null | undefined,
+  ev: MouseEvent | TouchEvent | ReactPointerEvent | null | undefined,
   store: CanvasStore,
 ): Point | null {
   if (!ev || !('clientX' in ev)) return null
@@ -304,6 +311,11 @@ function FlowSurfaceInner({
    * （`commitUserSelectionRect` 里那两段是连着调的）—— 见 `onEdgesChange` 里为什么需要它。
    */
   const nodeSelectStampRef = useRef(false)
+  /** 用户此刻正在画的框选矩形（世界坐标）；框选结束时再用 store 真实矩形做一次兜底裁剪。 */
+  const selectionMarqueeRef = useRef<MarqueeRect | null>(null)
+  const selectionStartRef = useRef<Point | null>(null)
+  /** Shift 加选时保留框选开始前已有的节点，不能把框外旧选中误删。 */
+  const selectionBaselineRef = useRef<string[]>([])
 
   /**
    * 容器子节点的拖动**复用老表面的控制器**（`useNodeDrag`）。
@@ -480,6 +492,7 @@ function FlowSurfaceInner({
        */
       if (e.altKey) {
         /** 光停 React 的传播不够（理由见 `blockNativeNodeDrag`）：先给这一帧打上 `nodrag` */
+        e.preventDefault()
         blockNativeNodeDrag(e.target)
         drag.begin(e, nodeId)
         return
@@ -786,10 +799,20 @@ function FlowSurfaceInner({
    * `updateNodeInternals`（延后到视口自适应之后），把这一拍补上。
    */
   const updateNodeInternals = useUpdateNodeInternals()
-  const nodeIdsKey = graph.nodes.map((n) => n.id).join('|')
+  const measurementKey = [
+    nodeMeasurementKey(graph),
+    graph.edges
+      .map(
+        (edge) =>
+          `${edge.id}:${edge.source}>${edge.target}:${edge.sourcePort ?? ''}>${
+            edge.targetPort ?? ''
+          }`,
+      )
+      .join(','),
+  ].join('||')
   useEffect(() => {
-    if (!nodeIdsKey) return
-    const ids = nodeIdsKey.split('|')
+    const ids = graph.nodes.map((node) => node.id)
+    if (ids.length === 0) return
     /** 双 rAF + 一小段延迟：等节点进 DOM、且 `fitCanvasView` 的两帧 rAF 跑完再量 */
     const rafs: number[] = []
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -806,7 +829,7 @@ function FlowSurfaceInner({
       for (const raf of rafs) cancelAnimationFrame(raf)
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [nodeIdsKey, updateNodeInternals])
+  }, [measurementKey, updateNodeInternals])
 
   /**
    * **吸附判定**（对账 #257）：喂"没有吸附的原始位移"，拿回"修正量 + 要画的提示"。
@@ -843,6 +866,55 @@ function FlowSurfaceInner({
     [store],
   )
 
+  const updateSelectionMarquee = useCallback(
+    (event: MouseEvent | ReactPointerEvent<HTMLDivElement>) => {
+      if (!selectionStartRef.current) return
+      const point = pointerWorldPoint(event, store)
+      if (!point) return
+      const start = selectionStartRef.current
+      selectionMarqueeRef.current = {
+        x: start.x,
+        y: start.y,
+        w: point.x - start.x,
+        h: point.y - start.y,
+      }
+    },
+    [store],
+  )
+
+  const onSelectionStart = useCallback(
+    (event: ReactMouseEvent) => {
+      const point = pointerWorldPoint(event.nativeEvent, store)
+      if (!point) return
+      selectionStartRef.current = point
+      selectionBaselineRef.current = event.shiftKey ? store.getSelection() : []
+      selectionMarqueeRef.current = { x: point.x, y: point.y, w: 0, h: 0 }
+    },
+    [store],
+  )
+
+  const onSelectionEnd = useCallback(
+    (event: ReactMouseEvent) => {
+      updateSelectionMarquee(event.nativeEvent)
+      const marquee = selectionMarqueeRef.current
+      const baseline = selectionBaselineRef.current
+      selectionStartRef.current = null
+      if (!marquee) return
+      /**
+       * 等这一帧 React Flow 自己的 select change 全部落完，再用 store 的真实节点矩形
+       * 裁一次。这样即使节点刚换尺寸、RF 内部测量晚了一拍，也不会留下框外节点。
+       */
+      window.requestAnimationFrame(() => {
+        store.setSelection(
+          nodesIntersectingMarquee(store.getSnapshot(), marquee, baseline),
+        )
+        selectionMarqueeRef.current = null
+        selectionBaselineRef.current = []
+      })
+    },
+    [store, updateSelectionMarquee],
+  )
+
   /** 位置变化 → 翻译成 `node.move`（React Flow 给的是绝对坐标，这里换成增量） */
   const onNodesChange = useCallback(
     (changes: NodeChange<RFNode<FlowNodeData>>[]) => {
@@ -855,12 +927,20 @@ function FlowSurfaceInner({
        * RF 就永远不会为它发 `select:false` —— 拖进容器后它会一直留在选中集合里，
        * 再点别的节点就凑成 2 个 ⇒ 创作面板（只认单选）再也不开（G71 实测的红）。
        */
-      const rfIds = new Set(topLevelNodes(store.getSnapshot()).map((n) => n.id))
+      const snapshot = store.getSnapshot()
+      const rfIds = new Set(topLevelNodes(snapshot).map((n) => n.id))
       const selected = new Set(store.getSelection().filter((id) => rfIds.has(id)))
+      const marquee = selectionMarqueeRef.current
+      const insideMarquee = marquee
+        ? new Set(nodesIntersectingMarquee(snapshot, marquee, selectionBaselineRef.current))
+        : null
       let selectionChanged = false
       for (const change of changes) {
         if (change.type !== 'select') continue
-        if (change.selected) selected.add(change.id)
+        if (change.selected) {
+          if (insideMarquee && !insideMarquee.has(change.id)) continue
+          selected.add(change.id)
+        }
         else selected.delete(change.id)
         selectionChanged = true
       }
@@ -1218,6 +1298,7 @@ function FlowSurfaceInner({
       onClick={onSurfaceClick}
       // 只记坐标、不 setState：粘贴落点要用「当前鼠标位置」（§4.2）
       onPointerMove={(e) => rememberPointer({ x: e.clientX, y: e.clientY })}
+      onPointerMoveCapture={updateSelectionMarquee}
       // 按下阶段：清「拖动后不弹面板」标记 + 记拖动起点锚（见 onSurfacePointerDown）
       onPointerDownCapture={onSurfacePointerDown}
       onContextMenu={onContextMenu}
@@ -1278,6 +1359,8 @@ function FlowSurfaceInner({
         autoPanOnConnect={false}
         autoPanOnNodeDrag={false}
         autoPanOnSelection={false}
+        onSelectionStart={onSelectionStart}
+        onSelectionEnd={onSelectionEnd}
         viewport={flowViewport}
         onViewportChange={(next) => store.setViewport(flowViewportToStore(next))}
         onNodesChange={onNodesChange}

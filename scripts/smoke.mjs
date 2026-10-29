@@ -4276,16 +4276,26 @@ async function g17(browser) {
   const countBefore = await page.locator('[data-node-type="prompt"]').count()
   const target = await posOf(ids[2])
   const grab2 = await page.locator(`[data-node-id="${ids[2]}"]`).boundingBox()
+  /**
+   * 从节点中部起手，不要贴着标题栏。
+   * 多选浮层会压在选中区域上方；贴着节点顶边按会先命中浮层按钮，碰不到节点本身。
+   */
+  const altGrabY = grab2.y + Math.min(72, grab2.height / 2)
   await page.keyboard.down('Alt')
-  await page.mouse.move(grab2.x + 60, grab2.y + 10)
+  await page.mouse.move(grab2.x + 60, altGrabY)
   await page.mouse.down()
-  await page.mouse.move(grab2.x + 260, grab2.y + 110, { steps: 14 })
+  await page.mouse.move(grab2.x + 260, altGrabY + 100, { steps: 14 })
   await page.mouse.up()
   await page.keyboard.up('Alt')
   await sleep(500)
   const countAfter = await page.locator('[data-node-type="prompt"]').count()
   const originStill = await posOf(ids[2])
-  rec(g, 'Alt+拖动复制出新节点（§4.2）', countAfter === countBefore + 1, `${countBefore} → ${countAfter}`)
+  rec(
+    g,
+    'Alt+拖动复制出新节点（§4.2）',
+    countAfter === countBefore + 1,
+    `${countBefore} → ${countAfter}`,
+  )
   rec(
     g,
     'Alt 复制后原节点留在原地',
@@ -41523,34 +41533,24 @@ async function g769(browser) {
         .querySelector('[data-agent-activity]')
         ?.getAttribute('data-agent-activity-expanded'),
       rows: document.querySelectorAll('[data-agent-activity-list] > *').length,
+      text: document.querySelector('[data-agent-activity]')?.textContent ?? '',
+      reviewSummary:
+        document.querySelector('[data-agent-step-summary="visualReview"]')?.textContent ?? '',
     }))
     rec(
       g,
-      '★★ 运行态持续显示公开步骤，默认最多五步',
+      '★★ 完成态不在状态条重复已完成步骤，验收只显示摘要',
       activityCollapsed.visible &&
         activityCollapsed.expanded === 'false' &&
-        activityCollapsed.rows >= 1 &&
         activityCollapsed.rows <= 5 &&
-        (await page.locator('[data-agent-activity]').innerText()).includes('已查看 4 张图像'),
+        !activityCollapsed.text.includes('已运行生成') &&
+        activityCollapsed.reviewSummary.includes('通过') &&
+        activityCollapsed.reviewSummary.includes('没有发现需要修改的问题'),
       JSON.stringify(activityCollapsed),
     )
     await page.screenshot({
       path: `${OUT}/769-agent-activity${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
     })
-    if ((await page.locator('[data-agent-activity-toggle]').count()) > 0) {
-      await page.locator('[data-agent-activity-toggle]').click()
-      const activityRows = await page.locator('[data-agent-activity-list] > *').count()
-      await page.screenshot({
-        path: `${OUT}/769-agent-activity-expanded${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
-      })
-      rec(
-        g,
-        '★★ 状态条可展开查看全部步骤',
-        activityRows >= 1 && activityRows <= 5,
-        `rows=${activityRows}`,
-      )
-      await page.locator('[data-agent-activity-toggle]').click()
-    }
     await page.locator('[data-sidebar-settings]').click()
     await page.locator('[data-global-settings-tab="agent"]').click()
     await page.locator('[data-agent-settings-tab="basic"]').click()

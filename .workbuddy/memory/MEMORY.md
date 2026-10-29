@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 实时任务状态、验收摘要与画布选择（2026-10-30，对账 #819）
+
+- **“排队中”必须由真实波次产生**：`runNodes()` 一次拿到全部任务，但只有 `runWaves` 当前波进入
+  `running`；同波多个任务可同时生成，后一波保持 `queued`。任务开始时间走 `startedAt`，
+  完成后冻结 `finishedAt`，界面只显示真实已处理时长，不做假百分比。
+- **活动条不能回放对话卡**：活动条只读本轮 `AgentLoopActivity`，整轮落定后清空；已完成的
+  `runNode/visualReview` 由对话步骤卡承载。否则同一句“已运行生成”会在两处同时出现。
+- **验收详情默认折叠**：`ConversationStep.summaryLines` 只放结论、严重度计数和首个优先问题；
+  完整分类清单留在 `lines`，展开才看。
+- **视觉验收后的引导是新的用户授权**：引导在验收结束边界到达时先消费，再重新问模型；
+  没有引导才把本轮收口为普通说明，不显示成系统错误。
+- **框选以 store 矩形兜底**：RF 的框选后用 `nodesIntersectingMarquee()` 再裁一次，避免节点刚
+  换尺寸时选中框外元素。节点尺寸、父级或边端点变化必须让 `updateNodeInternals` 重跑，否则
+  出图后 handle 测量过期，线会静默消失。
+- **本轮证据**：全量 Vitest **3602 passed / 1 skipped**；G769 浅/深各 **31/31**，G17 **31/31**，
+  G2 **3/3**；`npm run check`、`npm run build` 通过。
+
 ### Agent 草稿与路由预检（2026-10-30，对账 #817 / #818）
 
 - **草稿不能只活在组件里**：收起 Agent 会卸载面板，重新打开只剩 `pendingAssetIds`，于是删掉的图片

@@ -35,3 +35,47 @@ export function childrenByParent(graph: GraphSnapshot): Map<string, NodeSnapshot
 export function topLevelNodes(graph: GraphSnapshot): NodeSnapshot[] {
   return graph.nodes.filter((n) => !n.parentId)
 }
+
+export interface MarqueeRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * React Flow 的框选以内部测量值为准；节点刚出图、尺寸变化时偶尔会晚一拍。
+ * 最终落库前再用 store 里的真实矩形和用户画出的世界矩形裁一次，避免选中框外的节点。
+ */
+export function nodesIntersectingMarquee(
+  graph: GraphSnapshot,
+  marquee: MarqueeRect,
+  baseline: readonly string[] = [],
+): string[] {
+  const left = Math.min(marquee.x, marquee.x + marquee.w)
+  const right = Math.max(marquee.x, marquee.x + marquee.w)
+  const top = Math.min(marquee.y, marquee.y + marquee.h)
+  const bottom = Math.max(marquee.y, marquee.y + marquee.h)
+  const out = new Set(baseline)
+  for (const node of topLevelNodes(graph)) {
+    if (
+      node.x < right &&
+      node.x + node.w > left &&
+      node.y < bottom &&
+      node.y + node.h > top
+    ) {
+      out.add(node.id)
+    }
+  }
+  return [...out]
+}
+
+/**
+ * 节点测量缓存键：尺寸或父级变化后，React Flow 必须重新量 handle。
+ * 出图会让生成节点突然换尺寸；只监听 id 集合会漏掉这次重测，表现就是线突然消失。
+ */
+export function nodeMeasurementKey(graph: GraphSnapshot): string {
+  return graph.nodes
+    .map((node) => `${node.id}:${node.w}x${node.h}:${node.parentId ?? ''}`)
+    .join('|')
+}

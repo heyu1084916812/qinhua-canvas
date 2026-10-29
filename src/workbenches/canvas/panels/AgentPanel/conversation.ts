@@ -23,6 +23,8 @@ export interface ConversationStep {
   activityKind?: 'tool' | 'image'
   /** 展开后才看的明细（一行一条） */
   lines: string[]
+  /** 始终可见的短摘要；视觉验收用它做到“结论先看、详情后展开”。 */
+  summaryLines?: string[]
   /** 这一步牵扯到的节点 id：面板据此把它们产出的图**内嵌**显示 */
   nodeIds: string[]
   failed: boolean
@@ -54,6 +56,28 @@ const TOOL_LABEL: Record<string, string> = {
   compareNodes: '已创建对比',
   sliceImage: '图片选区已处理',
   splitGrid: '已宫格切分',
+}
+
+const TOOL_RUNNING_LABEL: Record<string, string> = {
+  readGraph: '正在读取画布',
+  readAsset: '正在读取素材',
+  readResult: '正在读取结果',
+  visualReview: '正在视觉验收',
+  proposeTaskPlan: '正在整理任务计划',
+  updateTaskStep: '正在更新任务进度',
+  requestTaskConfirmation: '正在整理确认项',
+  applyPlan: '正在创建节点和连线',
+  updateNode: '正在修改节点参数',
+  runNode: '正在运行生成',
+  runFrom: '正在运行下游链',
+  moveNodes: '正在移动节点',
+  arrangeNodes: '正在排列节点',
+  resizeNodes: '正在调整节点尺寸',
+  deleteNodes: '正在删除节点',
+  deleteEdges: '正在取消连线',
+  compareNodes: '正在创建对比',
+  sliceImage: '正在处理图片选区',
+  splitGrid: '正在切分宫格',
 }
 
 /**
@@ -88,6 +112,11 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
 
 export function toolLabel(tool: string): string {
   return TOOL_LABEL[tool] ?? `已调用 ${tool}`
+}
+
+export function toolRunningLabel(tool: string | undefined): string {
+  if (!tool) return '正在思考'
+  return TOOL_RUNNING_LABEL[tool] ?? `正在执行 ${tool}`
 }
 
 export function toolLabelOf(tool: string, failed: boolean): string {
@@ -139,6 +168,7 @@ export function describeToolResult(
   raw: string,
 ): {
   lines: string[]
+  summaryLines?: string[]
   nodeIds: string[]
   failed: boolean
   activityLabel?: string
@@ -219,6 +249,31 @@ export function describeToolResult(
           : r.verdict === 'needs_changes'
             ? '需要修改'
             : '无法验收'
+      const cleanVisible = (value: unknown, fallback = '目标图片') =>
+        String(value ?? '').replace(/node_[a-z0-9_-]+/gi, fallback)
+      const severityCounts = {
+        blocking: visibleIssues.filter((issue) => issue.severity === 'blocking').length,
+        warning: visibleIssues.filter((issue) => issue.severity === 'warning').length,
+        suggestion: visibleIssues.filter((issue) => issue.severity === 'suggestion').length,
+      }
+      const countSummary = [
+        severityCounts.blocking > 0 ? `${severityCounts.blocking} 个严重问题` : '',
+        severityCounts.warning > 0 ? `${severityCounts.warning} 个警告` : '',
+        severityCounts.suggestion > 0 ? `${severityCounts.suggestion} 条建议` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      const topIssue =
+        visibleIssues.find((issue) => issue.severity === 'blocking') ??
+        visibleIssues.find((issue) => issue.severity === 'warning') ??
+        visibleIssues[0]
+      const summaryLines = [
+        `${verdict}：${cleanVisible(r.summary ?? '没有结论')}`,
+        countSummary || '没有发现需要修改的问题',
+        ...(topIssue
+          ? [`优先处理：${cleanVisible(topIssue.problem, '目标图片')}`]
+          : []),
+      ]
       const categoryLabels: Record<string, string> = {
         brand: '品牌',
         product: '产品',
@@ -244,8 +299,6 @@ export function describeToolResult(
         warning: '警告',
         suggestion: '建议',
       }
-      const cleanVisible = (value: unknown, fallback = '目标图片') =>
-        String(value ?? '').replace(/node_[a-z0-9_-]+/gi, fallback)
       const lines = [
         `${verdict}：${cleanVisible(r.summary ?? '没有结论')}`,
         !suiteContextAvailable
@@ -289,6 +342,7 @@ export function describeToolResult(
       ]
       return {
         lines,
+        summaryLines,
         nodeIds: [...new Set(visibleIssues.flatMap((issue) =>
           typeof issue.nodeId === 'string' ? [issue.nodeId] : [],
         ))],

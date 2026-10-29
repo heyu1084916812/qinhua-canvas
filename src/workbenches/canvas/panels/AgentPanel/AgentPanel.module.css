@@ -429,7 +429,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--text-1);
+  background: var(--accent);
   animation: activityPulse 1.4s ease-in-out infinite;
 }
 
@@ -522,7 +522,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: currentColor;
+  color: var(--accent);
+}
+
+.activitySpinner,
+.runTaskSpinner {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: agentSpin 720ms linear infinite;
 }
 
 .activityStepName {
@@ -537,6 +548,128 @@
   color: var(--text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.runTasks {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 9px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  background: var(--bg-subtle);
+}
+
+.runTasksHead {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-1);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-title);
+}
+
+.runTasksDot,
+.runTasksDotActive {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.runTasksDotActive {
+  background: var(--accent);
+  animation: activityPulse 1.4s ease-in-out infinite;
+}
+
+.runTasksTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runTasksCount {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.runTaskList {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 204px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.runTaskRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 25px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+}
+
+.runTaskRow + .runTaskRow {
+  border-top: 1px solid var(--stroke);
+}
+
+.runTaskIcon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.runTaskRow[data-agent-run-task-status='queued'] .runTaskIcon,
+.runTaskRow[data-agent-run-task-status='queued'] .runTaskStatus {
+  color: var(--text-3);
+}
+
+.runTaskRow[data-agent-run-task-status='failed'] .runTaskIcon,
+.runTaskRow[data-agent-run-task-status='failed'] .runTaskStatus {
+  color: var(--danger);
+}
+
+.runTaskQueuedDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+
+.runTaskName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runTaskStatus {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.runTaskElapsed {
+  min-width: 68px;
+  color: var(--text-3);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .srOnly {
@@ -558,6 +691,12 @@
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes agentSpin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -596,6 +735,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .activityDot,
+  .runTasksDotActive,
+  .activitySpinner,
+  .runTaskSpinner,
   .activityCursor,
   .streamCaret {
     animation: none;
@@ -672,6 +814,29 @@
   white-space: nowrap;
 }
 
+.stepSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 1px 0 2px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.stepSummary p {
+  margin: 0;
+}
+
+.stepSummary p:first-child {
+  color: var(--text-1);
+}
+
+.stepSummary p:last-child {
+  color: var(--text-3);
+}
+
 .stepLines {
   margin: 0;
   padding-left: 1em;
@@ -705,7 +870,6 @@
   flex-direction: column;
   gap: var(--space-2);
   padding-top: 0;
-  transition: padding-top var(--dur-panel) var(--ease-panel);
 }
 
 .stepRevealOpen .stepRevealInner {

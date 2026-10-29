@@ -331,6 +331,35 @@ describe('runAgentTurn · 基本往复', () => {
     expect(r.kind).toBe('message')
   })
 
+  it('★ 实时活动只上报公开阶段与真实工具开始/结束', async () => {
+    const { deps } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'read',
+            name: 'readGraph',
+            args: '{"scope":"all"}',
+          },
+        ],
+      },
+      { text: '画布看完了' },
+    ])
+    const events: string[] = []
+    const r = await runAgentTurn(user('看看画布'), {
+      ...deps,
+      onActivity: (activity) =>
+        events.push(
+          `${activity.phase}:${activity.tool ?? ''}:${activity.status}`,
+        ),
+    })
+
+    expect(r.kind).toBe('message')
+    expect(events).toContain('thinking::running')
+    expect(events).toContain('tool:readGraph:running')
+    expect(events).toContain('tool:readGraph:done')
+    expect(events.filter((event) => event === 'tool:readGraph:running')).toHaveLength(1)
+  })
+
   it('★★ 取消连线会停下来让用户确认', async () => {
     const { deps, executeWrite } = depsWith([
       {
@@ -408,9 +437,9 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('验收后直接重跑'), deps)
 
-    expect(r.kind).toBe('stopped')
-    if (r.kind === 'stopped') {
-      expect(r.reason).toContain('不会自动修改画布或重新生成')
+    expect(r.kind).toBe('message')
+    if (r.kind === 'message') {
+      expect(r.text).toContain('不会自动修改画布或重新生成')
     }
     expect(executeRead).toHaveBeenCalledWith(
       'visualReview',
@@ -421,6 +450,52 @@ describe('runAgentTurn · 基本往复', () => {
       'review',
     )
     expect(executeWrite).not.toHaveBeenCalled()
+  })
+
+  it('★★ 视觉验收返回时刚收到引导：丢弃旧动作并带新要求重新问模型', async () => {
+    const { deps, executeRead, executeWrite, adapter } = depsWith([
+      {
+        toolCalls: [
+          {
+            id: 'review',
+            name: 'visualReview',
+            args: '{"nodeIds":["n1"]}',
+          },
+        ],
+      },
+      {
+        toolCalls: [
+          {
+            id: 'old-action',
+            name: 'runNode',
+            args: '{"nodeIds":["n1"]}',
+          },
+        ],
+      },
+      { text: '先完成验收，再按最新要求继续。' },
+    ])
+    const steer = { role: 'user' as const, content: '不要跑旧节点，改成生成 Lookbook' }
+    let pulls = 0
+    const r = await runAgentTurn(user('验收后继续旧任务'), {
+      ...deps,
+      takeSteering: async () => {
+        pulls += 1
+        return pulls === 3 ? [steer] : []
+      },
+    })
+
+    expect(r.kind).toBe('message')
+    if (r.kind === 'message') {
+      expect(r.text).toBe('先完成验收，再按最新要求继续。')
+      expect(r.messages).toContainEqual(steer)
+    }
+    expect(executeRead).toHaveBeenCalledWith(
+      'visualReview',
+      { nodeIds: ['n1'] },
+      'review',
+    )
+    expect(executeWrite).not.toHaveBeenCalled()
+    expect(adapter.completeText).toHaveBeenCalledTimes(3)
   })
 
   it('★★ 视觉验收后不能替用户把计划步骤直接收口', async () => {
@@ -447,7 +522,7 @@ describe('runAgentTurn · 基本往复', () => {
     ])
     const r = await runAgentTurn(user('验完并记录结果'), deps)
 
-    expect(r.kind).toBe('stopped')
+    expect(r.kind).toBe('message')
     expect(executeWrite).not.toHaveBeenCalled()
   })
 

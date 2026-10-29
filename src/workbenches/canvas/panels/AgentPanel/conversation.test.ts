@@ -156,6 +156,11 @@ describe('工具结果 → 人话', () => {
     expect(d.activityKind).toBe('image')
     expect(d.activityLabel).toBe('已查看 4 张图像')
     expect(d.nodeIds).toEqual(['n1'])
+    expect(d.summaryLines).toEqual([
+      '需要修改：Logo 和标题需要调整',
+      '1 个严重问题 · 1 条建议',
+      '优先处理：标题有错字',
+    ])
     expect(d.lines.join('\n')).toContain('需要修改：Logo 和标题需要调整')
     expect(d.lines.join('\n')).toContain('【文字】')
     expect(d.lines.join('\n')).toContain('阻塞「作品集封面」：标题有错字')

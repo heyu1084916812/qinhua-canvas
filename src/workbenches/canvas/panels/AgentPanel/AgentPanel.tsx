@@ -102,6 +102,7 @@ import type { TextRunRequest } from '../../../../platform/channels/types'
 import {
   resumeAgentTurn,
   runAgentTurn,
+  type AgentLoopActivity,
   type AgentLoopDeps,
   type AgentLoopOutcome,
   type AgentToolRequest,
@@ -176,8 +177,9 @@ import {
 import {
   readableConfirmationLines,
   toConversation,
+  toolLabelOf,
+  toolRunningLabel,
   type ConversationItem,
-  type ConversationStep,
 } from './conversation'
 import { TaskPlanCard } from './TaskPlanCard'
 import {
@@ -204,10 +206,20 @@ import {
 } from './agentOutputReveal'
 import {
   clearAgentDraft,
+  draftNodeIds,
   loadAgentDraft,
   pendingAssetIdsAfterDraft,
   saveAgentDraft,
 } from './agentDraft'
+import {
+  agentRunTaskCounts,
+  agentRunTaskTitle,
+  createAgentRunTasks,
+  finishAgentRunTask,
+  formatAgentRunElapsed,
+  startAgentRunWave,
+  type AgentRunTask,
+} from './agentRunTasks'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
@@ -344,6 +356,51 @@ export function AgentPanel({
   const setStatusFor = useCallback((sessionId: string, next: Status) => {
     setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
   }, [])
+  const setRunTasksFor = useCallback(
+    (
+      sessionId: string,
+      update: AgentRunTask[] | ((current: AgentRunTask[]) => AgentRunTask[]),
+    ) => {
+      setRunTasksBySession((prev) => {
+        const current = prev[sessionId] ?? []
+        const next = typeof update === 'function' ? update(current) : update
+        return { ...prev, [sessionId]: next }
+      })
+    },
+    [],
+  )
+  const clearRunTasksFor = useCallback((sessionId: string) => {
+    setRunTasksBySession((prev) => {
+      if (!(sessionId in prev)) return prev
+      const next = { ...prev }
+      delete next[sessionId]
+      return next
+    })
+  }, [])
+  const setLiveActivityFor = useCallback(
+    (sessionId: string, activity: AgentLoopActivity) => {
+      setLiveActivitiesBySession((prev) => {
+        const current = prev[sessionId] ?? []
+        const retained =
+          activity.phase === 'thinking'
+            ? current.filter((item) => item.phase !== 'thinking')
+            : current.filter((item) => item.id !== activity.id)
+        return {
+          ...prev,
+          [sessionId]: [...retained, activity].slice(-8),
+        }
+      })
+    },
+    [],
+  )
+  const clearLiveActivitiesFor = useCallback((sessionId: string) => {
+    setLiveActivitiesBySession((prev) => {
+      if (!(sessionId in prev)) return prev
+      const next = { ...prev }
+      delete next[sessionId]
+      return next
+    })
+  }, [])
   const controller = useMemo(
     () =>
       createAgentController({
@@ -401,6 +458,16 @@ export function AgentPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /** 当前会话那一份运行态（别的会话在跑不影响这里） */
   const status: Status = (current && statusBySession[current.id]) || IDLE_STATUS
+  const [runTasksBySession, setRunTasksBySession] = useState<
+    Record<string, AgentRunTask[]>
+  >({})
+  const [liveActivitiesBySession, setLiveActivitiesBySession] = useState<
+    Record<string, AgentLoopActivity[]>
+  >({})
+  const runTasks = current ? runTasksBySession[current.id] : undefined
+  const liveActivities = current
+    ? liveActivitiesBySession[current.id] ?? []
+    : []
   const deliveryMode = useSyncExternalStore(
     subscribeAgentDeliveryMode,
     getAgentDeliveryMode,
@@ -438,6 +505,11 @@ export function AgentPanel({
   const stickyModelRef = useRef<{ image?: string; video?: string }>({})
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
+  const draftNodeIdsRef = useRef<{ sessionId: string; ids: string[] }>({
+    sessionId: '',
+    ids: [],
+  })
+  const pendingAssetSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [composerHeight, setComposerHeight] = useState(readStoredComposerHeight)
   const [composerResizing, setComposerResizing] = useState(false)
   const [messageReveal, setMessageReveal] = useState<AgentMessageReveal | null>(null)
@@ -1061,8 +1133,20 @@ export function AgentPanel({
             ? problem.slice(problem.indexOf('无法运行：') + '无法运行：'.length)
             : problem
         const waves = runWaves(ids, store.getSnapshot().edges)
+        setRunTasksFor(
+          sessionId,
+          createAgentRunTasks(
+            ids.map((id) => ({
+              nodeId: id,
+              title: titleOf(id) || id,
+            })),
+          ),
+        )
         const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
         for (const wave of waves) {
+          setRunTasksFor(sessionId, (current) =>
+            startAgentRunWave(current, wave),
+          )
           /**
            * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
            * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
@@ -1090,6 +1174,12 @@ export function AgentPanel({
                 channels.protocolCatalog(),
               )[0]
               if (problem) {
+                setRunTasksFor(sessionId, (current) =>
+                  finishAgentRunTask(current, id, {
+                    ok: false,
+                    error: preflightFailureText(problem),
+                  }),
+                )
                 return {
                   nodeId: id,
                   ok: false,
@@ -1101,8 +1191,17 @@ export function AgentPanel({
                   signal:
                     signal ?? abortRefs.current.get(sessionId)?.signal,
                 })
+                setRunTasksFor(sessionId, (current) =>
+                  finishAgentRunTask(current, id, { ok: true }),
+                )
                 return null
               } catch (e) {
+                setRunTasksFor(sessionId, (current) =>
+                  finishAgentRunTask(current, id, {
+                    ok: false,
+                    error: e instanceof Error ? e.message : errText(e),
+                  }),
+                )
                 return {
                   nodeId: id,
                   ok: false,
@@ -1149,6 +1248,18 @@ export function AgentPanel({
             })
             if (!outcomes.some((outcome) => outcome.error?.includes('没有留下记录'))) break
             await new Promise((resolve) => setTimeout(resolve, 200))
+          }
+          for (const outcome of outcomes) {
+            setRunTasksFor(sessionId, (current) =>
+              finishAgentRunTask(
+                current,
+                outcome.nodeId,
+                {
+                  ok: outcome.ok,
+                  ...(outcome.error ? { error: outcome.error } : {}),
+                },
+              ),
+            )
           }
           out.push(...outcomes)
         }
@@ -1325,7 +1436,7 @@ export function AgentPanel({
         executeConfirmedTool(
           request.name,
           request.args,
-          toolCtx(originOf(viewport)),
+          toolCtx(originOf(viewport), session.id),
         ),
       ),
     [executeToolWithLedger, toolCtx, viewport],
@@ -1663,6 +1774,14 @@ export function AgentPanel({
           }),
         )
       },
+      onActivity: (activity: AgentLoopActivity) => {
+        setLiveActivityFor(session.id, activity)
+        if (activity.phase === 'thinking') {
+          setStatusFor(session.id, { kind: 'thinking' })
+        } else if (activity.status === 'running') {
+          setStatusFor(session.id, { kind: 'toolRunning' })
+        }
+      },
       takeSteering: async () => {
         try {
           const latest = await sessions.get(session.id)
@@ -1706,6 +1825,9 @@ export function AgentPanel({
       jobs,
       executeToolWithLedger,
       routeExecution,
+      setLiveActivityFor,
+      setRunTasksFor,
+      setStatusFor,
     ],
   )
 
@@ -1722,6 +1844,8 @@ export function AgentPanel({
         abortRefs.current.get(session.id) === outcomeController &&
         !outcomeController.signal.aborted
       if (!outcomeIsCurrent()) return
+      clearLiveActivitiesFor(session.id)
+      clearRunTasksFor(session.id)
       /**
        * 消息只写回**它自己那个会话的界面**：用户可能已经切走去看别的会话了，
        * 这时候把 A 的消息盖到 B 的对话流上就是串味（§8.2）。
@@ -1898,7 +2022,15 @@ export function AgentPanel({
         setStatusFor(session.id, { kind: 'error', message: outcome.reason })
       } else setStatusFor(session.id, { kind: 'error', message: outcome.message })
     },
-    [jobs, persist, sessions, setStatusFor, transitionSessionJob],
+    [
+      clearLiveActivitiesFor,
+      clearRunTasksFor,
+      jobs,
+      persist,
+      sessions,
+      setStatusFor,
+      transitionSessionJob,
+    ],
   )
 
   const applySessionSnapshot = useCallback((next: AgentSession) => {
@@ -2030,6 +2162,8 @@ export function AgentPanel({
     )
     const controller = new AbortController()
     abortRefs.current.set(session.id, controller)
+    clearLiveActivitiesFor(session.id)
+    clearRunTasksFor(session.id)
     setStatusFor(session.id, { kind: 'thinking' })
     autoRunRef.current.set(session.id, session.autoRun === true)
 
@@ -2421,6 +2555,8 @@ export function AgentPanel({
       const blocked =
         error instanceof AgentToolEffectBlockedError ? error : null
       deliveredSteersRef.current.delete(session.id)
+      clearLiveActivitiesFor(session.id)
+      clearRunTasksFor(session.id)
       await transitionSessionJob(
         session.id,
         aborted ? 'canceled' : blocked?.status ?? 'failed',
@@ -2452,6 +2588,8 @@ export function AgentPanel({
     return outcome
   }, [
     applySessionSnapshot,
+    clearLiveActivitiesFor,
+    clearRunTasksFor,
     controller,
     current,
     runSendText,
@@ -2706,11 +2844,15 @@ export function AgentPanel({
       if (currentIdRef.current === session.id) {
         setMessages(settledMessages)
       }
+      clearLiveActivitiesFor(session.id)
+      clearRunTasksFor(session.id)
       setStatusFor(session.id, IDLE_STATUS)
       return latest
     },
     [
       applySessionSnapshot,
+      clearLiveActivitiesFor,
+      clearRunTasksFor,
       messages,
       sessions,
       setStatusFor,
@@ -3147,16 +3289,68 @@ export function AgentPanel({
       setDraft(next)
       if (!current) return
       saveAgentDraft(current.id, next)
-      const before = current.pendingAssetIds ?? []
+      /**
+       * 会话字段可能比正文晚一拍（尤其是刚重载或并发更新时）。
+       * 把“上一版正文里真实出现过的 node chip”一并算进来，删掉 chip 时一定能触发清库。
+       */
+      const before = [
+        ...new Set([
+          ...(current.pendingAssetIds ?? []),
+          ...(draftNodeIdsRef.current.sessionId === current.id
+            ? draftNodeIdsRef.current.ids
+            : draftNodeIds(draft)),
+        ]),
+      ]
       const after = pendingAssetIdsAfterDraft(before, next)
+      draftNodeIdsRef.current = {
+        sessionId: current.id,
+        ids: draftNodeIds(next),
+      }
       if (
         before.length !== after.length ||
         before.some((id, index) => id !== after[index])
       ) {
         void patchSession({ pendingAssetIds: after })
       }
+      /**
+       * 再补一条按正文为真相的短防抖同步：
+       * 旧会话/并发刷新时，“会话字段里有、正文里已经删掉”的图片可能晚一拍才被看见。
+       * 正文没有 node chip 时，稳定输入 160ms 后直接清空数据库里的待发送图片。
+       */
+      if (draftNodeIds(next).length === 0) {
+        if (pendingAssetSyncTimerRef.current) {
+          clearTimeout(pendingAssetSyncTimerRef.current)
+        }
+        pendingAssetSyncTimerRef.current = setTimeout(() => {
+          pendingAssetSyncTimerRef.current = null
+          void sessions
+            .updateFields(current.id, { pendingAssetIds: [] })
+            .then((nextSession) => {
+              if (nextSession) applySessionSnapshot(nextSession)
+            })
+            .catch(() => null)
+        }, 160)
+      }
     },
-    [current, patchSession],
+    [applySessionSnapshot, current, draft, patchSession, sessions],
+  )
+
+  useEffect(() => {
+    if (!current) return
+    draftNodeIdsRef.current = {
+      sessionId: current.id,
+      ids: draftNodeIds(draft),
+    }
+  }, [current?.id, draft])
+
+  useEffect(
+    () => () => {
+      if (pendingAssetSyncTimerRef.current) {
+        clearTimeout(pendingAssetSyncTimerRef.current)
+        pendingAssetSyncTimerRef.current = null
+      }
+    },
+    [],
   )
 
   /**
@@ -4051,6 +4245,13 @@ export function AgentPanel({
                   </span>
                 )}
               </button>
+              {!isOpen && item.summaryLines && item.summaryLines.length > 0 ? (
+                <div className={styles.stepSummary} data-agent-step-summary={item.tool}>
+                  {item.summaryLines.map((line, lineIndex) => (
+                    <p key={lineIndex}>{line}</p>
+                  ))}
+                </div>
+              ) : null}
               {/*
                 **失败的那一条不折叠**：原因藏在折叠层里等于没报 —— 用户会以为是
                 「它又问了我一遍」而不是「这件事被拒了，因为……」（2026-10-02 报的
@@ -4092,13 +4293,24 @@ export function AgentPanel({
         })}
       </div>
 
+      {runTasks &&
+        runTasks.length > 0 &&
+        status.kind === 'executing' &&
+        (status.tool === 'runNode' || status.tool === 'runFrom') && (
+          <AgentGenerationTasks tasks={runTasks} />
+        )}
+
       {status.kind !== 'idle' &&
         (status.kind === 'error' || status.kind === 'paused' ? (
           <div className={styles.statusLine} data-agent-status={status.kind}>
             {STATUS_LABEL[status.kind]}：{status.message}
           </div>
         ) : (
-          <AgentActivityStrip status={status} items={items} />
+          <AgentActivityStrip
+            status={status}
+            items={items}
+            activities={liveActivities}
+          />
         ))}
 
       {status.kind === 'paused' && current?.continuation && (
@@ -4873,23 +5085,11 @@ export function AgentPanel({
   )
 }
 
-function currentTurnSteps(items: readonly ConversationItem[]): ConversationStep[] {
-  let start = 0
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (items[index]?.kind === 'user') {
-      start = index + 1
-      break
-    }
-  }
-  return items
-    .slice(start)
-    .filter((item): item is ConversationStep => item.kind === 'step')
-}
-
 function activityTextOf(
   status: Status,
   generationPhraseIndex: number,
   items: readonly ConversationItem[],
+  activities: readonly AgentLoopActivity[],
 ): string {
   if (status.kind === 'executing') {
     if (status.tool === 'runNode' || status.tool === 'runFrom') {
@@ -4904,10 +5104,100 @@ function activityTextOf(
     return agentThinkingSummary(lastUser?.kind === 'user' ? lastUser.text : '')
   }
   if (status.kind === 'toolRunning') {
-    return agentToolActivitySummary(currentTurnSteps(items).at(-1)?.label)
+    const latest = [...activities]
+      .reverse()
+      .find((activity) => activity.status === 'running')
+    return agentToolActivitySummary(
+      latest?.phase === 'thinking'
+        ? '正在理解你的要求'
+        : toolRunningLabel(latest?.tool),
+    )
   }
   if (status.kind === 'awaitingConfirm') return '这一步需要你确认'
   return STATUS_LABEL[status.kind]
+}
+
+function AgentGenerationTasks({ tasks }: { tasks: readonly AgentRunTask[] }) {
+  const counts = agentRunTaskCounts(tasks)
+  const active = counts.running > 0 || counts.queued > 0
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    setNow(Date.now())
+    if (!active) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [active])
+
+  return (
+    <section
+      className={styles.runTasks}
+      data-agent-run-tasks
+      data-agent-run-task-count={tasks.length}
+      aria-label={agentRunTaskTitle(tasks)}
+    >
+      <div className={styles.runTasksHead}>
+        <span
+          className={active ? styles.runTasksDotActive : styles.runTasksDot}
+          aria-hidden="true"
+        />
+        <span className={styles.runTasksTitle} aria-live="polite">
+          {agentRunTaskTitle(tasks)}
+        </span>
+        <span className={styles.runTasksCount}>
+          {counts.done + counts.failed}/{counts.total}
+        </span>
+      </div>
+      <div className={styles.runTaskList}>
+        {tasks.map((task) => {
+          const startedAt = task.startedAt
+          const finishedAt = task.finishedAt ?? (task.status === 'running' ? now : undefined)
+          const elapsed =
+            startedAt !== undefined && finishedAt !== undefined
+              ? formatAgentRunElapsed((finishedAt - startedAt) / 1_000)
+              : ''
+          const statusLabel =
+            task.status === 'queued'
+              ? '排队中'
+              : task.status === 'running'
+                ? '生成中'
+                : task.status === 'done'
+                  ? '已完成'
+                  : '失败'
+          return (
+            <div
+              key={task.nodeId}
+              className={styles.runTaskRow}
+              data-agent-run-task-node={task.nodeId}
+              data-agent-run-task-status={task.status}
+              title={task.error || task.title}
+            >
+              <span className={styles.runTaskIcon} aria-hidden="true">
+                {task.status === 'running' ? (
+                  <span className={styles.runTaskSpinner} />
+                ) : task.status === 'failed' ? (
+                  <IconClose size={12} />
+                ) : task.status === 'done' ? (
+                  <IconCheck size={12} />
+                ) : (
+                  <span className={styles.runTaskQueuedDot} />
+                )}
+              </span>
+              <span className={styles.runTaskName}>{task.title}</span>
+              <span className={styles.runTaskStatus}>{statusLabel}</span>
+              <span className={styles.runTaskElapsed}>
+                {elapsed
+                  ? task.status === 'running'
+                    ? `已处理 ${elapsed}`
+                    : `用时 ${elapsed}`
+                  : ''}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
 }
 
 function TypewriterActivity({ text }: { text: string }) {
@@ -4952,31 +5242,44 @@ function TypewriterActivity({ text }: { text: string }) {
 function AgentActivityStrip({
   status,
   items,
+  activities,
 }: {
   status: Status
   items: readonly ConversationItem[]
+  activities: readonly AgentLoopActivity[]
 }) {
   const [expanded, setExpanded] = useState(false)
   const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
-  const steps = currentTurnSteps(items)
+  const liveSteps = activities.map((activity) => ({
+    id: activity.id,
+    label:
+      activity.phase === 'thinking'
+        ? '正在理解你的要求'
+        : activity.status === 'running'
+          ? toolRunningLabel(activity.tool)
+          : toolLabelOf(activity.tool ?? '', activity.status === 'failed'),
+    failed: activity.status === 'failed',
+    running: activity.status === 'running',
+    image: false,
+  }))
   const inputImageCount =
     [...items].reverse().find((item) => item.kind === 'user')?.imageNodeIds?.length ?? 0
-  const hasToolImageActivity = steps.some((step) => step.activityKind === 'image')
-  const inputImageStep: ConversationStep | null =
-    inputImageCount > 0 && !hasToolImageActivity
+  const hasImageToolActivity = activities.some(
+    (activity) => activity.tool === 'readAsset' || activity.tool === 'visualReview',
+  )
+  const inputImageStep =
+    inputImageCount > 0 && !hasImageToolActivity
       ? {
-          kind: 'step',
           id: 'agent-input-images',
-          tool: 'imageInput',
           label: `已查看 ${inputImageCount} 张图像`,
-          activityLabel: `已查看 ${inputImageCount} 张图像`,
-          activityKind: 'image',
-          lines: [],
-          nodeIds: [],
           failed: false,
+          running: false,
+          image: true,
         }
       : null
-  const activitySteps = inputImageStep ? [inputImageStep, ...steps] : steps
+  const activitySteps = inputImageStep
+    ? [inputImageStep, ...liveSteps]
+    : liveSteps
   const visibleSteps = expanded ? activitySteps : activitySteps.slice(-5)
   const canExpand = activitySteps.length > 5
   const generationTool = status.kind === 'executing' ? status.tool : undefined
@@ -4992,7 +5295,12 @@ function AgentActivityStrip({
     return () => window.clearInterval(timer)
   }, [generationTool, status.kind])
 
-  const currentText = activityTextOf(status, generationPhraseIndex, items)
+  const currentText = activityTextOf(
+    status,
+    generationPhraseIndex,
+    items,
+    activities,
+  )
 
   return (
     <section
@@ -5028,20 +5336,17 @@ function AgentActivityStrip({
               className={step.failed ? styles.activityRowFailed : styles.activityRow}
             >
               <span className={styles.activityStepIcon} aria-hidden="true">
-                {step.activityKind === 'image' ? (
+                {step.image ? (
                   <IconImage size={12} />
+                ) : step.running ? (
+                  <span className={styles.activitySpinner} />
                 ) : step.failed ? (
                   <IconClose size={12} />
                 ) : (
                   <IconCheck size={12} />
                 )}
               </span>
-              <span className={styles.activityStepName}>
-                {step.activityLabel ?? step.label}
-              </span>
-              {step.lines[0] ? (
-                <span className={styles.activityStepDetail}>{step.lines[0]}</span>
-              ) : null}
+              <span className={styles.activityStepName}>{step.label}</span>
             </div>
           ))}
         </div>
