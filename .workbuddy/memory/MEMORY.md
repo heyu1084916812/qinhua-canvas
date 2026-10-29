@@ -48,9 +48,8 @@
 - **本批证据**：G735 **14/14**、G769 **28/28**；全量 Vitest
   **3541 passed / 1 skipped**；`npm run check`、`npm run build` 通过；
   1440×900 / 1024×700、明暗主题以及 360/420/720 宽度实拍，无横向溢出。
-- **下一道门仍不能跳**：当前只是 UI 外壳、恢复控制器、记忆端口与确认工具账本，不代表
-  Harness 已接好。下一步是 write/read 工具账本、完整 Controller、RouteExecutionPort
-  和 Worker runtime（H1b–H3）。
+- **下一道门仍不能跳**：当前只是 UI 外壳、恢复控制器、记忆端口、路由执行端口与工具账本，
+  不代表 Harness 已接好。下一步是完整 Controller 和 Worker runtime（H1b–H3）。
 - **H2 已推进（2026-10-29）**：`domain/agent/toolRegistry` 成为 20 个工具的唯一清单，
   `agentLoop` 的读 / 写 / 确认集合与设置页分组都从它派生；`tools.test` 断言模型 schema
   与注册表完全同名。Agent 文本路由新增 `ModelRoutePort`，仍进现有 RoutePlan。
@@ -61,8 +60,11 @@
   绝不自动重发或让模型换个工具继续试；确认、建图、只读三类入口均已接入。
 - **幂等账本不是第二套任务表**：它只投影在既有 `agentEvents`，不新增 AgentJob 或数据库表；
   JSON 工具调用的 callId 改为每次生成的唯一 id，避免续跑时旧 `json-0` 撞上新调用。
-- **本批证据**：全量 Vitest **3567 passed / 1 skipped**；`npm run check`、`npm run build`
+- **本批证据**：全量 Vitest **3569 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录已删除。
+- **RouteExecutionPort（2026-10-29）**：Agent 普通文本、工具能力探测和视觉验收都改为
+  `RouteExecutionPort.execute()`，只提交已冻结消息、工具、候选与 trace；渠道/Key 解析、
+  安全降级、RunRecord 和重试仍由轻画执行层负责。Harness 后续不得直接调用 ChannelStore。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。

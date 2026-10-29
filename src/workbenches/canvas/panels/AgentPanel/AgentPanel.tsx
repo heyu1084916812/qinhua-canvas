@@ -120,6 +120,7 @@ import {
   ensureToolSupport,
 } from '../../../../features/shared/agent/toolSupport'
 import { createModelRoutePort } from '../../../../features/shared/agent/ModelRoutePort'
+import { createRouteExecutionPort } from '../../../../features/shared/agent/RouteExecutionPort'
 import { createAgentController } from '../../../../features/shared/agent/AgentController'
 import { createAgentMemoryPort } from '../../../../features/shared/agent/MemoryPort'
 import {
@@ -505,6 +506,13 @@ export function AgentPanel({
     () =>
       createModelRoutePort((request) =>
         channels.planGenerationRoute(request),
+      ),
+    [channels],
+  )
+  const routeExecution = useMemo(
+    () =>
+      createRouteExecutionPort((request) =>
+        channels.completeWithTools(request),
       ),
     [channels],
   )
@@ -1327,7 +1335,7 @@ export function AgentPanel({
         })
         const reviewInputs = [...prepared.targetInputs, ...prepared.contextInputs]
         try {
-          const reviewed = await channels.completeWithTools({
+          const reviewed = await routeExecution.execute({
             channelId: route.channelId,
             model: route.upstreamModel,
             modelIsUpstream: true,
@@ -1387,7 +1395,7 @@ export function AgentPanel({
       return {
         adapter: {
           completeText: (req: TextRunRequest, signal: AbortSignal) =>
-            channels.completeWithTools({
+            routeExecution.execute({
               channelId: route?.channelId ?? req.channelId,
               model: route?.upstreamModel ?? req.model,
               modelIsUpstream: Boolean(route),
@@ -1539,6 +1547,7 @@ export function AgentPanel({
       sessions,
       jobs,
       executeToolWithLedger,
+      routeExecution,
     ],
   )
 
@@ -1938,7 +1947,7 @@ export function AgentPanel({
     const support = await ensureToolSupport(
       {
         completeText: (req: TextRunRequest, signal: AbortSignal) =>
-          channels.completeWithTools({
+          routeExecution.execute({
             channelId: chatRoute.channelId,
             model: chatRoute.upstreamModel,
             modelIsUpstream: true,
@@ -2169,6 +2178,7 @@ export function AgentPanel({
     allSkills,
     toolCtx,
     viewport,
+    routeExecution,
     prepareChatRoute,
     sessions,
     memory,
