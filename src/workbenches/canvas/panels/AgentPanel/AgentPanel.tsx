@@ -2216,23 +2216,12 @@ export function AgentPanel({
         ? { pendingAssetIds: [...current.pendingAssetIds] }
         : {}),
     }
-    const queued = await sessions.enqueueTurn(current.id, turn)
+    const queued = await controller.enqueueTurn(current.id, turn)
     if (!queued.ok) {
       if (queued.reason === 'full') {
         store.notify('排队任务已达上限，请先处理或删除队列中的任务', 'error')
       }
       return false
-    }
-    const job = await jobs.create({
-      sessionId: current.id,
-      projectId,
-      turnId: turn.id,
-    })
-    if (job.created) {
-      await jobs.appendEvent(job.job.id, 'message_queued', {
-        turnId: turn.id,
-        textLength: text.length,
-      })
     }
     requestQueueDrain(current.id)
     applySessionSnapshot(queued.session)
@@ -2240,24 +2229,14 @@ export function AgentPanel({
       setDraft((value) => (value.trim() === text ? '' : value))
     }
     return true
-  }, [applySessionSnapshot, current, jobs, projectId, sessions, setStatusFor, store])
+  }, [applySessionSnapshot, controller, current, setStatusFor, store])
 
   const removeQueued = useCallback(async (turnId: string) => {
     if (!current) return
-    const queuedJob = await jobs.forTurn(current.id, turnId)
-    if (queuedJob?.status === 'queued') {
-      await jobs.transition(
-        queuedJob.id,
-        'canceled',
-        'canceled',
-        {},
-        { reason: 'queued_turn_removed' },
-      )
-    }
-    const next = await sessions.removeQueuedTurn(current.id, turnId)
+    const next = await controller.removeQueuedTurn(current.id, turnId)
     if (next) applySessionSnapshot(next)
     setQueueMenuId((id) => (id === turnId ? null : id))
-  }, [applySessionSnapshot, current, jobs, sessions])
+  }, [applySessionSnapshot, controller, current])
 
   const beginQueueEdit = (turn: QueuedAgentTurn) => {
     setQueueMenuId(null)
@@ -2272,16 +2251,16 @@ export function AgentPanel({
       store.notify('消息不能为空', 'error')
       return
     }
-    const next = await sessions.updateQueuedTurnText(current.id, editingQueueId, text)
+    const next = await controller.editQueuedTurn(current.id, editingQueueId, text)
     if (next) applySessionSnapshot(next)
     setEditingQueueId(null)
     setEditingQueueText('')
   }, [
     applySessionSnapshot,
+    controller,
     current,
     editingQueueId,
     editingQueueText,
-    sessions,
     store,
   ])
 

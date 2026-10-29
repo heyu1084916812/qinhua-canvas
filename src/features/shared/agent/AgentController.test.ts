@@ -274,4 +274,65 @@ describe('AgentController', () => {
       { tool: 'runNode' },
     )
   })
+
+  it('owns queue insertion, queued-job cancellation, and message editing', async () => {
+    const queuedSession = session({ queuedTurns: [] })
+    const jobs = {
+      create: vi.fn(async () => ({
+        job: { id: 'job-q' },
+        event: { id: 'e1' },
+        created: true,
+      })),
+      appendEvent: vi.fn(async () => ({ id: 'e2' })),
+      forTurn: vi.fn(async () => ({ id: 'job-q', status: 'queued' })),
+      transition: vi.fn(async () => null),
+    }
+    const sessions = {
+      enqueueTurn: vi.fn(async () => ({ ok: true, session: queuedSession })),
+      removeQueuedTurn: vi.fn(async () => queuedSession),
+      updateQueuedTurnText: vi.fn(async () => queuedSession),
+    }
+    const controller = createAgentController({
+      projectId: 'p1',
+      sessions: sessions as never,
+      jobs: jobs as never,
+      hooks: {
+        isSessionActivityActive: () => false,
+        onPendingConfirmation: vi.fn(),
+        onContinuation: vi.fn(),
+        onNeedsAttention: vi.fn(),
+        onIdle: vi.fn(),
+        notify: vi.fn(),
+      },
+    })
+    const turn = {
+      id: 'turn-q',
+      text: '排队任务',
+      createdAt: 1,
+      channelId: 'c1',
+      model: 'm1',
+    }
+
+    await expect(controller.enqueueTurn('s1', turn)).resolves.toMatchObject({
+      ok: true,
+    })
+    expect(jobs.appendEvent).toHaveBeenCalledWith('job-q', 'message_queued', {
+      turnId: 'turn-q',
+      textLength: 4,
+    })
+    await controller.removeQueuedTurn('s1', 'turn-q')
+    expect(jobs.transition).toHaveBeenCalledWith(
+      'job-q',
+      'canceled',
+      'canceled',
+      {},
+      { reason: 'queued_turn_removed' },
+    )
+    await controller.editQueuedTurn('s1', 'turn-q', '改过的任务')
+    expect(sessions.updateQueuedTurnText).toHaveBeenCalledWith(
+      's1',
+      'turn-q',
+      '改过的任务',
+    )
+  })
 })

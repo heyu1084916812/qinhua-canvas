@@ -77,6 +77,11 @@
 - **H1b 确认生命周期（2026-10-29）**：确认卡清空、`waiting_confirmation → planning →
   waiting_generation` 批准链、工具完成后回到 planning 的 Job 迁移也移入 Controller；
   视图只执行工具和更新 React 状态。
+- **H1b 队列记录生命周期（2026-10-29）**：入队、删除、编辑、message_queued 事件和
+  queued Job 取消移入 Controller；AgentPanel 保留忙碌判断、队列泵和 UI 展开状态。
+- **队列记录证据**：全量 Vitest **3571 passed / 1 skipped**；`npm run check`、
+  `npm run build` 通过。G769 隔离回归被真实桌面应用占用的 18765 端口阻塞，未擅自结束
+  用户进程；本轮不作为 UI 通过证据。
 - **MemoryPort 唯一入口（2026-10-29）**：Agent 面板读取 `ContextBundle` 与保存确认后的
   记忆候选都改走 `AgentMemoryPort`，内部仍只调用 `ContextRepository`，不新增持久库。
   官方 Harness 没有内置长期记忆；其记忆 MCP 默认关闭且由第三方负责存储。可借鉴的是

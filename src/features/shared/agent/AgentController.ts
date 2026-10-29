@@ -12,6 +12,7 @@ import {
   confirmationRunsGeneration,
   type ConfirmationRequestRef,
 } from '../../../domain/agent/confirmation'
+import type { QueuedAgentTurn } from '../../../domain/agent/queuedTurn'
 
 export interface AgentControllerHooks {
   isSessionActivityActive: (sessionId: string) => boolean
@@ -42,6 +43,19 @@ export interface AgentController {
     sessionId: string,
     request: ConfirmationRequestRef,
   ) => Promise<void>
+  enqueueTurn: (
+    sessionId: string,
+    turn: QueuedAgentTurn,
+  ) => Promise<
+    | { ok: true; session: AgentSession }
+    | { ok: false; reason: 'missing' | 'empty' | 'full' }
+  >
+  removeQueuedTurn: (sessionId: string, turnId: string) => Promise<AgentSession | null>
+  editQueuedTurn: (
+    sessionId: string,
+    turnId: string,
+    text: string,
+  ) => Promise<AgentSession | null>
   /** 读回项目会话，并修复上次进程中断留下的运行态。 */
   refresh: () => Promise<AgentSession[]>
 }
@@ -159,6 +173,46 @@ export function createAgentController(input: {
     )
   }
 
+  const enqueueTurn: AgentController['enqueueTurn'] = async (sessionId, turn) => {
+    const queued = await sessions.enqueueTurn(sessionId, turn)
+    if (!queued.ok) return queued
+    const job = await jobs.create({
+      sessionId,
+      projectId,
+      turnId: turn.id,
+    })
+    if (job.created) {
+      await jobs.appendEvent(job.job.id, 'message_queued', {
+        turnId: turn.id,
+        textLength: turn.text.length,
+      })
+    }
+    return queued
+  }
+
+  const removeQueuedTurn: AgentController['removeQueuedTurn'] = async (
+    sessionId,
+    turnId,
+  ) => {
+    const queuedJob = await jobs.forTurn(sessionId, turnId)
+    if (queuedJob?.status === 'queued') {
+      await jobs.transition(
+        queuedJob.id,
+        'canceled',
+        'canceled',
+        {},
+        { reason: 'queued_turn_removed' },
+      )
+    }
+    return sessions.removeQueuedTurn(sessionId, turnId)
+  }
+
+  const editQueuedTurn: AgentController['editQueuedTurn'] = (
+    sessionId,
+    turnId,
+    text,
+  ) => sessions.updateQueuedTurnText(sessionId, turnId, text)
+
   const refresh = async (): Promise<AgentSession[]> => {
     const rows = await sessions.list(projectId)
     for (let row of rows) {
@@ -218,6 +272,9 @@ export function createAgentController(input: {
     transition,
     beginConfirmation,
     finishConfirmedTool,
+    enqueueTurn,
+    removeQueuedTurn,
+    editQueuedTurn,
     refresh,
   }
 }

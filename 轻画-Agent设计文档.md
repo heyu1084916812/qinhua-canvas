@@ -1025,7 +1025,7 @@ bundle 还有 `projectMemoryEvolution`、`sessionMemoryReclaim`、`memoryAudit`�
 | --- | --- | --- |
 | **H0 契约与基线** | 本文、架构、统一规划、对账清单；补当前 Agent UI / 行为截图基线 | ✅ 文档与基线完成 |
 | **H1a 应用壳面板** | `AgentShellSlot`、canvas portal、可调宽壳层、浮球独立坐标 | ✅ 已交付：G735 14/14；浮球与节点坐标 0 变化 |
-| **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB 与确认生命周期已抽出**：Controller 持有 sessions / jobs、session→job 映射、Job 创建/状态迁移/恢复、确认/引导冲突修复，以及确认卡批准链和工具完成后回迁 planning；`AgentToolRequest` 已上移 `domain/agent`。队列、实际工具执行与模型循环仍在 AgentPanel，H3 前继续拆 |
+| **H1b AgentController** | 从 `AgentPanel` 抽会话、队列、确认与运行态 | 🧩 **会话/JOB、确认与队列记录生命周期已抽出**：Controller 持有 session→job、Job 创建/迁移/恢复、确认批准链、入队/删除/编辑与对应 Job 取消；`AgentToolRequest` 已上移 `domain/agent`。队列泵、实际工具执行与模型循环仍在 AgentPanel，H3 前继续拆 |
 | **H2 工具与路由收口** | ToolRegistry、ModelRoutePort、RouteExecutionPort、幂等键 | 🧩 20 个工具已由单一注册表校验；Agent 文本路由已走 ModelRoutePort，普通调用 / 工具探测 / 视觉验收统一走 RouteExecutionPort；401 安全降级与超时分支有单测；`AgentToolEffectLedger` 使用 `tool_started / tool_finished / tool_failed` 持久账本，确认、建图与只读工具全部接入；已开始未完成会直接停止本轮并转 `needs_attention` |
 | **H3 Harness Worker** | 签名资源包、Worker 握手、session 恢复、Harness retry 关闭 | 内部开关下完成同等画布任务；Worker 崩溃不重发付费请求；包体独立且可验签 |
 | **H4 设置与记忆迁移** | 齿轮设置、六页签、记忆迁移、Harness 记忆适配 | 🧩 六页签、记忆与投递迁移已交付（G735 / G769）；`MemoryPort` 已成为 Agent 唯一记忆入口，仍走 `ContextBundle / contextMemories / revisions`；Harness 使用投影与压缩策略待 H3 |
