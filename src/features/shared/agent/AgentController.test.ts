@@ -40,6 +40,7 @@ describe('AgentController', () => {
         isSessionActivityActive: () => false,
         onPendingConfirmation: vi.fn(),
         onContinuation: vi.fn(),
+        onNeedsAttention: vi.fn(),
         onIdle: vi.fn(),
         notify: vi.fn(),
       },
@@ -67,6 +68,7 @@ describe('AgentController', () => {
       isSessionActivityActive: () => false,
       onPendingConfirmation: vi.fn(),
       onContinuation: vi.fn(),
+      onNeedsAttention: vi.fn(),
       onIdle: vi.fn(),
       notify: vi.fn(),
     }
@@ -106,6 +108,7 @@ describe('AgentController', () => {
       isSessionActivityActive: () => false,
       onPendingConfirmation: vi.fn(),
       onContinuation: vi.fn(),
+      onNeedsAttention: vi.fn(),
       onIdle: vi.fn(),
       notify: vi.fn(),
     }
@@ -130,6 +133,50 @@ describe('AgentController', () => {
     expect(hooks.onPendingConfirmation).toHaveBeenCalledWith(
       'confirm',
       rows[1]!.pendingConfirmation,
+    )
+  })
+
+  it('surfaces a recovered need-attention job instead of pretending it is idle', async () => {
+    const hooks = {
+      isSessionActivityActive: () => false,
+      onPendingConfirmation: vi.fn(),
+      onContinuation: vi.fn(),
+      onNeedsAttention: vi.fn(),
+      onIdle: vi.fn(),
+      notify: vi.fn(),
+    }
+    const controller = createAgentController({
+      projectId: 'p1',
+      sessions: {
+        list: vi.fn(async () => [session({ id: 'attention' })]),
+        get: vi.fn(),
+        repairConfirmationSteerCollision: vi.fn(),
+        releaseActiveTurn: vi.fn(),
+      } as never,
+      jobs: {
+        active: vi.fn(),
+        transition: vi.fn(),
+        recoverSession: vi.fn(async () => [
+          {
+            id: 'job-1',
+            sessionId: 'attention',
+            projectId: 'p1',
+            turnId: 'turn-1',
+            status: 'needs_attention',
+            revision: 1,
+            createdAt: 1,
+            updatedAt: 2,
+            lastError: '结果未知，未自动重发',
+          },
+        ]),
+      } as never,
+      hooks,
+    })
+
+    await controller.refresh()
+    expect(hooks.onNeedsAttention).toHaveBeenCalledWith(
+      'attention',
+      '结果未知，未自动重发',
     )
   })
 })

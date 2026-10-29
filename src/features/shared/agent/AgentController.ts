@@ -6,6 +6,7 @@ export interface AgentControllerHooks {
   isSessionActivityActive: (sessionId: string) => boolean
   onPendingConfirmation: (sessionId: string, request: AgentToolRequest) => void
   onContinuation: (sessionId: string, maxSteps: number) => void
+  onNeedsAttention: (sessionId: string, message: string) => void
   onIdle: (sessionId: string) => void
   notify: (message: string, tone: 'info' | 'error') => void
 }
@@ -64,11 +65,20 @@ export function createAgentController(input: {
       if (row.activeTurnId && !liveHere) {
         await sessions.releaseActiveTurn(row.id)
       }
-      if (!liveHere) await jobs.recoverSession(row.id)
+      const recovered = (!liveHere ? await jobs.recoverSession(row.id) : []) ?? []
+      const attention = recovered.find(
+        (job) => job.status === 'needs_attention',
+      )
       if (row.pendingConfirmation) {
         hooks.onPendingConfirmation(row.id, row.pendingConfirmation)
       } else if (row.continuation) {
         hooks.onContinuation(row.id, row.continuation.maxSteps)
+      } else if (attention) {
+        hooks.onNeedsAttention(
+          row.id,
+          attention.lastError ||
+            '上次任务已经提交或开始执行，但应用没有收到结果。为避免重复扣费，本次没有自动重发。',
+        )
       }
     }
     return sessions.list(projectId)

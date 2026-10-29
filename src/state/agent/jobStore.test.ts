@@ -156,4 +156,109 @@ describe('AgentJobStore', () => {
       },
     })
   })
+
+  it('同一工具效果键只开始一次，完成结果可持久回放', async () => {
+    const jobs = store()
+    const { job } = await jobs.create({
+      sessionId: 's1',
+      projectId: 'p1',
+      turnId: 'turn-1',
+    })
+    const effectKey = 'agent:job:step:call'
+    const input = {
+      jobId: job.id,
+      effectKey,
+      stepId: 'step',
+      toolCallId: 'call',
+      toolName: 'runNode',
+      argsDigest: 'digest-a',
+    }
+
+    await expect(jobs.claimToolEffect(input)).resolves.toMatchObject({
+      kind: 'claimed',
+      effect: { state: 'started' },
+    })
+    await expect(jobs.claimToolEffect(input)).resolves.toMatchObject({
+      kind: 'pending',
+      effect: { state: 'started' },
+    })
+
+    const completed = await jobs.completeToolEffect({
+      jobId: job.id,
+      effectKey,
+      result: { ok: true, nodeId: 'node-1' },
+    })
+    expect(completed).toMatchObject({
+      state: 'completed',
+      result: { ok: true, nodeId: 'node-1' },
+    })
+    await expect(jobs.claimToolEffect(input)).resolves.toMatchObject({
+      kind: 'completed',
+      effect: {
+        state: 'completed',
+        result: { ok: true, nodeId: 'node-1' },
+      },
+    })
+    expect((await jobs.events(job.id)).map((event) => event.type)).toEqual([
+      'created',
+      'tool_started',
+      'tool_finished',
+    ])
+  })
+
+  it('同一效果键配不同工具或参数时拒绝复用', async () => {
+    const jobs = store()
+    const { job } = await jobs.create({
+      sessionId: 's1',
+      projectId: 'p1',
+      turnId: 'turn-1',
+    })
+    const base = {
+      jobId: job.id,
+      effectKey: 'agent:job:step:call',
+      stepId: 'step',
+      toolCallId: 'call',
+      toolName: 'runNode',
+      argsDigest: 'digest-a',
+    }
+    await jobs.claimToolEffect(base)
+
+    await expect(
+      jobs.claimToolEffect({ ...base, argsDigest: 'digest-b' }),
+    ).resolves.toMatchObject({
+      kind: 'conflict',
+      reason: '同一个工具效果键被用于不同工具或不同参数',
+    })
+  })
+
+  it('工具失败也会持久化，不会被下一次点击当成未执行', async () => {
+    const jobs = store()
+    const { job } = await jobs.create({
+      sessionId: 's1',
+      projectId: 'p1',
+      turnId: 'turn-1',
+    })
+    const input = {
+      jobId: job.id,
+      effectKey: 'agent:job:step:call',
+      stepId: 'step',
+      toolCallId: 'call',
+      toolName: 'runNode',
+      argsDigest: 'digest-a',
+    }
+    await jobs.claimToolEffect(input)
+    await jobs.failToolEffect({
+      jobId: job.id,
+      effectKey: input.effectKey,
+      error: '渠道超时，结果未知',
+    })
+
+    await expect(jobs.claimToolEffect(input)).resolves.toMatchObject({
+      kind: 'failed',
+      effect: {
+        state: 'failed',
+        error: '渠道超时，结果未知',
+      },
+    })
+  })
 })

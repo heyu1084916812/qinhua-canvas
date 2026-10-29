@@ -123,6 +123,10 @@ import { createModelRoutePort } from '../../../../features/shared/agent/ModelRou
 import { createAgentController } from '../../../../features/shared/agent/AgentController'
 import { createAgentMemoryPort } from '../../../../features/shared/agent/MemoryPort'
 import {
+  AgentToolEffectBlockedError,
+  createAgentToolEffectLedger,
+} from '../../../../features/shared/agent/AgentToolEffectLedger'
+import {
   directTextTrace,
   type DirectRunRouteCandidate,
 } from '../../../../state/shared/directRun'
@@ -294,6 +298,9 @@ export function AgentPanel({
               message: `已完成 ${maxSteps} 步，可继续`,
             })
           },
+          onNeedsAttention: (sessionId, message) => {
+            setStatusFor(sessionId, { kind: 'error', message })
+          },
           onIdle: (sessionId) => setStatusFor(sessionId, IDLE_STATUS),
           notify: (message, tone) => store.notify(message, tone),
         },
@@ -301,6 +308,7 @@ export function AgentPanel({
     [platform.storage, projectId, setStatusFor, store],
   )
   const { sessions, jobs } = controller
+  const toolEffects = useMemo(() => createAgentToolEffectLedger(jobs), [jobs])
   const memory = useMemo(
     () => createAgentMemoryPort(createContextRepository(platform.storage)),
     [platform],
@@ -674,9 +682,23 @@ export function AgentPanel({
         if (mapped) return mapped
         jobIdsRef.current.delete(session.id)
       }
-      const existing =
-        (await jobs.forTurn(session.id, turnId)) ??
-        (await jobs.active(session.id))
+      let existing = await jobs.forTurn(session.id, turnId)
+      if (!existing) {
+        const active = await jobs.active(session.id)
+        if (active?.status === 'needs_attention') {
+          await jobs
+            .transition(
+              active.id,
+              'canceled',
+              'canceled',
+              {},
+              { reason: 'new_turn_after_needs_attention' },
+            )
+            .catch(() => null)
+        } else {
+          existing = active
+        }
+      }
       const job =
         existing ??
         (await jobs.create({
@@ -1079,6 +1101,64 @@ export function AgentPanel({
       platform,
       memory,
     ],
+  )
+
+  /**
+   * 确认型工具只执行一次。
+   *
+   * 工具结果写在同一 Job 的不可变事件流水里，应用崩溃或确认按钮被再次触发时：
+   * - 已完成：直接回放上次结果；
+   * - 已开始未完成：转 needs_attention，不自动重发；
+   * - 相同 callId 却换了参数：按失败处理，避免把两次不同操作混成一次。
+   */
+  const executeConfirmedToolWithLedger = useCallback(
+    async (session: AgentSession, request: AgentToolRequest): Promise<unknown> => {
+      const jobId =
+        jobIdsRef.current.get(session.id) ??
+        (await jobs.active(session.id))?.id
+      if (!jobId) {
+        return executeConfirmedTool(
+          request.name,
+          request.args,
+          toolCtx(originOf(viewport)),
+        )
+      }
+      jobIdsRef.current.set(session.id, jobId)
+      const latest = (await sessions.get(session.id)) ?? session
+      const stepId = latest.taskPlan?.currentStepId ?? 'unplanned'
+      const outcome = await toolEffects.run({
+        jobId,
+        stepId,
+        toolCallId: request.callId,
+        toolName: request.name,
+        args: request.args,
+        execute: () =>
+          executeConfirmedTool(
+            request.name,
+            request.args,
+            toolCtx(originOf(viewport)),
+          ),
+      })
+      if (outcome.kind === 'completed') {
+        if (outcome.replayed) {
+          store.notify('已复用这次工具调用的持久结果，没有重复执行或扣费', 'info')
+        }
+        return outcome.result
+      }
+      if (outcome.kind === 'pending') {
+        throw new AgentToolEffectBlockedError(
+          outcome.reason,
+          'needs_attention',
+          outcome,
+        )
+      }
+      throw new AgentToolEffectBlockedError(
+        outcome.kind === 'conflict' ? outcome.reason : outcome.error,
+        'failed',
+        outcome,
+      )
+    },
+    [jobs, sessions, store, toolCtx, toolEffects, viewport],
   )
 
   const loopDeps = useCallback(
@@ -1658,11 +1738,7 @@ export function AgentPanel({
         )
       }
       setStatusFor(session.id, { kind: 'executing', tool: outcome.request.name })
-      const done = await executeConfirmedTool(
-        outcome.request.name,
-        outcome.request.args,
-        toolCtx(originOf(viewport)),
-      )
+      const done = await executeConfirmedToolWithLedger(session, outcome.request)
       onMessages(outcome.messages)
       if (runsGeneration) {
         await transitionSessionJob(
@@ -1704,7 +1780,7 @@ export function AgentPanel({
       }
     }
     return outcome
-  }, [setStatusFor, toolCtx, transitionSessionJob, viewport])
+  }, [executeConfirmedToolWithLedger, setStatusFor, transitionSessionJob])
 
   const runSendText = useCallback(async (
     text: string,
@@ -2119,12 +2195,21 @@ export function AgentPanel({
       }
     } catch (error) {
       const aborted = abortRefs.current.get(session.id)?.signal.aborted === true
+      const blocked =
+        error instanceof AgentToolEffectBlockedError ? error : null
       deliveredSteersRef.current.delete(session.id)
       await transitionSessionJob(
         session.id,
-        aborted ? 'canceled' : 'failed',
-        aborted ? 'interrupted' : 'failed',
-        aborted ? {} : { lastError: errText(error) },
+        aborted ? 'canceled' : blocked?.status ?? 'failed',
+        aborted ? 'interrupted' : blocked ? 'tool_failed' : 'failed',
+        aborted
+          ? {}
+          : {
+              lastError: errText(error),
+              ...(blocked?.status === 'needs_attention'
+                ? { pendingCallId: blocked.outcome.effect.toolCallId }
+                : {}),
+            },
         { phase: 'run_send_text' },
       )
       setStatusFor(
@@ -2611,7 +2696,7 @@ export function AgentPanel({
         )
       }
       setStatusFor(current.id, { kind: 'executing', tool: request.name })
-      const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
+      const result = await executeConfirmedToolWithLedger(current, request)
       const imageNodeIds = [...new Set(
         [...messages].reverse().find((message) => message.role === 'user')?.imageNodeIds ?? [],
       )]
@@ -2650,12 +2735,19 @@ export function AgentPanel({
       await settleSessionOutcome(current.id, outcome)
     } catch (error) {
       if (abortRefs.current.get(current.id)?.signal.aborted) return
+      const blocked =
+        error instanceof AgentToolEffectBlockedError ? error : null
       setStatusFor(current.id, { kind: 'error', message: errText(error) })
       await transitionSessionJob(
         current.id,
-        'failed',
-        'failed',
-        { lastError: errText(error) },
+        blocked?.status ?? 'failed',
+        blocked ? 'tool_failed' : 'failed',
+        {
+          lastError: errText(error),
+          ...(blocked?.status === 'needs_attention'
+            ? { pendingCallId: blocked.outcome.effect.toolCallId }
+            : {}),
+        },
         { phase: 'confirmed_tool' },
       )
       await settleSessionOutcome(current.id, { kind: 'error' })
@@ -2670,9 +2762,8 @@ export function AgentPanel({
   }, [
     status,
     current,
-    viewport,
     messages,
-    toolCtx,
+    executeConfirmedToolWithLedger,
     loopDeps,
     handleOutcome,
     settleSessionOutcome,

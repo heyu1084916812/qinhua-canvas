@@ -38,6 +38,7 @@ const TRANSITIONS: Record<AgentJobStatus, readonly AgentJobStatus[]> = {
   planning: [
     'waiting_confirmation',
     'waiting_generation',
+    'needs_attention',
     'paused',
     'completed',
     'failed',
@@ -91,6 +92,9 @@ export const AGENT_EVENT_TYPES = [
   'checkpoint_saved',
   'confirmation_requested',
   'confirmation_resolved',
+  'tool_started',
+  'tool_finished',
+  'tool_failed',
   'generation_started',
   'generation_finished',
   'interrupted',
@@ -111,6 +115,27 @@ export interface AgentEvent {
   type: AgentEventType
   createdAt: number
   payload: Record<string, unknown>
+}
+
+export type AgentToolEffectState = 'started' | 'completed' | 'failed'
+
+/**
+ * 一次工具调用的持久账本投影。
+ *
+ * 效果键必须由 `(jobId, stepId, toolCallId)` 派生；工具名和参数摘要用于识别
+ * “同一个 callId 被复用成另一件事”的冲突。
+ */
+export interface AgentToolEffect {
+  effectKey: string
+  stepId: string
+  toolCallId: string
+  toolName: string
+  argsDigest: string
+  state: AgentToolEffectState
+  startedAt: number
+  finishedAt?: number
+  result?: unknown
+  error?: string
 }
 
 export function isAgentJobStatus(value: unknown): value is AgentJobStatus {

@@ -75,4 +75,8 @@ describe('AgentJob 状态机', () => {
       ),
     ).toThrow('waiting_confirmation')
   })
+
+  it('规划阶段遇到未知工具结果时可转 needs_attention，不伪装成失败或完成', () => {
+    expect(canTransitionAgentJob('planning', 'needs_attention')).toBe(true)
+  })
 })

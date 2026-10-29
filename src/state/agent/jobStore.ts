@@ -10,6 +10,8 @@ import {
   type AgentJobCheckpoint,
   type AgentJobPatch,
   type AgentJobStatus,
+  type AgentToolEffect,
+  type AgentToolEffectState,
 } from '../../domain/agent/job'
 import type { RowOf, StoragePort } from '../../platform/ports'
 import { createId } from '../../shared/id'
@@ -37,6 +39,29 @@ export interface AgentJobStore {
     type: AgentEventType,
     payload?: Record<string, unknown>,
   ): Promise<AgentEvent | null>
+  toolEffect(jobId: string, effectKey: string): Promise<AgentToolEffect | null>
+  claimToolEffect(input: {
+    jobId: string
+    effectKey: string
+    stepId: string
+    toolCallId: string
+    toolName: string
+    argsDigest: string
+  }): Promise<{
+    kind: 'claimed' | 'completed' | 'failed' | 'pending' | 'conflict'
+    effect: AgentToolEffect
+    reason?: string
+  }>
+  completeToolEffect(input: {
+    jobId: string
+    effectKey: string
+    result: unknown
+  }): Promise<AgentToolEffect | null>
+  failToolEffect(input: {
+    jobId: string
+    effectKey: string
+    error: string
+  }): Promise<AgentToolEffect | null>
   /** 应用重启后恢复；等待生成的任务绝不自动重发。 */
   recoverSession(sessionId: string): Promise<AgentJob[]>
 }
@@ -144,6 +169,54 @@ function nextEvent(
     type,
     createdAt: at,
     payload,
+  }
+}
+
+function toolEffectStateOf(type: AgentEvent['type']): AgentToolEffectState | null {
+  if (type === 'tool_started') return 'started'
+  if (type === 'tool_finished') return 'completed'
+  if (type === 'tool_failed') return 'failed'
+  return null
+}
+
+function toolEffectFromEvents(
+  events: readonly AgentEvent[],
+  effectKey: string,
+): AgentToolEffect | null {
+  const rows = events
+    .filter(
+      (event) =>
+        event.payload.effectKey === effectKey &&
+        toolEffectStateOf(event.type) !== null,
+    )
+    .sort((left, right) => left.seq - right.seq)
+  if (rows.length === 0) return null
+  const first = rows[0]!
+  const terminal = [...rows]
+    .reverse()
+    .find(
+      (event) =>
+        event.type === 'tool_finished' || event.type === 'tool_failed',
+    )
+  const latest = terminal ?? first
+  const state = toolEffectStateOf(latest.type)
+  if (!state) return null
+  const result = latest.payload.result
+  const error =
+    typeof latest.payload.error === 'string' ? latest.payload.error : undefined
+  return {
+    effectKey,
+    stepId: String(first.payload.stepId ?? ''),
+    toolCallId: String(first.payload.toolCallId ?? ''),
+    toolName: String(first.payload.toolName ?? ''),
+    argsDigest: String(first.payload.argsDigest ?? ''),
+    state,
+    startedAt: Number(first.createdAt ?? 0),
+    ...(terminal ? { finishedAt: Number(terminal.createdAt ?? 0) } : {}),
+    ...(state === 'completed' ? { result: result ?? null } : {}),
+    ...(state === 'failed'
+      ? { error: error ?? '工具执行失败（旧记录没有错误详情）' }
+      : {}),
   }
 }
 
@@ -286,6 +359,110 @@ export function createAgentJobStore(storage: StoragePort): AgentJobStore {
       return event
     })
 
+  const toolEffect: AgentJobStore['toolEffect'] = async (jobId, effectKey) =>
+    toolEffectFromEvents(await eventsOf(jobId), effectKey)
+
+  const claimToolEffect: AgentJobStore['claimToolEffect'] = async (input) =>
+    storage.transaction(['agentJobs', 'agentEvents'], async (tx) => {
+      const jobs = (await tx.query('agentJobs', { id: input.jobId })).map(toJob)
+      if (!jobs[0]) throw new Error(`AgentJob 不存在：${input.jobId}`)
+      const previous = (await tx.query('agentEvents', { jobId: input.jobId }))
+        .map(toEvent)
+        .sort((left, right) => left.seq - right.seq)
+      const existing = toolEffectFromEvents(previous, input.effectKey)
+      if (existing) {
+        if (
+          existing.toolName !== input.toolName ||
+          existing.argsDigest !== input.argsDigest ||
+          existing.stepId !== input.stepId ||
+          existing.toolCallId !== input.toolCallId
+        ) {
+          return {
+            kind: 'conflict' as const,
+            effect: existing,
+            reason: '同一个工具效果键被用于不同工具或不同参数',
+          }
+        }
+        return {
+          kind:
+            existing.state === 'completed'
+              ? ('completed' as const)
+              : existing.state === 'failed'
+                ? ('failed' as const)
+                : ('pending' as const),
+          effect: existing,
+        }
+      }
+
+      const otherPending = [...new Set(
+        previous
+          .filter((event) => event.type === 'tool_started')
+          .map((event) => String(event.payload.effectKey ?? ''))
+          .filter((key) => key && key !== input.effectKey),
+      )]
+        .map((key) => toolEffectFromEvents(previous, key))
+        .find((effect) => effect?.state === 'started')
+      if (otherPending) {
+        return {
+          kind: 'pending' as const,
+          effect: otherPending,
+          reason:
+            `任务里还有一次工具调用（${otherPending.toolName || otherPending.toolCallId}）` +
+            '已经开始但结果未知；先处理它之前不会执行新的工具。',
+        }
+      }
+
+      const at = Date.now()
+      const event = nextEvent(jobs[0], previous, 'tool_started', at, {
+        effectKey: input.effectKey,
+        stepId: input.stepId,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        argsDigest: input.argsDigest,
+      })
+      await tx.put('agentEvents', eventRow(event))
+      return {
+        kind: 'claimed' as const,
+        effect: toolEffectFromEvents([event], input.effectKey)!,
+      }
+    })
+
+  const completeToolEffect: AgentJobStore['completeToolEffect'] = async (input) =>
+    storage.transaction(['agentJobs', 'agentEvents'], async (tx) => {
+      const jobs = (await tx.query('agentJobs', { id: input.jobId })).map(toJob)
+      if (!jobs[0]) return null
+      const previous = (await tx.query('agentEvents', { jobId: input.jobId }))
+        .map(toEvent)
+        .sort((left, right) => left.seq - right.seq)
+      const existing = toolEffectFromEvents(previous, input.effectKey)
+      if (!existing) return null
+      if (existing.state !== 'started') return existing
+      const event = nextEvent(jobs[0], previous, 'tool_finished', Date.now(), {
+        effectKey: input.effectKey,
+        result: input.result ?? null,
+      })
+      await tx.put('agentEvents', eventRow(event))
+      return toolEffectFromEvents([...previous, event], input.effectKey)
+    })
+
+  const failToolEffect: AgentJobStore['failToolEffect'] = async (input) =>
+    storage.transaction(['agentJobs', 'agentEvents'], async (tx) => {
+      const jobs = (await tx.query('agentJobs', { id: input.jobId })).map(toJob)
+      if (!jobs[0]) return null
+      const previous = (await tx.query('agentEvents', { jobId: input.jobId }))
+        .map(toEvent)
+        .sort((left, right) => left.seq - right.seq)
+      const existing = toolEffectFromEvents(previous, input.effectKey)
+      if (!existing) return null
+      if (existing.state !== 'started') return existing
+      const event = nextEvent(jobs[0], previous, 'tool_failed', Date.now(), {
+        effectKey: input.effectKey,
+        error: input.error,
+      })
+      await tx.put('agentEvents', eventRow(event))
+      return toolEffectFromEvents([...previous, event], input.effectKey)
+    })
+
   const recoverSession: AgentJobStore['recoverSession'] = async (sessionId) => {
     const jobs = (await storage.query('agentJobs', { sessionId }))
       .map(toJob)
@@ -324,6 +501,10 @@ export function createAgentJobStore(storage: StoragePort): AgentJobStore {
     events: eventsOf,
     transition: transitionJob,
     appendEvent,
+    toolEffect,
+    claimToolEffect,
+    completeToolEffect,
+    failToolEffect,
     recoverSession,
   }
 }

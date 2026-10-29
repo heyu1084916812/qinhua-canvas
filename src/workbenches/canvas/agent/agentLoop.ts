@@ -8,6 +8,7 @@ import {
 } from '../../../domain/agent/toolRegistry'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { errorTextOf } from '../../../shared/result'
+import { createId } from '../../../shared/id'
 import { parseJsonAgentAction } from './jsonToolFallback'
 
 /**
@@ -201,7 +202,13 @@ export async function runAgentTurn(
           messages,
         }
       }
-      calls = [{ id: `json-${step}`, name: action.name, args: JSON.stringify(action.args ?? {}) }]
+      calls = [
+        {
+          id: createId('jsoncall'),
+          name: action.name,
+          args: JSON.stringify(action.args ?? {}),
+        },
+      ]
     }
     if (calls.length === 0) {
       if ((await pullSteering()) > 0) continue
