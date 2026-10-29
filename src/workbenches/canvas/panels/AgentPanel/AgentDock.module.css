@@ -141,14 +141,48 @@
   right: 0;
   bottom: 0;
   z-index: 47;
-  min-width: 360px;
-  max-width: 720px;
+  min-width: 320px;
   box-sizing: border-box;
   /* 参数菜单可能比面板更宽，外框不能裁掉浮层。 */
   overflow: visible;
-  border-left: 1px solid var(--stroke);
-  background: var(--bg-surface);
+  border-radius: 0;
+  background: var(--bg-app);
   isolation: isolate;
+}
+
+.cornerTopLeft,
+.cornerTopRight,
+.cornerBottomLeft,
+.cornerBottomRight {
+  position: absolute;
+  width: var(--radius-node);
+  height: var(--radius-node);
+  background: var(--bg-app);
+  pointer-events: none;
+}
+
+.cornerTopLeft {
+  top: 0;
+  left: calc(var(--radius-node) * -1);
+  border-bottom-left-radius: var(--radius-node);
+}
+
+.cornerBottomLeft {
+  bottom: 0;
+  left: calc(var(--radius-node) * -1);
+  border-top-left-radius: var(--radius-node);
+}
+
+.cornerTopRight {
+  top: 0;
+  right: calc(var(--radius-node) * -1);
+  border-bottom-right-radius: var(--radius-node);
+}
+
+.cornerBottomRight {
+  right: calc(var(--radius-node) * -1);
+  bottom: 0;
+  border-top-right-radius: var(--radius-node);
 }
 
 .panelFrame[hidden] {

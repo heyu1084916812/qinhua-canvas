@@ -40284,6 +40284,42 @@ async function g735(browser) {
       Math.abs(panelBox.x + panelBox.width - shellSlotBox.x) <= 1,
     `壳右沿=${Math.round(shellSlotBox.x)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)},${Math.round(panelBox.width)}×${Math.round(panelBox.height)}`,
   )
+  const agentSurface = await floating.evaluate((node) => {
+    const style = getComputedStyle(node)
+    const shell = document.querySelector('[data-app-shell]')
+    const corner = (name) =>
+      node.querySelector(`[data-agent-shell-corner="${name}"]`)
+    return {
+      background: style.backgroundColor,
+      shellBackground: shell ? getComputedStyle(shell).backgroundColor : '',
+      borderWidth: style.borderWidth,
+      topLeft: style.borderTopLeftRadius,
+      topRight: style.borderTopRightRadius,
+      bottomRight: style.borderBottomRightRadius,
+      bottomLeft: style.borderBottomLeftRadius,
+      cornerTopLeft: getComputedStyle(corner('top-left')).borderBottomLeftRadius,
+      cornerTopRight: getComputedStyle(corner('top-right')).borderBottomRightRadius,
+      cornerBottomLeft: getComputedStyle(corner('bottom-left')).borderTopLeftRadius,
+      cornerBottomRight: getComputedStyle(corner('bottom-right')).borderTopRightRadius,
+      boxShadow: style.boxShadow,
+    }
+  })
+  rec(
+    g,
+    'Agent 使用壳底色、四角左右镜像反向圆角且无边框',
+    agentSurface.background === agentSurface.shellBackground &&
+      agentSurface.borderWidth === '0px' &&
+      agentSurface.topLeft === '0px' &&
+      agentSurface.topRight === '0px' &&
+      agentSurface.bottomRight === '0px' &&
+      agentSurface.bottomLeft === '0px' &&
+      agentSurface.cornerTopLeft === '14px' &&
+      agentSurface.cornerTopRight === '14px' &&
+      agentSurface.cornerBottomLeft === '14px' &&
+      agentSurface.cornerBottomRight === '14px' &&
+      agentSurface.boxShadow === 'none',
+    JSON.stringify(agentSurface),
+  )
   rec(
     g,
     '打开瞬间直接使用当前球位，不闪旧面板位置',
@@ -40306,6 +40342,27 @@ async function g735(browser) {
       panelResized.width <= panelBox.width + 110 &&
       Math.abs(panelResized.x + panelResized.width - shellSlotBox.x) <= 1,
     `改前=${Math.round(panelBox.width)} 改后=${Math.round(panelResized.width)} 右沿=${Math.round(panelResized.x + panelResized.width)}`,
+  )
+  const resizeWideBox = await resizeHandle.boundingBox()
+  await page.mouse.move(
+    resizeWideBox.x + resizeWideBox.width / 2,
+    resizeWideBox.y + resizeWideBox.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    resizeWideBox.x - 300,
+    resizeWideBox.y + resizeWideBox.height / 2,
+    { steps: 6 },
+  )
+  await page.mouse.up()
+  const panelWide = await floating.boundingBox()
+  rec(
+    g,
+    'Agent 宽度可以拖过原 720px 上限，右沿保持固定',
+    panelWide.width > 720 &&
+      panelWide.width <= page.viewportSize().width - 30 &&
+      Math.abs(panelWide.x + panelWide.width - shellSlotBox.x) <= 1,
+    `宽=${Math.round(panelWide.width)} 上限=${page.viewportSize().width - 30}`,
   )
   const orbWhenOpen = await orb.boundingBox()
   rec(

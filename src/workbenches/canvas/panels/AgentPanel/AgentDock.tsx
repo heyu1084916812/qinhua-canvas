@@ -12,8 +12,8 @@ import { AgentPanel } from './AgentPanel'
 import {
   AGENT_DOCK_LEGACY_STORAGE_KEY,
   AGENT_SHELL_STORAGE_KEY,
-  AGENT_SHELL_WIDTH_MAX,
   AGENT_SHELL_WIDTH_MIN,
+  agentShellMaxWidth,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
@@ -250,7 +250,7 @@ export function AgentDock({
       saveWidth(AGENT_SHELL_WIDTH_MIN)
     } else if (event.key === 'End') {
       event.preventDefault()
-      saveWidth(AGENT_SHELL_WIDTH_MAX)
+      saveWidth(agentShellMaxWidth())
     }
   }
 
@@ -271,6 +271,10 @@ export function AgentDock({
             aria-label="Agent 面板"
             hidden={!open}
           >
+            <span className={styles.cornerTopLeft} data-agent-shell-corner="top-left" aria-hidden="true" />
+            <span className={styles.cornerTopRight} data-agent-shell-corner="top-right" aria-hidden="true" />
+            <span className={styles.cornerBottomLeft} data-agent-shell-corner="bottom-left" aria-hidden="true" />
+            <span className={styles.cornerBottomRight} data-agent-shell-corner="bottom-right" aria-hidden="true" />
             <AgentPanel
               projectId={projectId}
               onClose={() => onOpenChange(false)}
@@ -285,7 +289,7 @@ export function AgentDock({
               aria-controls="canvas-agent-panel"
               aria-label="调整 Agent 面板宽度"
               aria-valuemin={AGENT_SHELL_WIDTH_MIN}
-              aria-valuemax={AGENT_SHELL_WIDTH_MAX}
+              aria-valuemax={agentShellMaxWidth()}
               aria-valuenow={shell.width}
               title="左右拖动调整宽度；方向键微调"
               onPointerDown={onResizePointerDown}

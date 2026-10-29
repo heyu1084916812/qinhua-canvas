@@ -3,8 +3,8 @@ import {
   AGENT_ORB_SIZE,
   AGENT_SHELL_GAP,
   AGENT_SHELL_WIDTH_DEFAULT,
-  AGENT_SHELL_WIDTH_MAX,
   AGENT_SHELL_WIDTH_MIN,
+  agentShellMaxWidth,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
@@ -29,9 +29,10 @@ describe('Agent shell layout', () => {
     expect(clampAgentOrb(point, AREA)).toEqual(point)
   })
 
-  it('keeps panel width inside 360–720', () => {
+  it('keeps panel width between the minimum and the current viewport width', () => {
     expect(agentShellWidth(100, 1440)).toBe(AGENT_SHELL_WIDTH_MIN)
-    expect(agentShellWidth(5000, 1920)).toBe(AGENT_SHELL_WIDTH_MAX)
+    expect(agentShellMaxWidth(1920)).toBe(1890)
+    expect(agentShellWidth(5000, 1920)).toBe(1890)
     expect(resizedAgentShellWidth(420, 800, 700, 1440)).toBe(520)
   })
 
@@ -43,7 +44,7 @@ describe('Agent shell layout', () => {
     )
     expect(state.orb.x + AGENT_ORB_SIZE).toBeLessThanOrEqual(AREA.x + AREA.width - AGENT_SHELL_GAP)
     expect(state.orb.y).toBe(AREA.y + AGENT_SHELL_GAP)
-    expect(state.width).toBe(720)
+    expect(state.width).toBe(994)
   })
 
   it('restores v2 state and migrates only the orb from v1', () => {

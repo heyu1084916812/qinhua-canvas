@@ -19,8 +19,7 @@ export const AGENT_ORB_SIZE = 64
 /** 与 AppShell 的 `--shell-gap` 保持一致；面板是壳层 slot 的绝对定位子项。 */
 export const AGENT_SHELL_GAP = 15
 export const AGENT_SHELL_WIDTH_DEFAULT = 420
-export const AGENT_SHELL_WIDTH_MIN = 360
-export const AGENT_SHELL_WIDTH_MAX = 720
+export const AGENT_SHELL_WIDTH_MIN = 320
 export const AGENT_SHELL_STORAGE_KEY = 'qinghua.canvas.agentShell.v2'
 export const AGENT_DOCK_LEGACY_STORAGE_KEY = 'qinghua.canvas.agentDock.v1'
 
@@ -45,14 +44,20 @@ export function clampAgentOrb(
   }
 }
 
+export function agentShellMaxWidth(
+  availableWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
+): number {
+  return Math.max(
+    AGENT_SHELL_WIDTH_MIN,
+    Math.round(availableWidth - AGENT_SHELL_GAP * 2),
+  )
+}
+
 export function agentShellWidth(
   requested = AGENT_SHELL_WIDTH_DEFAULT,
   availableWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
 ): number {
-  const maximum = Math.min(
-    AGENT_SHELL_WIDTH_MAX,
-    Math.max(AGENT_SHELL_WIDTH_MIN, availableWidth - AGENT_SHELL_GAP * 2),
-  )
+  const maximum = agentShellMaxWidth(availableWidth)
   return Math.round(clamp(requested, AGENT_SHELL_WIDTH_MIN, maximum))
 }
 
@@ -105,7 +110,7 @@ export function parseAgentShellState(raw: string | null): AgentShellState | null
 
 /**
  * 旧版把浮球和可移动面板存在同一条布局里。迁移时只保留用户拖过的球位，
- * 面板宽度取旧值但立即夹进新的 360–720 范围，面板坐标不再恢复。
+ * 面板宽度取旧值但立即夹进新的 320–可用宽度范围，面板坐标不再恢复。
  */
 export function parseLegacyAgentShellState(raw: string | null): AgentShellState | null {
   if (!raw) return null
