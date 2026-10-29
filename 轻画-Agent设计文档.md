@@ -1,5 +1,14 @@
 # 轻画 · Agent 设计文档（画布 Agent）
 
+> **2026-10-29 Agent 活动时间线、图像查看与验收基准（对账 #814）**：活动条改为持续显示的
+> 公开工具时间线，当前状态单独一行，默认保留最近 5 步并可展开全部；步骤只使用真实工具名、
+> 结果摘要和产品文案，不输出或伪造模型私有思维链。`readAsset` 按 `image/*` MIME 计数，
+> `visualReview` 按本次实际提交的目标图数量生成“已查看 N 张图像”，使用同一图像图标。
+> 排队卡不再先折叠标题，直接显示消息行；三点菜单通过 portal 渲染为 fixed 浮层。
+> `visualReviewGenerationBriefs()` 从目标节点自身提示词、`linkedPromptNodeIds` 和直接上游提示词
+> 组装验收硬基准，随图片一起发送并写入 RunRecord；提示词明确的结构、材质、配件与禁止项优先于
+> 验收模型对品类的常识假设。Agent 新建节点以当前视口中心为起点，再避让已有节点。
+
 > **2026-10-29 Harness 集成回退（对账 #809）**：按用户要求撤回 DeepSeek Harness
 > Worker 运行时、ACP/MCP 桥、签名资源包与安装入口；未接入官方 DSH，也不再以 Harness
 > 作为当前实现目标。保留的应用壳 Agent 面板、AgentController、ToolRegistry、

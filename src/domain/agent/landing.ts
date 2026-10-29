@@ -90,6 +90,37 @@ export function layoutAgentPlan(
   return out
 }
 
+export function centeredNodeOrigin(
+  size: { w: number; h: number },
+  viewport: Rect,
+): { x: number; y: number } {
+  return {
+    x: Math.round(viewport.x + (viewport.w - size.w) / 2),
+    y: Math.round(viewport.y + (viewport.h - size.h) / 2),
+  }
+}
+
+/**
+ * 让整份新建计划的包围盒落在当前视口中心；返回值仍是
+ * `layoutAgentPlan()` 所需的“第一列左上角”原点。
+ */
+export function centeredAgentPlanOrigin(
+  plan: AgentPlan,
+  sizeOf: (type: AgentPlan['nodes'][number]['type']) => { w: number; h: number },
+  viewport: Rect,
+): { x: number; y: number } | null {
+  const rects = Object.values(layoutAgentPlan(plan, [], sizeOf, { x: 0, y: 0 }))
+  if (rects.length === 0) return null
+  const minX = Math.min(...rects.map((rect) => rect.x))
+  const minY = Math.min(...rects.map((rect) => rect.y))
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.w))
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.h))
+  return {
+    x: Math.round(viewport.x + (viewport.w - (maxX - minX)) / 2 - minX),
+    y: Math.round(viewport.y + (viewport.h - (maxY - minY)) / 2 - minY),
+  }
+}
+
 /** `attach` 里的 localId 表示「复用已有节点」，不新建 */
 export function isAttached(plan: AgentPlan, localId: string): boolean {
   return (plan.attach ?? []).some((a) => a.localId === localId)

@@ -9,6 +9,7 @@ import {
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
+import type { Rect } from '../../../domain/agent/landing'
 import { downstreamOf } from '../../../domain/canvas/graph/upstreamOf'
 import { canBuildRequest } from '../../../features/canvas/execution/buildRunPlan'
 import { applyAgentPlan } from './applyAgentPlan'
@@ -822,6 +823,8 @@ export interface AgentToolContext {
   }
   /** 新节点的落点（§6：优先视口中心偏左） */
   origin: { x: number; y: number }
+  /** 当前可见画布的世界矩形；用于把整组新节点居中。 */
+  viewportWorld?: Rect
   /** 跑节点 —— 由执行层注入：agent 自己不直接发渠道请求 */
   runNodes: (
     nodeIds: string[],
@@ -1594,6 +1597,7 @@ export async function executeConfirmedTool(
           const picked = ctx.recipeForGenerated?.(type, node)
           return picked ? { ...base, channelId: picked.channelId, model: picked.model } : base
         },
+        ...(ctx.viewportWorld ? { viewportWorld: ctx.viewportWorld } : {}),
       })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）
       return {

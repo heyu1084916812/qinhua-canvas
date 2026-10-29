@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 活动流与视觉验收硬基准（2026-10-29，对账 #814）
+
+- **活动流只报可核实动作**：`ConversationStep.activityLabel / activityKind` 由真实工具结果派生；
+  `readAsset` 按 `image/*` MIME、`visualReview` 按实际目标图数量显示“已查看 N 张图像”。
+  默认展示最近 5 步，不能把模型私有思维链保存到会话或渲染到 UI。
+- **居中不等于覆盖**：Agent 计划以当前视口世界矩形计算整组包围盒中心，但最终落点仍必须走
+  `layoutAgentPlan / findFreeRect` 避让已有节点。`useViewportState()` 返回的是轻画 store 视口
+  （世界左上角），不要误当 React Flow 的屏幕位移 `x/y`。
+- **浮层不能留在裁切容器里**：排队卡三点菜单通过 body portal + fixed 定位，输入框不能盖住它；
+  滚动、缩放或点击外部时收口。全局菜单统一使用 `menuInkIn`，减少动效时时长归零而不是删状态反馈。
+- **视觉验收必须有提示词**：只发图片会让模型拿品类常识猜结构。必须把目标节点 `prompt/text`、
+  `linkedPromptNodeIds` 和直接上游提示词送入验收硬基准；提示词明确写出的防滑垫、拉链、材质等，
+  不得被“常见产品应该怎样”推翻。
+- **本轮证据**：G735 **33/33**；G769 浅色 **28/28**、深色 **28/28**；全量 Vitest
+  **3587 passed / 1 skipped**；`npm run check`、`npm run build`、`git diff --check` 通过。
+
 ### Harness 集成回退（2026-10-29，对账 #809）
 
 - **Agent 生成失败原因与 paused 收口（对账 #813）**：确认前 precheck 不够，执行层调用前

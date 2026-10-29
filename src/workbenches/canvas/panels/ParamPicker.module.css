@@ -414,7 +414,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
-  animation: pickerIn var(--dur-panel) var(--ease-panel);
+  animation: menuInkInCentered var(--dur-menu) var(--ease-panel);
 }
 
 .above {

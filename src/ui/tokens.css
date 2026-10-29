@@ -269,6 +269,43 @@
   --ease-panel: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/*
+ * 所有下拉浮层共用同一个“墨迹初显”节奏：透明度、极小位移和短暂柔化一起收束。
+ * 它只负责解释“浮层从哪里出现”，不改变布局，也不做弹跳。
+ */
+@keyframes menuInkIn {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 水平居中的浮层必须保留 translateX(-50%)，否则动画结束会跳位。 */
+@keyframes menuInkInCentered {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateX(-50%) translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-menu: 0ms;
+  }
+}
+
 /**
  * 深色主题（`<html data-theme="dark">`）。
  *

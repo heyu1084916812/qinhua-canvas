@@ -62,6 +62,9 @@ export const VISUAL_REVIEW_SYSTEM_PROMPT = [
   '不能调用生成、不能假设已经重新出图。',
   '只有在本次明确附上品牌、产品、角色或自定义套件参考素材时，才按这些参考核对。',
   '没有提供套件上下文或参考素材时，不要检查、推断或提及套件与品牌库，也不要输出“套件未提供”类限制。',
+  '每张图对应的生成提示词是本次验收的硬性基准。提示词明确写出的产品结构、材质、',
+  '配件和禁止项，不得用你自己的品类假设推翻；角度、反光或分辨率造成的视觉差异，',
+  '只有在能排除这些因素时才可判成结构与材质不一致。',
   '有参考素材时核对标志、结构、身份、颜色、字体和参考素材；同时检查文字可读性、',
   '错字、裁切、构图、清晰度、明显瑕疵与同一套图的视觉一致性。',
   '不要用“感觉不好看”作为结论；每个问题都要指出画面证据和可执行修改建议。',
@@ -158,6 +161,7 @@ function categoryOf(value: unknown): VisualReviewCategory {
 
 export function buildVisualReviewPrompt(input: {
   targets: readonly VisualReviewTarget[]
+  targetBriefs?: string
   checklist?: string
   context?: string
   referenceAssetCount?: number
@@ -183,6 +187,14 @@ export function buildVisualReviewPrompt(input: {
         : '本次附有项目套件的文本规范，用于核对品牌、产品结构、角色身份和视觉规范；没有套件图片时不得推断图片级一致性。'
       : '本次没有附品牌、产品、角色或自定义套件参考素材；不要检查或提及这些套件。',
   ]
+  const targetBriefs = input.targetBriefs?.trim()
+  if (targetBriefs) {
+    lines.push(
+      '',
+      '## 每张图生成时的明确要求（验收硬基准）',
+      targetBriefs.slice(0, 16_000),
+    )
+  }
   const checklist = input.checklist?.trim()
   if (checklist) {
     lines.push('', '## 用户本次验收清单', checklist.slice(0, 4_000))
@@ -198,6 +210,80 @@ export function buildVisualReviewPrompt(input: {
     'issues 按 blocking → warning → suggestion 排序。通过时 issues 可为空。',
   )
   return lines.join('\n')
+}
+
+export interface VisualReviewPromptGraph {
+  nodes: readonly {
+    id: string
+    title?: string
+    data?: unknown
+  }[]
+  edges: readonly {
+    source: string
+    target: string
+  }[]
+}
+
+/**
+ * 把目标节点自身的生成提示词、直接上游提示词和关键生成参数整理成验收基准。
+ *
+ * 视觉模型只收到图片时，很容易拿“常见产品应该怎样”去猜；而实际要求可能明确写了
+ * 底部防滑垫、隐藏拉链、可拆洗等结构。这里不替模型判断，只把生成时真实使用过的
+ * 约束原样交给它，供逐项核对。
+ */
+export function visualReviewGenerationBriefs(
+  graph: VisualReviewPromptGraph,
+  targetNodeIds: readonly string[],
+): string {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  const blocks: string[] = []
+  for (const [index, nodeId] of [...new Set(targetNodeIds)].entries()) {
+    const node = byId.get(nodeId)
+    if (!node) continue
+    const data = recordOf(node.data)
+    const own = [
+      textOf(data.prompt, 4_000),
+      textOf(data.text, 4_000),
+    ].filter(Boolean)
+    const upstreamIds = new Set<string>(
+      Array.isArray(data.linkedPromptNodeIds)
+        ? data.linkedPromptNodeIds.map(String)
+        : [],
+    )
+    for (const edge of graph.edges) {
+      if (edge.target === nodeId) upstreamIds.add(edge.source)
+    }
+    const upstream = [...upstreamIds]
+      .map((id) => byId.get(id))
+      .flatMap((source) => {
+        if (!source) return []
+        const sourceData = recordOf(source.data)
+        return [textOf(sourceData.text, 4_000), textOf(sourceData.prompt, 4_000)]
+          .filter(Boolean)
+      })
+    const requirements = [...new Set([...own, ...upstream])]
+    if (requirements.length === 0) continue
+    const params = [
+      typeof data.model === 'string' && data.model.trim()
+        ? `模型：${data.model.trim()}`
+        : '',
+      typeof data.ratio === 'string' && data.ratio.trim()
+        ? `比例：${data.ratio.trim()}`
+        : '',
+      typeof data.resolution === 'string' && data.resolution.trim()
+        ? `分辨率：${data.resolution.trim()}`
+        : '',
+    ].filter(Boolean)
+    blocks.push(
+      [
+        `### ${node.title?.trim() || `目标图片 ${index + 1}`}`,
+        ...(params.length > 0 ? [params.join('；')] : []),
+        '生成要求：',
+        ...requirements.map((text) => `- ${text}`),
+      ].join('\n'),
+    )
+  }
+  return blocks.join('\n\n').slice(0, 16_000)
 }
 
 export function parseVisualReviewText(

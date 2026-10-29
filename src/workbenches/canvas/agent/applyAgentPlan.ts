@@ -1,4 +1,8 @@
-import { verifyAgentPlanLanding, type AgentGraphView } from '../../../domain/agent/landing'
+import {
+  verifyAgentPlanLanding,
+  type AgentGraphView,
+  type Rect,
+} from '../../../domain/agent/landing'
 import type { AgentPlan } from '../../../domain/agent/plan'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { createId } from '../../../shared/id'
@@ -61,6 +65,7 @@ export function applyAgentPlan(
       type: AgentPlan['nodes'][number]['type'],
       node: AgentPlan['nodes'][number],
     ) => Record<string, unknown>
+    viewportWorld?: Rect
   },
 ): ApplyAgentPlanResult {
   const graph = store.getSnapshot()
@@ -70,6 +75,7 @@ export function applyAgentPlan(
     plan,
     graph,
     origin,
+    ...(opts?.viewportWorld ? { viewportWorld: opts.viewportWorld } : {}),
     newId: () => createId('node'),
     ...(opts?.dataFor ? { dataFor: opts.dataFor } : {}),
   })

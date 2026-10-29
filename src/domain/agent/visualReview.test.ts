@@ -4,6 +4,7 @@ import {
   buildVisualReviewPrompt,
   finalizeVisualReviewResult,
   parseVisualReviewText,
+  visualReviewGenerationBriefs,
   type VisualReviewResult,
 } from './visualReview'
 
@@ -52,6 +53,48 @@ describe('视觉验收子代理', () => {
     expect(prompt).toContain('项目套件的文本规范')
     expect(prompt).toContain('没有套件图片时不得推断图片级一致性')
     expect(prompt).not.toContain('套件参考素材 0 张')
+  })
+
+  it('★★ 生成提示词作为验收硬基准，并收集直接上游提示词', () => {
+    const targetBriefs = visualReviewGenerationBriefs(
+      {
+        nodes: [
+          {
+            id: 'prompt-1',
+            title: '结构约束',
+            data: {
+              text: '底部是一圈薄薄的防滑垫，侧边有隐藏拉链。',
+            },
+          },
+          {
+            id: 'result-1',
+            title: '产品三视图',
+            data: {
+              prompt: '燕麦米色，环状线圈绒，不要提手。',
+              model: 'Nano Banana 2.1',
+              ratio: '4:3',
+              resolution: '4K',
+            },
+          },
+        ],
+        edges: [{ source: 'prompt-1', target: 'result-1' }],
+      },
+      ['result-1'],
+    )
+    expect(targetBriefs).toContain('底部是一圈薄薄的防滑垫')
+    expect(targetBriefs).toContain('燕麦米色，环状线圈绒，不要提手')
+    expect(targetBriefs).toContain('模型：Nano Banana 2.1')
+
+    const prompt = buildVisualReviewPrompt({
+      targets: [{ nodeId: 'result-1', title: '产品三视图' }],
+      targetBriefs,
+      referenceAssetCount: 0,
+    })
+    expect(prompt).toContain('## 每张图生成时的明确要求（验收硬基准）')
+    expect(prompt).toContain('底部是一圈薄薄的防滑垫')
+    expect(VISUAL_REVIEW_SYSTEM_PROMPT).toContain(
+      '不得用你自己的品类假设推翻',
+    )
   })
 
   it('★★ 解析并规范问题清单，忽略不存在的目标节点和非法枚举', () => {

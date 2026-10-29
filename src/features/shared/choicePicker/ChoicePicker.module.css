@@ -78,6 +78,7 @@
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
+  animation: menuInkIn var(--dur-menu) var(--ease-panel);
 }
 
 .alignEnd {

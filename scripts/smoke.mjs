@@ -40990,6 +40990,7 @@ async function g769(browser) {
   try {
     await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
     priorDeliveryRow = await sharedRow(page, 'presets', 'agent:delivery')
+    await sharedPut(page, 'presets', { id: 'agent:delivery', mode: 'steer' })
     await sharedPut(page, 'projects', {
       id: projectId,
       name: 'Agent 队列验证',
@@ -41105,11 +41106,10 @@ async function g769(browser) {
       `activeTurnId=${recoveredSession?.activeTurnId ?? 'none'} queued=${recoveredSession?.queuedTurns?.length ?? 0}`,
     )
 
-    await page.locator('[data-agent-queue-toggle]').click()
     await page.locator('[data-agent-queue-item]').first().waitFor({ state: 'visible', timeout: 5000 })
     rec(
       g,
-      '★ 队列卡可展开并显示两条任务',
+      '★ 队列直接显示两条任务，不再先经过标题折叠',
       (await page.locator('[data-agent-queue-item]').count()) === 2,
     )
 
@@ -41147,9 +41147,7 @@ async function g769(browser) {
       (await page.locator('[data-agent-queue]').getAttribute('data-agent-queue-count')) === '1',
     )
 
-    if ((await page.locator('[data-agent-queue-item]').count()) === 0) {
-      await page.locator('[data-agent-queue-toggle]').click()
-    }
+    await page.locator('[data-agent-queue-item]').first().waitFor({ state: 'visible', timeout: 5000 })
     await page.setViewportSize({ width: 1024, height: 700 })
     await sleep(300)
     const narrow = await page.evaluate(() => {
@@ -41280,6 +41278,25 @@ async function g769(browser) {
             outcomes: [{ nodeId: thumbNodeId, title: '作品集封面', ok: true }],
           }),
         },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'call-g769-review', name: 'visualReview', args: '{}' }],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'call-g769-review',
+          toolName: 'visualReview',
+          content: JSON.stringify({
+            ok: true,
+            verdict: 'pass',
+            summary: '四张预览通过',
+            targetNodeIds: ['view-1', 'view-2', 'view-3', 'view-4'],
+            issues: [],
+            referenceAssetCount: 0,
+            limitations: [],
+          }),
+        },
       ],
       pendingConfirmation: {
         callId: 'call-plan-confirm',
@@ -41368,12 +41385,17 @@ async function g769(browser) {
     }))
     rec(
       g,
-      '★★ 运行态只显示一行思考 / 执行状态',
+      '★★ 运行态持续显示公开步骤，默认最多五步',
       activityCollapsed.visible &&
         activityCollapsed.expanded === 'false' &&
-        activityCollapsed.rows === 0,
+        activityCollapsed.rows >= 1 &&
+        activityCollapsed.rows <= 5 &&
+        (await page.locator('[data-agent-activity]').innerText()).includes('已查看 4 张图像'),
       JSON.stringify(activityCollapsed),
     )
+    await page.screenshot({
+      path: `${OUT}/769-agent-activity${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
     if ((await page.locator('[data-agent-activity-toggle]').count()) > 0) {
       await page.locator('[data-agent-activity-toggle]').click()
       const activityRows = await page.locator('[data-agent-activity-list] > *').count()
@@ -41382,7 +41404,7 @@ async function g769(browser) {
       })
       rec(
         g,
-        '★★ 状态条展开后最多显示前五步',
+        '★★ 状态条可展开查看全部步骤',
         activityRows >= 1 && activityRows <= 5,
         `rows=${activityRows}`,
       )
@@ -41515,12 +41537,32 @@ async function g769(browser) {
       state: 'visible',
       timeout: 10000,
     })
-    await page.locator('[data-agent-queue-toggle]').click()
     await page.locator('[data-agent-queue-item="turn-guide"]').waitFor({
       state: 'visible',
       timeout: 5000,
     })
     await page.locator('[data-agent-queue-more]').click()
+    const queueMenuLayering = await page.evaluate(() => {
+      const menu = document
+        .querySelector('[data-agent-queue-menu]')
+        ?.getBoundingClientRect()
+      const composer = document
+        .querySelector('[data-agent-composer]')
+        ?.getBoundingClientRect()
+      return {
+        menu: Boolean(menu),
+        aboveComposer: Boolean(menu && composer && menu.bottom <= composer.top + 1),
+      }
+    })
+    rec(
+      g,
+      '★★ 排队消息菜单浮在输入区之上，不被输入框遮挡',
+      queueMenuLayering.menu && queueMenuLayering.aboveComposer,
+      JSON.stringify(queueMenuLayering),
+    )
+    await page.screenshot({
+      path: `${OUT}/769-agent-queue-menu${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
     await page.locator('[data-agent-queue-edit]').click()
     await page.setViewportSize({ width: 1024, height: 700 })
     await sleep(250)

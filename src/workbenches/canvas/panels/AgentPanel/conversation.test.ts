@@ -128,6 +128,7 @@ describe('工具结果 → 人话', () => {
         ok: true,
         verdict: 'needs_changes',
         summary: 'Logo 和标题需要调整',
+        targetNodeIds: ['n1', 'n2', 'n3', 'n4'],
         referenceAssetCount: 0,
         issues: [
           {
@@ -152,6 +153,8 @@ describe('工具结果 → 人话', () => {
     )
     expect(toolLabel('visualReview')).toBe('视觉验收完成')
     expect(d.failed).toBe(false)
+    expect(d.activityKind).toBe('image')
+    expect(d.activityLabel).toBe('已查看 4 张图像')
     expect(d.nodeIds).toEqual(['n1'])
     expect(d.lines.join('\n')).toContain('需要修改：Logo 和标题需要调整')
     expect(d.lines.join('\n')).toContain('【文字】')
@@ -208,7 +211,10 @@ describe('工具结果 → 人话', () => {
     const asset = describeToolResult(
       'readAsset',
       JSON.stringify({
-        assets: [{ nodeId: 'node_8936ccef', title: '古装美女三视图设定', mime: 'image/png' }],
+        assets: [
+          { nodeId: 'node_8936ccef', title: '古装美女三视图设定', mime: 'image/png' },
+          { nodeId: 'node_audio', title: '旁白', mime: 'audio/mpeg' },
+        ],
       }),
     )
     const run = describeToolResult(
@@ -222,6 +228,8 @@ describe('工具结果 → 人话', () => {
       expect(d.lines.join(' ')).toContain('古装美女三视图设定')
       expect(d.lines.join(' ')).not.toContain('node_8936ccef')
     }
+    expect(asset.activityKind).toBe('image')
+    expect(asset.activityLabel).toBe('已查看 1 张图像')
   })
 })
 

@@ -13,6 +13,7 @@
   font-family: var(--font-sans);
   font-size: var(--fs-label);
   color: var(--text-1);
+  animation: menuInkIn var(--dur-menu) var(--ease-panel);
 }
 
 .item {

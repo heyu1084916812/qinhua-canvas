@@ -17,6 +17,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  animation: menuInkIn var(--dur-menu) var(--ease-panel);
 }
 
 /* 向右展开（触发器在左、菜单在右） */

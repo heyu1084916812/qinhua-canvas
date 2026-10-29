@@ -56,6 +56,40 @@ describe('buildLandingCommand', () => {
     expect(r.command.nodes[0]!.title).toBeTruthy()
   })
 
+  it('纯新建计划按当前视口的世界包围盒居中', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: '居中布局',
+      nodes: [
+        { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
+        { localId: 'g1', type: 'generation', data: {}, order: 1 },
+      ],
+      edges: [{ source: 'p1', target: 'g1' }],
+    }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph(),
+      origin: { x: 0, y: 0 },
+      viewportWorld: { x: 1000, y: 800, w: 1200, h: 800 },
+      newId,
+    })
+    const nodes = r.command.nodes
+    expect(
+      Math.round(
+        (Math.min(...nodes.map((node) => node.x)) +
+          Math.max(...nodes.map((node) => node.x + node.w))) /
+          2,
+      ),
+    ).toBe(1600)
+    expect(
+      Math.round(
+        (Math.min(...nodes.map((node) => node.y)) +
+          Math.max(...nodes.map((node) => node.y + node.h))) /
+          2,
+      ),
+    ).toBe(1200)
+  })
+
   it('★★ 复用已有节点时不重复建，且连线接到那个已有节点上', () => {
     seq = 0
     const plan: AgentPlan = {

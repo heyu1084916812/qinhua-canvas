@@ -268,7 +268,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
+  padding: var(--space-3) 0 calc(var(--space-8) + var(--space-3));
 }
 
 .content > * {
@@ -489,12 +489,12 @@
 }
 
 .activityList {
-  max-height: 132px;
+  max-height: 148px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-top: 5px;
+  gap: 2px;
+  margin-top: 4px;
   padding-left: 13px;
 }
 
@@ -502,8 +502,10 @@
 .activityRowFailed {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  min-height: 24px;
+  padding: 1px 0;
   color: var(--text-2);
   font-size: var(--fs-chip);
   line-height: 1.45;
@@ -513,11 +515,18 @@
   color: var(--danger);
 }
 
+.activityStepIcon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
 .activityStepName {
   flex: 0 0 auto;
-  max-width: 46%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -822,7 +831,11 @@
 
 .queueResume {
   flex: 0 0 auto;
-  padding: 2px 4px;
+  align-self: flex-end;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
   font: inherit;
   font-size: var(--fs-chip);
   color: var(--text-1);
@@ -840,7 +853,8 @@
   flex-direction: column;
   gap: 4px;
   max-height: 132px;
-  overflow: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .queueItem {
@@ -866,9 +880,8 @@
   font-size: var(--fs-chip);
   color: var(--text-2);
   line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queueActions {
@@ -922,18 +935,15 @@
 }
 
 .queueMenu {
-  grid-column: 2 / -1;
-  min-width: 0;
-}
-
-.queueMenu {
-  justify-self: end;
+  position: fixed;
+  z-index: 1000;
   min-width: 136px;
   padding: 4px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   box-shadow: var(--shadow-float);
+  animation: menuInkIn var(--dur-menu) var(--ease-panel);
 }
 
 .queueMenuItem {

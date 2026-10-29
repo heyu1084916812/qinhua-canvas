@@ -18,6 +18,9 @@ export interface ConversationStep {
   id: string
   tool: string
   label: string
+  /** 活动时间线里更具体、可核实的动作，如“已查看 4 张图像”。 */
+  activityLabel?: string
+  activityKind?: 'tool' | 'image'
   /** 展开后才看的明细（一行一条） */
   lines: string[]
   /** 这一步牵扯到的节点 id：面板据此把它们产出的图**内嵌**显示 */
@@ -134,7 +137,13 @@ export function readableConfirmationLines(text: string): string[] {
 export function describeToolResult(
   tool: string,
   raw: string,
-): { lines: string[]; nodeIds: string[]; failed: boolean } {
+): {
+  lines: string[]
+  nodeIds: string[]
+  failed: boolean
+  activityLabel?: string
+  activityKind?: 'tool' | 'image'
+} {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw || '{}')
@@ -162,10 +171,20 @@ export function describeToolResult(
         const a = asRecord(x)
         return String(a.title || a.nodeId || '?')
       })
+      const imageCount = assets.filter((asset) => {
+        const mime = String(asRecord(asset).mime ?? '')
+        return mime.startsWith('image/')
+      }).length
       return {
         lines: [`读了 ${assets.length} 个素材${names.length > 0 ? `：${names.join('、')}` : ''}`],
         nodeIds: [],
         failed: false,
+        ...(imageCount > 0
+          ? {
+              activityLabel: `已查看 ${imageCount} 张图像`,
+              activityKind: 'image' as const,
+            }
+          : {}),
       }
     }
     case 'readResult': {
@@ -181,6 +200,13 @@ export function describeToolResult(
     case 'visualReview': {
       const issues = asArray(r.issues).map(asRecord)
       const referenceAssetCount = Number(r.referenceAssetCount ?? 0)
+      const reviewedNodeIds = [
+        ...new Set(
+          asArray(r.targetNodeIds).filter(
+            (nodeId): nodeId is string => typeof nodeId === 'string' && nodeId.length > 0,
+          ),
+        ),
+      ]
       const suiteContextAvailable =
         r.suiteContextAvailable === true || referenceAssetCount > 0
       const visibleIssues =
@@ -267,6 +293,12 @@ export function describeToolResult(
           typeof issue.nodeId === 'string' ? [issue.nodeId] : [],
         ))],
         failed,
+        ...(reviewedNodeIds.length > 0
+          ? {
+              activityLabel: `已查看 ${reviewedNodeIds.length} 张图像`,
+              activityKind: 'image' as const,
+            }
+          : {}),
       }
     }
     case 'proposeTaskPlan': {

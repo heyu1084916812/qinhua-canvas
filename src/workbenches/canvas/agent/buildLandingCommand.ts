@@ -1,8 +1,10 @@
 import {
   AGENT_LAYOUT_GAP,
+  centeredAgentPlanOrigin,
   isAttached,
   layoutAgentPlan,
   type AgentGraphView,
+  type Rect,
 } from '../../../domain/agent/landing'
 import type { AgentNodeType, AgentPlan } from '../../../domain/agent/plan'
 import type { NodeData, NodeSnapshot } from '../../../domain/canvas/model/node'
@@ -38,6 +40,8 @@ export interface BuildLandingInput {
   graph: { projectId: string } & AgentGraphView & { nodes: NodeSnapshot[] }
   /** 新节点落哪（§6：优先视口中心偏左；有选中节点则落在它右侧） */
   origin: { x: number; y: number }
+  /** 当前可见画布的世界矩形；有值时纯新建计划按整组包围盒居中。 */
+  viewportWorld?: Rect
   /** 新 id 由调用方给（reducer 必须纯函数，测试也好断言） */
   newId: (kind: 'node') => string
   /**
@@ -218,7 +222,10 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
    * 两步都只读计划 + 画布，不改用户的任何既有节点。
    */
   const plan = withReferenceEdges(input.plan, input.graph)
-  const origin = originBesideAttached(plan, input.graph, input.origin)
+  const centered = input.viewportWorld
+    ? centeredAgentPlanOrigin(plan, sizeOf, input.viewportWorld)
+    : null
+  const origin = originBesideAttached(plan, input.graph, centered ?? input.origin)
   const { graph, newId } = input
 
   // ① 先把 localId → 真实 id 定下来（复用的指向既有节点，其余发新 id）

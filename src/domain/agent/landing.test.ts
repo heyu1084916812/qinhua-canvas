@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { AgentPlan } from './plan'
 import {
   AGENT_LAYOUT_GAP,
+  centeredAgentPlanOrigin,
+  centeredNodeOrigin,
   findFreeRect,
   layoutAgentPlan,
   verifyAgentPlanLanding,
@@ -72,6 +74,26 @@ describe('layoutAgentPlan · 按步排布', () => {
     const r = layoutAgentPlan(p, [node('old-p', 'prompt', 500, 500)], sizeOf, { x: 0, y: 0 })
     expect(r.p1).toBeUndefined()
     expect(r.g1).toBeDefined()
+  })
+
+  it('整份计划按当前视口居中，而不是从左上角起排', () => {
+    const origin = centeredAgentPlanOrigin(plan, sizeOf, {
+      x: 1000,
+      y: 800,
+      w: 1200,
+      h: 800,
+    })
+    expect(origin).not.toBeNull()
+    const r = layoutAgentPlan(plan, [], sizeOf, origin!)
+    const left = Math.min(r.p1!.x, r.g1!.x)
+    const right = Math.max(r.p1!.x + r.p1!.w, r.g1!.x + r.g1!.w)
+    expect(Math.round((left + right) / 2)).toBe(1600)
+  })
+
+  it('单个素材节点默认落在当前视口中心', () => {
+    expect(
+      centeredNodeOrigin(SIZE, { x: 100, y: 200, w: 1000, h: 600 }),
+    ).toEqual({ x: 500, y: 440 })
   })
 })
 

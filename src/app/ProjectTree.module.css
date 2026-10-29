@@ -332,6 +332,7 @@
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   box-shadow: var(--shadow-float);
+  animation: menuInkIn var(--dur-menu) var(--ease-panel);
 }
 
 .menuItem {

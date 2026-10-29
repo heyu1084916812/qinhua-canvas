@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
@@ -19,6 +20,7 @@ import {
   buildVisualReviewPrompt,
   finalizeVisualReviewResult,
   parseVisualReviewText,
+  visualReviewGenerationBriefs,
   type VisualReviewResult,
 } from '../../../../domain/agent/visualReview'
 import { prepareVisualReviewImages } from '../../../../features/shared/agent/visualReviewRunner'
@@ -42,7 +44,11 @@ import {
 } from '../../../../domain/agent/taskPlan'
 import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
-import { findFreeRect } from '../../../../domain/agent/landing'
+import {
+  centeredNodeOrigin,
+  findFreeRect,
+  type Rect,
+} from '../../../../domain/agent/landing'
 import type { AgentNodeType } from '../../../../domain/agent/plan'
 import {
   channelIdForLogical,
@@ -153,6 +159,7 @@ import {
   IconClose,
   IconCopyText,
   IconDelete,
+  IconImage,
   IconChat,
   IconLoop,
   IconManual,
@@ -386,7 +393,6 @@ export function AgentPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /** 当前会话那一份运行态（别的会话在跑不影响这里） */
   const status: Status = (current && statusBySession[current.id]) || IDLE_STATUS
-  const [queueExpanded, setQueueExpanded] = useState(false)
   const deliveryMode = useSyncExternalStore(
     subscribeAgentDeliveryMode,
     getAgentDeliveryMode,
@@ -431,10 +437,15 @@ export function AgentPanel({
   const stickToLatestRef = useRef(true)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const [queueMenuId, setQueueMenuId] = useState<string | null>(null)
+  const [queueMenuPosition, setQueueMenuPosition] = useState<{
+    right: number
+    bottom: number
+  } | null>(null)
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
   const [editingQueueText, setEditingQueueText] = useState('')
   useEffect(() => {
     setQueueMenuId(null)
+    setQueueMenuPosition(null)
     setEditingQueueId(null)
     setEditingQueueText('')
   }, [current?.id])
@@ -464,15 +475,27 @@ export function AgentPanel({
         return
       }
       setQueueMenuId(null)
+      setQueueMenuPosition(null)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setQueueMenuId(null)
+      if (event.key === 'Escape') {
+        setQueueMenuId(null)
+        setQueueMenuPosition(null)
+      }
+    }
+    const closeOnViewportChange = () => {
+      setQueueMenuId(null)
+      setQueueMenuPosition(null)
     }
     document.addEventListener('pointerdown', closeOutside, true)
+    document.addEventListener('scroll', closeOnViewportChange, true)
     window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', closeOnViewportChange)
     return () => {
       document.removeEventListener('pointerdown', closeOutside, true)
+      document.removeEventListener('scroll', closeOnViewportChange, true)
       window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', closeOnViewportChange)
     }
   }, [queueMenuId])
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
@@ -904,7 +927,6 @@ export function AgentPanel({
        * 带过来的话新会话第一次建节点就会莫名沿用上一段对话选的模型。
        */
       stickyModelRef.current = {}
-      setQueueExpanded(false)
     },
     [],
   )
@@ -941,6 +963,7 @@ export function AgentPanel({
       sessionId: string = current?.id ?? '',
     ): AgentToolContext => ({
       store,
+      viewportWorld: viewportWorldOf(viewport),
       memoryContext: {
         workbench: 'canvas',
         projectId: store.getSnapshot().projectId,
@@ -1209,6 +1232,7 @@ export function AgentPanel({
       sessions,
       platform,
       memory,
+      viewport,
     ],
   )
 
@@ -1426,8 +1450,10 @@ export function AgentPanel({
           }
         }
 
+        const generationBriefs = visualReviewGenerationBriefs(graph, targetNodeIds)
         const prompt = buildVisualReviewPrompt({
           targets: prepared.targets,
+          ...(generationBriefs ? { targetBriefs: generationBriefs } : {}),
           ...(review.checklist ? { checklist: review.checklist } : {}),
           ...(trace?.brief ? { context: trace.brief } : {}),
           referenceAssetCount: prepared.referenceAssetCount,
@@ -1464,6 +1490,7 @@ export function AgentPanel({
               params: {
                 targetNodeIds,
                 referenceAssetCount: prepared.referenceAssetCount,
+                generationBriefs,
                 checklist: review.checklist ?? '',
               },
             }),
@@ -3373,7 +3400,8 @@ export function AgentPanel({
       const existing = store
         .getSnapshot()
         .nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
-      const spot = findFreeRect({ ...size, ...originOf(viewport) }, existing)
+      const centered = centeredNodeOrigin(size, viewportWorldOf(viewport))
+      const spot = findFreeRect({ ...size, ...centered }, existing)
       return createAssetNode({ platform, store, projectId }, asset, { x: spot.x, y: spot.y })
     },
     [platform, store, projectId, viewport],
@@ -4031,89 +4059,80 @@ export function AgentPanel({
           data-agent-queue
           data-agent-queue-count={current.queuedTurns.length}
         >
-          <div className={styles.queueHead}>
-            <button
-              type="button"
-              className={styles.queueToggle}
-              onClick={() => setQueueExpanded((value) => !value)}
-              data-agent-queue-toggle
-            >
-              <span className={styles.queueDot} aria-hidden="true" />
-              <span>{current.queuedTurns.length} 条排队中</span>
-              <IconChevronDown
-                size={14}
-                className={queueExpanded ? styles.queueChevronOpen : styles.queueChevron}
-              />
-            </button>
-            {(status.kind === 'idle' || status.kind === 'error') && (
-              <button
-                type="button"
-                className={styles.queueResume}
-                onClick={resumeQueue}
-                data-agent-queue-resume
-              >
-                继续
-              </button>
-            )}
-          </div>
-          {queueExpanded && (
-            <div className={styles.queueList}>
-              {current.queuedTurns.map((turn, index) => (
-                <div key={turn.id} className={styles.queueItem} data-agent-queue-item={turn.id}>
-                  <span className={styles.queueIndex}>{index + 1}</span>
-                  <span className={styles.queueText}>{queuedTurnPreview(turn.text)}</span>
-                  <div className={styles.queueActions}>
-                    <button
-                      type="button"
-                      className={styles.queueSteer}
-                      onClick={() => void guideQueuedTurn(turn)}
-                      disabled={
-                        !statusCanSteer(status) ||
-                        (turn.pendingAssetIds?.length ?? 0) > 0
+          <div className={styles.queueList}>
+            {current.queuedTurns.map((turn, index) => (
+              <div key={turn.id} className={styles.queueItem} data-agent-queue-item={turn.id}>
+                <span className={styles.queueIndex}>{index + 1}</span>
+                <span className={styles.queueText}>{queuedTurnPreview(turn.text)}</span>
+                <div className={styles.queueActions}>
+                  <button
+                    type="button"
+                    className={styles.queueSteer}
+                    onClick={() => void guideQueuedTurn(turn)}
+                    disabled={
+                      !statusCanSteer(status) ||
+                      (turn.pendingAssetIds?.length ?? 0) > 0
+                    }
+                    title={
+                      (turn.pendingAssetIds?.length ?? 0) > 0
+                        ? '带新素材的消息只能排队'
+                        : statusCanSteer(status)
+                          ? '直接引导当前任务'
+                          : '当前没有可引导的任务'
+                    }
+                    aria-label="直接引导"
+                    data-agent-queue-steer
+                  >
+                    <IconSteer size={14} />
+                    <span>引导</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.queueAction}
+                    onClick={() => void removeQueued(turn.id)}
+                    title="删除消息"
+                    aria-label="删除消息"
+                    data-agent-queue-remove
+                  >
+                    <IconDelete size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.queueAction}
+                    onClick={(event) => {
+                      if (queueMenuId === turn.id) {
+                        setQueueMenuId(null)
+                        setQueueMenuPosition(null)
+                        return
                       }
-                      title={
-                        (turn.pendingAssetIds?.length ?? 0) > 0
-                          ? '带新素材的消息只能排队'
-                          : statusCanSteer(status)
-                            ? '直接引导当前任务'
-                            : '当前没有可引导的任务'
-                      }
-                      aria-label="直接引导"
-                      data-agent-queue-steer
-                    >
-                      <IconSteer size={14} />
-                      <span>引导</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.queueAction}
-                      onClick={() => void removeQueued(turn.id)}
-                      title="删除消息"
-                      aria-label="删除消息"
-                      data-agent-queue-remove
-                    >
-                      <IconDelete size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.queueAction}
-                      onClick={() =>
-                        setQueueMenuId((id) => (id === turn.id ? null : turn.id))
-                      }
-                      title="更多"
-                      aria-label="更多"
-                      aria-haspopup="menu"
-                      aria-expanded={queueMenuId === turn.id}
-                      data-agent-queue-more
-                    >
-                      <IconMore size={15} />
-                    </button>
-                  </div>
-                  {queueMenuId === turn.id && editingQueueId !== turn.id && (
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setQueueMenuPosition({
+                        right: Math.max(8, window.innerWidth - rect.right),
+                        bottom: Math.max(8, window.innerHeight - rect.top + 6),
+                      })
+                      setQueueMenuId(turn.id)
+                    }}
+                    title="更多"
+                    aria-label="更多"
+                    aria-haspopup="menu"
+                    aria-expanded={queueMenuId === turn.id}
+                    data-agent-queue-more={turn.id}
+                  >
+                    <IconMore size={15} />
+                  </button>
+                </div>
+                {queueMenuId === turn.id &&
+                  queueMenuPosition &&
+                  editingQueueId !== turn.id &&
+                  createPortal(
                     <div
                       className={styles.queueMenu}
                       role="menu"
                       data-agent-queue-menu={turn.id}
+                      style={{
+                        right: queueMenuPosition.right,
+                        bottom: queueMenuPosition.bottom,
+                      }}
                     >
                       <button
                         type="button"
@@ -4125,11 +4144,21 @@ export function AgentPanel({
                         <IconRename size={14} />
                         编辑消息
                       </button>
-                    </div>
+                    </div>,
+                    document.body,
                   )}
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
+          {(status.kind === 'idle' || status.kind === 'error') && (
+            <button
+              type="button"
+              className={styles.queueResume}
+              onClick={resumeQueue}
+              data-agent-queue-resume
+            >
+              继续排队
+            </button>
           )}
           {editingQueueTurn && (
             <div className={styles.queueEditPopover}>
@@ -4825,13 +4854,9 @@ function AgentActivityStrip({
   const [expanded, setExpanded] = useState(false)
   const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
   const steps = currentTurnSteps(items)
-  const recent = steps.slice(-4).reverse()
-  const canExpand = recent.length > 0
+  const visibleSteps = expanded ? steps : steps.slice(-5)
+  const canExpand = steps.length > 5
   const generationTool = status.kind === 'executing' ? status.tool : undefined
-
-  useEffect(() => {
-    setExpanded(false)
-  }, [status.kind])
 
   useEffect(() => {
     if (status.kind !== 'executing' || (generationTool !== 'runNode' && generationTool !== 'runFrom')) {
@@ -4862,8 +4887,8 @@ function AgentActivityStrip({
             className={styles.activityToggle}
             data-agent-activity-toggle
             aria-expanded={expanded}
-            aria-label={expanded ? '收起执行步骤' : '展开最近五步'}
-            title={expanded ? '收起执行步骤' : '展开最近五步'}
+            aria-label={expanded ? '收起较早步骤' : '展开全部执行步骤'}
+            title={expanded ? '收起较早步骤' : '展开全部执行步骤'}
             onClick={() => setExpanded((current) => !current)}
           >
             <span className={styles.activityToggleIcon}>
@@ -4872,14 +4897,25 @@ function AgentActivityStrip({
           </button>
         ) : null}
       </div>
-      {expanded && canExpand ? (
+      {visibleSteps.length > 0 ? (
         <div className={styles.activityList} data-agent-activity-list>
-          {recent.map((step) => (
+          {visibleSteps.map((step) => (
             <div
               key={step.id}
               className={step.failed ? styles.activityRowFailed : styles.activityRow}
             >
-              <span className={styles.activityStepName}>{step.label}</span>
+              <span className={styles.activityStepIcon} aria-hidden="true">
+                {step.activityKind === 'image' ? (
+                  <IconImage size={12} />
+                ) : step.failed ? (
+                  <IconClose size={12} />
+                ) : (
+                  <IconCheck size={12} />
+                )}
+              </span>
+              <span className={styles.activityStepName}>
+                {step.activityLabel ?? step.label}
+              </span>
               {step.lines[0] ? (
                 <span className={styles.activityStepDetail}>{step.lines[0]}</span>
               ) : null}
@@ -4945,6 +4981,18 @@ function withModelIcons(
 /** 新节点落在视口中心偏左 —— 你正在看的地方，建出来的东西才在你眼前（§6） */
 function originOf(vp: { x: number; y: number }): { x: number; y: number } {
   return { x: vp.x + 120, y: vp.y + 120 }
+}
+
+function viewportWorldOf(vp: { x: number; y: number; zoom: number }): Rect {
+  const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
+  const width = surface?.clientWidth ?? window.innerWidth
+  const height = surface?.clientHeight ?? window.innerHeight
+  return {
+    x: vp.x,
+    y: vp.y,
+    w: width / Math.max(0.01, vp.zoom),
+    h: height / Math.max(0.01, vp.zoom),
+  }
 }
 
 /** 确认卡里要显示什么 —— 让用户**在花钱之前**看清将要发生什么（§9） */
