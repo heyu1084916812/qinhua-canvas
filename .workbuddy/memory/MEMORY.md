@@ -65,6 +65,9 @@
 - **RouteExecutionPort（2026-10-29）**：Agent 普通文本、工具能力探测和视觉验收都改为
   `RouteExecutionPort.execute()`，只提交已冻结消息、工具、候选与 trace；渠道/Key 解析、
   安全降级、RunRecord 和重试仍由轻画执行层负责。Harness 后续不得直接调用 ChannelStore。
+- **Harness ACP 基础层（2026-10-29）**：新增 ACP JSON-RPC stdio 编解码与客户端，覆盖
+  initialize、session/new/list/resume/close、prompt/cancel、set_config_option、
+  session/update 与 request_permission；尚未 spawn sidecar，也未接 `qinghua-local` 桥。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。
