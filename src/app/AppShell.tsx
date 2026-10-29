@@ -99,13 +99,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className={styles.workspace} data-app-workspace>
           {children}
         </main>
+        {/*
+          Agent 壳层插槽：画布页通过 portal 把自己的 AgentPanel 放到这里。
+          AppShell 只提供一个稳定目标，不 import 画布工作台；插槽是工作区右侧的
+          flex 兄弟，打开时挤压工作区，关闭时让出空间。
+        */}
+        <div className={styles.agentShellSlot} data-agent-shell-slot />
       </div>
-      {/*
-        Agent 壳层插槽：画布页通过 portal 把自己的 AgentPanel 放到这里。
-        AppShell 只提供一个稳定目标，不 import 画布工作台；插槽本身不参与布局，
-        因而不改变工作区宽度，也不会触发 React Flow 坐标重算。
-      */}
-      <div className={styles.agentShellSlot} data-agent-shell-slot />
       {/* 自动更新的右下角提示条（方案 §5）：浏览器里没有 updater 端口，自己就不渲染 */}
       <UpdateNotice />
       {/* 全局设置浮层（对账 #259）：挂在这一层，任何路由都能打开 */}

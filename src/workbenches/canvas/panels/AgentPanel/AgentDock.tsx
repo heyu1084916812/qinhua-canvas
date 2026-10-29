@@ -12,12 +12,16 @@ import { AgentPanel } from './AgentPanel'
 import {
   AGENT_DOCK_LEGACY_STORAGE_KEY,
   AGENT_SHELL_STORAGE_KEY,
+  AGENT_SHELL_WIDTH_DEFAULT,
   AGENT_SHELL_WIDTH_MIN,
+  agentShellAvailableWidth,
   agentShellMaxWidth,
+  dampAgentShellWidth,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
   defaultAgentShellState,
+  nearestAgentShellSnap,
   parseAgentShellState,
   parseLegacyAgentShellState,
   resizedAgentShellWidth,
@@ -39,6 +43,7 @@ type DragState =
       kind: 'resize'
       startX: number
       originWidth: number
+      rawWidth: number
       moved: boolean
     }
 
@@ -46,7 +51,11 @@ function measureCanvasWorkArea(): AgentWorkArea {
   const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
   const rect = surface?.getBoundingClientRect()
   if (rect && rect.width > 0 && rect.height > 0) {
-    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+    const panel = document.querySelector<HTMLElement>('[data-agent-shell-panel]')
+    const panelRect = panel?.getBoundingClientRect()
+    const right =
+      panelRect && panelRect.width > 0 ? Math.max(rect.right, panelRect.right) : rect.right
+    return { x: rect.left, y: rect.top, width: right - rect.left, height: rect.height }
   }
   return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
 }
@@ -59,6 +68,12 @@ function readStoredShellState(): AgentShellState | null {
   } catch {
     return null
   }
+}
+
+function measureAgentAvailableWidth(): number {
+  const rail = document.querySelector<HTMLElement>('[data-rail-slot]')
+  const railWidth = rail?.getBoundingClientRect().width ?? 64
+  return agentShellAvailableWidth(window.innerWidth, railWidth)
 }
 
 function storeShellState(state: AgentShellState): void {
@@ -86,6 +101,7 @@ export function AgentDock({
   onOpenChange: (open: boolean) => void
 }) {
   const [mounted, setMounted] = useState(open)
+  const [shellAnimatedOpen, setShellAnimatedOpen] = useState(open)
   const [shell, setShell] = useState<AgentShellState | null>(null)
   const [dragging, setDragging] = useState<DragState['kind'] | null>(null)
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
@@ -100,20 +116,28 @@ export function AgentDock({
 
   useLayoutEffect(() => {
     const area = measureCanvasWorkArea()
+    const availableWidth = measureAgentAvailableWidth()
     const stored = readStoredShellState()
     applyShell(
       stored
-        ? clampAgentShellState(stored, area)
-        : defaultAgentShellState(area),
+        ? clampAgentShellState(stored, area, availableWidth)
+        : {
+            ...defaultAgentShellState(area),
+            width: agentShellWidth(AGENT_SHELL_WIDTH_DEFAULT, availableWidth),
+          },
     )
 
     const onAreaChange = () => {
       const nextArea = measureCanvasWorkArea()
+      const nextAvailableWidth = measureAgentAvailableWidth()
       const current = shellRef.current
       applyShell(
         current
-          ? clampAgentShellState(current, nextArea)
-          : defaultAgentShellState(nextArea),
+          ? clampAgentShellState(current, nextArea, nextAvailableWidth)
+          : {
+              ...defaultAgentShellState(nextArea),
+              width: agentShellWidth(AGENT_SHELL_WIDTH_DEFAULT, nextAvailableWidth),
+            },
       )
     }
     const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
@@ -135,8 +159,51 @@ export function AgentDock({
   }, [])
 
   useLayoutEffect(() => {
-    if (open) setMounted(true)
+    if (!portalTarget) return
+    if (shellAnimatedOpen) portalTarget.setAttribute('data-agent-shell-active', 'true')
+    else portalTarget.removeAttribute('data-agent-shell-active')
+    return () => {
+      portalTarget.removeAttribute('data-agent-shell-active')
+    }
+  }, [portalTarget, shellAnimatedOpen])
+
+  useLayoutEffect(() => {
+    if (!portalTarget || !shell) return
+    portalTarget.style.setProperty('--agent-shell-width', `${shell.width}px`)
+  }, [portalTarget, shell])
+
+  useLayoutEffect(() => {
+    if (!portalTarget) return
+    if (dragging === 'resize') {
+      portalTarget.setAttribute('data-agent-shell-resizing', 'true')
+    } else {
+      portalTarget.removeAttribute('data-agent-shell-resizing')
+    }
+    return () => {
+      portalTarget.removeAttribute('data-agent-shell-resizing')
+    }
+  }, [dragging, portalTarget])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    setMounted(true)
+    let secondFrame = 0
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => setShellAnimatedOpen(true))
+    })
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      window.cancelAnimationFrame(secondFrame)
+    }
   }, [open])
+
+  useLayoutEffect(() => {
+    if (open) return
+    setShellAnimatedOpen(false)
+    if (!mounted) return
+    const timer = window.setTimeout(() => setMounted(false), 260)
+    return () => window.clearTimeout(timer)
+  }, [mounted, open])
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>, next: DragState) => {
     if (event.button !== 0) return
@@ -171,15 +238,18 @@ export function AgentDock({
         return
       }
 
+      const availableWidth = measureAgentAvailableWidth()
+      const rawWidth = resizedAgentShellWidth(
+        current.originWidth,
+        current.startX,
+        moveEvent.clientX,
+        availableWidth,
+      )
+      current.rawWidth = rawWidth
       if (Math.abs(moveEvent.clientX - current.startX) > 4) current.moved = true
       applyShell({
         ...base,
-        width: resizedAgentShellWidth(
-          current.originWidth,
-          current.startX,
-          moveEvent.clientX,
-          window.innerWidth,
-        ),
+        width: dampAgentShellWidth(rawWidth, availableWidth),
       })
     }
 
@@ -194,6 +264,14 @@ export function AgentDock({
         window.setTimeout(() => {
           suppressOrbClickRef.current = false
         }, 0)
+      }
+      if (current?.kind === 'resize') {
+        const availableWidth = measureAgentAvailableWidth()
+        const snapped = nearestAgentShellSnap(current.rawWidth, availableWidth)
+        if (snapped) {
+          const latest = shellRef.current
+          if (latest) applyShell({ ...latest, width: snapped })
+        }
       }
       if (shellRef.current) storeShellState(shellRef.current)
       dragRef.current = null
@@ -224,6 +302,7 @@ export function AgentDock({
       kind: 'resize',
       startX: event.clientX,
       originWidth: current.width,
+      rawWidth: current.width,
       moved: false,
     })
   }
@@ -231,7 +310,10 @@ export function AgentDock({
   const saveWidth = (width: number) => {
     const current = shellRef.current
     if (!current) return
-    const next = { ...current, width: agentShellWidth(width, window.innerWidth) }
+    const next = {
+      ...current,
+      width: agentShellWidth(width, measureAgentAvailableWidth()),
+    }
     applyShell(next)
     storeShellState(next)
   }
@@ -250,7 +332,7 @@ export function AgentDock({
       saveWidth(AGENT_SHELL_WIDTH_MIN)
     } else if (event.key === 'End') {
       event.preventDefault()
-      saveWidth(agentShellMaxWidth())
+      saveWidth(agentShellMaxWidth(measureAgentAvailableWidth()))
     }
   }
 
@@ -260,26 +342,21 @@ export function AgentDock({
           <div
             id="canvas-agent-panel"
             className={styles.panelFrame}
-            style={{
-              width: shell.width,
-            }}
             data-agent-floating-panel
             data-agent-shell-panel
             data-agent-shell-panel-width={shell.width}
+            data-agent-shell-open={open ? 'true' : 'false'}
             data-agent-dragging={dragging ?? undefined}
             role="region"
             aria-label="Agent 面板"
-            hidden={!open}
           >
-            <span className={styles.cornerTopLeft} data-agent-shell-corner="top-left" aria-hidden="true" />
-            <span className={styles.cornerTopRight} data-agent-shell-corner="top-right" aria-hidden="true" />
-            <span className={styles.cornerBottomLeft} data-agent-shell-corner="bottom-left" aria-hidden="true" />
-            <span className={styles.cornerBottomRight} data-agent-shell-corner="bottom-right" aria-hidden="true" />
-            <AgentPanel
-              projectId={projectId}
-              onClose={() => onOpenChange(false)}
-              onOpenSettings={() => openAgentSettings('basic')}
-            />
+            <div className={styles.panelSurface} data-agent-shell-surface>
+              <AgentPanel
+                projectId={projectId}
+                onClose={() => onOpenChange(false)}
+                onOpenSettings={() => openAgentSettings('basic')}
+              />
+            </div>
             <button
               type="button"
               className={styles.resizeHandle}
@@ -289,7 +366,7 @@ export function AgentDock({
               aria-controls="canvas-agent-panel"
               aria-label="调整 Agent 面板宽度"
               aria-valuemin={AGENT_SHELL_WIDTH_MIN}
-              aria-valuemax={agentShellMaxWidth()}
+              aria-valuemax={agentShellMaxWidth(measureAgentAvailableWidth())}
               aria-valuenow={shell.width}
               title="左右拖动调整宽度；方向键微调"
               onPointerDown={onResizePointerDown}

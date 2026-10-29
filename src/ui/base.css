@@ -155,9 +155,8 @@ body {
  *    并**整组忽略** `::-webkit-scrollbar-*` —— 包括下面那条
  *    「隐藏上下箭头」。2026-09-24 那次「我写了 display:none 可箭头还在」
  *    就是这么来的。
- * ② **滚动时轨道取 `--bg-surface`，空闲时连轨道一起透明**。这样滚动时仍
- *    与所在表面无缝，停止 1 秒后又不会留下一条常驻的槽。状态由
- *    `data-scroll-active` 驱动，组件自己的轨道规则不得再覆盖它。
+ * ② **轨道始终透明，空闲时拇指渐隐**。轨道不画底色，滚动条像覆盖在内容上的
+ *    临时控件；状态由 `data-scroll-active` 驱动，组件自己的轨道规则不得再覆盖它。
  *
  * ## 宽度
  *
@@ -184,23 +183,20 @@ body {
 }
 
 /*
- * 空闲时轨道透明；滚动时恢复所在表面色，保持原先「无缝嵌入」的观感。
+ * 轨道无论滚动与否都透明，避免在面板右侧留下白色竖槽。
  * 属性选择器故意压过组件局部规则，嵌套滚动容器也统一遵守同一条规则。
  */
 :root[data-scroll-active='false']::-webkit-scrollbar-track,
-:root[data-scroll-active='false'] *::-webkit-scrollbar-track {
-  background: transparent;
-  border: 0;
-}
-
+:root[data-scroll-active='false'] *::-webkit-scrollbar-track,
 :root[data-scroll-active='true']::-webkit-scrollbar-track,
 :root[data-scroll-active='true'] *::-webkit-scrollbar-track {
-  background: var(--bg-surface);
+  background: transparent;
   border: 0;
 }
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
+  transition: background-color 180ms var(--ease-out);
 }
 
 :root[data-scroll-active='false']::-webkit-scrollbar-thumb,
@@ -226,4 +222,10 @@ body {
 /* 右下角「两条斜线凑成的小三角」是滚动条的 corner，一并去掉 */
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::-webkit-scrollbar-thumb {
+    transition: none;
+  }
 }

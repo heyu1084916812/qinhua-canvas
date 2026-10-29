@@ -35,6 +35,7 @@
 :root[data-motion='reduced'] {
   --dur-hover: 0ms;
   --dur-panel: 0ms;
+  --dur-shell: 0ms;
   --dur-menu: 0ms;
   --dur-lightbox: 0ms;
   --dur-edge: 0ms;
@@ -259,6 +260,7 @@
   /* —— 动效时长（§3.4，CSS 侧；JS 侧见 ui/motion.ts） —— */
   --dur-hover: 120ms;
   --dur-panel: 140ms;
+  --dur-shell: 220ms;
   --dur-menu: 120ms;
   --dur-lightbox: 180ms;
   --dur-edge: 100ms;

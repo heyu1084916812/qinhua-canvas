@@ -112,17 +112,32 @@
 /**
  * Agent 面板的壳层挂载点。
  *
- * 它只提供一个贴着应用壳右侧的定位原点：宽度为 0、不参与 flex 布局，
- * 面板绝对定位后向左展开。这样开关 Agent 不会改变工作区宽度、画布矩形或节点坐标。
+ * 它是应用壳右侧的真实 flex 栏：打开时挤压工作区，关闭后恢复。
+ * 开关宽度使用 `--dur-shell` 过渡；拖拽调宽时临时禁用过渡以保持跟手。
  */
 .agentShellSlot {
-  position: fixed;
-  top: calc(var(--title-bar-h) + var(--shell-gap));
-  right: var(--shell-gap);
-  bottom: var(--shell-gap);
-  z-index: 49;
+  display: flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+  position: relative;
   width: 0;
+  min-width: 0;
+  max-width: calc(100vw - var(--sidebar-w, 64px) - var(--shell-gap));
+  margin: var(--shell-gap) 0 var(--shell-gap) 0;
+  transition:
+    width var(--dur-shell, 220ms) var(--ease-panel, ease-out),
+    margin-right var(--dur-shell, 220ms) var(--ease-panel, ease-out);
+  will-change: width;
   pointer-events: none;
+}
+
+.agentShellSlot[data-agent-shell-active='true'] {
+  width: var(--agent-shell-width, 420px);
+  margin-right: var(--shell-gap);
+}
+
+.agentShellSlot[data-agent-shell-resizing='true'] {
+  transition: none;
 }
 
 .agentShellSlot > * {

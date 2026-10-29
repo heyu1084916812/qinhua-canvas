@@ -20,6 +20,8 @@ export const AGENT_ORB_SIZE = 64
 export const AGENT_SHELL_GAP = 15
 export const AGENT_SHELL_WIDTH_DEFAULT = 420
 export const AGENT_SHELL_WIDTH_MIN = 320
+export const AGENT_SHELL_SNAP_RATIOS = [0.3, 0.6, 0.8] as const
+export const AGENT_SHELL_SNAP_THRESHOLD = 36
 export const AGENT_SHELL_STORAGE_KEY = 'qinghua.canvas.agentShell.v2'
 export const AGENT_DOCK_LEGACY_STORAGE_KEY = 'qinghua.canvas.agentDock.v1'
 
@@ -59,6 +61,58 @@ export function agentShellWidth(
 ): number {
   const maximum = agentShellMaxWidth(availableWidth)
   return Math.round(clamp(requested, AGENT_SHELL_WIDTH_MIN, maximum))
+}
+
+export function agentShellAvailableWidth(
+  viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
+  sidebarWidth = 64,
+): number {
+  return Math.max(
+    AGENT_SHELL_WIDTH_MIN,
+    Math.round(viewportWidth - Math.max(0, sidebarWidth) - AGENT_SHELL_GAP),
+  )
+}
+
+export function agentShellSnapWidths(
+  availableWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
+): number[] {
+  const maximum = agentShellMaxWidth(availableWidth)
+  return [...new Set(
+    AGENT_SHELL_SNAP_RATIOS.map((ratio) =>
+      agentShellWidth(Math.round(maximum * ratio), availableWidth),
+    ),
+  )]
+}
+
+export function nearestAgentShellSnap(
+  width: number,
+  availableWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
+  threshold = AGENT_SHELL_SNAP_THRESHOLD,
+): number | null {
+  const nearest = agentShellSnapWidths(availableWidth)
+    .map((snap) => ({ snap, distance: Math.abs(snap - width) }))
+    .sort((left, right) => left.distance - right.distance)[0]
+  return nearest && nearest.distance <= threshold ? nearest.snap : null
+}
+
+/**
+ * 靠近 30/60/80 档位时按距离平滑降低拖动位移，松手后由
+ * `nearestAgentShellSnap` 决定是否吸附。超过两倍阈值后恢复 1:1 跟手。
+ */
+export function dampAgentShellWidth(
+  rawWidth: number,
+  availableWidth = typeof window === 'undefined' ? 1440 : window.innerWidth,
+  threshold = AGENT_SHELL_SNAP_THRESHOLD,
+): number {
+  const clamped = agentShellWidth(rawWidth, availableWidth)
+  const nearest = agentShellSnapWidths(availableWidth)
+    .map((snap) => ({ snap, distance: Math.abs(snap - clamped) }))
+    .sort((left, right) => left.distance - right.distance)[0]
+  if (!nearest || nearest.distance >= threshold * 2) return clamped
+
+  const influence = 1 - nearest.distance / (threshold * 2)
+  const delta = clamped - nearest.snap
+  return Math.round(nearest.snap + delta * (1 - influence * 0.55))
 }
 
 export function defaultAgentShellState(area: AgentWorkArea): AgentShellState {

@@ -670,7 +670,7 @@
  * （`base.css` 的注释里专门警告过这件事："看起来仍像多了一条槽"）。
  */
 .list::-webkit-scrollbar-track {
-  background: var(--bg-subtle);
+  background: transparent;
 }
 
 /* 列表级操作（新增 / 删除）：作为列表最后一项，与条目同宽、留出上间距分隔 */

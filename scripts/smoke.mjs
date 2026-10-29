@@ -40212,10 +40212,10 @@ async function g735(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
   const hiddenModel = 'Midjourney'
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await gotoSettings(page)
   await sleep(500)
-  await page.locator(USER_CHANNEL).first().click()
+  await page.locator('[data-channel-id="ch_smoke_mock"]').click()
   await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
   if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
     await page.locator('[data-route-map-show-uncommon]').check()
@@ -40265,82 +40265,132 @@ async function g735(browser) {
   await page.mouse.move(orbBefore.x + 180, orbBefore.y - 130, { steps: 5 })
   await page.mouse.up()
   const orbDragged = await orb.boundingBox()
+  const workspaceBeforeOpen = await page.locator('[data-canvas-surface]').boundingBox()
   await orb.click()
   const floating = page.locator('[data-agent-floating-panel]')
-  if (!(await floating.isVisible().catch(() => false))) await orb.click()
+  if ((await orb.getAttribute('data-agent-expanded')) !== 'true') await orb.click()
   await floating.waitFor({ state: 'visible', timeout: 5000 })
   const panelImmediate = await floating.boundingBox()
-  await sleep(80)
+  await sleep(300)
   const panelBox = await floating.boundingBox()
+  const workspaceAfterOpen = await page.locator('[data-canvas-surface]').boundingBox()
   const shellSlotBox = await page.locator('[data-agent-shell-slot]').evaluate((node) => {
     const rect = node.getBoundingClientRect()
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
   })
+  const workspaceShrink = workspaceBeforeOpen.width - workspaceAfterOpen.width
+  const workspaceGap = panelBox.x - (workspaceAfterOpen.x + workspaceAfterOpen.width)
   rec(
     g,
     'Agent 面板固定贴应用壳右沿并铺满壳层高度',
     Math.abs(panelBox.y - shellSlotBox.y) <= 1 &&
       Math.abs(panelBox.y + panelBox.height - (shellSlotBox.y + shellSlotBox.height)) <= 1 &&
-      Math.abs(panelBox.x + panelBox.width - shellSlotBox.x) <= 1,
+      Math.abs(panelBox.x + panelBox.width - (shellSlotBox.x + shellSlotBox.width)) <= 1,
     `壳右沿=${Math.round(shellSlotBox.x)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)},${Math.round(panelBox.width)}×${Math.round(panelBox.height)}`,
   )
+  rec(
+    g,
+    '打开 Agent 会把画布工作区向左挤压，且保留 15px 间距',
+    workspaceShrink >= panelBox.width + 13 &&
+      workspaceShrink <= panelBox.width + 17 &&
+      workspaceGap >= 13 &&
+      workspaceGap <= 17,
+    `工作区 ${Math.round(workspaceBeforeOpen.width)}→${Math.round(workspaceAfterOpen.width)} 收缩=${workspaceShrink.toFixed(2)} 面板=${panelBox.width.toFixed(2)} 间距=${workspaceGap.toFixed(2)}`,
+  )
   const agentSurface = await floating.evaluate((node) => {
-    const style = getComputedStyle(node)
+    const surface = node.querySelector('[data-agent-shell-surface]')
+    const style = surface ? getComputedStyle(surface) : null
+    const frameStyle = getComputedStyle(node)
+    const frameRect = node.getBoundingClientRect()
+    const surfaceRect = surface?.getBoundingClientRect()
     const shell = document.querySelector('[data-app-shell]')
-    const corner = (name) =>
-      node.querySelector(`[data-agent-shell-corner="${name}"]`)
+    const workspaceRect = document
+      .querySelector('[data-canvas-surface]')
+      ?.getBoundingClientRect()
     return {
-      background: style.backgroundColor,
+      background: style?.backgroundColor ?? '',
       shellBackground: shell ? getComputedStyle(shell).backgroundColor : '',
-      borderWidth: style.borderWidth,
-      topLeft: style.borderTopLeftRadius,
-      topRight: style.borderTopRightRadius,
-      bottomRight: style.borderBottomRightRadius,
-      bottomLeft: style.borderBottomLeftRadius,
-      cornerTopLeft: getComputedStyle(corner('top-left')).borderBottomLeftRadius,
-      cornerTopRight: getComputedStyle(corner('top-right')).borderBottomRightRadius,
-      cornerBottomLeft: getComputedStyle(corner('bottom-left')).borderTopLeftRadius,
-      cornerBottomRight: getComputedStyle(corner('bottom-right')).borderTopRightRadius,
-      boxShadow: style.boxShadow,
+      frameBorderWidth: frameStyle.borderWidth,
+      borderWidth: style?.borderWidth ?? '',
+      topLeft: style?.borderTopLeftRadius ?? '',
+      topRight: style?.borderTopRightRadius ?? '',
+      bottomRight: style?.borderBottomRightRadius ?? '',
+      bottomLeft: style?.borderBottomLeftRadius ?? '',
+      boxShadow: style?.boxShadow ?? '',
+      gap: workspaceRect ? frameRect.left - workspaceRect.right : -1,
+      rightAligned: surfaceRect ? Math.abs(surfaceRect.right - frameRect.right) : 999,
     }
   })
   rec(
     g,
-    'Agent 使用壳底色、四角左右镜像反向圆角且无边框',
+    'Agent 使用壳底色、四角普通圆角、无边框且左侧留出圆角等距',
     agentSurface.background === agentSurface.shellBackground &&
+      agentSurface.frameBorderWidth === '0px' &&
       agentSurface.borderWidth === '0px' &&
-      agentSurface.topLeft === '0px' &&
-      agentSurface.topRight === '0px' &&
-      agentSurface.bottomRight === '0px' &&
-      agentSurface.bottomLeft === '0px' &&
-      agentSurface.cornerTopLeft === '14px' &&
-      agentSurface.cornerTopRight === '14px' &&
-      agentSurface.cornerBottomLeft === '14px' &&
-      agentSurface.cornerBottomRight === '14px' &&
-      agentSurface.boxShadow === 'none',
+      agentSurface.topLeft === '14px' &&
+      agentSurface.topRight === '14px' &&
+      agentSurface.bottomRight === '14px' &&
+      agentSurface.bottomLeft === '14px' &&
+      agentSurface.boxShadow === 'none' &&
+      agentSurface.gap === 15 &&
+      agentSurface.rightAligned <= 1,
     JSON.stringify(agentSurface),
   )
   rec(
     g,
-    '打开瞬间直接使用当前球位，不闪旧面板位置',
+    '打开时右侧栏平滑展开',
     !!panelImmediate &&
-      Math.abs(panelImmediate.x - panelBox.x) <= 1 &&
-      Math.abs(panelImmediate.y - panelBox.y) <= 1,
-    `首帧=${Math.round(panelImmediate?.x ?? -1)},${Math.round(panelImmediate?.y ?? -1)} 稳定=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
+      panelImmediate.width < panelBox.width - 20,
+    `首帧宽=${Math.round(panelImmediate?.width ?? -1)} 稳定宽=${Math.round(panelBox.width)}`,
+  )
+  const scrollbarChrome = await page.evaluate(() => {
+    const root = document.documentElement
+    const read = () => {
+      const track = getComputedStyle(root, '::-webkit-scrollbar-track')
+      const thumb = getComputedStyle(root, '::-webkit-scrollbar-thumb')
+      return {
+        track: track.backgroundColor,
+        transitionProperty: thumb.transitionProperty,
+        transitionDuration: thumb.transitionDuration,
+      }
+    }
+    root.dataset.scrollActive = 'true'
+    const active = read()
+    root.dataset.scrollActive = 'false'
+    const idle = read()
+    return { active, idle }
+  })
+  rec(
+    g,
+    '滚动条轨道全局透明，停止后拇指渐隐',
+    scrollbarChrome.active.track === 'rgba(0, 0, 0, 0)' &&
+      scrollbarChrome.idle.track === 'rgba(0, 0, 0, 0)' &&
+      scrollbarChrome.active.transitionProperty.includes('background-color') &&
+      scrollbarChrome.active.transitionDuration !== '0s',
+    JSON.stringify(scrollbarChrome),
   )
   const resizeHandle = page.locator('[data-agent-resize]')
   const resizeBox = await resizeHandle.boundingBox()
+  rec(
+    g,
+    'Agent 左右拖动命中区已扩大且视觉把手保持细窄',
+    resizeBox.width >= 40 &&
+      resizeBox.height >= 96 &&
+      resizeBox.height <= 220,
+    `命中区=${Math.round(resizeBox.width)}×${Math.round(resizeBox.height)}`,
+  )
   await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2)
   await page.mouse.down()
   await page.mouse.move(resizeBox.x - 80, resizeBox.y + resizeBox.height / 2, { steps: 5 })
   await page.mouse.up()
   const panelResized = await floating.boundingBox()
+  const rightEdgeBeforeResize = panelBox.x + panelBox.width
   rec(
     g,
     '拖左边缘能加宽 Agent 面板',
     panelResized.width >= panelBox.width + 70 &&
       panelResized.width <= panelBox.width + 110 &&
-      Math.abs(panelResized.x + panelResized.width - shellSlotBox.x) <= 1,
+      Math.abs(panelResized.x + panelResized.width - rightEdgeBeforeResize) <= 1,
     `改前=${Math.round(panelBox.width)} 改后=${Math.round(panelResized.width)} 右沿=${Math.round(panelResized.x + panelResized.width)}`,
   )
   const resizeWideBox = await resizeHandle.boundingBox()
@@ -40358,11 +40408,88 @@ async function g735(browser) {
   const panelWide = await floating.boundingBox()
   rec(
     g,
-    'Agent 宽度可以拖过原 720px 上限，右沿保持固定',
+    'Agent 宽度可自由拖过原 720px 上限，右沿保持固定',
     panelWide.width > 720 &&
       panelWide.width <= page.viewportSize().width - 30 &&
-      Math.abs(panelWide.x + panelWide.width - shellSlotBox.x) <= 1,
+      Math.abs(panelWide.x + panelWide.width - rightEdgeBeforeResize) <= 1,
     `宽=${Math.round(panelWide.width)} 上限=${page.viewportSize().width - 30}`,
+  )
+  const shellSnapWidths = await page.evaluate(() => {
+    const railWidth =
+      document.querySelector('[data-rail-slot]')?.getBoundingClientRect().width ?? 64
+    const available = Math.max(320, Math.round(innerWidth - railWidth - 15))
+    const maximum = Math.max(320, Math.round(available - 30))
+    return [0.3, 0.6, 0.8].map((ratio) =>
+      Math.round(Math.min(Math.max(Math.round(maximum * ratio), 320), maximum)),
+    )
+  })
+  const dragAgentToWidth = async (targetWidth) => {
+    const currentPanel = await floating.boundingBox()
+    const currentHandle = await resizeHandle.boundingBox()
+    await page.mouse.move(
+      currentHandle.x + currentHandle.width / 2,
+      currentHandle.y + currentHandle.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      currentHandle.x + currentHandle.width / 2 + currentPanel.width - targetWidth,
+      currentHandle.y + currentHandle.height / 2,
+      { steps: 6 },
+    )
+    await page.mouse.up()
+    return floating.boundingBox()
+  }
+  const panelSixty = await dragAgentToWidth(shellSnapWidths[1])
+  rec(
+    g,
+    'Agent 宽度靠近 60% 档位时松手吸附',
+    Math.abs(panelSixty.width - shellSnapWidths[1]) <= 1,
+    `宽=${Math.round(panelSixty.width)} 60%=${shellSnapWidths[1]}`,
+  )
+  const panelThirty = await dragAgentToWidth(shellSnapWidths[0])
+  rec(
+    g,
+    'Agent 宽度靠近 30% 档位时松手吸附',
+    Math.abs(panelThirty.width - shellSnapWidths[0]) <= 1,
+    `宽=${Math.round(panelThirty.width)} 30%=${shellSnapWidths[0]}`,
+  )
+  const panelEighty = await dragAgentToWidth(shellSnapWidths[2])
+  rec(
+    g,
+    'Agent 宽度靠近 80% 档位时松手吸附',
+    Math.abs(panelEighty.width - shellSnapWidths[2]) <= 1,
+    `宽=${Math.round(panelEighty.width)} 80%=${shellSnapWidths[2]}`,
+  )
+  const composer = page.locator('[data-agent-composer]')
+  const composerHandle = page.locator('[data-agent-composer-resize]')
+  const composerInitial = await composer.boundingBox()
+  const composerHandleBox = await composerHandle.boundingBox()
+  rec(
+    g,
+    'Agent 输入框保留 104px 最小高度且顶边命中区足够大',
+    Math.abs(composerInitial.height - 104) <= 1 &&
+      composerHandleBox.width >= composerInitial.width - 18 &&
+      composerHandleBox.height >= 18,
+    `输入框=${composerInitial.height.toFixed(1)} 命中区=${composerHandleBox.width.toFixed(1)}×${composerHandleBox.height.toFixed(1)}`,
+  )
+  await page.mouse.move(
+    composerHandleBox.x + composerHandleBox.width / 2,
+    composerHandleBox.y + composerHandleBox.height / 2,
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    composerHandleBox.x + composerHandleBox.width / 2,
+    composerHandleBox.y + composerHandleBox.height / 2 - 104,
+    { steps: 6 },
+  )
+  await page.mouse.up()
+  const composerResized = await composer.boundingBox()
+  rec(
+    g,
+    'Agent 输入框可向上拖动加高',
+    composerResized.height >= composerInitial.height + 96 &&
+      composerResized.height <= composerInitial.height + 112,
+    `高度=${composerInitial.height.toFixed(1)}→${composerResized.height.toFixed(1)}`,
   )
   const orbWhenOpen = await orb.boundingBox()
   rec(
@@ -40387,8 +40514,15 @@ async function g735(browser) {
       (await page.locator('[data-global-settings-tab="agentMemory"]').count()) === 0,
     agentTabs.join(','),
   )
-  await page.locator('[data-agent-settings-tab="basic"]').focus()
-  await page.keyboard.press('ArrowRight')
+  await page.locator('[data-agent-settings-tab="basic"]').press('ArrowRight')
+  await page
+    .waitForFunction(
+      () =>
+        document.activeElement?.getAttribute('data-agent-settings-tab') === 'model',
+      null,
+      { timeout: 1000 },
+    )
+    .catch(() => {})
   const keyboardTab = await page.evaluate(() => ({
     selected: document
       .querySelector('[data-agent-settings-tab="model"]')
@@ -40429,7 +40563,156 @@ async function g735(browser) {
   )
   await page.locator('[data-agent-close]').click()
   await orb.waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(300)
+  await orb.click()
+  await floating.waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(300)
+  const composerAfterReopen = await composer.boundingBox()
+  rec(
+    g,
+    '关闭再打开 Agent 后输入框高度保持上次位置',
+    Math.abs(composerAfterReopen.height - composerResized.height) <= 1,
+    `关闭前=${composerResized.height.toFixed(1)} 重开=${composerAfterReopen.height.toFixed(1)}`,
+  )
+  const activeProjectId = await page.evaluate(
+    () => location.pathname.split('/').filter(Boolean).at(-1) ?? '',
+  )
+  const activeAgentSessions = (await sharedRows(page, 'agentSessions')).filter(
+    (row) => row.projectId === activeProjectId,
+  )
+  await Promise.all(
+    activeAgentSessions.map((row, index) =>
+      sharedPut(page, 'agentSessions', {
+        ...row,
+        messages: [
+          {
+            role: 'assistant',
+            content: Array.from(
+              { length: 42 },
+              (_, line) =>
+                `- **第 ${line + 1} 行**：用于验证向上阅读时不会被自动拖回底部。`,
+            ).join('\n'),
+          },
+        ],
+        updatedAt: Date.now() + index,
+      }),
+    ),
+  )
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-agent-orb]').click()
+  await page.locator('[data-agent-floating-panel]').waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(300)
+  const composerAfterReload = await page.locator('[data-agent-composer]').boundingBox()
+  rec(
+    g,
+    '重新加载应用后仍恢复 Agent 输入框高度',
+    Math.abs(composerAfterReload.height - composerResized.height) <= 1,
+    `重启前=${composerResized.height.toFixed(1)} 重启后=${composerAfterReload.height.toFixed(1)}`,
+  )
+  let currentAgentSessionId = null
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    currentAgentSessionId = await page
+      .locator('[data-agent-panel]')
+      .getAttribute('data-agent-session-id')
+    if (currentAgentSessionId) break
+    await sleep(250)
+  }
+  const openedAgentSession = currentAgentSessionId
+    ? await sharedRow(page, 'agentSessions', currentAgentSessionId)
+    : null
+  if (openedAgentSession) {
+    await sharedPut(page, 'agentSessions', {
+      ...openedAgentSession,
+      messages: [
+        {
+          role: 'assistant',
+          content: Array.from(
+            { length: 42 },
+            (_, line) =>
+              `- **第 ${line + 1} 行**：用于验证向上阅读时不会被自动拖回底部。`,
+          ).join('\n'),
+        },
+      ],
+      updatedAt: Date.now(),
+    })
+  }
+  await page.locator('[data-agent-close]').click()
+  await page.locator('[data-agent-orb]').waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(350)
+  await page.locator('[data-agent-orb]').click()
+  await page.locator('[data-agent-floating-panel]').waitFor({ state: 'visible', timeout: 5000 })
+  let reopenedAgentSessionId = null
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    reopenedAgentSessionId = await page
+      .locator('[data-agent-panel]')
+      .getAttribute('data-agent-session-id')
+    if (reopenedAgentSessionId) break
+    await sleep(250)
+  }
+  await sleep(500)
+  const reopenedAgentSession = reopenedAgentSessionId
+    ? await sharedRow(page, 'agentSessions', reopenedAgentSessionId)
+    : null
+  const jumpScrollState = await page.evaluate(async () => {
+    const content = document.querySelector('[data-agent-content]')
+    if (!content) return null
+    const bottom = content.scrollHeight - content.clientHeight
+    content.scrollTop = Math.max(0, bottom - 20)
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const shortHopVisible = !!document.querySelector('[data-agent-jump-latest]')
+    content.scrollTop = Math.max(0, bottom - 120)
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return {
+      overflow: content.scrollHeight > content.clientHeight,
+      messageCount: document.querySelectorAll('[data-agent-message]').length,
+      shortHopVisible,
+      longHopVisible: !!document.querySelector('[data-agent-jump-latest]'),
+      distance: Math.round(content.scrollHeight - content.scrollTop - content.clientHeight),
+    }
+  })
+  rec(
+    g,
+    'Agent 向上阅读超过三行才出现跳至最新按钮',
+    !!jumpScrollState &&
+      jumpScrollState.overflow &&
+      !jumpScrollState.shortHopVisible &&
+      jumpScrollState.longHopVisible,
+    JSON.stringify({
+      ...jumpScrollState,
+      currentAgentSessionId,
+      openedMessages: openedAgentSession?.messages?.length ?? 0,
+      reopenedAgentSessionId,
+      reopenedMessages: reopenedAgentSession?.messages?.length ?? 0,
+    }),
+  )
+  await page.screenshot({ path: `${OUT}/735-agent-jump-latest-light-1440.png` })
+  await page.locator('[data-agent-jump-latest]').click()
+  await sleep(350)
+  const jumpedToLatest = await page.evaluate(() => {
+    const content = document.querySelector('[data-agent-content]')
+    return content
+      ? {
+          distance: Math.round(
+            content.scrollHeight - content.scrollTop - content.clientHeight,
+          ),
+          buttonVisible: !!document.querySelector('[data-agent-jump-latest]'),
+        }
+      : null
+  })
+  rec(
+    g,
+    '点击跳至最新后回到对话底部并隐藏按钮',
+    !!jumpedToLatest &&
+      jumpedToLatest.distance <= 4 &&
+      !jumpedToLatest.buttonVisible,
+    JSON.stringify(jumpedToLatest),
+  )
+  await page.locator('[data-agent-close]').click()
+  await page.locator('[data-agent-orb]').waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(300)
   const orbAfter = await orb.boundingBox()
+  const workspaceAfterClose = await page.locator('[data-canvas-surface]').boundingBox()
   const graphAfterAgent = await page.evaluate(() => {
     const debug = window.__canvasDebug
     return typeof debug === 'function'
@@ -40443,6 +40726,18 @@ async function g735(browser) {
         }))
       : []
   })
+  const graphBeforeById = new Map(graphBeforeAgent.map((node) => [node.id, node]))
+  const graphGeometryDrift = graphAfterAgent.filter((node) => {
+    const before = graphBeforeById.get(node.id)
+    return (
+      !before ||
+      before.parentId !== node.parentId ||
+      Math.abs(before.x - node.x) > 1 ||
+      Math.abs(before.y - node.y) > 1 ||
+      Math.abs(before.w - node.w) > 1 ||
+      Math.abs(before.h - node.h) > 1
+    )
+  }).length
   rec(
     g,
     '关闭 Agent 面板后球的位置保持不变',
@@ -40452,9 +40747,15 @@ async function g735(browser) {
   )
   rec(
     g,
+    '关闭 Agent 后画布工作区恢复原来的宽度',
+    Math.abs(workspaceAfterClose.width - workspaceBeforeOpen.width) <= 1,
+    `关闭后=${Math.round(workspaceAfterClose.width)} 原本=${Math.round(workspaceBeforeOpen.width)}`,
+  )
+  rec(
+    g,
     'Agent 开关与拖宽不改变画布节点坐标',
-    JSON.stringify(graphAfterAgent) === JSON.stringify(graphBeforeAgent),
-    `节点=${graphAfterAgent.length}`,
+    graphAfterAgent.length === graphBeforeAgent.length && graphGeometryDrift === 0,
+    `节点=${graphAfterAgent.length} 几何漂移=${graphGeometryDrift}`,
   )
 
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'domcontentloaded' })
@@ -40470,7 +40771,7 @@ async function g735(browser) {
   await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
   await page.locator('[data-ecommerce-model]').click()
   const ecommerceModels = await page
-    .locator('[data-ecommerce-select-option]')
+    .locator('[data-ecommerce-menu="generate-model"] [data-ecommerce-select-option]')
     .evaluateAll((els) =>
       els.map((el) => el.getAttribute('data-ecommerce-select-option')).filter(Boolean),
     )
@@ -40478,12 +40779,12 @@ async function g735(browser) {
     g,
     '电商页模型下拉隐藏不常用模型',
     !ecommerceModels.includes(hiddenModel),
-    `数量=${ecommerceModels.length}`,
+    `数量=${ecommerceModels.length} 列表=${ecommerceModels.join(',')}`,
   )
   await page.keyboard.press('Escape')
 
   await gotoSettings(page)
-  await page.locator(USER_CHANNEL).first().click()
+  await page.locator('[data-channel-id="ch_smoke_mock"]').click()
   await page.locator('[data-settings-provider-head]').waitFor({ state: 'visible', timeout: 5000 })
   if ((await page.locator(`[data-route-map-uncommon="${hiddenModel}"]`).count()) === 0) {
     await page.locator('[data-route-map-show-uncommon]').check()

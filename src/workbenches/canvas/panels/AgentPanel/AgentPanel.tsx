@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
@@ -164,6 +172,23 @@ import {
   type ConversationStep,
 } from './conversation'
 import { TaskPlanCard } from './TaskPlanCard'
+import {
+  AGENT_COMPOSER_HEIGHT_KEY,
+  AGENT_COMPOSER_HEIGHT_MIN,
+  agentComposerMaxHeight,
+  clampAgentComposerHeight,
+  parseAgentComposerHeight,
+  resizedAgentComposerHeight,
+} from './agentComposerLayout'
+import {
+  agentShouldFollowLatest,
+  agentShouldShowJumpLatest,
+} from './agentConversationScroll'
+import {
+  AGENT_REVEAL_TICK_MS,
+  agentRevealCharacters,
+  nextAgentRevealLength,
+} from './agentOutputReveal'
 import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../../../features/shared/assets/index'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
@@ -223,6 +248,25 @@ const GENERATION_ACTIVITY_PHRASES = [
   '快好了，正在检查结果',
 ] as const
 
+function readStoredComposerHeight(): number {
+  try {
+    return parseAgentComposerHeight(
+      localStorage.getItem(AGENT_COMPOSER_HEIGHT_KEY),
+      window.innerHeight,
+    )
+  } catch {
+    return AGENT_COMPOSER_HEIGHT_MIN
+  }
+}
+
+function storeComposerHeight(height: number): void {
+  try {
+    localStorage.setItem(AGENT_COMPOSER_HEIGHT_KEY, String(height))
+  } catch {
+    // Storage can be blocked; resizing still works for this session.
+  }
+}
+
 function statusIsBusy(status: Status): boolean {
   return status.kind !== 'idle' && status.kind !== 'error'
 }
@@ -240,6 +284,12 @@ interface AgentChatRoute extends RoutedChatTarget {
   credentialGroupId?: string
   routePlanId: string
   candidates: DirectRunRouteCandidate[]
+}
+
+interface AgentMessageReveal {
+  sessionId: string
+  fullText: string
+  visibleLength: number
 }
 
 type ChatRoutePreparation =
@@ -370,6 +420,12 @@ export function AgentPanel({
   const stickyModelRef = useRef<{ image?: string; video?: string }>({})
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
+  const [composerHeight, setComposerHeight] = useState(readStoredComposerHeight)
+  const [composerResizing, setComposerResizing] = useState(false)
+  const [messageReveal, setMessageReveal] = useState<AgentMessageReveal | null>(null)
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
+  const stickToLatestRef = useRef(true)
+  const composerRef = useRef<HTMLDivElement | null>(null)
   const [queueMenuId, setQueueMenuId] = useState<string | null>(null)
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
   const [editingQueueText, setEditingQueueText] = useState('')
@@ -463,6 +519,24 @@ export function AgentPanel({
   const skillFileRef = useRef<HTMLInputElement | null>(null)
   const skillDirRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<MentionEditorHandle | null>(null)
+
+  const composerAvailableHeight = () => {
+    const panel = composerRef.current?.closest<HTMLElement>('[data-agent-panel]')
+    return panel?.getBoundingClientRect().height ?? window.innerHeight
+  }
+
+  useEffect(() => {
+    const panel = composerRef.current?.closest<HTMLElement>('[data-agent-panel]')
+    if (!panel || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => {
+      const availableHeight = panel.getBoundingClientRect().height
+      setComposerHeight((height) =>
+        clampAgentComposerHeight(height, availableHeight),
+      )
+    })
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [])
   /**
    * 中止用的控制器**按会话各存一个**（与 `statusBySession` 同一口径）。
    *
@@ -738,14 +812,66 @@ export function AgentPanel({
   }, [projectId])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    if (!messageReveal) return
+    const characters = agentRevealCharacters(messageReveal.fullText)
+    if (messageReveal.visibleLength >= characters.length) {
+      setMessageReveal(null)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setMessageReveal((current) => {
+        if (
+          !current ||
+          current.sessionId !== messageReveal.sessionId ||
+          current.fullText !== messageReveal.fullText
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          visibleLength: nextAgentRevealLength(
+            current.visibleLength,
+            characters.length,
+          ),
+        }
+      })
+    }, AGENT_REVEAL_TICK_MS)
+    return () => window.clearTimeout(timer)
+  }, [messageReveal])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (stickToLatestRef.current) el.scrollTop = el.scrollHeight
+    setShowJumpToLatest(agentShouldShowJumpLatest(el))
   }, [
     messages,
     status,
     current?.taskPlan,
     current?.queuedTurns.length,
     current?.pendingSteers.length,
+    messageReveal?.visibleLength,
   ])
+
+  const onConversationScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    stickToLatestRef.current = agentShouldFollowLatest(el)
+    setShowJumpToLatest(agentShouldShowJumpLatest(el))
+  }
+
+  const jumpToLatest = () => {
+    const el = scrollRef.current
+    if (!el) return
+    stickToLatestRef.current = true
+    setShowJumpToLatest(false)
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth',
+    })
+  }
 
   const persist = useCallback(
     async (session: AgentSession, next: ChatMessage[]) => {
@@ -760,6 +886,9 @@ export function AgentPanel({
       setCurrent(session)
       // 记忆隔离：切会话就是**换一整套上下文**，不是接着上一个聊（§8.2）
       setMessages(session.messages)
+      setMessageReveal(null)
+      setShowJumpToLatest(false)
+      stickToLatestRef.current = true
       /** 不再重置 status：每个会话有自己的运行态，切过去看到的是**它自己**那一份 */
       setDraft('')
       // 换了会话，之前「准备好删了」的那个状态不该跟过来
@@ -1527,7 +1656,22 @@ export function AgentPanel({
           })
           .catch(() => null)
       }
-      if (currentIdRef.current === session.id) setMessages(full)
+      if (currentIdRef.current === session.id) {
+        if (
+          outcome.kind === 'message' &&
+          outcome.text.trim() &&
+          !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ) {
+          setMessageReveal({
+            sessionId: session.id,
+            fullText: outcome.text,
+            visibleLength: 0,
+          })
+        } else {
+          setMessageReveal(null)
+        }
+        setMessages(full)
+      }
       await persist(session, full)
       if (!outcomeIsCurrent()) {
         await settleStaleOutcome()
@@ -2117,6 +2261,10 @@ export function AgentPanel({
     const text = raw.trim()
     const session = queuedSession ?? current
     if (!text || !session) return undefined
+    if (currentIdRef.current === session.id) {
+      stickToLatestRef.current = true
+      setShowJumpToLatest(false)
+    }
     if (!opts.preclaimed && !claimSessionActivity(session.id, opts.queueTurnId)) return undefined
     let outcome: AgentLoopOutcome | undefined
     try {
@@ -3254,6 +3402,26 @@ export function AgentPanel({
       ]),
     [current?.pendingSteers, messages],
   )
+  const streamingTextIndex = useMemo(() => {
+    if (!messageReveal || messageReveal.sessionId !== current?.id) return -1
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]
+      if (item?.kind === 'text' && item.text === messageReveal.fullText) return index
+    }
+    return -1
+  }, [current?.id, items, messageReveal])
+  const visibleItems = useMemo(() => {
+    if (!messageReveal || streamingTextIndex < 0) return items
+    const characters = agentRevealCharacters(messageReveal.fullText)
+    const visibleText = characters
+      .slice(0, messageReveal.visibleLength)
+      .join('')
+    return items.map((item, index) =>
+      index === streamingTextIndex && item.kind === 'text'
+        ? { ...item, text: visibleText }
+        : item,
+    )
+  }, [items, messageReveal, streamingTextIndex])
   /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示（图变更时跟着刷） */
   const graph = useGraph()
   const hashOfNode = useMemo(() => {
@@ -3404,10 +3572,58 @@ export function AgentPanel({
         })()
       : undefined
 
+  const beginComposerResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.focus()
+    const startY = event.clientY
+    const originHeight = composerHeight
+    let latestHeight = originHeight
+    setComposerResizing(true)
+
+    const onMove = (moveEvent: PointerEvent) => {
+      latestHeight = resizedAgentComposerHeight(
+        originHeight,
+        startY,
+        moveEvent.clientY,
+        composerAvailableHeight(),
+      )
+      setComposerHeight(latestHeight)
+    }
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      setComposerResizing(false)
+      storeComposerHeight(latestHeight)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
+
+  const resizeComposerWithKeyboard = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const maximum = agentComposerMaxHeight(composerAvailableHeight())
+    let next = composerHeight
+    if (event.key === 'ArrowUp') next += 16
+    else if (event.key === 'ArrowDown') next -= 16
+    else if (event.key === 'Home') next = AGENT_COMPOSER_HEIGHT_MIN
+    else if (event.key === 'End') next = maximum
+    else return
+    event.preventDefault()
+    const clamped = clampAgentComposerHeight(next, composerAvailableHeight())
+    setComposerHeight(clamped)
+    storeComposerHeight(clamped)
+  }
+
   return (
     <aside
       className={styles.panel}
       data-agent-panel
+      data-agent-session-id={current?.id}
       /**
        * Esc **先关参数浮层**（与创作面板同一条口径：想收起下拉，结果把整块面板
        * 一起关掉是最容易踩的那一脚）。
@@ -3570,7 +3786,13 @@ export function AgentPanel({
         )}
       </header>
 
-      <div className={styles.content} ref={scrollRef} data-agent-content>
+      <div className={styles.contentWrap} data-agent-scroll-wrap>
+      <div
+        className={styles.content}
+        ref={scrollRef}
+        data-agent-content
+        onScroll={onConversationScroll}
+      >
       {current?.taskPlan && (
         <TaskPlanCard
           plan={current.taskPlan}
@@ -3579,12 +3801,12 @@ export function AgentPanel({
       )}
 
       <div className={styles.messages} data-agent-messages>
-        {items.length === 0 && (
+        {visibleItems.length === 0 && (
           <p className={styles.hint}>
             说一句你想要什么，我会把它建成画布上的工作流。
           </p>
         )}
-        {items.map((item, i) => {
+        {visibleItems.map((item, i) => {
           if (item.kind === 'user') {
             return (
               <div key={i} className={styles.msgUser} data-agent-message="user">
@@ -3595,16 +3817,25 @@ export function AgentPanel({
           }
           if (item.kind === 'text') {
             const copied = copiedKey === i
+            const streaming = i === streamingTextIndex
             return (
-              <div key={i} className={styles.msgBot} data-agent-message="assistant">
+              <div
+                key={i}
+                className={styles.msgBot}
+                data-agent-message="assistant"
+                data-agent-streaming={streaming ? 'true' : undefined}
+              >
                 {/*
                   助手回复走 Markdown 渲染（用户 2026-10-02：模型回的
                   `- **看看画布现状**` 把星号和杠原样打在界面上）。
                   与提示词节点**共用同一个渲染器** —— 见 `MarkdownBlocks` 的说明。
                 */}
                 <MarkdownBlocks source={item.text} />
+                {streaming && (
+                  <span className={styles.streamCaret} aria-hidden="true" />
+                )}
                 {/* 复制 / 重试（用户 2026-10-14 第 1 条） */}
-                <div className={styles.msgActions}>
+                {!streaming && <div className={styles.msgActions}>
                   <button
                     type="button"
                     className={styles.msgAction}
@@ -3625,7 +3856,7 @@ export function AgentPanel({
                   >
                     <IconLoop size={14} />
                   </button>
-                </div>
+                </div>}
               </div>
             )
           }
@@ -3903,6 +4134,18 @@ export function AgentPanel({
         </div>
       )}
       </div>
+      {showJumpToLatest && (
+        <button
+          type="button"
+          className={styles.jumpLatest}
+          onClick={jumpToLatest}
+          data-agent-jump-latest
+        >
+          <IconChevronDown size={14} />
+          跳至最新
+        </button>
+      )}
+      </div>
 
       {/*
         对话模型 = **agent 自己的 LLM**，单独一处（用户 2026-10-02：「对话模型是
@@ -3941,10 +4184,32 @@ export function AgentPanel({
         素材标签也收在盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
       */}
       <div
+        ref={composerRef}
+        id="canvas-agent-composer"
         className={styles.composer}
         data-agent-composer
+        data-agent-composer-height={composerHeight}
+        data-agent-composer-resizing={composerResizing ? 'true' : 'false'}
         data-agent-delivery-mode={deliveryMode}
+        style={{
+          ['--agent-composer-height' as string]: `${composerHeight}px`,
+        }}
       >
+        <button
+          type="button"
+          className={styles.composerResizeHandle}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-controls="canvas-agent-composer-editor"
+          aria-label="调整 Agent 输入框高度"
+          aria-valuemin={AGENT_COMPOSER_HEIGHT_MIN}
+          aria-valuemax={agentComposerMaxHeight(composerAvailableHeight())}
+          aria-valuenow={composerHeight}
+          title="向上拖动加高输入框；方向键微调"
+          data-agent-composer-resize
+          onPointerDown={beginComposerResize}
+          onKeyDown={resizeComposerWithKeyboard}
+        />
         {/*
           **没有独立的 chip 行了**（用户 2026-10-02：「agent 的 skill 选择后不要出现在
           图三的地方……点击节点后出现的把选中的节点当作此次的素材的时候都会出现在那里，
@@ -3963,8 +4228,12 @@ export function AgentPanel({
           ref={editorRef}
           value={draft}
           onChange={setDraft}
+          className={styles.composerEditor}
           /** 语义锚点：冒烟按 `[data-agent-input]` 定位这个输入框 */
-          anchorAttr={{ 'data-agent-input': '' }}
+          anchorAttr={{
+            'data-agent-input': '',
+            id: 'canvas-agent-composer-editor',
+          }}
           placeholder="开始你的创作，或者 @ 引用工作流 / 节点 / 资源"
           onEnter={(modifiers) => {
             const opposite = deliveryMode === 'queue' ? 'steer' : 'queue'

@@ -252,6 +252,14 @@
   cursor: pointer;
 }
 
+.contentWrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .content {
   flex: 1 1 auto;
   min-height: 0;
@@ -264,6 +272,46 @@
 
 .content > * {
   flex: 0 0 auto;
+}
+
+.jumpLatest {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+  animation: jumpLatestIn 140ms var(--ease-out);
+}
+
+.jumpLatest:hover {
+  background: var(--bg-hover);
+}
+
+.jumpLatest:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.streamCaret {
+  display: inline-block;
+  width: 1px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: streamCaretBlink 0.75s steps(1, end) infinite;
 }
 
 .messages {
@@ -514,14 +562,41 @@
   }
 }
 
+@keyframes jumpLatestIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes streamCaretBlink {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  49%,
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .activityDot,
-  .activityCursor {
+  .activityCursor,
+  .streamCaret {
     animation: none;
   }
 
   .activityToggleIcon {
     transition: none;
+  }
+
+  .jumpLatest {
+    animation: none;
   }
 }
 
@@ -969,7 +1044,12 @@
  * 盒子自带边框，因此不再需要上一版那条 `border-top` 分隔线。
  */
 .composer {
+  position: relative;
   flex: 0 0 auto;
+  box-sizing: border-box;
+  height: var(--agent-composer-height, 104px);
+  min-height: 104px;
+  max-height: 360px;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -977,6 +1057,55 @@
   border: 1px solid var(--stroke);
   border-radius: var(--radius-node);
   background: var(--bg-surface);
+}
+
+.composerEditor {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: none;
+}
+
+/**
+ * 输入框顶边的加高手势。视觉把手只有 3px，命中区向上扩到 18px，
+ * 这样不用精确压住细线；左右刻意留空，避免和正文选择、滚动条抢事件。
+ */
+.composerResizeHandle {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  left: 8px;
+  z-index: 2;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.composerResizeHandle::after {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 34px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--text-3);
+  content: '';
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.composerResizeHandle:hover::after,
+.composerResizeHandle:focus-visible::after,
+.composer[data-agent-composer-resizing='true'] .composerResizeHandle::after {
+  opacity: 0.72;
+}
+
+.composerResizeHandle:focus-visible {
+  outline: 1px solid var(--stroke-focus);
+  outline-offset: -7px;
 }
 
 .send {

@@ -744,7 +744,7 @@
  * 所以这里直接取**与面板/节点内部同一个令牌**，让它彻底融进去。
  */
 .prompt::-webkit-scrollbar-track {
-  background: var(--bg-surface);
+  background: transparent;
 }
 
 /* 拇指：细圆角、半透明，悬停时略实一点 */

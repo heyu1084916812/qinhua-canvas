@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_ORB_SIZE,
   AGENT_SHELL_GAP,
+  AGENT_SHELL_SNAP_THRESHOLD,
   AGENT_SHELL_WIDTH_DEFAULT,
   AGENT_SHELL_WIDTH_MIN,
   agentShellMaxWidth,
+  agentShellAvailableWidth,
+  agentShellSnapWidths,
   agentShellWidth,
   clampAgentOrb,
   clampAgentShellState,
+  dampAgentShellWidth,
   defaultAgentShellState,
+  nearestAgentShellSnap,
   parseAgentShellState,
   parseLegacyAgentShellState,
   resizedAgentShellWidth,
@@ -34,6 +39,25 @@ describe('Agent shell layout', () => {
     expect(agentShellMaxWidth(1920)).toBe(1890)
     expect(agentShellWidth(5000, 1920)).toBe(1890)
     expect(resizedAgentShellWidth(420, 800, 700, 1440)).toBe(520)
+  })
+
+  it('uses the shell available width for 30/60/80 snap levels', () => {
+    const available = agentShellAvailableWidth(1440, 64)
+    expect(available).toBe(1361)
+    expect(agentShellSnapWidths(available)).toEqual([399, 799, 1065])
+    expect(nearestAgentShellSnap(785, available)).toBe(799)
+    expect(nearestAgentShellSnap(750, available)).toBeNull()
+  })
+
+  it('dampens dragging near a snap level without changing the stored value', () => {
+    const available = agentShellAvailableWidth(1440, 64)
+    const snap = nearestAgentShellSnap(785, available)
+    expect(snap).toBe(799)
+    expect(dampAgentShellWidth(785, available)).toBeGreaterThan(785)
+    expect(dampAgentShellWidth(785, available)).toBeLessThan(799)
+    expect(dampAgentShellWidth(799 + AGENT_SHELL_SNAP_THRESHOLD * 2, available)).toBe(
+      799 + AGENT_SHELL_SNAP_THRESHOLD * 2,
+    )
   })
 
   it('clamps persisted state against the current viewport', () => {
