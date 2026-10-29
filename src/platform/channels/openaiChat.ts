@@ -32,6 +32,34 @@ interface TextHttpResponse {
   json<T>(): Promise<T>
 }
 
+function reasoningFragments(value: unknown): string[] {
+  if (typeof value === 'string') return value.trim() ? [value.trim()] : []
+  if (Array.isArray(value)) return value.flatMap(reasoningFragments)
+  if (!value || typeof value !== 'object') return []
+  const row = value as Record<string, unknown>
+  return [
+    ...reasoningFragments(row.text),
+    ...reasoningFragments(row.summary),
+    ...reasoningFragments(row.content),
+  ]
+}
+
+/**
+ * OpenAI 兼容中转没有统一过程字段。只读取供应商明确公开的摘要字段，
+ * 不去猜、不把 tool_calls 参数伪装成思考内容。
+ */
+function reasoningTextOf(message: Record<string, unknown> | undefined): string {
+  if (!message) return ''
+  const fragments = [
+    message.reasoning_content,
+    message.reasoning,
+    message.reasoning_details,
+    message.thinking,
+    message.analysis,
+  ].flatMap(reasoningFragments)
+  return [...new Set(fragments)].join('\n\n').trim()
+}
+
 function nativeTextResponse(response: RemoteTextResponse): TextHttpResponse {
   return {
     status: response.status,
@@ -227,7 +255,7 @@ type GeminiPart =
 
 interface GeminiNativeBody {
   candidates?: {
-    content?: { parts?: { text?: unknown }[] }
+    content?: { parts?: { text?: unknown; thought?: unknown }[] }
     finishReason?: string
   }[]
 }
@@ -578,10 +606,16 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         } catch {
           nativeBody = null
         }
-        const nativeText = (nativeBody?.candidates?.[0]?.content?.parts ?? [])
+        const nativeParts = nativeBody?.candidates?.[0]?.content?.parts ?? []
+        const nativeText = nativeParts
+          .filter((part) => part.thought !== true)
           .map((part) => (typeof part.text === 'string' ? part.text : ''))
           .join('')
-        if (!nativeText.trim()) {
+        const nativeReasoning = nativeParts
+          .filter((part) => part.thought === true)
+          .map((part) => (typeof part.text === 'string' ? part.text : ''))
+          .join('')
+        if (!nativeText.trim() && !nativeReasoning.trim()) {
           throw new ChannelError({
             kind: 'parse',
             raw: nativeRaw || 'Gemini 原生响应里没有 candidates[0].content.parts[].text',
@@ -590,6 +624,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         const finish = nativeBody?.candidates?.[0]?.finishReason
         return {
           text: nativeText,
+          ...(nativeReasoning.trim() ? { reasoning: nativeReasoning.trim() } : {}),
           finishReason: finish === 'MAX_TOKENS' ? 'length' : finish === 'STOP' ? 'stop' : undefined,
         }
       }
@@ -601,6 +636,11 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         choices?: {
           message?: {
             content?: unknown
+            reasoning_content?: unknown
+            reasoning?: unknown
+            reasoning_details?: unknown
+            thinking?: unknown
+            analysis?: unknown
             tool_calls?: { id?: unknown; function?: { name?: unknown; arguments?: unknown } }[]
           }
           finish_reason?: string
@@ -609,6 +649,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       .catch(() => null)
     const message = body?.choices?.[0]?.message
     const text = message?.content
+    const reasoning = reasoningTextOf(message as Record<string, unknown> | undefined)
     /** 工具调用：`arguments` 保持原始字符串，解析交给 caller（见 TextResult 的说明） */
     const toolCalls = (message?.tool_calls ?? [])
       .map((c) => ({
@@ -625,12 +666,13 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
      * **例外**：带工具调用时 `content` 本来就是 `null`。早先这里只认字符串，
      * 于是「模型正确地要求调工具」会被判成解析失败 —— 正是 M0 要填的坑。
      */
-    if (typeof text !== 'string' && toolCalls.length === 0) {
+    if (typeof text !== 'string' && toolCalls.length === 0 && !reasoning) {
       throw new ChannelError({ kind: 'parse', raw: '聊天响应里没有 message.content' })
     }
     const reason = body?.choices?.[0]?.finish_reason
     return {
       text: typeof text === 'string' ? text : '',
+      ...(reasoning ? { reasoning } : {}),
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
       finishReason:
         reason === 'stop' || reason === 'length' || reason === 'tool_calls' ? reason : undefined,

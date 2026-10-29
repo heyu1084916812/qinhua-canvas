@@ -37,6 +37,7 @@ describe('errText · 报错给人话', () => {
 
 interface Reply {
   text?: string
+  reasoning?: string
   toolCalls?: { id: string; name: string; args: string }[]
 }
 
@@ -49,7 +50,11 @@ function depsWith(
   const adapter = {
     completeText: vi.fn(async () => {
       const r = replies[Math.min(i++, replies.length - 1)]!
-      return { text: r.text ?? '', ...(r.toolCalls ? { toolCalls: r.toolCalls } : {}) }
+      return {
+        text: r.text ?? '',
+        ...(r.reasoning ? { reasoning: r.reasoning } : {}),
+        ...(r.toolCalls ? { toolCalls: r.toolCalls } : {}),
+      }
     }),
   }
   return {
@@ -144,10 +149,11 @@ describe('runAgentTurn · 基本往复', () => {
           finishRead = resolve
         }),
     )
-    const { deps } = depsWith(
+    const { deps, adapter } = depsWith(
       [
         {
           text: '我先看一下画布，再决定怎么建。',
+          reasoning: '先确认现有节点和连线，避免重复创建。',
           toolCalls: [{ id: 'c1', name: 'readGraph', args: '{"scope":"all"}' }],
         },
         { text: '看完了，画布目前是空的。' },
@@ -165,6 +171,7 @@ describe('runAgentTurn · 基本往复', () => {
     expect(snapshots[0]!.at(-1)).toMatchObject({
       role: 'assistant',
       content: '我先看一下画布，再决定怎么建。',
+      reasoning: '先确认现有节点和连线，避免重复创建。',
       toolCalls: [{ id: 'c1', name: 'readGraph', args: '{"scope":"all"}' }],
     })
     expect(snapshots[0]!.some((message) => message.role === 'tool')).toBe(false)
@@ -178,6 +185,14 @@ describe('runAgentTurn · 基本往复', () => {
       toolCallId: 'c1',
       toolName: 'readGraph',
     })
+    const secondRequest = (
+      adapter.completeText.mock.calls as unknown as Array<[
+        { messages?: ChatMessage[] },
+      ]>
+    )[1]?.[0]
+    expect(
+      secondRequest?.messages?.some((message) => message.reasoning !== undefined),
+    ).toBe(false)
   })
 
   it('★★ 读类工具在循环里直接执行，结果回填后继续问模型', async () => {

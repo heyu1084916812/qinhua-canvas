@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
 import {
   describeToolResult,
+  processEntriesOf,
   readableConfirmationLines,
   toConversation,
   toolLabel,
@@ -289,8 +290,8 @@ describe('消息 → 对话条目', () => {
     ])
   })
 
-  it('★★ 带工具调用的过程正文仍然进入时间线，并保留消息时间', () => {
-    const items = toConversation([
+  it('★★ 带工具调用的过程正文进入折叠历史，不在正文里铺成多段', () => {
+    const messages: ChatMessage[] = [
       {
         role: 'user',
         content: '换个背心和短裤',
@@ -307,12 +308,47 @@ describe('消息 → 对话条目', () => {
         toolCallId: 'c1',
         content: '{"ok":true,"approved":true}',
       },
-    ])
+    ]
+    const items = toConversation(messages)
 
     expect(items).toEqual([
       { kind: 'user', text: '换个背心和短裤', createdAt: 100 },
-      { kind: 'text', text: '先确认人物基准，再换服装。', createdAt: 200 },
     ])
+    expect(processEntriesOf(messages)).toEqual([
+      {
+        id: 'process-1',
+        text: '先确认人物基准，再换服装。',
+        createdAt: 200,
+      },
+    ])
+  })
+
+  it('★★ 真实思考摘要不铺进正文，单独收成可展开的过程历史', () => {
+    const messages: ChatMessage[] = [
+      {
+        role: 'assistant',
+        reasoning: '先核对现有节点，确认人物参考图后再生成。',
+        content: '我会先读取画布，再创建生成节点。',
+        createdAt: 300,
+        toolCalls: [{ id: 'c1', name: 'readGraph', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'c1',
+        content: '{"nodes":[]}',
+      },
+    ]
+    const items = toConversation(messages)
+
+    expect(items.map((item) => item.kind)).toEqual(['step'])
+    expect(processEntriesOf(messages)).toEqual([
+      {
+        id: 'process-0',
+        text: '先核对现有节点，确认人物参考图后再生成。',
+        createdAt: 300,
+      },
+    ])
+    expect(items.some((item) => item.kind === 'text')).toBe(false)
   })
 
   it('★ 对不上 toolCallId 的结果被丢掉，不凭空冒出一张卡', () => {

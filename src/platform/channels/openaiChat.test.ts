@@ -502,6 +502,35 @@ describe('openaiChat adapter / 工具调用', () => {
     ])
   })
 
+  it('★★ 保留渠道返回的 reasoning_content，供 Agent 时间线展示真实过程', async () => {
+    const net = createMemoryNetwork({
+      handler: async () =>
+        resp(200, {
+          choices: [
+            {
+              message: {
+                content: '',
+                reasoning_content: '先核对画布节点，再决定是否创建新的生成流程。',
+                tool_calls: [
+                  {
+                    id: 'call_reason',
+                    type: 'function',
+                    function: { name: 'readGraph', arguments: '{"scope":"all"}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        }),
+    })
+    const a = createOpenAiChatAdapter(cfg, { network: net, assets: platformWith([]).assets })
+    const r = await a.completeText({ ...request([]), tools: [tool] }, signal)
+
+    expect(r.reasoning).toBe('先核对画布节点，再决定是否创建新的生成流程。')
+    expect(r.toolCalls?.[0]).toMatchObject({ id: 'call_reason', name: 'readGraph' })
+  })
+
   it('★ 既没有 content 也没有 tool_calls → 仍如实报解析失败（不许拿空串糊过去）', async () => {
     const net = createMemoryNetwork({ handler: async () => resp(200, { choices: [{ message: {} }] }) })
     const a = createOpenAiChatAdapter(cfg, { network: net, assets: platformWith([]).assets })

@@ -10437,3 +10437,13 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   关闭再打开才重置并 fit；否则会把“保持放大细节”变成“所有图片都错误沿用上次视图”。
 - **本批证据**：定向 **74/74**；全量 Vitest **3611 passed / 1 skipped**；
   G795 四组视口 / 主题均 **8/8**，切图前后 zoom / left / top / width / height 完全一致。
+### Agent 真实过程字段与单行折叠历史（2026-10-30，对账 #822）
+
+- **渠道层先丢了一次数据**：`openaiChat` 旧解析只看 `message.content`，DeepSeek 等返回的
+  `reasoning_content` 被直接忽略。必须先保留到 `TextResult.reasoning`，否则前端无法展示真实过程。
+- **过程不能铺成正文**：`reasoning` 存在 assistant 消息但由 `processEntriesOf()` 单独消费；
+  默认只显示最新一行，用户展开后才看历史。带 toolCalls 的公开过程正文也归这里，避免多处重复。
+- **协议边界**：`ChatMessage.reasoning` 是纯 UI 字段，`askModel()` 发给模型前必须删除。
+  旧消息没有 reasoning 时保留原有正文 / 步骤卡行为。
+- **本批证据**：定向 **82/82**；全量 Vitest **3613 passed / 1 skipped**；check / build / detector 通过。
+  G769 的真实过程单行、时间与展开历史断言通过；同组既有待发送素材异步同步断言仍偶发波动。

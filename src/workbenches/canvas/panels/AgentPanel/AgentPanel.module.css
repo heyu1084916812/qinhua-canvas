@@ -524,7 +524,7 @@
 .activityRowFailed {
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-height: 24px;
   padding: 1px 0;
@@ -559,7 +559,18 @@
 }
 
 .activityStepName {
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activityStepTime {
   flex: 0 0 auto;
+  padding-top: 1px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

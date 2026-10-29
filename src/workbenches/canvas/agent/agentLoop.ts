@@ -60,6 +60,8 @@ export interface AgentLoopActivity {
   phase: 'thinking' | 'tool'
   status: 'running' | 'done' | 'failed'
   tool?: string
+  /** 渠道公开返回的真实过程摘要；只用于当前一行，不参与模型上下文。 */
+  detail?: string
 }
 
 export type AgentLoopOutcome =
@@ -171,6 +173,7 @@ async function askModel(history: ChatMessage[], deps: AgentLoopDeps) {
       messages: history.map((message) => {
         const protocolMessage = { ...message }
         delete protocolMessage.createdAt
+        delete protocolMessage.reasoning
         return protocolMessage
       }),
     },
@@ -216,6 +219,14 @@ export async function runAgentTurn(
       // 渠道错误（401 / 限流）**不回填**：那是配置问题，模型改不了（§4）
       return { kind: 'error', message: e instanceof Error ? e.message : errText(e), messages }
     }
+    if (result.reasoning?.trim()) {
+      emitActivity({
+        id: `reasoning-${step}`,
+        phase: 'thinking',
+        status: 'done',
+        detail: result.reasoning.trim(),
+      })
+    }
 
     let calls = result.toolCalls ?? []
     let showAssistantText = true
@@ -233,13 +244,19 @@ export async function runAgentTurn(
           typeof (action.args as { message?: unknown }).message === 'string'
             ? String((action.args as { message: string }).message)
             : result.text
-        messages.push({ role: 'assistant', content: message, createdAt: Date.now() })
+        messages.push({
+          role: 'assistant',
+          content: message,
+          ...(result.reasoning ? { reasoning: result.reasoning } : {}),
+          createdAt: Date.now(),
+        })
         return { kind: 'message', text: message, messages }
       }
       if (!action) {
         messages.push({
           role: 'assistant',
           content: result.text,
+          ...(result.reasoning ? { reasoning: result.reasoning } : {}),
           createdAt: Date.now(),
         })
         return {
@@ -263,6 +280,7 @@ export async function runAgentTurn(
       messages.push({
         role: 'assistant',
         content: result.text,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {}),
         createdAt: Date.now(),
       })
       return { kind: 'message', text: result.text, messages }
@@ -305,6 +323,7 @@ export async function runAgentTurn(
     messages.push({
       role: 'assistant',
       content: showAssistantText ? result.text : '',
+      ...(result.reasoning ? { reasoning: result.reasoning } : {}),
       createdAt: Date.now(),
       toolCalls: calls.map((c) => ({ id: c.id, name: c.name, args: c.args })),
     })
@@ -474,7 +493,12 @@ export async function runAgentTurn(
       const message =
         '视觉验收已完成，问题清单已返回。子代理不会自动修改画布或重新生成；' +
         '请先查看验收摘要，再决定下一步。'
-      messages.push({ role: 'assistant', content: message, createdAt: Date.now() })
+      messages.push({
+        role: 'assistant',
+        content: message,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {}),
+        createdAt: Date.now(),
+      })
       emitProgress()
       return { kind: 'message', text: message, messages }
     }

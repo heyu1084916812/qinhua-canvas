@@ -22473,7 +22473,7 @@ async function g97(browser) {
       () =>
         document.querySelector('[data-cli-program="codex"]')?.value === 'D:/tools/codex.cmd',
       null,
-      { timeout: 5000 },
+      { timeout: 10000 },
     )
     .catch(() => {})
   if (!(await codexAdvanced.evaluate((el) => el.open))) {
@@ -41368,6 +41368,7 @@ async function g769(browser) {
         {
           role: 'assistant',
           content: '我先检查画布和产物，再继续做验收。',
+          reasoning: '先确认现有画布上的生成结果和参考图，再决定验收顺序。',
           createdAt: now - 1_000,
           toolCalls: [{ id: 'call-g769-thumb', name: 'runNode', args: '{}' }],
         },
@@ -41398,6 +41399,11 @@ async function g769(browser) {
             referenceAssetCount: 0,
             limitations: [],
           }),
+        },
+        {
+          role: 'assistant',
+          content: '画布与验收记录已经检查完成。',
+          createdAt: now - 500,
         },
       ],
       pendingAssetIds: [thumbNodeId],
@@ -41467,12 +41473,21 @@ async function g769(browser) {
         '[data-agent-message="assistant"]',
       )?.textContent ?? '',
       messageTimes: document.querySelectorAll('[data-agent-message-time]').length,
+      processLine:
+        document.querySelector('[data-agent-process-current]')?.textContent ?? '',
+      processCount:
+        document
+          .querySelector('[data-agent-activity]')
+          ?.getAttribute('data-agent-process-history') ?? '0',
     }))
     rec(
       g,
-      '★★ 带工具调用的过程正文与消息时间在任务结束前可见',
-      processTimeline.assistantText.includes('我先检查画布和产物') &&
-        processTimeline.messageTimes >= 1,
+      '★★ 真实思考收成一行更新，结果与时间仍留在时间线',
+      processTimeline.assistantText.includes('画布与验收记录已经检查完成') &&
+        processTimeline.messageTimes >= 1 &&
+        processTimeline.processLine.includes('先确认现有画布上的生成结果') &&
+        !processTimeline.processLine.includes('正在理解') &&
+        processTimeline.processCount === '1',
       JSON.stringify(processTimeline),
     )
     const scrollbarIsolation = await page.evaluate(async () => {
@@ -41600,6 +41615,39 @@ async function g769(browser) {
     await page.screenshot({
       path: `${OUT}/769-agent-activity${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
     })
+    const completedProcess = await page.evaluate(() => ({
+      line: document.querySelector('[data-agent-process-current]')?.textContent ?? '',
+      expanded:
+        document
+          .querySelector('[data-agent-activity]')
+          ?.getAttribute('data-agent-activity-expanded') ?? '',
+      rows: document.querySelectorAll('[data-agent-process-row]').length,
+    }))
+    await page.locator('[data-agent-activity-toggle]').click()
+    await page.locator('[data-agent-process-row="process-0"]').first().waitFor({
+      state: 'visible',
+      timeout: 3000,
+    })
+    const expandedProcess = await page.evaluate(() => ({
+      expanded:
+        document
+          .querySelector('[data-agent-activity]')
+          ?.getAttribute('data-agent-activity-expanded') ?? '',
+      rows: document.querySelectorAll('[data-agent-process-row]').length,
+      text:
+        document.querySelector('[data-agent-process-row="process-0"]')?.textContent ?? '',
+    }))
+    rec(
+      g,
+      '★★ 过程默认收成一行，展开才显示完整历史',
+      completedProcess.line.includes('先确认现有画布上的生成结果') &&
+        completedProcess.expanded === 'false' &&
+        completedProcess.rows === 0 &&
+        expandedProcess.expanded === 'true' &&
+        expandedProcess.rows >= 1 &&
+        expandedProcess.text.includes('先确认现有画布上的生成结果'),
+      JSON.stringify({ completedProcess, expandedProcess }),
+    )
     await page.locator('[data-sidebar-settings]').click()
     await page.locator('[data-global-settings-tab="agent"]').click()
     await page.locator('[data-agent-settings-tab="basic"]').click()
@@ -42818,7 +42866,7 @@ async function g160(browser) {
         return !!img && img.complete && img.naturalWidth > 0
       },
       null,
-      { timeout: 10000 },
+      { timeout: 5000 },
     )
     .catch(() => {})
   await page.locator('[data-ecommerce-batch-edit-preset="white-bg"]').click()

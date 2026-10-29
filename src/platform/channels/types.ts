@@ -55,6 +55,8 @@ export interface GeneratedAsset {
 
 export interface TextResult {
   text: string
+  /** 渠道公开返回的思考 / 过程摘要；没有就是 undefined，不用泛化文案伪造。 */
+  reasoning?: string
   finishReason?: 'stop' | 'length' | 'tool_calls'
   /**
    * 模型请求调用的工具（架构 §5.9 ④）。

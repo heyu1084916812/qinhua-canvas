@@ -161,7 +161,6 @@ import {
   IconClose,
   IconCopyText,
   IconDelete,
-  IconImage,
   IconChat,
   IconLoop,
   IconManual,
@@ -176,10 +175,11 @@ import {
 } from '../../toolbar/icons'
 import {
   readableConfirmationLines,
+  processEntriesOf,
   toConversation,
-  toolLabelOf,
   toolRunningLabel,
   type ConversationItem,
+  type ConversationProcessEntry,
 } from './conversation'
 import {
   explicitMediaModelsFromMentions,
@@ -200,7 +200,7 @@ import {
   agentScrollTopAfterShrink,
 } from './agentConversationScroll'
 import {
-  agentThinkingSummary,
+  conciseAgentRequest,
   agentToolActivitySummary,
 } from './agentActivitySummary'
 import {
@@ -3784,6 +3784,7 @@ export function AgentPanel({
       ]),
     [current?.pendingSteers, messages],
   )
+  const processEntries = useMemo(() => processEntriesOf(messages), [messages])
   const streamingTextIndex = useMemo(() => {
     if (!messageReveal || messageReveal.sessionId !== current?.id) return -1
     for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -4364,18 +4365,19 @@ export function AgentPanel({
           <AgentGenerationTasks tasks={runTasks} />
         )}
 
-      {status.kind !== 'idle' &&
-        (status.kind === 'error' || status.kind === 'paused' ? (
-          <div className={styles.statusLine} data-agent-status={status.kind}>
-            {STATUS_LABEL[status.kind]}：{status.message}
-          </div>
-        ) : (
-          <AgentActivityStrip
-            status={status}
-            items={items}
-            activities={liveActivities}
-          />
-        ))}
+      {(status.kind === 'error' || status.kind === 'paused') && (
+        <div className={styles.statusLine} data-agent-status-line={status.kind}>
+          {STATUS_LABEL[status.kind]}：{status.message}
+        </div>
+      )}
+      {status.kind !== 'idle' || processEntries.length > 0 ? (
+        <AgentActivityStrip
+          status={status}
+          items={items}
+          activities={liveActivities}
+          history={processEntries}
+        />
+      ) : null}
 
       {status.kind === 'paused' && current?.continuation && (
         <div className={styles.step} data-agent-continuation>
@@ -5165,7 +5167,8 @@ function activityTextOf(
   }
   if (status.kind === 'thinking') {
     const lastUser = [...items].reverse().find((item) => item.kind === 'user')
-    return agentThinkingSummary(lastUser?.kind === 'user' ? lastUser.text : '')
+    const request = conciseAgentRequest(lastUser?.kind === 'user' ? lastUser.text : '')
+    return request ? `等待模型返回过程内容：${request}` : '等待模型返回过程内容'
   }
   if (status.kind === 'toolRunning') {
     const latest = [...activities]
@@ -5293,7 +5296,7 @@ function TypewriterActivity({ text }: { text: string }) {
   }, [text])
 
   return (
-    <span className={styles.activityCopy} aria-live="polite">
+    <span className={styles.activityCopy} aria-live="polite" data-agent-process-current>
       <span aria-hidden="true">
         {visible}
         {typing ? <span className={styles.activityCursor} /> : null}
@@ -5307,46 +5310,30 @@ function AgentActivityStrip({
   status,
   items,
   activities,
+  history,
 }: {
   status: Status
   items: readonly ConversationItem[]
   activities: readonly AgentLoopActivity[]
+  history: readonly ConversationProcessEntry[]
 }) {
   const [expanded, setExpanded] = useState(false)
   const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
-  const liveSteps = activities.map((activity) => ({
-    id: activity.id,
-    label:
-      activity.phase === 'thinking'
-        ? '正在理解你的要求'
-        : activity.status === 'running'
-          ? toolRunningLabel(activity.tool)
-          : toolLabelOf(activity.tool ?? '', activity.status === 'failed'),
-    failed: activity.status === 'failed',
-    running: activity.status === 'running',
-    image: false,
-  }))
-  const inputImageCount =
-    [...items].reverse().find((item) => item.kind === 'user')?.imageNodeIds?.length ?? 0
-  const hasImageToolActivity = activities.some(
-    (activity) => activity.tool === 'readAsset' || activity.tool === 'visualReview',
-  )
-  const inputImageStep =
-    inputImageCount > 0 && !hasImageToolActivity
-      ? {
-          id: 'agent-input-images',
-          label: `已查看 ${inputImageCount} 张图像`,
-          failed: false,
-          running: false,
-          image: true,
-        }
-      : null
-  const activitySteps = inputImageStep
-    ? [inputImageStep, ...liveSteps]
-    : liveSteps
-  const visibleSteps = expanded ? activitySteps : activitySteps.slice(-5)
-  const canExpand = activitySteps.length > 5
+  const busy = statusIsBusy(status)
+  const liveDetail = [...activities]
+    .reverse()
+    .find((activity) => activity.detail?.trim())?.detail?.trim()
+  const latestHistory = history.at(-1)
+  const canExpand =
+    history.length > 0 &&
+    status.kind !== 'thinking' &&
+    status.kind !== 'toolRunning' &&
+    status.kind !== 'executing'
   const generationTool = status.kind === 'executing' ? status.tool : undefined
+
+  useEffect(() => {
+    if (busy) setExpanded(false)
+  }, [busy])
 
   useEffect(() => {
     if (status.kind !== 'executing' || (generationTool !== 'runNode' && generationTool !== 'runFrom')) {
@@ -5365,6 +5352,7 @@ function AgentActivityStrip({
     items,
     activities,
   )
+  const visibleText = liveDetail || latestHistory?.text || currentText
 
   return (
     <section
@@ -5372,10 +5360,11 @@ function AgentActivityStrip({
       data-agent-activity
       data-agent-activity-expanded={expanded ? 'true' : 'false'}
       data-agent-status={status.kind}
+      data-agent-process-history={history.length}
     >
       <div className={styles.activityHead}>
         <span className={styles.activityDot} aria-hidden="true" />
-        <TypewriterActivity text={currentText} />
+        <TypewriterActivity text={visibleText} />
         {canExpand ? (
           <button
             type="button"
@@ -5392,25 +5381,26 @@ function AgentActivityStrip({
           </button>
         ) : null}
       </div>
-      {visibleSteps.length > 0 ? (
+      {expanded && canExpand ? (
         <div className={styles.activityList} data-agent-activity-list>
-          {visibleSteps.map((step) => (
+          {history.map((step) => (
             <div
               key={step.id}
-              className={step.failed ? styles.activityRowFailed : styles.activityRow}
+              className={styles.activityRow}
+              data-agent-process-row={step.id}
             >
               <span className={styles.activityStepIcon} aria-hidden="true">
-                {step.image ? (
-                  <IconImage size={12} />
-                ) : step.running ? (
-                  <span className={styles.activitySpinner} />
-                ) : step.failed ? (
-                  <IconClose size={12} />
-                ) : (
-                  <IconCheck size={12} />
-                )}
+                <IconCheck size={12} />
               </span>
-              <span className={styles.activityStepName}>{step.label}</span>
+              <span className={styles.activityStepName}>{step.text}</span>
+              {step.createdAt ? (
+                <time
+                  className={styles.activityStepTime}
+                  dateTime={new Date(step.createdAt).toISOString()}
+                >
+                  {messageTimeText(step.createdAt)}
+                </time>
+              ) : null}
             </div>
           ))}
         </div>

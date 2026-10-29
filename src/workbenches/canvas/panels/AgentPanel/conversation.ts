@@ -37,6 +37,12 @@ export type ConversationItem =
   | { kind: 'text'; text: string; createdAt?: number }
   | ConversationStep
 
+export interface ConversationProcessEntry {
+  id: string
+  text: string
+  createdAt?: number
+}
+
 /** 工具 → 用户看得懂的一行标题。没登记的走兜底，不假装认识 */
 const TOOL_LABEL: Record<string, string> = {
   readGraph: '已看画布',
@@ -574,7 +580,7 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
        * 写下的计划、判断和下一步行动正是公开过程；工具结果仍由步骤卡承接，二者不冲突。
        * 空正文依旧不生成空气泡。
        */
-      if (m.content.trim()) {
+      if (m.content.trim() && (m.toolCalls?.length ?? 0) === 0) {
         out.push({ kind: 'text', text: m.content, ...timeOf(m) })
       }
       for (const call of m.toolCalls ?? []) {
@@ -634,5 +640,32 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
       item.nodeIds.length > 0 &&
       item.nodeIds.every((nodeId) => (lastOkAtByNode.get(nodeId) ?? -1) > i)
     return !nodesRecovered
+  })
+}
+
+/**
+ * 时间线过程只收录渠道公开返回的真实过程摘要。它在界面上默认收成一行，
+ * 用户展开后才显示整段历史。
+ */
+export function processEntriesOf(
+  messages: readonly ChatMessage[],
+): ConversationProcessEntry[] {
+  return messages.flatMap((message, index) => {
+    if (message.role !== 'assistant') return []
+    const text =
+      message.reasoning?.trim() ||
+      ((message.toolCalls?.length ?? 0) > 0 ? message.content.trim() : '')
+    if (!text) return []
+    return [
+      {
+        id: `process-${index}`,
+        text,
+        ...(typeof message.createdAt === 'number' &&
+        Number.isFinite(message.createdAt) &&
+        message.createdAt > 0
+          ? { createdAt: message.createdAt }
+          : {}),
+      },
+    ]
   })
 }
