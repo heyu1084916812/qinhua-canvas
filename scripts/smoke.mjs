@@ -40230,6 +40230,19 @@ async function g735(browser) {
   await page.waitForURL(/\/canvas\//)
   await page.locator('[data-canvas-hydrated="true"]').waitFor({ state: 'visible', timeout: 20_000 })
   await sleep(900)
+  const graphBeforeAgent = await page.evaluate(() => {
+    const debug = window.__canvasDebug
+    return typeof debug === 'function'
+      ? debug().nodes.map((node) => ({
+          id: node.id,
+          parentId: node.parentId,
+          x: node.x,
+          y: node.y,
+          w: node.w,
+          h: node.h,
+        }))
+      : []
+  })
 
   const panel = await genPanel(page)
   await panel.locator('[data-param-chip="model"]').click()
@@ -40259,13 +40272,17 @@ async function g735(browser) {
   const panelImmediate = await floating.boundingBox()
   await sleep(80)
   const panelBox = await floating.boundingBox()
+  const shellSlotBox = await page.locator('[data-agent-shell-slot]').evaluate((node) => {
+    const rect = node.getBoundingClientRect()
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  })
   rec(
     g,
-    'Agent 面板围绕球定位且保持在工作区内',
-    Math.abs(panelBox.y + panelBox.height / 2 - (orbDragged.y + orbDragged.height / 2)) <= 2 &&
-      panelBox.x >= 0 &&
-      panelBox.y >= 0,
-    `球=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
+    'Agent 面板固定跟随应用壳高度，并在会覆盖球时向左让位',
+    Math.abs(panelBox.y - shellSlotBox.y) <= 1 &&
+      Math.abs(panelBox.y + panelBox.height - (shellSlotBox.y + shellSlotBox.height)) <= 1 &&
+      panelBox.x + panelBox.width <= orbDragged.x - 10,
+    `球=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 槽=${Math.round(shellSlotBox.x)},${Math.round(shellSlotBox.y)},${Math.round(shellSlotBox.height)} 面板=${Math.round(panelBox.x)},${Math.round(panelBox.y)},${Math.round(panelBox.width)}×${Math.round(panelBox.height)}`,
   )
   rec(
     g,
@@ -40274,6 +40291,19 @@ async function g735(browser) {
       Math.abs(panelImmediate.x - panelBox.x) <= 1 &&
       Math.abs(panelImmediate.y - panelBox.y) <= 1,
     `首帧=${Math.round(panelImmediate?.x ?? -1)},${Math.round(panelImmediate?.y ?? -1)} 稳定=${Math.round(panelBox.x)},${Math.round(panelBox.y)}`,
+  )
+  const resizeHandle = page.locator('[data-agent-resize]')
+  const resizeBox = await resizeHandle.boundingBox()
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(resizeBox.x - 80, resizeBox.y + resizeBox.height / 2, { steps: 5 })
+  await page.mouse.up()
+  const panelResized = await floating.boundingBox()
+  rec(
+    g,
+    '拖左边缘能加宽 Agent 面板',
+    panelResized.width >= panelBox.width + 70 && panelResized.width <= panelBox.width + 110,
+    `改前=${Math.round(panelBox.width)} 改后=${Math.round(panelResized.width)}`,
   )
   const orbWhenOpen = await orb.boundingBox()
   const orbHitWhenOpen = await orb.evaluate((node) => {
@@ -40291,6 +40321,47 @@ async function g735(browser) {
   )
   await page.screenshot({ path: `${OUT}/735-agent-1280.png` })
 
+  await page.locator('[data-agent-settings]').click()
+  await page.locator('[data-global-settings-tab="agent"]').waitFor({ state: 'visible', timeout: 5000 })
+  const agentTabs = await page
+    .locator('[data-agent-settings-tab]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-agent-settings-tab')).filter(Boolean))
+  rec(
+    g,
+    'Agent 齿轮打开六页签设置',
+    ['basic', 'model', 'tools', 'skills', 'memory', 'advanced'].every((id) => agentTabs.includes(id)) &&
+      (await page.locator('[data-global-settings-tab="agentMemory"]').count()) === 0,
+    agentTabs.join(','),
+  )
+  await page.locator('[data-agent-settings-tab="basic"]').focus()
+  await page.keyboard.press('ArrowRight')
+  const keyboardTab = await page.evaluate(() => ({
+    selected: document
+      .querySelector('[data-agent-settings-tab="model"]')
+      ?.getAttribute('aria-selected'),
+    focused: document.activeElement?.getAttribute('data-agent-settings-tab'),
+  }))
+  rec(
+    g,
+    'Agent 页签支持方向键与 roving focus',
+    keyboardTab.selected === 'true' && keyboardTab.focused === 'model',
+    JSON.stringify(keyboardTab),
+  )
+  await page.locator('[data-agent-settings-tab="memory"]').click()
+  const memoryA11y = await page.evaluate(() => ({
+    textarea: document.querySelector('[data-agent-memory-input]')?.getAttribute('aria-label'),
+    key: document.querySelector('[data-agent-memory-key]')?.getAttribute('aria-label'),
+  }))
+  rec(
+    g,
+    '原 Agent 记忆完整迁入 Agent → 记忆',
+    (await page.locator('[data-agent-memory-panel]').isVisible()) &&
+      memoryA11y.textarea === '记忆内容' &&
+      memoryA11y.key === '记忆主题键',
+    JSON.stringify(memoryA11y),
+  )
+  await page.locator('[data-global-settings-close]').click()
+
   await page.getByRole('button', { name: /这次用哪些模型生成/ }).click()
   await sleep(300)
   const agentModelValues = await page
@@ -40305,12 +40376,31 @@ async function g735(browser) {
   await page.locator('[data-agent-close]').click()
   await orb.waitFor({ state: 'visible', timeout: 5000 })
   const orbAfter = await orb.boundingBox()
+  const graphAfterAgent = await page.evaluate(() => {
+    const debug = window.__canvasDebug
+    return typeof debug === 'function'
+      ? debug().nodes.map((node) => ({
+          id: node.id,
+          parentId: node.parentId,
+          x: node.x,
+          y: node.y,
+          w: node.w,
+          h: node.h,
+        }))
+      : []
+  })
   rec(
     g,
     '关闭 Agent 面板后球的位置保持不变',
     Math.abs(orbAfter.x - orbDragged.x) <= 1 &&
       Math.abs(orbAfter.y - orbDragged.y) <= 1,
     `关闭前=${Math.round(orbDragged.x)},${Math.round(orbDragged.y)} 关闭后=${Math.round(orbAfter.x)},${Math.round(orbAfter.y)}`,
+  )
+  rec(
+    g,
+    'Agent 开关与拖宽不改变画布节点坐标',
+    JSON.stringify(graphAfterAgent) === JSON.stringify(graphBeforeAgent),
+    `节点=${graphAfterAgent.length}`,
   )
 
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'domcontentloaded' })
@@ -40781,8 +40871,9 @@ async function g769(browser) {
       await page.locator('[data-agent-activity-toggle]').click()
     }
     await page.locator('[data-sidebar-settings]').click()
-    await page.locator('[data-global-settings-tab="agentMemory"]').click()
-    await page.locator('[data-agent-behavior]').waitFor({ state: 'visible', timeout: 5000 })
+    await page.locator('[data-global-settings-tab="agent"]').click()
+    await page.locator('[data-agent-settings-tab="basic"]').click()
+    await page.locator('[data-agent-settings-basic]').waitFor({ state: 'visible', timeout: 5000 })
     const globalDelivery = await page.evaluate(() => ({
       steer: document
         .querySelector('[data-agent-delivery-mode-option="steer"]')
@@ -40812,7 +40903,8 @@ async function g769(browser) {
       `mode=${queueAfterSetting}`,
     )
     await page.locator('[data-sidebar-settings]').click()
-    await page.locator('[data-global-settings-tab="agentMemory"]').click()
+    await page.locator('[data-global-settings-tab="agent"]').click()
+    await page.locator('[data-agent-settings-tab="basic"]').click()
     await page.locator('[data-agent-delivery-mode-option="steer"]').click()
     await page.locator('[data-global-settings-close]').click()
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
@@ -40837,8 +40929,11 @@ async function g769(browser) {
           !!panel &&
           plan.left >= panel.left - 1 &&
           plan.right <= panel.right + 1,
-        contentScrolls:
-          !!content && content.scrollHeight > content.clientHeight + 1,
+        contentSafe:
+          !!content &&
+          (content.scrollHeight <= content.clientHeight + 1 ||
+            getComputedStyle(content).overflowY === 'auto' ||
+            getComputedStyle(content).overflowY === 'scroll'),
         footerFits:
           !!panel &&
           !!composer &&
@@ -40852,10 +40947,10 @@ async function g769(browser) {
     })
     rec(
       g,
-      '★★ 1024×700 长计划在内容区滚动，输入区始终固定在面板内',
+      '★★ 1024×700 长计划完整显示或进入内容滚动，输入区始终固定在面板内',
       narrowPlan.overflow <= 0 &&
         narrowPlan.planFitsWidth &&
-        narrowPlan.contentScrolls &&
+        narrowPlan.contentSafe &&
         narrowPlan.footerFits,
       JSON.stringify(narrowPlan),
     )

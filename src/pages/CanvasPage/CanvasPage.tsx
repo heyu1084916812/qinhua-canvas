@@ -434,7 +434,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
             顶栏被去掉要解决的是「它挡住画布内容」，不是「按钮本身不该存在」。
           */}
           {/*
-            右上角只保留日志。Agent 已改为可拖动的画布浮球 / 浮窗，
+            右上角只保留日志。Agent 由画布浮球打开应用壳右侧面板，
             不再占固定顶栏位置，也不会再挤压日志。
           */}
           <div className={styles.topRightActions}>

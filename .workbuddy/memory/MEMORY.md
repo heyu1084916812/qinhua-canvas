@@ -38,7 +38,18 @@
   使用审计、会话回收和演化确认，不搬 `project_memory_state`，不永久保存原始 query。
 - **文档落点**：完整计划见 `轻画-Agent设计文档.md` 的 H0–H6、风险和 UI 矩阵；
   架构边界见 `轻画-架构设计文档.md` §5.12；统一规划 §5.4 / §6.5 已同步，
-  对账 #803–#808 状态均为 📝，尚未改应用代码。
+  对账 #803–#808 中 H1a / H4 UI 已完成，Harness runtime 仍未实施。
+- **H1a 实际落点**：`AppShell` 新增无宽度的 `[data-agent-shell-slot]` portal 目标；
+  `AgentDock` 只保留浮球拖拽与面板左边缘拖宽，面板不再保存 x/y。面板会覆盖浮球时
+  `agentPanelRightInset()` 向左让出球宽，球的坐标从不回写。宽度夹在 360–720。
+- **H4 实际落点**：`openGlobalSettings('agent', tab)` / `openAgentSettings(tab)` 持有
+  Agent 六页签；旧 `'agentMemory'` 归一为 `agent + memory`。全局导航只显示 `Agent`，
+  投递偏好在 `基础`，原 `AgentMemoryPanel` 在 `记忆`。
+- **本批证据**：G735 **14/14**、G769 **28/28**；全量 Vitest
+  **3541 passed / 1 skipped**；`npm run check`、`npm run build` 通过；
+  1440×900 / 1024×700、明暗主题以及 360/420/720 宽度实拍，无横向溢出。
+- **下一道门仍不能跳**：当前只是 UI 外壳与设置迁移，不代表 Harness 已接好。下一步仍是
+  `AgentController` 抽取、ToolRegistry / RouteExecutionPort 和 Worker runtime（H1b–H3）。
 
 ### Agent 运行状态、投递偏好与执行落库（2026-10-28 → 对账 #801）
 

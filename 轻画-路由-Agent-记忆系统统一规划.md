@@ -8,6 +8,9 @@
 > 忘记和字符预算。阶段 5–6 的代码路径已完成；GitHub push / Release 仍需用户逐次批准。
 > 2026-10-29 用户确认：画布 Agent 永久替换为 Harness，并改为应用壳右侧面板；
 > 电商与漫剧 Agent 范围不变。实施计划见《轻画-Agent设计文档.md》§17–§21。
+> 同日 H1a / H4 UI 已交付：壳层 portal、360–720px 拖宽、浮球独立坐标、六页签 Agent 设置
+> 与记忆迁移完成；G735 14/14、G769 28/28。Harness Worker、Controller、ToolRegistry 与
+> RouteExecutionPort 仍未实施。
 > 性质：专项设计。冲突时仍以《轻画-功能对账清单.md》为准。
 > 目标：在保留三个独立工作台、现有 runEngine 和现有数据真相的前提下，建立共享路由、
 > Agent Runtime、个人记忆与品牌套件的统一边界。
@@ -333,7 +336,7 @@ project memory evolution、session memory reclaim、memory audit 和独立记忆
 | 4 | 个人记忆、品牌/产品套件、ContextBundle | 版本固定；冲突可解释；旧项目不变 |
 | 5 | ✅ 角色/自定义套件、视觉验收与只读子代理 | 子代理不能写画布；验收读取真实图片并输出结构化问题清单 |
 | 6 | ✅ 总日志扩展、完整 UI、迁移和发布门禁 | 四类日志不重复；单测、检查、构建、真实页面验收通过；push 单独授权 |
-| 7 | 画布 Harness、应用壳面板、Agent 设置与记忆迁移 | 等价验收后删除旧循环；浮球与画布坐标不变；路由与付费幂等有回归；详见《轻画-Agent设计文档.md》§20 |
+| 7 | 画布 Harness、应用壳面板、Agent 设置与记忆迁移 | 🧩 **壳层 / 设置 UI 已交付**；Harness Worker、Controller 与路由收口待完成；详见《轻画-Agent设计文档.md》§20 |
 
 阶段 2 的路由纯函数和阶段 4 的领域模型可并行；Agent Runtime 必须等队列与 RoutePlan
 契约稳定后再改。

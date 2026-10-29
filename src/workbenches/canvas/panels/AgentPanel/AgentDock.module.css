@@ -2,7 +2,7 @@
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 46;
+  z-index: 48;
   width: 64px;
   height: 64px;
   padding: 0;
@@ -136,20 +136,20 @@
 }
 
 .panelFrame {
-  position: fixed;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   z-index: 47;
-  min-width: 280px;
+  min-width: 360px;
+  max-width: 720px;
   box-sizing: border-box;
-  /**
-   * 不能在这里裁：对话窗里的参数浮层（模型列表）宽 430px，比 380px 的面板更宽，
-   * `overflow: hidden` 会把列表的左半边直接切掉。窗口内部本身已有滚动容器，
-   * 圆角由背景与边框表达；这里放开 overflow，让浮层能正常盖到画布上。
-   */
+  /* 参数菜单可能比面板更宽，外框不能裁掉浮层。 */
   overflow: visible;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-node);
   background: var(--bg-surface);
-  box-shadow: 0 18px 42px var(--agent-panel-shadow);
+  box-shadow: var(--shadow-float);
   isolation: isolate;
 }
 
@@ -171,46 +171,39 @@
   z-index: auto;
 }
 
-.panelFrame :global([data-agent-drag-handle]) {
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.panelFrame[data-agent-dragging='panel'] :global([data-agent-drag-handle]) {
-  cursor: grabbing;
-}
-
 .resizeHandle {
   position: absolute;
-  right: 50%;
-  bottom: 0;
-  width: 58px;
-  height: 16px;
+  top: 50%;
+  left: -12px;
+  width: 24px;
+  height: 54px;
   padding: 0;
   border: 0;
   background: transparent;
-  cursor: ns-resize;
+  cursor: ew-resize;
   touch-action: none;
-  transform: translateX(50%);
+  transform: translateY(-50%);
 }
 
 .resizeHandle::before {
   position: absolute;
-  top: 5px;
+  top: 50%;
   left: 50%;
-  width: 28px;
-  height: 3px;
+  width: 3px;
+  height: 32px;
   border-radius: var(--radius-pill);
   background: var(--stroke);
   content: '';
-  transform: translateX(-50%);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity var(--dur-hover) var(--ease-out);
 }
 
 .resizeHandle:hover::before,
 .resizeHandle:focus-visible::before,
 .panelFrame[data-agent-dragging='resize'] .resizeHandle::before {
   background: var(--text-3);
+  opacity: 1;
 }
 
 .resizeHandle:focus-visible {

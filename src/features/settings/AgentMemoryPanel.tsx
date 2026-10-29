@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import type { AgentDeliveryMode } from '../../domain/agent/delivery'
 import {
   contextMemoryScopeOf,
   normalizeContextMemoryKind,
@@ -9,13 +8,7 @@ import {
 } from '../../domain/shared/context'
 import { WORKBENCHES, type WorkbenchId } from '../../domain/shared/workbench'
 import { activeWorkbenchId } from '../../state/project/activeCanvas'
-import { createPresetStore } from '../../state/project/presetStore'
 import { createContextRepository } from '../../state/shared/contextRepository'
-import {
-  getAgentDeliveryMode,
-  setAgentDeliveryMode,
-  subscribeAgentDeliveryMode,
-} from '../../state/ui/agentDelivery'
 import { ChoicePicker } from '../shared/choicePicker/ChoicePicker'
 import { MemoryGraph } from './MemoryGraph'
 import styles from './AgentMemoryPanel.module.css'
@@ -76,12 +69,6 @@ function scopeLabel(
 export function AgentMemoryPanel() {
   const platform = usePlatform()
   const repo = useMemo(() => createContextRepository(platform.storage), [platform])
-  const presets = useMemo(() => createPresetStore(platform.storage), [platform])
-  const deliveryMode = useSyncExternalStore(
-    subscribeAgentDeliveryMode,
-    getAgentDeliveryMode,
-    getAgentDeliveryMode,
-  )
   const [memories, setMemories] = useState<ContextMemory[]>([])
   const [text, setText] = useState('')
   const [kind, setKind] = useState<ContextMemoryKind>('preference')
@@ -97,7 +84,6 @@ export function AgentMemoryPanel() {
   const [editingText, setEditingText] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
-  const [deliveryStatus, setDeliveryStatus] = useState('')
 
   const refresh = async () => {
     await repo.purgeExpiredMemories()
@@ -106,21 +92,6 @@ export function AgentMemoryPanel() {
   useEffect(() => {
     void refresh()
   }, [repo])
-
-  useEffect(() => {
-    let alive = true
-    void presets
-      .loadAgentDeliveryMode()
-      .then((mode) => {
-        if (alive) setAgentDeliveryMode(mode)
-      })
-      .catch(() => {
-        if (alive) setDeliveryStatus('读取失败，暂时使用“引导”')
-      })
-    return () => {
-      alive = false
-    }
-  }, [presets])
 
   useEffect(() => {
     let alive = true
@@ -268,53 +239,8 @@ export function AgentMemoryPanel() {
     (scopeMode === 'project' && Boolean(projectId)) ||
     (scopeMode === 'session' && Boolean(projectId) && Boolean(sessionId))
 
-  const chooseDeliveryMode = async (mode: AgentDeliveryMode) => {
-    setAgentDeliveryMode(mode)
-    setDeliveryStatus('')
-    try {
-      await presets.saveAgentDeliveryMode(mode)
-    } catch {
-      setDeliveryStatus('保存失败，本次运行仍按当前选择')
-    }
-  }
-
   return (
     <div className={styles.panel} data-agent-memory-panel>
-      <section className={styles.section} data-agent-behavior>
-        <div className={styles.sectionHead}>
-          <h3>运行中的消息</h3>
-          <p>Agent 正在工作时，新消息默认立即引导当前任务。</p>
-        </div>
-        <div className={styles.choiceRow}>
-          <span className={styles.choiceLabel}>发送方式</span>
-          <div className={styles.segmented}>
-            {([
-              { value: 'steer', label: '引导' },
-              { value: 'queue', label: '排队' },
-            ] as const).map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                className={deliveryMode === item.value ? styles.choiceOn : styles.choice}
-                data-agent-delivery-mode-option={item.value}
-                aria-pressed={deliveryMode === item.value}
-                onClick={() => void chooseDeliveryMode(item.value)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <p className={styles.behaviorHint}>
-          引导会立即调整当前任务；排队会等当前回合结束后再发送。按 Ctrl/Cmd+Enter
-          可临时切换一次。
-        </p>
-        {deliveryStatus ? (
-          <span className={styles.status} role="status">
-            {deliveryStatus}
-          </span>
-        ) : null}
-      </section>
       <section className={styles.section}>
         <div className={styles.sectionHead}>
           <h3>新增记忆</h3>
@@ -324,6 +250,7 @@ export function AgentMemoryPanel() {
           className={styles.textarea}
           value={text}
           placeholder="例如：我偏好留白充足、低饱和度的商业视觉；品牌主色不要使用霓虹色。"
+          aria-label="记忆内容"
           data-agent-memory-input
           onChange={(event) => setText(event.target.value)}
         />
@@ -422,6 +349,7 @@ export function AgentMemoryPanel() {
             className={styles.fieldInput}
             value={memoryKey}
             placeholder="可选，如 brand.primaryColor"
+            aria-label="记忆主题键"
             data-agent-memory-key
             onChange={(event) => setMemoryKey(event.target.value)}
           />

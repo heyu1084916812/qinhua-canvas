@@ -253,7 +253,15 @@ type ChatRoutePreparation =
  */
 const AUTO_RUN_LIMIT = 32
 
-export function AgentPanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+export function AgentPanel({
+  projectId,
+  onClose,
+  onOpenSettings,
+}: {
+  projectId: string
+  onClose: () => void
+  onOpenSettings: () => void
+}) {
   const platform = usePlatform()
   const channels = useChannels()
   const store = useCanvasStore()
@@ -3445,7 +3453,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         本面板不到 400px 宽，四项文字按钮一排会把会话名挤到看不清 ——
         图标 + title 提示，鼠标停上去才知道是什么，这点与画布工具栏同一口径。
       */}
-      <header className={styles.head} data-agent-drag-handle>
+      <header className={styles.head} data-agent-header>
         {renaming ? (
           <>
             <input
@@ -3558,8 +3566,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             <button
               type="button"
               className={styles.iconBtn}
+              onClick={onOpenSettings}
+              title="Agent 设置"
+              aria-label="打开 Agent 设置"
+              data-agent-settings
+            >
+              <IconSettings size={16} />
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
               onClick={onClose}
-              title="收起浮窗"
+              title="收起 Agent 面板"
               data-agent-close
             >
               <IconClose size={16} />

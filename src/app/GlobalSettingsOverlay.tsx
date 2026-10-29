@@ -13,6 +13,7 @@ import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
 import { DefaultParamsPanel } from '../features/settings/DefaultParamsPanel'
 import { AgentMemoryPanel } from '../features/settings/AgentMemoryPanel'
+import { AgentSettingsPanel } from '../features/settings/AgentSettingsPanel'
 import { AllLogsPanel } from '../features/settings/AllLogsPanel'
 import { NotifyPanel } from '../features/settings/NotifyPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
@@ -67,6 +68,7 @@ const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number
   backup: IconBackup,
   snapshots: IconSnapshot,
   defaults: IconDefaults,
+  agent: IconMemory,
   agentMemory: IconMemory,
   packs: IconPacks,
   notify: IconNotify,
@@ -87,6 +89,7 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
   backup: '导出、导入与恢复数据。',
   snapshots: '保存和还原项目结构。',
   defaults: '设置新建节点默认值。',
+  agent: '配置 Agent 的模型、工具、技能、记忆与运行偏好。',
   agentMemory: '管理 Agent 记忆与运行偏好。',
   packs: '管理扩展包。',
   notify: '设置完成与失败提醒。',
@@ -121,7 +124,7 @@ const SECTION_INTROS: Record<GlobalSettingsSection, string> = {
  * `HostingPage` 交给这层滚，`SettingsPage` 内部两栏自己滚（它本来就是这么写的）。
  */
 export function GlobalSettingsOverlay() {
-  const { open, section } = useSyncExternalStore(
+  const { open, section, agentTab } = useSyncExternalStore(
     subscribeGlobalSettings,
     getGlobalSettings,
     getGlobalSettings,
@@ -294,6 +297,13 @@ export function GlobalSettingsOverlay() {
               {section === 'packs' && <PackPanel key="packs" />}
               {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
               {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
+              {section === 'agent' && (
+                <AgentSettingsPanel
+                  key="agent"
+                  tab={agentTab}
+                  onTabChange={(tab) => openGlobalSettings('agent', tab)}
+                />
+              )}
               {section === 'agentMemory' && <AgentMemoryPanel key="agentMemory" />}
               {/* 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明 */}
               {section === 'notify' && <NotifyPanel key="notify" />}

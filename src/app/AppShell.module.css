@@ -108,3 +108,23 @@
   overflow-y: auto;
   overflow-x: clip;
 }
+
+/**
+ * Agent 面板的壳层挂载点。
+ *
+ * 它只提供一个贴着应用壳右侧的定位原点：宽度为 0、不参与 flex 布局，
+ * 面板绝对定位后向左展开。这样开关 Agent 不会改变工作区宽度、画布矩形或节点坐标。
+ */
+.agentShellSlot {
+  position: fixed;
+  top: calc(var(--title-bar-h) + var(--shell-gap));
+  right: var(--shell-gap);
+  bottom: var(--shell-gap);
+  z-index: 47;
+  width: 0;
+  pointer-events: none;
+}
+
+.agentShellSlot > * {
+  pointer-events: auto;
+}

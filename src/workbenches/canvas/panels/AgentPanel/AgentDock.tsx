@@ -3,22 +3,28 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
+import { openAgentSettings } from '../../../../state/ui/globalSettings'
 import { AgentPanel } from './AgentPanel'
 import {
-  AGENT_DOCK_STORAGE_KEY,
-  agentPanelHeight,
-  clampAgentDockLayout,
-  clampAgentPanel,
-  clampAgentPoint,
-  closeAgentPanel,
-  defaultAgentDockLayout,
-  openAgentPanel,
-  parseAgentDockLayout,
-  type AgentDockLayout,
+  AGENT_DOCK_LEGACY_STORAGE_KEY,
+  AGENT_SHELL_STORAGE_KEY,
+  AGENT_SHELL_WIDTH_MAX,
+  AGENT_SHELL_WIDTH_MIN,
+  agentPanelRightInset,
+  agentShellWidth,
+  clampAgentOrb,
+  clampAgentShellState,
+  defaultAgentShellState,
+  parseAgentShellState,
+  parseLegacyAgentShellState,
+  resizedAgentShellWidth,
+  type AgentShellState,
   type AgentWorkArea,
-} from './agentDockLayout'
+} from './agentShellLayout'
 import styles from './AgentDock.module.css'
 
 type DragState =
@@ -31,17 +37,9 @@ type DragState =
       moved: boolean
     }
   | {
-      kind: 'panel'
-      startX: number
-      startY: number
-      originX: number
-      originY: number
-      moved: boolean
-    }
-  | {
       kind: 'resize'
-      startY: number
-      originHeight: number
+      startX: number
+      originWidth: number
       moved: boolean
     }
 
@@ -54,22 +52,31 @@ function measureCanvasWorkArea(): AgentWorkArea {
   return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
 }
 
-function readStoredLayout(): AgentDockLayout | null {
+function readStoredShellState(): AgentShellState | null {
   try {
-    return parseAgentDockLayout(window.localStorage.getItem(AGENT_DOCK_STORAGE_KEY))
+    const current = parseAgentShellState(localStorage.getItem(AGENT_SHELL_STORAGE_KEY))
+    if (current) return current
+    return parseLegacyAgentShellState(localStorage.getItem(AGENT_DOCK_LEGACY_STORAGE_KEY))
   } catch {
     return null
   }
 }
 
-function storeLayout(layout: AgentDockLayout): void {
+function storeShellState(state: AgentShellState): void {
   try {
-    window.localStorage.setItem(AGENT_DOCK_STORAGE_KEY, JSON.stringify(layout))
+    localStorage.setItem(AGENT_SHELL_STORAGE_KEY, JSON.stringify(state))
   } catch {
     // A blocked localStorage must not stop the Agent from opening.
   }
 }
 
+/**
+ * 画布 Agent 的空间外壳。
+ *
+ * 浮球仍属于画布视口，以便用户把它放在顺手的位置；面板则通过 AppShell 提供的
+ * portal 插槽固定在应用壳右侧。两者只共享“是否打开”，不共享坐标：
+ * 开关面板、拖宽面板都不会回写球位，也不会改变画布尺寸。
+ */
 export function AgentDock({
   projectId,
   open,
@@ -80,46 +87,57 @@ export function AgentDock({
   onOpenChange: (open: boolean) => void
 }) {
   const [mounted, setMounted] = useState(open)
-  const [layout, setLayout] = useState<AgentDockLayout | null>(null)
+  const [shell, setShell] = useState<AgentShellState | null>(null)
   const [dragging, setDragging] = useState<DragState['kind'] | null>(null)
-  const layoutRef = useRef<AgentDockLayout | null>(null)
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  const shellRef = useRef<AgentShellState | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressOrbClickRef = useRef(false)
 
-  const applyLayout = useCallback((next: AgentDockLayout) => {
-    layoutRef.current = next
-    setLayout(next)
+  const applyShell = useCallback((next: AgentShellState) => {
+    shellRef.current = next
+    setShell(next)
   }, [])
 
   useLayoutEffect(() => {
     const area = measureCanvasWorkArea()
-    const stored = readStoredLayout()
-    applyLayout(stored ? clampAgentDockLayout(stored, area) : defaultAgentDockLayout(area))
+    const stored = readStoredShellState()
+    applyShell(
+      stored
+        ? clampAgentShellState(stored, area)
+        : defaultAgentShellState(area),
+    )
 
     const onAreaChange = () => {
       const nextArea = measureCanvasWorkArea()
-      const current = layoutRef.current
-      const clamped = current
-        ? clampAgentDockLayout(current, nextArea)
-        : defaultAgentDockLayout(nextArea)
-      applyLayout(open ? openAgentPanel(clamped, nextArea) : clamped)
+      const current = shellRef.current
+      applyShell(
+        current
+          ? clampAgentShellState(current, nextArea)
+          : defaultAgentShellState(nextArea),
+      )
     }
     const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
-    const observer = typeof ResizeObserver === 'function' && surface ? new ResizeObserver(onAreaChange) : null
+    const observer =
+      typeof ResizeObserver === 'function' && surface
+        ? new ResizeObserver(onAreaChange)
+        : null
     if (surface && observer) observer.observe(surface)
     window.addEventListener('resize', onAreaChange)
     return () => {
       observer?.disconnect()
       window.removeEventListener('resize', onAreaChange)
     }
-  }, [applyLayout, open])
+  }, [applyShell])
 
   useLayoutEffect(() => {
-    if (!open) return
-    setMounted(true)
-    const current = layoutRef.current
-    if (current) applyLayout(openAgentPanel(current, measureCanvasWorkArea()))
-  }, [open, applyLayout])
+    const target = document.querySelector<HTMLElement>('[data-agent-shell-slot]')
+    setPortalTarget(target ?? document.body)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (open) setMounted(true)
+  }, [open])
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>, next: DragState) => {
     if (event.button !== 0) return
@@ -133,45 +151,35 @@ export function AgentDock({
 
     const onMove = (moveEvent: PointerEvent) => {
       const current = dragRef.current
-      const base = layoutRef.current
+      const base = shellRef.current
       if (!current || !base) return
-      const dy = moveEvent.clientY - current.startY
-      const dx = current.kind === 'resize' ? 0 : moveEvent.clientX - current.startX
-      if (current.kind === 'resize' ? Math.abs(dy) > 4 : Math.hypot(dx, dy) > 4) current.moved = true
       const area = measureCanvasWorkArea()
 
       if (current.kind === 'orb') {
-        const orb = clampAgentPoint({ x: current.originX + dx, y: current.originY + dy }, area)
-        const next = {
+        const dx = moveEvent.clientX - current.startX
+        const dy = moveEvent.clientY - current.startY
+        if (Math.hypot(dx, dy) > 4) current.moved = true
+        applyShell({
           ...base,
-          orb,
-        }
-        applyLayout(open ? openAgentPanel(next, area) : next)
-        return
-      }
-      if (current.kind === 'panel') {
-        applyLayout({
-          ...base,
-          panel: clampAgentPanel(
+          orb: clampAgentOrb(
             {
               x: current.originX + dx,
               y: current.originY + dy,
-              width: base.panel.width,
-              height: base.panel.height,
             },
             area,
           ),
         })
         return
       }
-      applyLayout({
+
+      if (Math.abs(moveEvent.clientX - current.startX) > 4) current.moved = true
+      applyShell({
         ...base,
-        panel: clampAgentPanel(
-          {
-            ...base.panel,
-            height: agentPanelHeight(area, current.originHeight + dy),
-          },
-          area,
+        width: resizedAgentShellWidth(
+          current.originWidth,
+          current.startX,
+          moveEvent.clientX,
+          window.innerWidth,
         ),
       })
     }
@@ -188,7 +196,7 @@ export function AgentDock({
           suppressOrbClickRef.current = false
         }, 0)
       }
-      if (layoutRef.current) storeLayout(layoutRef.current)
+      if (shellRef.current) storeShellState(shellRef.current)
       dragRef.current = null
     }
 
@@ -198,7 +206,7 @@ export function AgentDock({
   }
 
   const onOrbPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const current = layoutRef.current
+    const current = shellRef.current
     if (!current) return
     beginDrag(event, {
       kind: 'orb',
@@ -210,55 +218,96 @@ export function AgentDock({
     })
   }
 
-  const onPanelPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const target = event.target
-    if (!(target instanceof Element) || !target.closest('[data-agent-drag-handle]')) return
-    if (
-      target.closest(
-        'button, input, textarea, select, a, [contenteditable="true"], [role="button"], [data-agent-no-drag]',
-      )
-    ) {
-      return
-    }
-    const current = layoutRef.current
-    if (!current) return
-    beginDrag(event, {
-      kind: 'panel',
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: current.panel.x,
-      originY: current.panel.y,
-      moved: false,
-    })
-  }
-
   const onResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const current = layoutRef.current
+    const current = shellRef.current
     if (!current) return
     beginDrag(event, {
       kind: 'resize',
-      startY: event.clientY,
-      originHeight: current.panel.height,
+      startX: event.clientX,
+      originWidth: current.width,
       moved: false,
     })
   }
 
-  const collapse = () => {
-    const current = layoutRef.current
-    if (current) {
-      const next = closeAgentPanel(current, measureCanvasWorkArea())
-      applyLayout(next)
-      storeLayout(next)
-    }
-    onOpenChange(false)
+  const saveWidth = (width: number) => {
+    const current = shellRef.current
+    if (!current) return
+    const next = { ...current, width: agentShellWidth(width, window.innerWidth) }
+    applyShell(next)
+    storeShellState(next)
   }
+
+  const onResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const current = shellRef.current
+    if (!current) return
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      saveWidth(current.width + 16)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      saveWidth(current.width - 16)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      saveWidth(AGENT_SHELL_WIDTH_MIN)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      saveWidth(AGENT_SHELL_WIDTH_MAX)
+    }
+  }
+
+  const panel =
+    mounted && portalTarget && shell
+      ? createPortal(
+          <div
+            id="canvas-agent-panel"
+            className={styles.panelFrame}
+            style={{
+              width: shell.width,
+              right: agentPanelRightInset(
+                shell.orb.x,
+                shell.width,
+                typeof window === 'undefined' ? 1440 : window.innerWidth,
+              ),
+            }}
+            data-agent-floating-panel
+            data-agent-shell-panel
+            data-agent-shell-panel-width={shell.width}
+            data-agent-dragging={dragging ?? undefined}
+            role="region"
+            aria-label="Agent 面板"
+            hidden={!open}
+          >
+            <AgentPanel
+              projectId={projectId}
+              onClose={() => onOpenChange(false)}
+              onOpenSettings={() => openAgentSettings('basic')}
+            />
+            <button
+              type="button"
+              className={styles.resizeHandle}
+              data-agent-resize
+              role="separator"
+              aria-orientation="vertical"
+              aria-controls="canvas-agent-panel"
+              aria-label="调整 Agent 面板宽度"
+              aria-valuemin={AGENT_SHELL_WIDTH_MIN}
+              aria-valuemax={AGENT_SHELL_WIDTH_MAX}
+              aria-valuenow={shell.width}
+              title="左右拖动调整宽度；方向键微调"
+              onPointerDown={onResizePointerDown}
+              onKeyDown={onResizeKeyDown}
+            />
+          </div>,
+          portalTarget,
+        )
+      : null
 
   return (
     <>
       <button
         type="button"
         className={styles.orb}
-        style={layout ? { left: layout.orb.x, top: layout.orb.y } : undefined}
+        style={shell ? { left: shell.orb.x, top: shell.orb.y } : undefined}
         data-canvas-agent
         data-agent-orb
         data-agent-expanded={open ? 'true' : 'false'}
@@ -272,15 +321,7 @@ export function AgentDock({
             suppressOrbClickRef.current = false
             return
           }
-          if (open) {
-            collapse()
-            return
-          }
-          const current = layoutRef.current
-          if (current) {
-            applyLayout(openAgentPanel(current, measureCanvasWorkArea()))
-          }
-          onOpenChange(true)
+          onOpenChange(!open)
         }}
       >
         <span className={styles.orbSwirl} aria-hidden="true" />
@@ -289,39 +330,7 @@ export function AgentDock({
           {open ? '收起 Agent' : 'Agent'}
         </span>
       </button>
-
-      {mounted ? (
-        <div
-          id="canvas-agent-panel"
-          className={styles.panelFrame}
-          style={
-            layout
-              ? {
-                  left: layout.panel.x,
-                  top: layout.panel.y,
-                  width: layout.panel.width,
-                  height: layout.panel.height,
-                }
-              : undefined
-          }
-          data-agent-floating-panel
-          data-agent-dragging={dragging ?? undefined}
-          role="dialog"
-          aria-label="Agent 浮窗"
-          hidden={!open}
-          onPointerDown={onPanelPointerDown}
-        >
-          <AgentPanel projectId={projectId} onClose={collapse} />
-          <button
-            type="button"
-            className={styles.resizeHandle}
-            data-agent-resize
-            aria-label="调整 Agent 浮窗高度"
-            title="上下拖动调整高度"
-            onPointerDown={onResizePointerDown}
-          />
-        </div>
-      ) : null}
+      {panel}
     </>
   )
 }

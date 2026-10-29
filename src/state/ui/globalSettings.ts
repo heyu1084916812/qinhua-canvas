@@ -17,6 +17,14 @@
  * 架构 §2.1 的分层图里本来就留了 `state/ui` 这个切片，这里就落在它身上。
  */
 
+export type AgentSettingsTab =
+  | 'basic'
+  | 'model'
+  | 'tools'
+  | 'skills'
+  | 'memory'
+  | 'advanced'
+
 export type GlobalSettingsSection =
   | 'channels'
   | 'cli'
@@ -67,7 +75,11 @@ export type GlobalSettingsSection =
    * 归「生成」组：它改的正是"新建节点时填什么"。
    */
   | 'defaults'
-  /** 个人记忆：只保存用户确认过的长期偏好、事实和约束。 */
+  /** Agent 设置页：基础 / 模型 / 工具 / 技能 / 记忆 / 高级。 */
+  | 'agent'
+  /**
+   * @deprecated 旧深链兼容值；打开时会归一为 `agent + memory`，不再出现在左侧导航。
+   */
   | 'agentMemory'
   /**
    * 通知（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明。
@@ -81,6 +93,8 @@ export interface GlobalSettingsState {
   open: boolean
   /** 打开时落在哪一栏。关闭后保留 —— 下次打开回到上次看的那一栏，符合直觉。 */
   section: GlobalSettingsSection
+  /** Agent 设置页内部的页签；其他设置栏目保留该值，重新进入 Agent 时回到原页签。 */
+  agentTab: AgentSettingsTab
 }
 
 /** 子菜单（浮层内那一排标签）。**标签与内容一处定义**，免得"标签写 A、内容是 B"。 */
@@ -180,11 +194,15 @@ export const GLOBAL_SETTINGS_SECTIONS: {
     keywords: ['默认', '模型', '比例', '尺寸', '画质', '张数', '参数', '记住上次'],
   },
   {
-    id: 'agentMemory',
-    label: 'Agent 记忆',
+    id: 'agent',
+    label: 'Agent',
     group: '生成',
     keywords: [
       'agent',
+      'harness',
+      '模型',
+      '工具',
+      '技能',
       '记忆',
       '偏好',
       '个人偏好',
@@ -192,6 +210,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
       '上下文',
       '约束',
       '事实',
+      '路由',
     ],
   },
   {
@@ -257,7 +276,7 @@ export function matchSettingsSections(query: string): GlobalSettingsEntry[] {
   return GLOBAL_SETTINGS_SECTIONS.filter((entry) => searchableText(entry).includes(needle))
 }
 
-let state: GlobalSettingsState = { open: false, section: 'channels' }
+let state: GlobalSettingsState = { open: false, section: 'channels', agentTab: 'basic' }
 const listeners = new Set<() => void>()
 
 function notify(): void {
@@ -269,10 +288,25 @@ export function getGlobalSettings(): GlobalSettingsState {
 }
 
 /** 打开（默认落在「模型服务」）。已经开着且栏目没变时不通知 —— 免得白重渲。 */
-export function openGlobalSettings(section: GlobalSettingsSection = 'channels'): void {
-  if (state.open && state.section === section) return
-  state = { open: true, section }
+export function openGlobalSettings(
+  section: GlobalSettingsSection = 'channels',
+  agentTab?: AgentSettingsTab,
+): void {
+  const normalizedSection: GlobalSettingsSection = section === 'agentMemory' ? 'agent' : section
+  const normalizedTab = section === 'agentMemory' ? 'memory' : agentTab ?? state.agentTab
+  if (
+    state.open &&
+    state.section === normalizedSection &&
+    state.agentTab === normalizedTab
+  ) {
+    return
+  }
+  state = { open: true, section: normalizedSection, agentTab: normalizedTab }
   notify()
+}
+
+export function openAgentSettings(tab: AgentSettingsTab = 'basic'): void {
+  openGlobalSettings('agent', tab)
 }
 
 export function closeGlobalSettings(): void {
@@ -290,6 +324,6 @@ export function subscribeGlobalSettings(fn: () => void): () => void {
 
 /** 仅供测试：复位成「关着 + 模型服务」。 */
 export function __resetGlobalSettingsForTest(): void {
-  state = { open: false, section: 'channels' }
+  state = { open: false, section: 'channels', agentTab: 'basic' }
   notify()
 }

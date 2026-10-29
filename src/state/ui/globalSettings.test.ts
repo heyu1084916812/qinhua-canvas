@@ -25,6 +25,7 @@ describe('globalSettings · 全局设置浮层', () => {
   it('★ 初始是关着的（不替用户打开）', () => {
     expect(getGlobalSettings().open).toBe(false)
     expect(getGlobalSettings().section).toBe('channels')
+    expect(getGlobalSettings().agentTab).toBe('basic')
   })
 
   it('★ 默认落在「渠道配置」；也可以直接指定栏目', () => {
@@ -40,7 +41,11 @@ describe('globalSettings · 全局设置浮层', () => {
     openGlobalSettings('hosting')
     closeGlobalSettings()
     openGlobalSettings('channels')
-    expect(getGlobalSettings()).toEqual({ open: true, section: 'channels' })
+    expect(getGlobalSettings()).toEqual({
+      open: true,
+      section: 'channels',
+      agentTab: 'basic',
+    })
   })
 
   it('★★ 关掉后保留上次那一栏（下次打开回到原处）', () => {
@@ -49,7 +54,29 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(getGlobalSettings().open).toBe(false)
     expect(getGlobalSettings().section).toBe('hosting')
     openGlobalSettings('hosting')
-    expect(getGlobalSettings()).toEqual({ open: true, section: 'hosting' })
+    expect(getGlobalSettings()).toEqual({
+      open: true,
+      section: 'hosting',
+      agentTab: 'basic',
+    })
+  })
+
+  it('★★ Agent 设置保留内部页签，旧 Agent 记忆深链落到记忆页', () => {
+    openGlobalSettings('agentMemory')
+    expect(getGlobalSettings()).toEqual({
+      open: true,
+      section: 'agent',
+      agentTab: 'memory',
+    })
+    openGlobalSettings('agent', 'tools')
+    expect(getGlobalSettings()).toEqual({
+      open: true,
+      section: 'agent',
+      agentTab: 'tools',
+    })
+    openGlobalSettings('storage')
+    openGlobalSettings('agent')
+    expect(getGlobalSettings().agentTab).toBe('tools')
   })
 
   it('★★ 已开着且栏目没变时不通知订阅者（避免白重渲）', () => {
@@ -71,7 +98,7 @@ describe('globalSettings · 全局设置浮层', () => {
 
   it('★ 子菜单与内容一一对应（标签与内容一处定义）', () => {
     // 顺序即浮层里那排标签的顺序：模型服务 / CLI / 素材传输 / 存储 / 日志 / 主题 / 字体 /
-    // 画布 / 备份 / 默认值 / Agent 记忆 / 扩展包 / 快照 / 帮助 / 快捷键 / 关于 / 通知
+    // 画布 / 备份 / 默认值 / Agent / 扩展包 / 快照 / 帮助 / 快捷键 / 关于 / 通知
     // （#259 + #261 + #308；「外观与体验」与「备份与恢复」为用户 2026-10-09 新增：
     //   前者 = 自定义字体 / 界面字号 / 字距；后者 = 全量备份导出与导入 #378；
     //   「扩展包」= 数据型扩展包（技能 + 电商平台规则），对账 #386 阶段一）。
@@ -89,7 +116,7 @@ describe('globalSettings · 全局设置浮层', () => {
       'canvasLook',
       'backup',
       'defaults',
-      'agentMemory',
+      'agent',
       'packs',
       'snapshots',
       'help',
@@ -108,7 +135,7 @@ describe('globalSettings · 全局设置浮层', () => {
       '画布',
       '备份',
       '默认值',
-      'Agent 记忆',
+      'Agent',
       '扩展包',
       '快照',
       '帮助',
@@ -134,6 +161,7 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(byId.get('backup')).toBe('数据')
     expect(byId.get('notify')).toBe('数据')
     expect(byId.get('appearance')).toBe('外观')
+    expect(byId.get('agent')).toBe('生成')
     expect(byId.get('typography')).toBe('外观')
     expect(byId.get('canvasLook')).toBe('外观')
     expect(byId.get('snapshots')).toBe('数据')
