@@ -1,5 +1,9 @@
 # 轻画：路由、Agent Runtime、记忆与套件统一规划
 
+> **2026-10-29 范围更新（对账 #809）**：DeepSeek Harness Worker 集成已撤回，当前不再
+> 引入 ACP/MCP sidecar、DSH 资源包或 Harness 专用安装流程。路由、Agent 工具与记忆章节
+> 中面向现有应用的端口和边界仍有效，涉及 Harness 的段落按历史方案阅读。
+
 > 状态：v1.9，2026-10-29。阶段 1 持久队列完成；阶段 2 生成路由闭环完成（策略 UI、
 > Key 分组候选、三宿主接入、尝试审计与删除边界）；阶段 3 完成 AgentJob/AgentEvent、
 > Interrupt、运行中 Steer、文本 RoutePlan、DirectRun 尝试留痕与轮数检查点续跑；
