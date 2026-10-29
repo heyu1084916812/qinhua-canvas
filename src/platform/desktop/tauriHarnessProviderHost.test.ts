@@ -67,8 +67,10 @@ describe('Tauri Harness provider host', () => {
     })
     expect(host.endpoint.baseUrl).toBe('http://127.0.0.1:1234')
     expect(host.mcp).toEqual({
+      name: 'qinghua-canvas',
+      type: 'http',
       url: 'http://127.0.0.1:1234/mcp',
-      headers: { Authorization: 'Bearer token' },
+      headers: [{ name: 'Authorization', value: 'Bearer token' }],
     })
 
     fake.emit({

@@ -4,6 +4,10 @@ import type {
   HarnessLocalProviderBridge,
 } from '../../features/shared/agent/HarnessLocalProviderBridge'
 import type { HarnessMcpToolBridge } from '../../features/shared/agent/HarnessMcpToolBridge'
+import {
+  harnessHttpMcpServer,
+  type HarnessHttpMcpServer,
+} from '../../features/shared/agent/HarnessProfile'
 
 interface ProviderRequestEvent {
   requestId: string
@@ -134,10 +138,7 @@ export async function startTauriHarnessProviderHost(input: {
   bridge?: TauriHarnessProviderBridge
 }): Promise<{
   endpoint: ProviderEndpoint
-  mcp?: {
-    url: string
-    headers: { Authorization: string }
-  }
+  mcp?: HarnessHttpMcpServer
   stop: () => Promise<void>
 }> {
   const bridge = input.bridge ?? defaultTauriHarnessProviderBridge
@@ -229,10 +230,10 @@ export async function startTauriHarnessProviderHost(input: {
     endpoint,
     ...(input.tools
       ? {
-          mcp: {
+          mcp: harnessHttpMcpServer({
             url: `${endpoint.baseUrl}/mcp`,
-            headers: { Authorization: `Bearer ${endpoint.token}` },
-          },
+            token: endpoint.token,
+          }),
         }
       : {}),
     async stop() {

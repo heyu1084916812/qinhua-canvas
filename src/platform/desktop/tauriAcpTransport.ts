@@ -11,16 +11,26 @@ interface AcpExitPayload {
 }
 
 export interface TauriAcpBridge {
-  start(id: string, cwd: string): Promise<void>
+  start(
+    id: string,
+    cwd: string,
+    provider?: { url: string; token: string },
+  ): Promise<void>
   write(id: string, line: string): Promise<void>
   stop(id: string): Promise<void>
   listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn>
 }
 
 export const defaultTauriAcpBridge: TauriAcpBridge = {
-  async start(id, cwd) {
+  async start(id, cwd, provider) {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('acp_start', { id, cwd })
+    await invoke('acp_start', {
+      id,
+      cwd,
+      ...(provider
+        ? { providerUrl: provider.url, providerToken: provider.token }
+        : {}),
+    })
   },
   async write(id, line) {
     const { invoke } = await import('@tauri-apps/api/core')
@@ -40,6 +50,7 @@ export const defaultTauriAcpBridge: TauriAcpBridge = {
 export function createTauriAcpTransport(input: {
   sessionId: string
   cwd: string
+  provider?: { url: string; token: string }
   bridge?: TauriAcpBridge
 }): AcpLineTransport {
   const bridge = input.bridge ?? defaultTauriAcpBridge
@@ -78,7 +89,9 @@ export function createTauriAcpTransport(input: {
   const ensureStarted = (): Promise<void> => {
     if (startReady) return startReady
     startReady = ensureListeners().then(() =>
-      bridge.start(input.sessionId, input.cwd),
+      input.provider
+        ? bridge.start(input.sessionId, input.cwd, input.provider)
+        : bridge.start(input.sessionId, input.cwd),
     )
     return startReady
   }

@@ -1,3 +1,7 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use minisign_verify::{PublicKey as MinisignPublicKey, Signature as MinisignSignature};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -2050,6 +2054,435 @@ fn cli_which(app: tauri::AppHandle, program: String) -> Option<String> {
     find_in_path(&program, &path_var, &|p| p.is_file()).map(|p| p.to_string_lossy().to_string())
 }
 
+const HARNESS_PACK_FORMAT_VERSION: u32 = 1;
+const HARNESS_PACK_MAX_ENTRIES: usize = 200_000;
+const HARNESS_PACK_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const HARNESS_PACK_PROFILE_FILES: [&str; 4] = [
+    "package.json",
+    "cordis.yml",
+    "cordis.patch.yml",
+    "pnpm-workspace.yaml",
+];
+
+#[derive(Default)]
+struct HarnessPackRegistry(Mutex<()>);
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HarnessPackHarness {
+    package: String,
+    version: String,
+    tag: String,
+    commit: String,
+    entry: String,
+    profile: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HarnessPackNode {
+    version: String,
+    minimum: String,
+    executable: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HarnessPackManifest {
+    format_version: u32,
+    pack_name: String,
+    platform: String,
+    harness: HarnessPackHarness,
+    node: HarnessPackNode,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HarnessCurrentPack {
+    pack_id: String,
+    root: String,
+    entry: String,
+    harness_version: String,
+    harness_commit: String,
+    node_version: String,
+    sha256: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HarnessPackInfo {
+    pack_id: String,
+    harness_version: String,
+    harness_commit: String,
+    node_version: String,
+    root: String,
+    entry: String,
+    sha256: String,
+}
+
+fn harness_app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|path| path.join("harness"))
+        .map_err(|error| format!("无法定位 Harness 应用数据目录：{error}"))
+}
+
+fn harness_home(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let path = harness_app_root(app)?.join("home");
+    std::fs::create_dir_all(&path)
+        .map_err(|error| format!("创建 Harness home 失败：{error}"))?;
+    Ok(path)
+}
+
+fn harness_current_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(harness_app_root(app)?.join("current.json"))
+}
+
+fn harness_pack_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let path = harness_app_root(app)?.join("packs");
+    std::fs::create_dir_all(&path)
+        .map_err(|error| format!("创建 Harness packs 目录失败：{error}"))?;
+    Ok(path)
+}
+
+fn write_small_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建目录 {} 失败：{error}", parent.display()))?;
+    }
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let body =
+        serde_json::to_vec_pretty(value).map_err(|error| format!("序列化 JSON 失败：{error}"))?;
+    std::fs::write(&temp, body)
+        .map_err(|error| format!("写临时 JSON {} 失败：{error}", temp.display()))?;
+    if path.exists() {
+        std::fs::remove_file(path)
+            .map_err(|error| format!("替换旧 JSON {} 失败：{error}", path.display()))?;
+    }
+    std::fs::rename(&temp, path)
+        .map_err(|error| format!("提交 JSON {} 失败：{error}", path.display()))
+}
+
+fn updater_public_key() -> Result<MinisignPublicKey, String> {
+    let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+        .map_err(|error| format!("读取更新配置失败：{error}"))?;
+    let outer = config
+        .pointer("/plugins/updater/pubkey")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "tauri.conf.json 缺少更新公钥".to_string())?;
+    let decoded = BASE64
+        .decode(outer.trim())
+        .map_err(|error| format!("更新公钥不是有效 base64：{error}"))?;
+    let text =
+        String::from_utf8(decoded).map_err(|error| format!("更新公钥文本无效：{error}"))?;
+    MinisignPublicKey::decode(&text).map_err(|error| format!("读取 Minisign 公钥失败：{error}"))
+}
+
+fn minisign_signature(path: &Path) -> Result<MinisignSignature, String> {
+    let outer = std::fs::read_to_string(path)
+        .map_err(|error| format!("读取 Harness 资源包签名 {} 失败：{error}", path.display()))?;
+    let decoded = BASE64
+        .decode(outer.trim())
+        .map_err(|error| format!("Harness 资源包签名不是有效 base64：{error}"))?;
+    let text =
+        String::from_utf8(decoded).map_err(|error| format!("Harness 签名文本无效：{error}"))?;
+    MinisignSignature::decode(&text).map_err(|error| format!("读取 Minisign 签名失败：{error}"))
+}
+
+fn verify_harness_pack_signature(pack: &Path, signature: &Path) -> Result<(), String> {
+    let public = updater_public_key()?;
+    let signature = minisign_signature(signature)?;
+    let mut verifier = public
+        .verify_stream(&signature)
+        .map_err(|error| format!("Harness 资源包签名不可验证：{error}"))?;
+    let mut file = std::fs::File::open(pack)
+        .map_err(|error| format!("打开 Harness 资源包 {} 失败：{error}", pack.display()))?;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("读取 Harness 资源包失败：{error}"))?;
+        if read == 0 {
+            break;
+        }
+        verifier.update(&buffer[..read]);
+    }
+    verifier
+        .finalize()
+        .map_err(|error| format!("Harness 资源包验签失败：{error}"))
+}
+
+fn sha256_file_upper(path: &Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| format!("打开文件 {} 失败：{error}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("读取文件 {} 失败：{error}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:X}", hasher.finalize()))
+}
+
+fn safe_harness_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && version
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'))
+        && !version.starts_with('.')
+}
+
+fn extract_harness_zip(pack: &Path, target: &Path) -> Result<HarnessPackManifest, String> {
+    use std::io::Write;
+
+    let file = std::fs::File::open(pack)
+        .map_err(|error| format!("打开 Harness 资源包 {} 失败：{error}", pack.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| format!("Harness 资源包不是有效 ZIP：{error}"))?;
+    if archive.len() > HARNESS_PACK_MAX_ENTRIES {
+        return Err(format!(
+            "Harness 资源包条目过多：{} > {}",
+            archive.len(),
+            HARNESS_PACK_MAX_ENTRIES
+        ));
+    }
+    std::fs::create_dir_all(target)
+        .map_err(|error| format!("创建 Harness 临时目录 {} 失败：{error}", target.display()))?;
+    let mut extracted = 0u64;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("读取 Harness ZIP 条目失败：{error}"))?;
+        let relative = entry
+            .enclosed_name()
+            .ok_or_else(|| format!("Harness ZIP 包含越界路径：{}", entry.name()))?
+            .to_path_buf();
+        if entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        {
+            return Err(format!("Harness ZIP 不允许符号链接：{}", relative.display()));
+        }
+        let output = target.join(&relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&output)
+                .map_err(|error| format!("创建 Harness 目录 {} 失败：{error}", output.display()))?;
+            continue;
+        }
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建 Harness 目录 {} 失败：{error}", parent.display()))?;
+        }
+        let remaining = HARNESS_PACK_MAX_BYTES.saturating_sub(extracted);
+        let mut reader = entry.by_ref().take(remaining + 1);
+        let mut writer = std::fs::File::create(&output)
+            .map_err(|error| format!("创建 Harness 文件 {} 失败：{error}", output.display()))?;
+        let written = std::io::copy(&mut reader, &mut writer)
+            .map_err(|error| format!("解压 Harness 文件 {} 失败：{error}", output.display()))?;
+        extracted = extracted.saturating_add(written);
+        if extracted > HARNESS_PACK_MAX_BYTES {
+            return Err("Harness 资源包解压后超过 2 GiB".into());
+        }
+        writer
+            .flush()
+            .map_err(|error| format!("写入 Harness 文件 {} 失败：{error}", output.display()))?;
+    }
+    let manifest_path = target.join("manifest.json");
+    let manifest: HarnessPackManifest = serde_json::from_slice(
+        &std::fs::read(&manifest_path)
+            .map_err(|error| format!("Harness 资源包缺少 manifest.json：{error}"))?,
+    )
+    .map_err(|error| format!("Harness manifest.json 无效：{error}"))?;
+    Ok(manifest)
+}
+
+fn validate_harness_manifest(
+    manifest: &HarnessPackManifest,
+    root: &Path,
+) -> Result<(), String> {
+    if manifest.format_version != HARNESS_PACK_FORMAT_VERSION {
+        return Err(format!(
+            "Harness 资源包格式版本不支持：{}",
+            manifest.format_version
+        ));
+    }
+    if manifest.platform != "windows-x64" {
+        return Err(format!("Harness 资源包平台不匹配：{}", manifest.platform));
+    }
+    if manifest.harness.package != "@deepseek-ai/dsh" {
+        return Err(format!(
+            "Harness 资源包产品不匹配：{}",
+            manifest.harness.package
+        ));
+    }
+    if !safe_harness_version(&manifest.harness.version)
+        || manifest.harness.tag != format!("dsh-v{}", manifest.harness.version)
+    {
+        return Err("Harness 版本或 tag 不合法".into());
+    }
+    if manifest.node.minimum != "v24.9.0"
+        || !manifest.node.version.starts_with('v')
+        || manifest.node.executable != "node/node.exe"
+    {
+        return Err("Harness Node 运行时声明不合法".into());
+    }
+    if manifest.harness.entry != "bin/dsh.cmd"
+        || manifest.harness.profile != "profile/acp"
+    {
+        return Err("Harness 入口或 profile 路径不匹配".into());
+    }
+    if !manifest.pack_name.ends_with(".zip") {
+        return Err("Harness 资源包文件名声明不合法".into());
+    }
+    for relative in [
+        manifest.harness.entry.as_str(),
+        manifest.node.executable.as_str(),
+        "manifest.json",
+    ] {
+        if !root.join(relative).is_file() {
+            return Err(format!("Harness 资源包缺少 {relative}"));
+        }
+    }
+    for name in HARNESS_PACK_PROFILE_FILES {
+        let path = root.join(&manifest.harness.profile).join(name);
+        if !path.is_file() {
+            return Err(format!("Harness 资源包缺少 ACP profile 文件 {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
+fn install_harness_profile(pack_root: &Path, home: &Path, profile: &str) -> Result<(), String> {
+    let source = pack_root.join(profile);
+    let target = home.join("profiles").join("acp");
+    std::fs::create_dir_all(&target)
+        .map_err(|error| format!("创建 Harness ACP profile 失败：{error}"))?;
+    for name in HARNESS_PACK_PROFILE_FILES {
+        std::fs::copy(source.join(name), target.join(name)).map_err(|error| {
+            format!(
+                "安装 Harness ACP profile 文件 {} 失败：{error}",
+                target.join(name).display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn install_harness_pack_at(
+    pack: PathBuf,
+    signature: PathBuf,
+    app_root: &Path,
+) -> Result<HarnessPackInfo, String> {
+    if !pack.is_file() {
+        return Err(format!("Harness 资源包不存在：{}", pack.display()));
+    }
+    if !signature.is_file() {
+        return Err(format!("Harness 资源包签名不存在：{}", signature.display()));
+    }
+    verify_harness_pack_signature(&pack, &signature)?;
+    let sha256 = sha256_file_upper(&pack)?;
+    let packs = app_root.join("packs");
+    std::fs::create_dir_all(&packs)
+        .map_err(|error| format!("创建 Harness packs 目录失败：{error}"))?;
+    let nonce = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_millis())
+            .unwrap_or_default()
+    );
+    let temp = packs.join(format!(".installing-{nonce}"));
+    let extracted = extract_harness_zip(&pack, &temp);
+    let manifest = match extracted {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(error);
+        }
+    };
+    if let Err(error) = validate_harness_manifest(&manifest, &temp) {
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(error);
+    }
+    let short_hash = sha256.get(..12).unwrap_or(&sha256).to_ascii_lowercase();
+    let pack_id = format!("dsh-{}-{short_hash}", manifest.harness.version);
+    let destination = packs.join(&pack_id);
+    if destination.exists() {
+        let _ = std::fs::remove_dir_all(&temp);
+    } else {
+        std::fs::rename(&temp, &destination).map_err(|error| {
+            let _ = std::fs::remove_dir_all(&temp);
+            format!("提交 Harness 资源包失败：{error}")
+        })?;
+    }
+    let entry = destination.join(&manifest.harness.entry);
+    if !entry.is_file() {
+        return Err(format!("已安装 Harness 入口不存在：{}", entry.display()));
+    }
+    let home = app_root.join("home");
+    std::fs::create_dir_all(&home)
+        .map_err(|error| format!("创建 Harness home 失败：{error}"))?;
+    install_harness_profile(&destination, &home, &manifest.harness.profile)?;
+    let current = HarnessCurrentPack {
+        pack_id: pack_id.clone(),
+        root: destination.to_string_lossy().to_string(),
+        entry: entry.to_string_lossy().to_string(),
+        harness_version: manifest.harness.version.clone(),
+        harness_commit: manifest.harness.commit.clone(),
+        node_version: manifest.node.version.clone(),
+        sha256: sha256.clone(),
+    };
+    write_small_json(&app_root.join("current.json"), &current)?;
+    Ok(HarnessPackInfo {
+        pack_id,
+        harness_version: manifest.harness.version,
+        harness_commit: manifest.harness.commit,
+        node_version: manifest.node.version,
+        root: destination.to_string_lossy().to_string(),
+        entry: current.entry,
+        sha256,
+    })
+}
+
+#[tauri::command]
+async fn harness_pack_install(
+    app: tauri::AppHandle,
+    pack_path: String,
+    signature_path: String,
+) -> Result<HarnessPackInfo, String> {
+    let install_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let lock_app = install_app.clone();
+        let lock = lock_app.state::<HarnessPackRegistry>();
+        let _guard = lock
+            .0
+            .lock()
+            .map_err(|_| "Harness 资源包安装锁不可用".to_string())?;
+        let app_root = harness_app_root(&install_app)?;
+        install_harness_pack_at(
+            PathBuf::from(pack_path),
+            PathBuf::from(signature_path),
+            &app_root,
+        )
+    })
+    .await
+    .map_err(|error| format!("Harness 资源包安装任务失败：{error}"))?
+}
+
+#[tauri::command]
+fn harness_pack_current(app: tauri::AppHandle) -> Option<HarnessCurrentPack> {
+    let file = harness_current_file(&app).ok()?;
+    let bytes = std::fs::read(file).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// Harness ACP sidecar：只允许启动轻画签名的固定资源，不接受前端传任意命令。
 struct AcpProcess {
     child: std::process::Child,
@@ -2328,6 +2761,23 @@ fn acp_harness_program(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             return Ok(path);
         }
     }
+    if let Ok(file) = harness_current_file(app) {
+        if let Ok(bytes) = std::fs::read(&file) {
+            if let Ok(current) = serde_json::from_slice::<HarnessCurrentPack>(&bytes) {
+                let packs = harness_pack_root(app)?;
+                let root = PathBuf::from(&current.root);
+                let entry = PathBuf::from(&current.entry);
+                let lower_root = lower(&root);
+                let lower_packs = lower(&packs);
+                if lower_root.starts_with(&lower_packs)
+                    && entry.starts_with(&root)
+                    && entry.is_file()
+                {
+                    return Ok(entry);
+                }
+            }
+        }
+    }
     let resource_dir = app
         .path()
         .resource_dir()
@@ -2348,13 +2798,35 @@ fn acp_harness_program(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         })
 }
 
+fn harness_agent_command(program: &Path) -> std::process::Command {
+    if program
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = std::process::Command::new("cmd.exe");
+        command.raw_arg(format!(
+            "/D /S /C \"\"{}\" --profile acp\"",
+            program.display()
+        ));
+        command
+    } else {
+        let mut command = std::process::Command::new(program);
+        command.arg("--profile").arg("acp");
+        command
+    }
+}
+
 #[tauri::command]
 fn acp_start(
     app: tauri::AppHandle,
     id: String,
     cwd: String,
+    provider_url: Option<String>,
+    provider_token: Option<String>,
 ) -> Result<(), String> {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     if id.trim().is_empty() || cwd.trim().is_empty() {
         return Err("ACP 进程 id 和工作目录不能为空".into());
@@ -2369,14 +2841,22 @@ fn acp_start(
         return Err(format!("ACP 进程已存在：{id}"));
     }
     let program = acp_harness_program(&app)?;
-    let mut command = Command::new(&program);
+    let home = harness_home(&app)?;
+    let mut command = harness_agent_command(&program);
     command
-        .arg("--profile")
-        .arg("acp")
         .current_dir(&cwd)
+        .env("QINGHUA_HARNESS_HOME", &home)
+        .env("DSH_HOME", &home)
+        .env("DSH_TELEMETRY_DISABLED", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(url) = provider_url {
+        command.env("QINGHUA_PROVIDER_URL", url);
+    }
+    if let Some(token) = provider_token {
+        command.env("QINGHUA_PROVIDER_TOKEN", token);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -3609,6 +4089,7 @@ pub fn run() {
         .manage(CliRegistry::default())
         .manage(AcpRegistry::default())
         .manage(AcpProviderRegistry::default())
+        .manage(HarnessPackRegistry::default())
         /*
          * 窗口几何的自动记盘（用户 2026-10-06 第 11 批第 7 条："记住上次窗口尺寸和位置"）。
          *
@@ -3680,6 +4161,8 @@ pub fn run() {
             acp_start,
             acp_write,
             acp_stop,
+            harness_pack_install,
+            harness_pack_current,
             acp_provider_start,
             acp_provider_respond,
             acp_provider_stop,
@@ -3776,6 +4259,176 @@ pub fn run() {
         .run(|app_handle, event| {
             let _ = (app_handle, event);
         });
+}
+
+#[cfg(test)]
+mod harness_pack_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn temp_root(label: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "qinghua-harness-pack-{label}-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn fixture_manifest() -> serde_json::Value {
+        serde_json::json!({
+            "formatVersion": 1,
+            "packName": "qinghua-harness_0.2.2-alpha.2_x64.zip",
+            "platform": "windows-x64",
+            "harness": {
+                "package": "@deepseek-ai/dsh",
+                "version": "0.2.2-alpha.2",
+                "tag": "dsh-v0.2.2-alpha.2",
+                "commit": "f3803c96974ad4a94195fb97e5c637e9c2a3afe3",
+                "entry": "bin/dsh.cmd",
+                "profile": "profile/acp"
+            },
+            "node": {
+                "version": "v24.14.1",
+                "minimum": "v24.9.0",
+                "executable": "node/node.exe"
+            }
+        })
+    }
+
+    fn write_fixture_zip(path: &Path) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, body) in [
+            (
+                "manifest.json",
+                serde_json::to_vec(&fixture_manifest()).unwrap(),
+            ),
+            ("bin/dsh.cmd", b"@echo off\r\n".to_vec()),
+            ("node/node.exe", b"MZ".to_vec()),
+            ("profile/acp/package.json", b"{}".to_vec()),
+            ("profile/acp/cordis.yml", b"[]".to_vec()),
+            ("profile/acp/cordis.patch.yml", b"[]".to_vec()),
+            (
+                "profile/acp/pnpm-workspace.yaml",
+                b"packages:\n- .\n".to_vec(),
+            ),
+        ] {
+            writer.start_file(name, options).unwrap();
+            writer.write_all(&body).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn updater_public_key_is_a_valid_minisign_key() {
+        let key = updater_public_key().unwrap();
+        assert!(key.untrusted_comment().is_some());
+    }
+
+    #[test]
+    fn verifies_the_real_updater_signature_and_rejects_tampering() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("harness-pack-signature.txt");
+        let signature = PathBuf::from(format!("{}.sig", fixture.display()));
+        verify_harness_pack_signature(&fixture, &signature).unwrap();
+
+        let tampered_root = temp_root("tampered");
+        let tampered = tampered_root.join("tampered.txt");
+        std::fs::copy(&fixture, &tampered).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&tampered)
+            .unwrap()
+            .write_all(b"tampered")
+            .unwrap();
+        assert!(verify_harness_pack_signature(&tampered, &signature).is_err());
+        let _ = std::fs::remove_dir_all(tampered_root);
+    }
+
+    #[test]
+    fn only_safe_harness_version_components_are_accepted() {
+        assert!(safe_harness_version("0.2.2-alpha.2"));
+        assert!(!safe_harness_version("../0.2.2"));
+        assert!(!safe_harness_version("0.2.2/evil"));
+        assert!(!safe_harness_version(".hidden"));
+        assert!(!safe_harness_version(""));
+    }
+
+    #[test]
+    fn extracts_and_validates_a_complete_harness_pack() {
+        let root = temp_root("valid");
+        let archive = root.join("pack.zip");
+        let target = root.join("extract");
+        write_fixture_zip(&archive);
+        let manifest = extract_harness_zip(&archive, &target).unwrap();
+        validate_harness_manifest(&manifest, &target).unwrap();
+        assert_eq!(manifest.harness.version, "0.2.2-alpha.2");
+        assert!(target.join("bin/dsh.cmd").is_file());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_a_zip_that_escapes_the_target_root() {
+        let root = temp_root("traversal");
+        let archive = root.join("pack.zip");
+        let file = std::fs::File::create(&archive).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("../escape.txt", options).unwrap();
+        writer.write_all(b"escape").unwrap();
+        writer.finish().unwrap();
+        let error = extract_harness_zip(&archive, &root.join("extract")).unwrap_err();
+        assert!(error.contains("越界路径"));
+        assert!(!root.join("escape.txt").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launches_a_cmd_harness_entry_with_the_acp_profile() {
+        let root = temp_root("cmd");
+        let launcher = root.join("dsh.cmd");
+        std::fs::write(&launcher, b"@echo off\r\necho %*\r\n").unwrap();
+        let output = harness_agent_command(&launcher).output().unwrap();
+        assert!(
+            output.status.success(),
+            "status={:?} stdout={} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "--profile acp");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn installs_an_external_signed_pack_when_requested() {
+        let Ok(pack) = std::env::var("QINGHUA_TEST_HARNESS_PACK") else {
+            return;
+        };
+        let pack = PathBuf::from(pack);
+        let signature = PathBuf::from(format!("{}.sig", pack.display()));
+        let app_root = temp_root("external-install");
+        let info = install_harness_pack_at(pack, signature, &app_root).unwrap();
+        assert!(Path::new(&info.entry).is_file());
+        assert!(app_root
+            .join("home")
+            .join("profiles")
+            .join("acp")
+            .join("cordis.patch.yml")
+            .is_file());
+        assert!(app_root.join("current.json").is_file());
+        let _ = std::fs::remove_dir_all(app_root);
+    }
 }
 
 #[cfg(test)]

@@ -30,6 +30,7 @@ export interface HarnessRuntimePort {
     cwd: string
     resume?: boolean
     mcpServers?: readonly unknown[]
+    provider?: { url: string; token: string }
   }): Promise<HarnessSession>
   prompt(sessionId: string, text: string): Promise<unknown>
   cancel(sessionId: string): Promise<void>
@@ -53,7 +54,11 @@ function sessionIdOf(result: unknown): string {
 }
 
 export function createHarnessRuntimePort(input: {
-  createClient: (input: { sessionId: string; cwd: string }) => HarnessRuntimeClient
+  createClient: (input: {
+    sessionId: string
+    cwd: string
+    provider?: { url: string; token: string }
+  }) => HarnessRuntimeClient
   onPermission?: (request: JsonRpcRequest) => Promise<unknown> | unknown
 }): HarnessRuntimePort {
   const clients = new Map<

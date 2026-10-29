@@ -36,3 +36,8 @@ tauri-plugin-notification = "2"
 # 单实例：再次启动时恢复并聚焦已有窗口，避免“进程还在、窗口最小化/消失，看起来打不开”
 tauri-plugin-single-instance = "2.5.4"
 tiny_http = "0.12"
+# Harness 可选资源包：zip 只解到应用数据目录，并用更新公钥真验签
+base64 = "0.22"
+minisign-verify = "0.3"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }

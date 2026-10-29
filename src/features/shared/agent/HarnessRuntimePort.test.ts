@@ -57,6 +57,10 @@ describe('HarnessRuntimePort', () => {
             env: [],
           },
         ],
+        provider: {
+          url: 'http://127.0.0.1:3210/v1',
+          token: 'provider-token',
+        },
       }),
     ).resolves.toMatchObject({
       sessionId: 'local-s1',

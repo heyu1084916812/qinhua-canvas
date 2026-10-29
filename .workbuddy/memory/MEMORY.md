@@ -125,6 +125,26 @@
   非流式 RouteExecutionPort；完整结果返回后由 loopback 宿主生成 OpenAI
   `chat.completion.chunk`、最终 finish_reason 与 `[DONE]`，Content-Type 为
   `text/event-stream`。这不是 token 级透传，也不得改变 timeout / cancel / 不自动重发规则。
+- **Harness 可选资源包（2026-10-29）**：固定 `@deepseek-ai/dsh@0.2.2-alpha.2`、commit
+  `f3803c96974ad4a94195fb97e5c637e9c2a3afe3`、Node `v24.14.1`；资源包约 256 MiB，
+  SHA-256 `AD602ABCBD194526EF68C36DF6CA479BE4F4868ACD2EE52460F3A7A952DC6E75`，
+  使用原更新私钥签名，不进入主安装包。
+- **DSH 不是单文件 exe**：它要求 Node >= 24.9，ACP 只是 `dsh --profile acp` 的一个 profile。
+  资源包必须带 Node、完整 npm 依赖和 profile；轻画固定 `qinghua-local/qinghua-agent`
+  一个合成模型，真实轻画模型由本地 provider 按当前会话解析，DSH `llm-retry` 关闭。
+- **资源包安装边界**：Rust 用 `tauri.conf.json` 更新公钥做 Minisign Ed25519 验签；
+  ZIP 拒绝绝对路径、`..` 和符号链接，条目上限 200,000、解压上限 2 GiB；安装到应用本地
+  数据 `harness/packs/<id>`，profile 到 `harness/home/profiles/acp`，最后才写 `current.json`。
+- **Windows `.cmd` 启动坑**：`Command::arg` 会把引号变成普通字符，导致 `"C:\...\dsh.cmd"`
+  被当成完整文件名；必须用 `CommandExt::raw_arg` 组成
+  `cmd.exe /D /S /C ""C:\...\dsh.cmd" --profile acp"`，已有单测锁住。
+- **本批证据**：真实资源包 71,236 个 ZIP 条目；Rust 真验签、完整解压安装 **1/1**，耗时
+  230.14 秒；ACP mock-provider `initialize → session/new → prompt → close` 返回“收到”；
+  全量 Vitest **3601 passed / 1 skipped**；`npm run check`、`npm run build`、Rust
+  `cargo test --lib` **54/54**、`cargo check`、`git diff --check` 通过。
+- **构建脚本**：`node scripts/build-harness-pack.mjs` 生成并签名；
+  `node scripts/verify-harness-pack.mjs <unpacked-pack>` 做真实 ACP 端到端；
+  临时 staging 位于 gitignore 的 `.harness-pack/`，正式产物位于 gitignore 的 `release/harness/`。
 - **本刀证据**：全量 Vitest **3556 passed / 1 skipped**；`npm run check`、`npm run build`
   通过；隔离存储 G735 **14/14**、G769 **28/28**，测试目录与临时 research clone 已删除。
 - **401 安全降级真缺陷已修**：OpenAI 兼容 HTTP 401 会归一成 `channel/missingKey`，
