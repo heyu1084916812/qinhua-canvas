@@ -84,4 +84,24 @@ describe('HarnessAcpClient', () => {
     await client.close()
     await expect(pending).rejects.toThrow('ACP 连接已关闭')
   })
+
+  it('rejects pending requests when the sidecar exits unexpectedly', async () => {
+    const fake = fakeTransport()
+    let emitExit: (() => void) | null = null
+    const client = new HarnessAcpClient({
+      ...fake.transport,
+      onExit(listener) {
+        emitExit = listener
+        return () => {
+          emitExit = null
+        }
+      },
+    })
+    const pending = client.newSession({ cwd: 'E:/project' })
+    await tick()
+    const triggerExit = emitExit as unknown as (() => void) | null
+    triggerExit?.()
+    await expect(pending).rejects.toThrow('Harness ACP 进程已退出')
+    await client.close()
+  })
 })

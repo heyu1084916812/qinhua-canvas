@@ -67,7 +67,11 @@
   安全降级、RunRecord 和重试仍由轻画执行层负责。Harness 后续不得直接调用 ChannelStore。
 - **Harness ACP 基础层（2026-10-29）**：新增 ACP JSON-RPC stdio 编解码与客户端，覆盖
   initialize、session/new/list/resume/close、prompt/cancel、set_config_option、
-  session/update 与 request_permission；尚未 spawn sidecar，也未接 `qinghua-local` 桥。
+  session/update 与 request_permission。
+- **Harness ACP 进程宿主（2026-10-29）**：Tauri 只启动已安装的固定
+  `resources/harness/dsh`，不接受前端传任意命令；支持 stdin、stdout/stderr/exit 事件和
+  显式 stop。前端 Tauri 传输懒启动 sidecar，异常退出会拒绝所有挂起 ACP 请求。
+  尚未打包签名 sidecar，也未接 `qinghua-local` 桥。
 - **H1b 第一刀（2026-10-29）**：`AgentController` 抽出 sessions / jobs、刷新、释放中断
   active turn、恢复 Job、修复 `pendingConfirmation + pendingSteers` 冲突和 UI 状态投影；
   `AgentToolRequest` 上移到 `domain/agent/toolRequest`，共享层不再反向依赖画布 `agentLoop`。

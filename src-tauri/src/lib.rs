@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 /**
  * 轻画桌面壳（Tauri 2）的入口。
  *
@@ -305,9 +305,19 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// 由 shared-store 回退到 `%LOCALAPPDATA%\com.qinghua.canvas\shared-store-v1`。
 fn preferred_business_data_dir(
     exe: &Path,
-    system_roots: &[PathBuf],
+    _system_roots: &[PathBuf],
     writable: &dyn Fn(&Path) -> bool,
 ) -> Option<PathBuf> {
+    let candidate = business_data_base_dir(exe)?;
+    writable(&candidate).then_some(candidate)
+}
+
+/// Pure install-layout decision used before any directory is created.
+///
+/// Current NSIS installs the executable directly inside the product folder:
+/// `轻画\qinghua.exe`. Data therefore belongs in that same folder. Older
+/// packaging used a nested `app` directory, so keep that layout supported.
+fn business_data_base_dir(exe: &Path) -> Option<PathBuf> {
     let exe_dir = exe.parent()?;
     let is_dev_output = exe_dir
         .file_name()
@@ -322,23 +332,50 @@ fn preferred_business_data_dir(
             .and_then(Path::file_name)
             .is_some_and(|name| name == "src-tauri");
 
-    let candidate = if is_dev_output {
+    let app_root = if is_dev_output {
         // .../<project>/src-tauri/target/debug/qinghua.exe → .../<project>/data
-        exe_dir.parent()?.parent()?.parent()?.join("data")
+        return Some(exe_dir.parent()?.parent()?.parent()?.join("data"));
+    } else if exe_dir.file_name().is_some_and(|name| name == "app") {
+        exe_dir.parent()?
     } else {
-        let install_root = exe_dir.parent()?;
-        // 盘根或系统目录不采用“隔壁 data”，避免生成 C:\data / %LOCALAPPDATA%\data。
-        install_root.parent()?;
-        let lower_root = lower(install_root);
-        if system_roots
-            .iter()
-            .any(|root| lower_root.starts_with(lower(root)))
-        {
+        exe_dir
+    };
+    app_root.parent()?;
+    Some(app_root.join("data"))
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| paths_equal(existing, &path)) {
+        paths.push(path);
+    }
+}
+
+fn legacy_v1_candidates(exe: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![qinghua_shared_store::default_v1_data_dir()];
+    if let Some(base) = business_data_base_dir(exe) {
+        push_unique_path(&mut candidates, base);
+    }
+    if let Some(exe_dir) = exe.parent() {
+        if let Some(parent) = exe_dir.parent() {
+            // 0.1.9's first-run path creation used this parent-level `data`.
+            // It is only considered as a legacy source when it contains real rows.
+            push_unique_path(&mut candidates, parent.join("data"));
+        }
+    }
+    candidates
+}
+
+fn populated_v1_source(candidates: &[PathBuf]) -> Option<PathBuf> {
+    candidates.iter().find_map(|path| {
+        let info = storage_root_info(path).ok()?;
+        if info.kind != "v1" {
             return None;
         }
-        install_root.join("data")
-    };
-    writable(&candidate).then_some(candidate)
+        qinghua_shared_store::migration::v1_record_count(path)
+            .ok()
+            .filter(|count| *count > 0)
+            .map(|_| path.clone())
+    })
 }
 
 /// 所有壳共用同一份空壳 profile。
@@ -734,6 +771,28 @@ fn storage_root_info(path: &Path) -> Result<StorageRootInfo, String> {
     })
 }
 
+/// Allow the location picker to receive the product folder, not only the exact
+/// `data-v2` leaf. This matches how users actually select a moved installation.
+fn resolve_known_storage_root(path: &Path) -> PathBuf {
+    let direct = storage_root_info(path).ok();
+    if direct
+        .as_ref()
+        .is_some_and(|info| info.kind != "unknown" && info.kind != "empty")
+    {
+        return path.to_path_buf();
+    }
+    for child in ["data-v2", "shared-store-v2", "data", "shared-store-v1"] {
+        let candidate = path.join(child);
+        if storage_root_info(&candidate)
+            .ok()
+            .is_some_and(|info| info.kind != "unknown" && info.kind != "empty")
+        {
+            return candidate;
+        }
+    }
+    path.to_path_buf()
+}
+
 fn backend_for_storage_root(path: &Path) -> &'static str {
     if storage_root_info(path)
         .ok()
@@ -804,10 +863,38 @@ fn apply_data_dir_config(app: &tauri::AppHandle) {
     let Some(exe) = std::env::current_exe().ok() else {
         return;
     };
-    if let Some(path) = preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable) {
-        std::env::set_var("QINGHUA_DATA_DIR", &path);
-        set_storage_backend_env(&path);
-        eprintln!("[data] 安装目录主库：{}", path.display());
+    if let Some(source) = populated_v1_source(&legacy_v1_candidates(&exe)) {
+        std::env::set_var("QINGHUA_DATA_DIR", &source);
+        std::env::set_var("QINGHUA_STORE_BACKEND", "v1");
+        eprintln!("[data] 检测到待升级 V1：{}", source.display());
+        return;
+    }
+
+    let mut bases = Vec::new();
+    if let Some(base) = business_data_base_dir(&exe) {
+        push_unique_path(&mut bases, base);
+    }
+    push_unique_path(&mut bases, qinghua_shared_store::default_v1_data_dir());
+    for base in &bases {
+        let Ok(target) = v2_sibling_path(base) else {
+            continue;
+        };
+        if qinghua_shared_store::v2_admin::initialize_empty_v2_root(&target).is_err() {
+            continue;
+        }
+        if save_data_dir_config(app, &target).is_err() {
+            continue;
+        }
+        std::env::set_var("QINGHUA_DATA_DIR", &target);
+        std::env::set_var("QINGHUA_STORE_BACKEND", "v2");
+        eprintln!("[data] 新安装 V2 主库：{}", target.display());
+        return;
+    }
+
+    if let Some(path) = bases.first() {
+        std::env::set_var("QINGHUA_DATA_DIR", path);
+        std::env::set_var("QINGHUA_STORE_BACKEND", "v1");
+        eprintln!("[data] V2 初始化失败，回退 V1：{}", path.display());
     }
 }
 
@@ -827,7 +914,7 @@ fn v2_sibling_path(base: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(next))
 }
 
-fn automatic_v2_target(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn automatic_v2_target(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(custom) = std::env::var("QINGHUA_AUTO_V2_TARGET") {
         let path = PathBuf::from(custom.trim());
         if path.is_absolute() {
@@ -835,8 +922,7 @@ fn automatic_v2_target(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         }
     }
     let exe = std::env::current_exe().map_err(|error| format!("读取程序位置失败：{error}"))?;
-    let base = preferred_business_data_dir(&exe, &system_roots(app), &dir_is_writable)
-        .unwrap_or_else(qinghua_shared_store::default_data_dir);
+    let base = business_data_base_dir(&exe).unwrap_or_else(qinghua_shared_store::default_data_dir);
     v2_sibling_path(&base)
 }
 
@@ -863,6 +949,35 @@ fn target_belongs_to_v1(target: &Path, source: &Path) -> Result<bool, String> {
     Ok(false)
 }
 
+fn quarantine_empty_v2_target(target: &Path) -> Result<bool, String> {
+    let verification = match qinghua_shared_store::v2_admin::verify_v2_root(target) {
+        Ok(report) => report,
+        Err(_) => return Ok(false),
+    };
+    if !verification.ok
+        || verification.assets_total != 0
+        || verification.table_rows.values().any(|count| *count != 0)
+    {
+        return Ok(false);
+    }
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("无法为空的 V2 目标生成备份名：{}", target.display()))?;
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let archived = target.with_file_name(format!("{name}.empty-{millis}"));
+    std::fs::rename(target, &archived)
+        .map_err(|error| format!("隔离空的 V2 目标 {} 失败：{error}", target.display()))?;
+    eprintln!(
+        "[data] 空的 V2 目标已隔离到 {}，准备从真实 V1 重新迁移",
+        archived.display()
+    );
+    Ok(true)
+}
+
 /// 选择一个新主库目录。这里只返回路径，不授权素材文件作用域。
 #[tauri::command]
 async fn pick_data_dir(app: tauri::AppHandle) -> Option<String> {
@@ -878,7 +993,8 @@ async fn pick_data_dir(app: tauri::AppHandle) -> Option<String> {
 
 #[tauri::command]
 fn inspect_data_dir(path: String) -> Result<StorageRootInfo, String> {
-    storage_root_info(&PathBuf::from(path.trim()))
+    let selected = PathBuf::from(path.trim());
+    storage_root_info(&resolve_known_storage_root(&selected))
 }
 
 #[tauri::command]
@@ -923,7 +1039,7 @@ fn storage_startup_state(app: tauri::AppHandle) -> Result<StorageStartupState, S
                 reason: Some("自动 V2 目标与原 V1 目录相同".into()),
             });
         }
-        let target_info = storage_root_info(&target)?;
+        let mut target_info = storage_root_info(&target)?;
         if !matches!(target_info.kind.as_str(), "empty" | "partial" | "v2") {
             return Ok(StorageStartupState {
                 kind: "blocked".into(),
@@ -932,6 +1048,11 @@ fn storage_startup_state(app: tauri::AppHandle) -> Result<StorageStartupState, S
                 target_root: Some(target.to_string_lossy().to_string()),
                 reason: target_info.reason,
             });
+        }
+        if target_info.kind == "v2" && !target_belongs_to_v1(&target, &root)? {
+            if quarantine_empty_v2_target(&target)? {
+                target_info = storage_root_info(&target)?;
+            }
         }
         if matches!(target_info.kind.as_str(), "partial" | "v2")
             && !target_belongs_to_v1(&target, &root)?
@@ -1047,6 +1168,7 @@ async fn replace_storage_root(
     target: String,
 ) -> Result<StorageReplaceResult, String> {
     let target = PathBuf::from(target.trim());
+    let target = resolve_known_storage_root(&target);
     if !target.is_absolute() {
         return Err("新的资源目录必须是绝对路径".into());
     }
@@ -1188,7 +1310,7 @@ fn save_data_dir_config(app: &tauri::AppHandle, dir: &Path) -> Result<(), String
 
 #[tauri::command]
 fn set_data_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
-    let dir = PathBuf::from(path.trim());
+    let dir = resolve_known_storage_root(&PathBuf::from(path.trim()));
     if !dir.is_absolute() {
         return Err("数据目录必须是绝对路径".into());
     }
@@ -1926,6 +2048,204 @@ fn cli_which(app: tauri::AppHandle, program: String) -> Option<String> {
     }
     let path_var = std::env::var("PATH").unwrap_or_default();
     find_in_path(&program, &path_var, &|p| p.is_file()).map(|p| p.to_string_lossy().to_string())
+}
+
+/// Harness ACP sidecar：只允许启动轻画签名的固定资源，不接受前端传任意命令。
+struct AcpProcess {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+}
+
+#[derive(Default)]
+struct AcpRegistry(Mutex<std::collections::HashMap<String, AcpProcess>>);
+
+impl Drop for AcpRegistry {
+    fn drop(&mut self) {
+        if let Ok(mut processes) = self.0.lock() {
+            for (_, mut process) in processes.drain() {
+                let _ = process.child.kill();
+                let _ = process.child.wait();
+            }
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpLineEvent {
+    id: String,
+    line: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AcpExitEvent {
+    id: String,
+}
+
+fn acp_harness_program(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Ok(path) = std::env::var("QINGHUA_HARNESS_BIN") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|err| format!("无法定位 Harness 资源目录：{err}"))?;
+    let candidates = if cfg!(windows) {
+        vec![
+            resource_dir.join("harness").join("dsh.exe"),
+            resource_dir.join("harness").join("dsh.cmd"),
+        ]
+    } else {
+        vec![resource_dir.join("harness").join("dsh")]
+    };
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            "Harness 资源包尚未安装；需要先安装已验签的 ACP sidecar".to_string()
+        })
+}
+
+#[tauri::command]
+fn acp_start(
+    app: tauri::AppHandle,
+    id: String,
+    cwd: String,
+) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    if id.trim().is_empty() || cwd.trim().is_empty() {
+        return Err("ACP 进程 id 和工作目录不能为空".into());
+    }
+    let registry = app.state::<AcpRegistry>();
+    if registry
+        .0
+        .lock()
+        .map_err(|_| "ACP 进程表不可用".to_string())?
+        .contains_key(&id)
+    {
+        return Err(format!("ACP 进程已存在：{id}"));
+    }
+    let program = acp_harness_program(&app)?;
+    let mut command = Command::new(&program);
+    command
+        .arg("--profile")
+        .arg("acp")
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("启动 Harness ACP 失败：{err}"))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Harness ACP 没有可写 stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Harness ACP 没有可读 stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Harness ACP 没有可读 stderr".to_string())?;
+
+    let stdout_app = app.clone();
+    let stdout_id = id.clone();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            let _ = stdout_app.emit(
+                "acp:stdout",
+                AcpLineEvent {
+                    id: stdout_id.clone(),
+                    line,
+                },
+            );
+        }
+        let _ = stdout_app.emit(
+            "acp:exit",
+            AcpExitEvent {
+                id: stdout_id,
+            },
+        );
+    });
+
+    let stderr_app = app.clone();
+    let stderr_id = id.clone();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            let _ = stderr_app.emit(
+                "acp:stderr",
+                AcpLineEvent {
+                    id: stderr_id.clone(),
+                    line,
+                },
+            );
+        }
+    });
+
+    registry
+        .0
+        .lock()
+        .map_err(|_| "ACP 进程表不可用".to_string())?
+        .insert(
+            id,
+            AcpProcess {
+                child,
+                stdin,
+            },
+        );
+    Ok(())
+}
+
+#[tauri::command]
+fn acp_write(app: tauri::AppHandle, id: String, line: String) -> Result<(), String> {
+    use std::io::Write;
+
+    let registry = app.state::<AcpRegistry>();
+    let mut processes = registry
+        .0
+        .lock()
+        .map_err(|_| "ACP 进程表不可用".to_string())?;
+    let process = processes
+        .get_mut(&id)
+        .ok_or_else(|| format!("ACP 进程不存在：{id}"))?;
+    process
+        .stdin
+        .write_all(line.as_bytes())
+        .and_then(|_| process.stdin.flush())
+        .map_err(|err| format!("写入 Harness ACP 失败：{err}"))
+}
+
+#[tauri::command]
+fn acp_stop(app: tauri::AppHandle, id: String) -> bool {
+    let registry = app.state::<AcpRegistry>();
+    let Ok(mut processes) = registry.0.lock() else {
+        return false;
+    };
+    match processes.remove(&id) {
+        Some(mut process) => {
+            let _ = process.child.kill();
+            let _ = process.child.wait();
+            true
+        }
+        None => false,
+    }
 }
 
 /// 真的跑一条命令。**异步**：耗时可到 30 分钟，不能占着 IPC 线程。
@@ -3048,6 +3368,7 @@ pub fn run() {
          * 进的是 `AppHandle` 的受管状态，所以 `cli_run` 与 `cli_kill` 看到的是同一张表。
          */
         .manage(CliRegistry::default())
+        .manage(AcpRegistry::default())
         /*
          * 窗口几何的自动记盘（用户 2026-10-06 第 11 批第 7 条："记住上次窗口尺寸和位置"）。
          *
@@ -3116,6 +3437,9 @@ pub fn run() {
             cli_out_dir,
             cli_read_out,
             cli_write_out,
+            acp_start,
+            acp_write,
+            acp_stop,
             rh_set_api_key,
             ui_heartbeat
         ])
@@ -3274,6 +3598,18 @@ mod data_dir_tests {
     }
 
     #[test]
+    fn current_install_keeps_data_inside_the_product_folder() {
+        assert_eq!(
+            preferred_business_data_dir(
+                Path::new("E:\\apps\\轻画\\qinghua.exe"),
+                &none_roots(),
+                &always,
+            ),
+            Some(PathBuf::from("E:\\apps\\轻画\\data"))
+        );
+    }
+
+    #[test]
     fn system_install_and_drive_root_do_not_pollute_parent() {
         let roots = vec![PathBuf::from("C:\\Users\\u\\AppData\\Local")];
         assert_eq!(
@@ -3282,7 +3618,7 @@ mod data_dir_tests {
                 &roots,
                 &always,
             ),
-            None
+            Some(PathBuf::from("C:\\Users\\u\\AppData\\Local\\轻画\\data"))
         );
         assert_eq!(
             preferred_business_data_dir(Path::new("D:\\qinghua.exe"), &none_roots(), &always,),
@@ -3458,5 +3794,72 @@ mod data_dir_tests {
         let _ = std::fs::remove_dir_all(source);
         let _ = std::fs::remove_dir_all(target);
         let _ = std::fs::remove_dir_all(other);
+    }
+
+    #[test]
+    fn legacy_source_selection_skips_empty_new_directories() {
+        let canonical = temp_dir("canonical");
+        let install_local = temp_dir("install-local");
+        let buggy_parent = temp_dir("buggy-parent");
+        std::fs::create_dir_all(canonical.join("projects")).unwrap();
+        std::fs::write(canonical.join("projects/p1.json"), br#"{"id":"p1"}"#).unwrap();
+        std::fs::create_dir_all(install_local.join("channels")).unwrap();
+        std::fs::create_dir_all(buggy_parent.join("channels")).unwrap();
+        assert_eq!(
+            populated_v1_source(&[
+                install_local.clone(),
+                buggy_parent.clone(),
+                canonical.clone()
+            ]),
+            Some(canonical.clone())
+        );
+        let _ = std::fs::remove_dir_all(canonical);
+        let _ = std::fs::remove_dir_all(install_local);
+        let _ = std::fs::remove_dir_all(buggy_parent);
+    }
+
+    #[test]
+    fn product_folder_selection_resolves_to_nested_v2_root() {
+        let root = temp_dir("product-folder");
+        let v2 = root.join("data-v2");
+        let report = qinghua_shared_store::v2_admin::initialize_empty_v2_root(&v2).unwrap();
+        assert!(report.ok);
+        assert_eq!(resolve_known_storage_root(&root), v2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn empty_mismatched_v2_target_is_quarantined_before_retry() {
+        let source = temp_dir("migration-source");
+        let target = temp_dir("migration-target");
+        std::fs::create_dir_all(&source).unwrap();
+        let report = qinghua_shared_store::v2_admin::initialize_empty_v2_root(&target).unwrap();
+        assert!(report.ok);
+        assert!(quarantine_empty_v2_target(&target).unwrap());
+        assert!(!target.exists());
+        let archive_prefix = format!("{}.empty-", target.file_name().unwrap().to_string_lossy());
+        let archived = std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&archive_prefix)
+            });
+        assert!(archived);
+        let _ = std::fs::remove_dir_all(source);
+        for entry in std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .flatten()
+        {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&archive_prefix)
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
     }
 }

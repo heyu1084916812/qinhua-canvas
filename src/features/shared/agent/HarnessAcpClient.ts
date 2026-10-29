@@ -12,6 +12,8 @@ export interface AcpLineTransport {
   send(line: string): Promise<void>
   close(): Promise<void>
   onLine(listener: (line: string) => void): () => void
+  onDiagnostic?(listener: (line: string) => void): () => void
+  onExit?(listener: () => void): () => void
 }
 
 export interface AcpRequestHandler {
@@ -36,10 +38,13 @@ export class HarnessAcpClient {
   private requestHandler: AcpRequestHandler | null = null
   private nextId = 1
   private unsubscribeTransport: () => void
+  private unsubscribeExit: (() => void) | null = null
   private closed = false
 
   constructor(private readonly transport: AcpLineTransport) {
     this.unsubscribeTransport = transport.onLine((line) => void this.handleLine(line))
+    this.unsubscribeExit =
+      transport.onExit?.(() => this.handleUnexpectedExit()) ?? null
   }
 
   request(method: string, params?: unknown): Promise<unknown> {
@@ -130,12 +135,22 @@ export class HarnessAcpClient {
     if (this.closed) return
     this.closed = true
     this.unsubscribeTransport()
+    this.unsubscribeExit?.()
     for (const request of this.pending.values()) {
       request.reject(new Error('ACP 连接已关闭'))
     }
     this.pending.clear()
     this.listeners.clear()
     await this.transport.close()
+  }
+
+  private handleUnexpectedExit(): void {
+    if (this.closed) return
+    this.closed = true
+    for (const request of this.pending.values()) {
+      request.reject(new Error('Harness ACP 进程已退出'))
+    }
+    this.pending.clear()
   }
 
   private async handleLine(line: string): Promise<void> {
