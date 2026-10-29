@@ -2,8 +2,9 @@
 
 ### Agent 活动流与视觉验收硬基准（2026-10-29，对账 #814）
 
-- **活动流只报可核实动作**：`ConversationStep.activityLabel / activityKind` 由真实工具结果派生；
-  `readAsset` 按 `image/*` MIME、`visualReview` 按实际目标图数量显示“已查看 N 张图像”。
+- **活动流只报可核实动作**：`ConversationStep.activityLabel / activityKind` 由真实发收数据派生；
+  用户回合按 `imageNodeIds`、`readAsset` 按 `image/*` MIME、`visualReview` 按实际目标图数量
+  显示“已查看 N 张图像”；同一回合已有工具图像步骤时不重复插入。
   默认展示最近 5 步，不能把模型私有思维链保存到会话或渲染到 UI。
 - **居中不等于覆盖**：Agent 计划以当前视口世界矩形计算整组包围盒中心，但最终落点仍必须走
   `layoutAgentPlan / findFreeRect` 避让已有节点。`useViewportState()` 返回的是轻画 store 视口
@@ -14,7 +15,7 @@
   `linkedPromptNodeIds` 和直接上游提示词送入验收硬基准；提示词明确写出的防滑垫、拉链、材质等，
   不得被“常见产品应该怎样”推翻。
 - **本轮证据**：G735 **33/33**；G769 浅色 **28/28**、深色 **28/28**；全量 Vitest
-  **3587 passed / 1 skipped**；`npm run check`、`npm run build`、`git diff --check` 通过。
+  **3588 passed / 1 skipped**；`npm run check`、`npm run build`、`git diff --check` 通过。
 
 ### Harness 集成回退（2026-10-29，对账 #809）
 

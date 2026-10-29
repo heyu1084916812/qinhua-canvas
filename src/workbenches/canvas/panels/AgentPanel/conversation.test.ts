@@ -201,6 +201,21 @@ describe('工具结果 → 人话', () => {
     expect(items).toEqual([])
   })
 
+  it('★★ 用户随消息带入的图片节点保留在回合数据里，供图像查看活动计数', () => {
+    const items = toConversation([
+      {
+        role: 'user',
+        content: '参考这四张图',
+        display: '参考 @[图1](node:n1) @[图2](node:n2)',
+        imageNodeIds: ['n1', 'n1', 'n2', '', 'n3'],
+      },
+    ])
+    expect(items[0]).toMatchObject({
+      kind: 'user',
+      imageNodeIds: ['n1', 'n2', 'n3'],
+    })
+  })
+
   it('★★ result and asset tool cards prefer node titles over raw ids', () => {
     const result = describeToolResult(
       'readResult',

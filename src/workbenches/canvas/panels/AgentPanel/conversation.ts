@@ -29,7 +29,7 @@ export interface ConversationStep {
 }
 
 export type ConversationItem =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; imageNodeIds?: string[] }
   | { kind: 'text'; text: string }
   | ConversationStep
 
@@ -486,7 +486,20 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
        * （用户 2026-10-05 第 5 条）。没有 `display` 的老消息按 `content` 显示。
        */
       const shown = m.display ?? m.content
-      if (shown.trim()) out.push({ kind: 'user', text: shown })
+      if (shown.trim()) {
+        const imageNodeIds = [
+          ...new Set(
+            (m.imageNodeIds ?? []).filter(
+              (nodeId): nodeId is string => typeof nodeId === 'string' && nodeId.length > 0,
+            ),
+          ),
+        ]
+        out.push({
+          kind: 'user',
+          text: shown,
+          ...(imageNodeIds.length > 0 ? { imageNodeIds } : {}),
+        })
+      }
       continue
     }
 

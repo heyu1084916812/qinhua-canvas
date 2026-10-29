@@ -4854,8 +4854,26 @@ function AgentActivityStrip({
   const [expanded, setExpanded] = useState(false)
   const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
   const steps = currentTurnSteps(items)
-  const visibleSteps = expanded ? steps : steps.slice(-5)
-  const canExpand = steps.length > 5
+  const inputImageCount =
+    [...items].reverse().find((item) => item.kind === 'user')?.imageNodeIds?.length ?? 0
+  const hasToolImageActivity = steps.some((step) => step.activityKind === 'image')
+  const inputImageStep: ConversationStep | null =
+    inputImageCount > 0 && !hasToolImageActivity
+      ? {
+          kind: 'step',
+          id: 'agent-input-images',
+          tool: 'imageInput',
+          label: `已查看 ${inputImageCount} 张图像`,
+          activityLabel: `已查看 ${inputImageCount} 张图像`,
+          activityKind: 'image',
+          lines: [],
+          nodeIds: [],
+          failed: false,
+        }
+      : null
+  const activitySteps = inputImageStep ? [inputImageStep, ...steps] : steps
+  const visibleSteps = expanded ? activitySteps : activitySteps.slice(-5)
+  const canExpand = activitySteps.length > 5
   const generationTool = status.kind === 'executing' ? status.tool : undefined
 
   useEffect(() => {
