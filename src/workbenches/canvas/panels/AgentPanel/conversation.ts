@@ -32,16 +32,22 @@ export interface ConversationStep {
   failed: boolean
 }
 
-export type ConversationItem =
-  | { kind: 'user'; text: string; createdAt?: number; imageNodeIds?: string[] }
-  | { kind: 'text'; text: string; createdAt?: number }
-  | ConversationStep
-
 export interface ConversationProcessEntry {
   id: string
   text: string
   createdAt?: number
 }
+
+export interface ConversationProcess {
+  kind: 'process'
+  entries: ConversationProcessEntry[]
+}
+
+export type ConversationItem =
+  | { kind: 'user'; text: string; createdAt?: number; imageNodeIds?: string[] }
+  | { kind: 'text'; text: string; createdAt?: number }
+  | ConversationProcess
+  | ConversationStep
 
 /** 工具 → 用户看得懂的一行标题。没登记的走兜底，不假装认识 */
 const TOOL_LABEL: Record<string, string> = {
@@ -533,6 +539,7 @@ export function describeToolResult(
 export function toConversation(messages: readonly ChatMessage[]): ConversationItem[] {
   const out: ConversationItem[] = []
   const stepAt = new Map<string, number>()
+  let currentProcess: ConversationProcess | null = null
   const planUiTools = new Set([
     'proposeTaskPlan',
     'updateTaskStep',
@@ -545,10 +552,11 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
       ? { createdAt: message.createdAt }
       : {}
 
-  for (const m of messages) {
+  for (const [messageIndex, m] of messages.entries()) {
     if (m.role === 'system') continue
 
     if (m.role === 'user') {
+      currentProcess = null
       /**
        * 用户那条用**原文**（`display`，保留 chip 标记）渲染：回看时能看见自己引用了谁
        * （用户 2026-10-05 第 5 条）。没有 `display` 的老消息按 `content` 显示。
@@ -573,6 +581,20 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     }
 
     if (m.role === 'assistant') {
+      const processText =
+        m.reasoning?.trim() ||
+        ((m.toolCalls?.length ?? 0) > 0 ? m.content.trim() : '')
+      if (processText) {
+        if (!currentProcess) {
+          currentProcess = { kind: 'process', entries: [] }
+          out.push(currentProcess)
+        }
+        currentProcess.entries.push({
+          id: `process-${messageIndex}`,
+          text: processText,
+          ...timeOf(m),
+        })
+      }
       /**
        * 带工具调用的正文也要进时间线。
        *

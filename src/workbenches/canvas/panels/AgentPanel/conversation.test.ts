@@ -313,6 +313,16 @@ describe('消息 → 对话条目', () => {
 
     expect(items).toEqual([
       { kind: 'user', text: '换个背心和短裤', createdAt: 100 },
+      {
+        kind: 'process',
+        entries: [
+          {
+            id: 'process-1',
+            text: '先确认人物基准，再换服装。',
+            createdAt: 200,
+          },
+        ],
+      },
     ])
     expect(processEntriesOf(messages)).toEqual([
       {
@@ -340,7 +350,7 @@ describe('消息 → 对话条目', () => {
     ]
     const items = toConversation(messages)
 
-    expect(items.map((item) => item.kind)).toEqual(['step'])
+    expect(items.map((item) => item.kind)).toEqual(['process', 'step'])
     expect(processEntriesOf(messages)).toEqual([
       {
         id: 'process-0',

@@ -175,7 +175,6 @@ import {
 } from '../../toolbar/icons'
 import {
   readableConfirmationLines,
-  processEntriesOf,
   toConversation,
   toolRunningLabel,
   type ConversationItem,
@@ -3784,7 +3783,6 @@ export function AgentPanel({
       ]),
     [current?.pendingSteers, messages],
   )
-  const processEntries = useMemo(() => processEntriesOf(messages), [messages])
   const streamingTextIndex = useMemo(() => {
     if (!messageReveal || messageReveal.sessionId !== current?.id) return -1
     for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -3805,6 +3803,13 @@ export function AgentPanel({
         : item,
     )
   }, [items, messageReveal, streamingTextIndex])
+  const latestUserIndex = visibleItems.reduce(
+    (at, item, index) => (item.kind === 'user' ? index : at),
+    -1,
+  )
+  const currentTurnHasProcess = visibleItems
+    .slice(latestUserIndex + 1)
+    .some((item) => item.kind === 'process')
   /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示（图变更时跟着刷） */
   const graph = useGraph()
   const hashOfNode = useMemo(() => {
@@ -4225,6 +4230,17 @@ export function AgentPanel({
               </div>
             )
           }
+          if (item.kind === 'process') {
+            return (
+              <AgentActivityStrip
+                key={i}
+                status={status}
+                items={items}
+                activities={liveActivities}
+                history={item.entries}
+              />
+            )
+          }
           if (item.kind === 'text') {
             const copied = copiedKey === i
             const streaming = i === streamingTextIndex
@@ -4370,12 +4386,16 @@ export function AgentPanel({
           {STATUS_LABEL[status.kind]}：{status.message}
         </div>
       )}
-      {status.kind !== 'idle' || processEntries.length > 0 ? (
+      {!currentTurnHasProcess &&
+      (status.kind === 'thinking' ||
+        status.kind === 'toolRunning' ||
+        status.kind === 'executing' ||
+        status.kind === 'awaitingConfirm') ? (
         <AgentActivityStrip
           status={status}
           items={items}
           activities={liveActivities}
-          history={processEntries}
+          history={[]}
         />
       ) : null}
 
@@ -5389,9 +5409,6 @@ function AgentActivityStrip({
               className={styles.activityRow}
               data-agent-process-row={step.id}
             >
-              <span className={styles.activityStepIcon} aria-hidden="true">
-                <IconCheck size={12} />
-              </span>
               <span className={styles.activityStepName}>{step.text}</span>
               {step.createdAt ? (
                 <time

@@ -41384,6 +41384,7 @@ async function g769(browser) {
         {
           role: 'assistant',
           content: '',
+          reasoning: '再检查四张预览的光线、人物和产品结构是否一致。',
           toolCalls: [{ id: 'call-g769-review', name: 'visualReview', args: '{}' }],
         },
         {
@@ -41479,15 +41480,21 @@ async function g769(browser) {
         document
           .querySelector('[data-agent-activity]')
           ?.getAttribute('data-agent-process-history') ?? '0',
+      processTop:
+        document.querySelector('[data-agent-activity]')?.getBoundingClientRect().top ?? 0,
+      resultTop:
+        document.querySelector('[data-agent-message="assistant"]')?.getBoundingClientRect()
+          .top ?? 0,
     }))
     rec(
       g,
       '★★ 真实思考收成一行更新，结果与时间仍留在时间线',
       processTimeline.assistantText.includes('画布与验收记录已经检查完成') &&
         processTimeline.messageTimes >= 1 &&
-        processTimeline.processLine.includes('先确认现有画布上的生成结果') &&
+        processTimeline.processLine.includes('再检查四张预览的光线') &&
         !processTimeline.processLine.includes('正在理解') &&
-        processTimeline.processCount === '1',
+        processTimeline.processCount === '2' &&
+        processTimeline.processTop < processTimeline.resultTop,
       JSON.stringify(processTimeline),
     )
     const scrollbarIsolation = await page.evaluate(async () => {
@@ -41636,16 +41643,27 @@ async function g769(browser) {
       rows: document.querySelectorAll('[data-agent-process-row]').length,
       text:
         document.querySelector('[data-agent-process-row="process-0"]')?.textContent ?? '',
+      icons: document.querySelectorAll('[data-agent-process-row] svg').length,
+      rowsGeometry: [...document.querySelectorAll('[data-agent-process-row]')].map((row) => {
+        const rect = row.getBoundingClientRect()
+        return { top: rect.top, bottom: rect.bottom, height: rect.height }
+      }),
     }))
     rec(
       g,
       '★★ 过程默认收成一行，展开才显示完整历史',
-      completedProcess.line.includes('先确认现有画布上的生成结果') &&
+      completedProcess.line.includes('再检查四张预览的光线') &&
         completedProcess.expanded === 'false' &&
         completedProcess.rows === 0 &&
         expandedProcess.expanded === 'true' &&
-        expandedProcess.rows >= 1 &&
-        expandedProcess.text.includes('先确认现有画布上的生成结果'),
+        expandedProcess.rows === 2 &&
+        expandedProcess.text.includes('先确认现有画布上的生成结果') &&
+        expandedProcess.icons === 0 &&
+        expandedProcess.rowsGeometry.every(
+          (row, index) =>
+            row.height > 20 &&
+            (index === 0 || expandedProcess.rowsGeometry[index - 1].bottom <= row.top + 1),
+        ),
       JSON.stringify({ completedProcess, expandedProcess }),
     )
     await page.locator('[data-sidebar-settings]').click()
