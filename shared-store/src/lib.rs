@@ -338,8 +338,7 @@ fn page_row_matches(row: &Value, filter: &Map<String, Value>, page: &PageQuery) 
         row.get(&range.field)
             .and_then(Value::as_i64)
             .is_some_and(|value| {
-                range.from.is_none_or(|from| value >= from)
-                    && range.to.is_none_or(|to| value <= to)
+                range.from.is_none_or(|from| value >= from) && range.to.is_none_or(|to| value <= to)
             })
     })
 }
@@ -782,10 +781,8 @@ impl StoreBackend for Store {
             .collect::<Vec<_>>();
         if let Some(order) = &page.order_by {
             rows.sort_by(|left, right| {
-                let mut compared = compare_page_values(
-                    left.get(&order.field),
-                    right.get(&order.field),
-                );
+                let mut compared =
+                    compare_page_values(left.get(&order.field), right.get(&order.field));
                 if order.direction.as_deref() == Some("desc") {
                     compared = compared.reverse();
                 }
@@ -793,12 +790,7 @@ impl StoreBackend for Store {
                     left.get("id")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
-                        .cmp(
-                            right
-                                .get("id")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default(),
-                        )
+                        .cmp(right.get("id").and_then(Value::as_str).unwrap_or_default())
                 })
             });
         }
@@ -1192,8 +1184,7 @@ fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
         }
         if request.method() == &Method::Post && path == "/queryPage" {
             let body: QueryPageRequest = body_json(&mut request)?;
-            let (rows, total) =
-                store.query_page(&body.table, &body.filter, &body.page)?;
+            let (rows, total) = store.query_page(&body.table, &body.filter, &body.page)?;
             return Ok(json!({ "rows": rows, "total": total }));
         }
         if request.method() == &Method::Get && path.starts_with("/rows") {
@@ -1277,6 +1268,15 @@ fn handle(backends: Arc<RwLock<Arc<dyn StoreBackend>>>, mut request: Request) {
     }
 }
 
+pub fn default_v1_data_dir() -> PathBuf {
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        return PathBuf::from(local)
+            .join("com.qinghua.canvas")
+            .join("shared-store-v1");
+    }
+    PathBuf::from("qinghua-shared-store-v1")
+}
+
 pub fn default_data_dir() -> PathBuf {
     if let Ok(custom) = std::env::var("QINGHUA_DATA_DIR") {
         let custom = custom.trim();
@@ -1284,12 +1284,7 @@ pub fn default_data_dir() -> PathBuf {
             return PathBuf::from(custom);
         }
     }
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        return PathBuf::from(local)
-            .join("com.qinghua.canvas")
-            .join("shared-store-v1");
-    }
-    PathBuf::from("qinghua-shared-store-v1")
+    default_v1_data_dir()
 }
 
 pub fn start(data_dir: &Path, port: u16) -> Result<(), String> {
@@ -1558,9 +1553,18 @@ mod tests {
         let root = temp_root("context-tables");
         let rows = [
             ("contextMemories", json!({ "id": "m1", "text": "偏好留白" })),
-            ("contextMemoryRevisions", json!({ "id": "mr1", "memoryId": "m1", "revision": 1 })),
-            ("contextKits", json!({ "id": "k1", "kind": "brand", "currentVersion": 1 })),
-            ("contextKitVersions", json!({ "id": "kv1", "kitId": "k1", "version": 1 })),
+            (
+                "contextMemoryRevisions",
+                json!({ "id": "mr1", "memoryId": "m1", "revision": 1 }),
+            ),
+            (
+                "contextKits",
+                json!({ "id": "k1", "kind": "brand", "currentVersion": 1 }),
+            ),
+            (
+                "contextKitVersions",
+                json!({ "id": "kv1", "kitId": "k1", "version": 1 }),
+            ),
             (
                 "projectContextBindings",
                 json!({ "id": "b1", "projectId": "p1", "kitId": "k1", "kitVersion": 1 }),

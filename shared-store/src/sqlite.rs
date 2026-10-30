@@ -2,9 +2,8 @@ use crate::hash::sha1_hex;
 use crate::strip_payload;
 use base64::Engine;
 use rusqlite::{
-    params, params_from_iter,
-    types::Value as SqlValue,
-    Connection, OptionalExtension, TransactionBehavior,
+    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension,
+    TransactionBehavior,
 };
 use serde_json::{json, Map, Value};
 use std::fs::{self, OpenOptions};
@@ -212,8 +211,7 @@ impl SqliteStore {
             .map_err(|err| format!("query page rows: {err}"))?
             .map(|value| {
                 let raw = value.map_err(|err| format!("decode page row: {err}"))?;
-                serde_json::from_str::<Value>(&raw)
-                    .map_err(|err| format!("parse page row: {err}"))
+                serde_json::from_str::<Value>(&raw).map_err(|err| format!("parse page row: {err}"))
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -692,10 +690,9 @@ fn query_rows(
 
 fn page_field_expression(field: &str) -> Result<String, String> {
     if field.is_empty()
-        || !field
-            .chars()
-            .enumerate()
-            .all(|(index, ch)| ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || ch.is_ascii_alphabetic()))
+        || !field.chars().enumerate().all(|(index, ch)| {
+            ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || ch.is_ascii_alphabetic())
+        })
     {
         return Err(format!("invalid page field: {field}"));
     }

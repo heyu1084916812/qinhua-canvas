@@ -137,6 +137,96 @@ pub fn verify_v2_root(root: &Path) -> Result<V2Verification, String> {
     Ok(report)
 }
 
+/// Create a complete, empty V2 root for a genuinely fresh installation.
+///
+/// The first launch used to create an empty V1 directory, let the UI treat it as
+/// ready, and only discover the old format after data had already been written.
+/// Initializing the V2 root before the shared store starts keeps fresh installs
+/// on the authoritative format from byte zero.
+pub fn initialize_empty_v2_root(root: &Path) -> Result<V2Verification, String> {
+    if root.exists() {
+        if root.join("manifest.json").is_file() {
+            return verify_v2_root(root);
+        }
+        let allowed = [
+            ".migration-state.json",
+            "migration-report.json",
+            "manifest.sqlite",
+            "manifest.sqlite-wal",
+            "manifest.sqlite-shm",
+            "media",
+            "cli-out",
+            "logs",
+            "outputs",
+        ];
+        for entry in fs::read_dir(root)
+            .map_err(|error| format!("read V2 target {} before init: {error}", root.display()))?
+        {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let name = entry.file_name();
+            if !allowed.iter().any(|allowed| name == *allowed) {
+                return Err(format!(
+                    "V2 init target is not empty and contains {}",
+                    entry.path().display()
+                ));
+            }
+        }
+    } else {
+        fs::create_dir_all(root)
+            .map_err(|error| format!("create V2 target {}: {error}", root.display()))?;
+    }
+
+    let store = SqliteStore::open(root)?;
+    store.checkpoint()?;
+    for folder in ["images", "videos", "audio", "thumbs", "previews"] {
+        fs::create_dir_all(root.join("media").join(folder)).map_err(|error| {
+            format!(
+                "create empty V2 media folder {}: {error}",
+                root.join("media").join(folder).display()
+            )
+        })?;
+    }
+
+    let created_at = now_ms();
+    let table_rows = TABLE_NAMES
+        .iter()
+        .map(|table| ((*table).to_string(), 0))
+        .collect::<BTreeMap<_, _>>();
+    write_json_atomic(
+        &root.join("manifest.json"),
+        &serde_json::json!({
+            "formatVersion":2,
+            "schemaVersion":SCHEMA_VERSION,
+            "status":"complete",
+            "createdAt":created_at,
+            "sourceRoot":Value::Null,
+            "tableRows":table_rows,
+            "assets":{
+                "total":0,
+                "local":0,
+                "remote":0,
+                "legacy":0,
+                "bytes":0,
+                "thumbs":0,
+                "previews":0
+            },
+            "assetReferences":0,
+            "sourceDanglingReferences":0,
+            "warnings":[]
+        }),
+    )?;
+    write_json_atomic(
+        &root.join(".migration-state.json"),
+        &serde_json::json!({
+            "status":"complete",
+            "sourceRoot":Value::Null,
+            "finishedAt":created_at,
+            "schemaVersion":SCHEMA_VERSION
+        }),
+    )?;
+    verify_v2_root(root)
+}
+
 pub fn copy_v2_root(source: &Path, target: &Path) -> Result<V2CopyReport, String> {
     let source = source
         .canonicalize()
@@ -521,6 +611,37 @@ mod tests {
             .any(|failure| failure.contains("asset")));
         let _ = fs::remove_dir_all(v1);
         let _ = fs::remove_dir_all(v2);
+    }
+
+    #[test]
+    fn initializes_a_fresh_empty_v2_root() {
+        let root = temp_root("fresh-empty");
+        let report = initialize_empty_v2_root(&root).unwrap();
+        assert!(report.ok);
+        assert_eq!(report.assets_total, 0);
+        assert!(root.join("manifest.sqlite").is_file());
+        assert!(root.join("media/images").is_dir());
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(root.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(
+            manifest.get("status").and_then(Value::as_str),
+            Some("complete")
+        );
+        assert!(manifest.get("sourceRoot").is_some_and(Value::is_null));
+        let again = initialize_empty_v2_root(&root).unwrap();
+        assert!(again.ok);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn empty_v2_initializer_refuses_an_unknown_nonempty_directory() {
+        let root = temp_root("fresh-nonempty");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("keep.txt"), b"not a storage root").unwrap();
+        let error = initialize_empty_v2_root(&root).unwrap_err();
+        assert!(error.contains("not empty"));
+        assert!(root.join("keep.txt").is_file());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

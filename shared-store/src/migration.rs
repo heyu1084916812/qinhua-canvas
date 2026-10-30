@@ -58,6 +58,12 @@ pub fn migrate_v1_to_v2(
             source.display()
         ));
     }
+    if v1_record_count(&source)? == 0 {
+        return Err(format!(
+            "source V1 root contains no row records; refusing empty migration: {}",
+            source.display()
+        ));
+    }
     let started_at = now_ms();
     if !dry_run {
         prepare_target(&source, target)?;
@@ -236,6 +242,14 @@ pub fn migrate_v1_to_v2(
     }
 
     Ok(report)
+}
+
+pub fn v1_record_count(root: &Path) -> Result<u64, String> {
+    let mut total = 0u64;
+    for table in TABLE_NAMES {
+        total += table_row_files(root, table)?.len() as u64;
+    }
+    Ok(total)
 }
 
 fn inspect_asset(source: &Path, row: &mut Value, id: &str) -> Result<AssetExpectation, String> {
@@ -756,6 +770,17 @@ mod tests {
         );
         let _ = fs::remove_dir_all(source);
         let _ = fs::remove_dir_all(target);
+    }
+
+    #[test]
+    fn actual_migration_refuses_an_empty_v1_source() {
+        let source = temp_root("empty-source");
+        fs::create_dir_all(source.join("channels")).unwrap();
+        let target = temp_root("empty-target");
+        let error = migrate_v1_to_v2(&source, &target, false).unwrap_err();
+        assert!(error.contains("refusing empty migration"));
+        assert!(!target.exists());
+        let _ = fs::remove_dir_all(source);
     }
 
     #[test]
