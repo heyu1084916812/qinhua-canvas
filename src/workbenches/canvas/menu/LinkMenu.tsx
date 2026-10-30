@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { useCanvasStore, useGraph } from '../storeContext'
-import { screenToWorld, toWorldRect } from '../../../domain/canvas/geometry/coords'
+import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { linkMenuSections, type LinkMenuItem } from '../../../domain/canvas/menu/linkMenu'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
@@ -22,8 +22,7 @@ import styles from './LinkMenu.module.css'
  * 菜单项图标（用户 2026-09-19 第 5 条：拉线后的这个菜单也要有图标，与工具栏同一套）。
  *
  * 「新建并连接」的项按**要建的节点类型**取图标——与工具栏节点面板逐字同形，
- * 用户不必在两处各认一遍；「连接已有节点」的项统一用连线图标（它们指向的是不同
- * 既有节点，图标要表达的是「连过去」这个动作，而不是目标类型）。
+ * 用户不必在两处各认一遍。
  */
 const MENU_ICON_SIZE = 16
 
@@ -35,8 +34,7 @@ const CREATE_ICONS: Record<string, ReactNode> = {
 }
 
 function iconOf(item: LinkMenuItem) {
-  if (item.action.kind === 'create') return CREATE_ICONS[item.action.type] ?? <IconLink size={MENU_ICON_SIZE} />
-  return <IconLink size={MENU_ICON_SIZE} />
+  return CREATE_ICONS[item.action.type] ?? <IconLink size={MENU_ICON_SIZE} />
 }
 
 /** §6.14：菜单打开在「指针右侧 12px」 */
@@ -50,7 +48,7 @@ const MARGIN = 8
  * 三条与右键菜单不同的规矩：
  * - **锚点是指针右侧 12px**，不是指针本身（右键菜单是 +4/+4）；
  * - **指针离开菜单范围立即关闭**，不点外部、不等 Esc（§6.14「菜单关闭」）；
- * - 分「新建并连接」/「连接已有节点」两个区，方向由被拖的那一端决定
+ * - 只保留「新建并连接」区，方向由被拖的那一端决定
  *   （output → 只列合法下游，input → 只列合法上游）。
  *
  * 菜单项由 domain 的 `linkMenuSections` 纯函数给出，合法性走 `canConnect`
@@ -169,35 +167,7 @@ export function LinkMenu() {
      */
     /** 被拖的那只口的 id（多选共有端点给的是 `input` / `output`） */
     const portId = menu.portId ?? (menu.side === 'output' ? 'output' : 'input')
-    /**
-     * **候选目标节点的世界中心**：`wireAll` 只需要一个落点来挑「最近的那只输入口」，
-     * 菜单这条路没有真实指针位置，取中心即是「接到这个节点上」的语义。
-     */
-    const centerOf = (id: string) => {
-      const n = store.getSnapshot().nodes.find((x) => x.id === id)
-      if (!n) return null
-      const parent = n.parentId ? store.getSnapshot().nodes.find((x) => x.id === n.parentId) : undefined
-      const w = toWorldRect(n, parent)
-      return { x: w.x + w.w / 2, y: w.y + w.h / 2 }
-    }
-    if (a.kind === 'connect') {
-      /**
-       * **每个源都连**（用户 2026-10-05 第 4 批：多选拖出来的选区，走菜单连目标时
-       * 只有被拖的那个连上了）。判定与拖到节点上松手共用 `wireAll`。
-       */
-      const at = centerOf(a.nodeId)
-      if (at) {
-        for (const w of wireAll(store, menu.nodeId, portId, menu.also, a.nodeId, at)) {
-          store.dispatch({
-            kind: 'edge.connect',
-            source: w.source,
-            target: w.target,
-            sourcePort: w.sourcePort,
-            targetPort: w.targetPort,
-          })
-        }
-      }
-    } else {
+    {
       const at = dropWorld()
       if (!at) return
       const min = NODE_MINIMUMS[a.type]

@@ -105,7 +105,17 @@ export function GlobalTooltip() {
 
     const onPointerOver = (event: PointerEvent) => {
       const source = sourceOf(event.target)
-      if (source) show(source, SHOW_DELAY_MS)
+      if (source) {
+        show(source, SHOW_DELAY_MS)
+        return
+      }
+      const active = activeSourceRef.current
+      if (
+        active &&
+        !(event.target instanceof Node && active.contains(event.target))
+      ) {
+        hide()
+      }
     }
     const onPointerOut = (event: PointerEvent) => {
       const active = activeSourceRef.current
@@ -127,13 +137,30 @@ export function GlobalTooltip() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') hide()
     }
+    const onPointerMove = (event: PointerEvent) => {
+      const active = activeSourceRef.current
+      if (!active) return
+      if (!active.isConnected) {
+        hide()
+        return
+      }
+      const underPointer = document.elementFromPoint(event.clientX, event.clientY)
+      if (!(underPointer instanceof Node) || !active.contains(underPointer)) hide()
+    }
+    const onPointerDown = () => hide()
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') hide()
+    }
     const onViewportChange = () => hide()
 
     document.addEventListener('pointerover', onPointerOver, true)
     document.addEventListener('pointerout', onPointerOut, true)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('focusin', onFocusIn, true)
     document.addEventListener('focusout', onFocusOut, true)
     document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('resize', onViewportChange)
     window.addEventListener('scroll', onViewportChange, true)
 
@@ -142,9 +169,12 @@ export function GlobalTooltip() {
       if (activeSourceRef.current) restoreSourceText(activeSourceRef.current)
       document.removeEventListener('pointerover', onPointerOver, true)
       document.removeEventListener('pointerout', onPointerOut, true)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('focusin', onFocusIn, true)
       document.removeEventListener('focusout', onFocusOut, true)
       document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('resize', onViewportChange)
       window.removeEventListener('scroll', onViewportChange, true)
     }

@@ -174,6 +174,7 @@ import {
   IconSteer,
 } from '../../toolbar/icons'
 import {
+  processBefore,
   readableConfirmationLines,
   toConversation,
   toolRunningLabel,
@@ -244,6 +245,7 @@ import {
   type MentionRef,
 } from '../../text/MentionEditor'
 import { MarkdownBlocks } from '../../text/MarkdownBlocks'
+import { AgentStepIcon } from './AgentStepIcon'
 import styles from './AgentPanel.module.css'
 
 /**
@@ -4300,6 +4302,23 @@ export function AgentPanel({
           if (item.kind === 'text') {
             const copied = copiedKey === i
             const streaming = i === streamingTextIndex
+            const currentProcess = processBefore(visibleItems, i)
+            const runtimeEnd = currentProcess
+              ? Math.max(
+                  item.createdAt ?? 0,
+                  currentProcess.finishedAt ?? 0,
+                  ...currentProcess.entries.map((entry) => entry.createdAt ?? 0),
+                ) || undefined
+              : item.createdAt
+            const runtime =
+              !streaming &&
+              currentProcess?.startedAt !== undefined &&
+              runtimeEnd !== undefined &&
+              runtimeEnd >= currentProcess.startedAt
+                ? `已处理 ${formatAgentRunElapsed(
+                    (runtimeEnd - currentProcess.startedAt) / 1_000,
+                  )}`
+                : ''
             return (
               <div
                 key={i}
@@ -4307,13 +4326,20 @@ export function AgentPanel({
                 data-agent-message="assistant"
                 data-agent-streaming={streaming ? 'true' : undefined}
               >
+                {runtime ? (
+                  <div className={styles.msgRuntime} data-agent-message-duration>
+                    {runtime}
+                  </div>
+                ) : null}
                 <div className={styles.msgBot} data-agent-bubble="assistant">
                 {/*
                   助手回复走 Markdown 渲染（用户 2026-10-02：模型回的
                   `- **看看画布现状**` 把星号和杠原样打在界面上）。
                   与提示词节点**共用同一个渲染器** —— 见 `MarkdownBlocks` 的说明。
                 */}
-                <MarkdownBlocks source={item.text} />
+                <div className={styles.markdownBody}>
+                  <MarkdownBlocks source={item.text} />
+                </div>
                 {streaming && (
                   <span className={styles.streamCaret} aria-hidden="true" />
                 )}
@@ -4381,6 +4407,9 @@ export function AgentPanel({
                 aria-expanded={hasDetail ? isOpen : undefined}
                 aria-controls={hasDetail ? `agent-step-detail-${item.id}` : undefined}
               >
+                <span className={styles.stepIcon} aria-hidden="true">
+                  <AgentStepIcon tool={item.tool} size={16} />
+                </span>
                 <span className={styles.stepLabel}>{item.label}</span>
                 {hasDetail && (
                   <span className={isOpen ? styles.chevronUp : styles.chevronDown}>
@@ -5356,11 +5385,13 @@ function TypewriterActivity({
   live,
   textKey,
   current = false,
+  markdown = false,
 }: {
   text: string
   live: boolean
   textKey: string
   current?: boolean
+  markdown?: boolean
 }) {
   const [visible, setVisible] = useState(text)
   const [typing, setTyping] = useState(false)
@@ -5405,6 +5436,18 @@ function TypewriterActivity({
     }, interval)
     return () => window.clearInterval(timer)
   }, [live, text, textKey])
+
+  if (markdown && !typing) {
+    return (
+      <div
+        className={`${styles.activityMarkdown} ${styles.markdownBody}`}
+        aria-live="polite"
+        data-agent-process-text
+      >
+        <MarkdownBlocks source={text} />
+      </div>
+    )
+  }
 
   return (
     <span
@@ -5524,6 +5567,7 @@ function AgentActivityStrip({
             text={intent.text}
             live={live}
             textKey={intent.id}
+            markdown
           />
         </div>
       ) : null}

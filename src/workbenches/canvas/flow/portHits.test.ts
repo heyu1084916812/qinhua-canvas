@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { PORT_HIT_SIZE, portHitsOf, portInverseScale } from './portHits'
+import {
+  PORT_HIT_SIZE,
+  PORT_PRECISE_HIT_RADIUS,
+  portHitAcceptsPointer,
+  portHitsOf,
+  portInverseScale,
+} from './portHits'
 import {
   PORT_CENTER_OFFSET,
   PORT_HIT_INNER_PAD,
@@ -93,6 +99,31 @@ describe('端点命中层几何', () => {
       expect(PORT_SIZE * zoom * portInverseScale(zoom)).toBeCloseTo(PORT_SIZE)
       expect(PORT_HIT_SIZE * zoom * portInverseScale(zoom)).toBeCloseTo(PORT_HIT_SIZE)
     }
+  })
+
+  it('keeps the fixed visual dot but narrows hit testing at low zoom', () => {
+    const dotCenter = { x: 100, y: 100 }
+    expect(
+      portHitAcceptsPointer({
+        zoom: 0.2,
+        pointer: { x: dotCenter.x + PORT_PRECISE_HIT_RADIUS - 1, y: dotCenter.y },
+        dotCenter,
+      }),
+    ).toBe(true)
+    expect(
+      portHitAcceptsPointer({
+        zoom: 0.2,
+        pointer: { x: dotCenter.x - PORT_HIT_SIZE / 2, y: dotCenter.y },
+        dotCenter,
+      }),
+    ).toBe(false)
+    expect(
+      portHitAcceptsPointer({
+        zoom: 0.5,
+        pointer: { x: dotCenter.x - PORT_HIT_SIZE / 2, y: dotCenter.y },
+        dotCenter,
+      }),
+    ).toBe(true)
   })
 
   it('★★ 容器子节点也给端点，且坐标换算到世界系（用户 2026-10-14）', () => {

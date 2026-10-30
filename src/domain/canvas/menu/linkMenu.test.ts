@@ -87,12 +87,12 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
     expect(connect).not.toContain('c') // 类型不匹配
   })
 
-  it('已有节点区：只列真的连得上的（提示词 → 生成）', () => {
+  it('已有节点不再进入空白松手菜单', () => {
     const g = graphOf([node('a', 'prompt'), node('b', 'generation')])
-    expect(idsOf('output', 'a', g, 'connect')).toEqual(['b'])
+    expect(idsOf('output', 'a', g, 'connect')).toEqual([])
   })
 
-  it('输入侧反向拖：找的是上游，方向相反', () => {
+  it('输入侧反向拖仍只给出新建项，不列已有上游', () => {
     // 从生成节点的输入端点往外拖 → 找能作它上游的类型（提示词 / 生成 / 批量 / 循环 / 融合）
     // 融合节点于 2026-09-29 并入（§6.23）：它的产物是一张普通图片，可当参考图
     const g = graphOf([node('g', 'generation'), node('p', 'prompt')])
@@ -103,7 +103,7 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
       'loop',
       'fusion',
     ])
-    expect(idsOf('input', 'g', g, 'connect')).toEqual(['p'])
+    expect(idsOf('input', 'g', g, 'connect')).toEqual([])
   })
 
   it('某个分区为空时整段不出现（不渲染空标题）', () => {
@@ -112,11 +112,10 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
     expect(linkMenuSections({ nodeId: 'a', side: 'output', graph: g }).map((s) => s.id)).toEqual(['create'])
   })
 
-  it('分区顺序固定：新建并连接在前，连接已有节点在后', () => {
+  it('空白菜单只保留新建并连接分区', () => {
     const g = graphOf([node('a', 'prompt'), node('b', 'generation')])
     expect(linkMenuSections({ nodeId: 'a', side: 'output', graph: g }).map((s) => s.id)).toEqual([
       'create',
-      'connect',
     ])
   })
 

@@ -50,7 +50,7 @@
   pointer-events: none;
 }
 
-.hit[data-port-open='1'] {
+.hit[data-port-open='1'][data-port-pointer='1'] {
   pointer-events: auto;
 }
 

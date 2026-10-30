@@ -5,15 +5,12 @@
  * 合法性一律交 `canConnect`——与「拖到节点上松手」同一份规则，
  * 菜单里点得到的连接，和直接拖到节点上得到的连接，结果必须一致。
  *
- * 两个分区（§6.14）：
- * - 「新建并连接」：列出**建出来就能连上**的节点类型。类型是否合法按
- *   `canConnect` 判定，而不是另写一份「谁能连谁」的表——后者一旦与
- *   canConnect 漂移，菜单就会给出「建好了却连不上」的死项。
- * - 「连接已有节点」：列出当前**真的连得上**的既有节点。
+ * 菜单只保留「新建并连接」：列出**建出来就能连上**的节点类型。类型是否合法按
+ * `canConnect` 判定，而不是另写一份「谁能连谁」的表。连接已有节点仍走直接拖到节点上松手。
  *
  * 方向语义：`side` 是**被拖的那一端**。
- * - `output`（从输出端点往外拖）→ 找下游：已有项作 target，新节点也作 target；
- * - `input`（从输入端点反向拖）→ 找上游：已有项作 source，新节点也作 source。
+ * - `output`（从输出端点往外拖）→ 新节点作 target；
+ * - `input`（从输入端点反向拖）→ 新节点作 source。
  */
 
 import type { NodeType } from '../model/node'
@@ -28,9 +25,7 @@ import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT } from '../model/edge'
 
 export type LinkSide = 'input' | 'output'
 
-export type LinkMenuAction =
-  | { kind: 'create'; type: NodeType }
-  | { kind: 'connect'; nodeId: string }
+export type LinkMenuAction = { kind: 'create'; type: NodeType }
 
 export interface LinkMenuItem {
   id: string
@@ -39,7 +34,7 @@ export interface LinkMenuItem {
 }
 
 export interface LinkMenuSection {
-  id: 'create' | 'connect'
+  id: 'create'
   title: string
   items: LinkMenuItem[]
 }
@@ -165,20 +160,7 @@ export function linkMenuSections(input: {
     createItems.push({ id: `create:${t.type}`, label: t.label, action: { kind: 'create', type: t.type } })
   }
 
-  const connectItems: LinkMenuItem[] = []
-  for (const n of graph.nodes) {
-    if (n.id === nodeId) continue
-    const [source, target] = orient(side, dragged, n)
-    if (!canConnect(source, target, graph, portsFor(n)).ok) continue
-    connectItems.push({
-      id: `connect:${n.id}`,
-      label: n.title || n.type,
-      action: { kind: 'connect', nodeId: n.id },
-    })
-  }
-
   const sections: LinkMenuSection[] = []
   if (createItems.length > 0) sections.push({ id: 'create', title: '新建并连接', items: createItems })
-  if (connectItems.length > 0) sections.push({ id: 'connect', title: '连接已有节点', items: connectItems })
   return sections
 }

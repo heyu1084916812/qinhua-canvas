@@ -3149,6 +3149,12 @@ async function g13(browser) {
     // 锚点是「指针右侧 12px」，不是指针本身（右键菜单才是 +4/+4）
     rec(g, '菜单锚在指针右侧 12px', Math.abs(mb.x - blankDrop.x - 12) < 2, `Δx=${(mb.x - blankDrop.x).toFixed(1)}`)
     rec(g, '菜单含「新建并连接」分区', (await page.locator('[data-link-menu-section="create"]').count()) === 1)
+    rec(
+      g,
+      '端点菜单不再提供“连接已有节点”',
+      (await page.locator('[data-link-menu-section="connect"]').count()) === 0 &&
+        (await page.locator('[data-link-menu-item^="connect:"]').count()) === 0,
+    )
     /**
      * 菜单项图标（用户 2026-09-19 第 5 条：拉线后的这个菜单也要有图标）。
      *
@@ -40621,6 +40627,15 @@ async function g735(browser) {
     JSON.stringify(tooltipState),
   )
   await page.mouse.move(10, 10)
+  await sleep(80)
+  const tooltipHiddenAfterLeave = await page.evaluate(
+    () => !document.querySelector('[data-global-tooltip]'),
+  )
+  rec(
+    g,
+    '全局提示离开触发区域后立即消失，不会黏在画布上',
+    tooltipHiddenAfterLeave,
+  )
   rec(
     g,
     'Agent 输入框保留 104px 最小高度且顶边命中区足够大',
@@ -41458,7 +41473,7 @@ async function g769(browser) {
         },
         {
           role: 'assistant',
-          content: '我先检查画布和产物，再继续做验收。',
+          content: '我先**检查画布和产物**，再继续做验收。',
           reasoning: '先确认现有画布上的生成结果和参考图，再决定验收顺序。',
           createdAt: now - 1_000,
           toolCalls: [{ id: 'call-g769-thumb', name: 'runNode', args: '{}' }],
@@ -41569,11 +41584,22 @@ async function g769(browser) {
       assistantText: document.querySelector(
         '[data-agent-message="assistant"]',
       )?.textContent ?? '',
+      assistantColor:
+        getComputedStyle(
+          document.querySelector('[data-agent-bubble="assistant"]'),
+        ).color,
+      userColor:
+        getComputedStyle(
+          document.querySelector('[data-agent-bubble="user"]'),
+        ).color,
       messageTimes: document.querySelectorAll('[data-agent-message-time]').length,
       duration:
         document.querySelector('[data-agent-process-duration]')?.textContent ?? '',
       intent:
         document.querySelector('[data-agent-process-intent]')?.textContent ?? '',
+      intentStrong: [
+        ...document.querySelectorAll('[data-agent-process-intent] span'),
+      ].some((node) => Number(getComputedStyle(node).fontWeight) >= 600),
       processLine:
         document.querySelector('[data-agent-process-current]')?.textContent ?? '',
       processCount:
@@ -41585,15 +41611,50 @@ async function g769(browser) {
       resultTop:
         document.querySelector('[data-agent-message="assistant"]')?.getBoundingClientRect()
           .top ?? 0,
+      resultDuration:
+        document.querySelector('[data-agent-message-duration]')?.textContent ?? '',
+      resultDurationBottom:
+        document
+          .querySelector('[data-agent-message-duration]')
+          ?.getBoundingClientRect().bottom ?? 0,
+      resultBubbleTop:
+        document
+          .querySelector('[data-agent-bubble="assistant"]')
+          ?.getBoundingClientRect().top ?? 0,
+      durationBorderBottom: getComputedStyle(
+        document.querySelector('[data-agent-process-duration]'),
+      ).borderBottomWidth,
+      durationBorderTop: getComputedStyle(
+        document.querySelector('[data-agent-process-duration]'),
+      ).borderTopWidth,
     }))
     rec(
       g,
       '★★ 真实思考收成一行更新，结果与时间仍留在时间线',
       processTimeline.assistantText.includes('画布与验收记录已经检查完成') &&
         processTimeline.messageTimes >= 1 &&
+        processTimeline.durationBorderTop === '0px' &&
+        processTimeline.durationBorderBottom === '1px' &&
+        processTimeline.resultDurationBottom <= processTimeline.resultBubbleTop + 1 &&
+        processTimeline.assistantColor === processTimeline.userColor &&
+        processTimeline.intentStrong === true &&
+        !processTimeline.intent.includes('**') &&
+        /*
+        processTimeline.resultDuration.includes('宸插鐞?) &&
         processTimeline.duration.includes('已处理') &&
         processTimeline.intent.includes('我先检查画布和产物') &&
         processTimeline.processLine.includes('再检查四张预览的光线') &&
+        !processTimeline.processLine.includes('正在理解') &&
+        processTimeline.processCount === '3' &&
+        processTimeline.processTop < processTimeline.resultTop &&
+        !`${processTimeline.intent}${processTimeline.processLine}`.includes('node-g769-thumb'),
+      JSON.stringify(processTimeline),
+    )
+        */
+        processTimeline.resultDuration.includes('已处理') &&
+        processTimeline.duration.includes('已处理') &&
+        processTimeline.intent.includes('我先检查画布和产物') &&
+        processTimeline.processLine.includes('再检查四张预览的光线、人物和产品结构是否一致') &&
         !processTimeline.processLine.includes('正在理解') &&
         processTimeline.processCount === '3' &&
         processTimeline.processTop < processTimeline.resultTop &&
@@ -41971,6 +42032,79 @@ async function g769(browser) {
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1024.png` })
     await page.setViewportSize({ width: 1440, height: 900 })
     await sleep(250)
+    const runStepButton = page
+      .locator('[data-agent-step="runNode"] [data-agent-step-detail="runNode"]')
+      .first()
+    const stepHeaderBefore = await runStepButton.evaluate((button) => {
+      const children = [...button.querySelectorAll(':scope > span')]
+      const icon = children[0]
+      const label = children[1]
+      const arrow = children.at(-1)
+      const summary = document.querySelector(
+        '[data-agent-step-summary] p:last-child',
+      )
+      if (
+        !(icon instanceof HTMLElement) ||
+        !(label instanceof HTMLElement) ||
+        !(arrow instanceof HTMLElement)
+      ) {
+        return null
+      }
+      const labelStyle = getComputedStyle(label)
+      const summaryStyle = summary ? getComputedStyle(summary) : null
+      const labelRect = label.getBoundingClientRect()
+      const arrowRect = arrow.getBoundingClientRect()
+      return {
+        iconSize: icon.getBoundingClientRect().width,
+        labelColor: labelStyle.color,
+        labelWeight: labelStyle.fontWeight,
+        summaryColor: summaryStyle?.color ?? '',
+        summaryWeight: summaryStyle?.fontWeight ?? '',
+        arrowOpacity: Number(getComputedStyle(arrow).opacity),
+        arrowInlineGap: arrowRect.left - labelRect.right,
+      }
+    })
+    const stepIconShapes = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-agent-step] [data-agent-step-detail]')]
+        .map((button) =>
+          [...(button.querySelector('span')?.querySelectorAll('path') ?? [])]
+            .map((path) => path.getAttribute('d') ?? '')
+            .join('|'),
+        )
+        .filter(Boolean),
+    )
+    rec(
+      g,
+      '不同工作流步骤使用对应的矢量图标',
+      stepIconShapes.length >= 2 && new Set(stepIconShapes).size >= 2,
+      JSON.stringify({ count: stepIconShapes.length, unique: new Set(stepIconShapes).size }),
+    )
+    await runStepButton.hover()
+    await sleep(160)
+    const stepHeaderAfter = await runStepButton.evaluate((button) => {
+      const children = [...button.querySelectorAll(':scope > span')]
+      const label = children[1]
+      const arrow = children.at(-1)
+      if (!(label instanceof HTMLElement) || !(arrow instanceof HTMLElement)) return null
+      return {
+        labelColor: getComputedStyle(label).color,
+        arrowOpacity: Number(getComputedStyle(arrow).opacity),
+      }
+    })
+    rec(
+      g,
+      '步骤标题与下方摘要同层级，箭头贴字并在悬停时出现',
+      !!stepHeaderBefore &&
+        !!stepHeaderAfter &&
+        stepHeaderBefore.iconSize >= 15 &&
+        stepHeaderBefore.labelColor === stepHeaderBefore.summaryColor &&
+        stepHeaderBefore.labelWeight === stepHeaderBefore.summaryWeight &&
+        stepHeaderBefore.arrowOpacity === 0 &&
+        stepHeaderBefore.arrowInlineGap <= 8 &&
+        stepHeaderAfter.arrowOpacity === 1 &&
+        stepHeaderAfter.labelColor !== stepHeaderBefore.labelColor,
+      JSON.stringify({ before: stepHeaderBefore, after: stepHeaderAfter }),
+    )
     const runStepReveal = page
       .locator('[data-agent-step="runNode"] [data-agent-step-reveal]')
       .first()

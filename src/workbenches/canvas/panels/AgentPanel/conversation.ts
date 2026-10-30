@@ -52,6 +52,31 @@ export type ConversationItem =
   | ConversationProcess
   | ConversationStep
 
+/**
+ * 当前条目之前、同一用户回合内的过程块。
+ * 结果上方按它的 startedAt 一直算到当前结果时间；遇到 user 就停，避免串到上一轮。
+ */
+export function processBefore(
+  items: readonly ConversationItem[],
+  index: number,
+): ConversationProcess | null {
+  let earliest: ConversationProcess | null = null
+  for (let at = index - 1; at >= 0; at -= 1) {
+    const item = items[at]
+    if (!item || item.kind === 'user') break
+    if (
+      item.kind === 'process' &&
+      item.startedAt !== undefined &&
+      (earliest === null ||
+        earliest.startedAt === undefined ||
+        item.startedAt < earliest.startedAt)
+    ) {
+      earliest = item
+    }
+  }
+  return earliest
+}
+
 /** 工具 → 用户看得懂的一行标题。没登记的走兜底，不假装认识 */
 const TOOL_LABEL: Record<string, string> = {
   readGraph: '已看画布',

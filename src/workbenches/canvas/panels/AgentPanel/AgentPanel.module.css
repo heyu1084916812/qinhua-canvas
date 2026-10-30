@@ -348,6 +348,14 @@
   align-items: flex-start;
 }
 
+.msgRuntime {
+  margin-bottom: 5px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
 /* 消息气泡：只允许在容器内换行，长串（id / hash）也要能断 */
 .msgUser,
 .msgBot {
@@ -364,7 +372,7 @@
   color: var(--text-1);
 }
 .msgBot {
-  color: var(--text-2);
+  color: var(--text-1);
   padding-right: var(--space-3);
   /**
    * 助手气泡里现在是**结构化 Markdown 块**（标题 / 列表 / 段落各是一个 div），
@@ -372,6 +380,32 @@
    * 与块自己的 margin 叠成一片莫名空行。
    */
   white-space: normal;
+}
+
+.markdownBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.markdownBody [data-md-block] {
+  margin-block: 0;
+}
+
+.markdownBody [data-md-empty] {
+  display: none;
+}
+
+.markdownBody [data-md-block='h1'],
+.markdownBody [data-md-block='h2'],
+.markdownBody [data-md-block='h3'] {
+  margin-top: 5px;
+}
+
+.markdownBody [data-md-block='h1']:first-child,
+.markdownBody [data-md-block='h2']:first-child,
+.markdownBody [data-md-block='h3']:first-child {
+  margin-top: 0;
 }
 
 .msgTime {
@@ -450,7 +484,6 @@
   flex: 0 0 auto;
   min-width: 0;
   padding: 5px var(--space-1) 6px;
-  border-top: 1px solid var(--stroke);
 }
 
 .activityOpen {
@@ -458,7 +491,9 @@
 }
 
 .activityDuration {
-  margin-bottom: 7px;
+  margin-bottom: 9px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--stroke);
   color: var(--text-3);
   font-size: var(--fs-chip);
   line-height: 1.4;
@@ -480,6 +515,13 @@
   line-height: 1.65;
   white-space: pre-wrap;
   text-overflow: clip;
+}
+
+.activityMarkdown {
+  width: 100%;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.65;
 }
 
 .activityHead {
@@ -837,7 +879,8 @@
 .stepHead {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: flex-start;
+  gap: 3px;
   min-width: 0;
   width: 100%;
   padding: 0;
@@ -852,24 +895,60 @@
 .chevronUp {
   flex: 0 0 auto;
   display: inline-flex;
+  align-items: center;
   color: var(--text-3);
 }
+.chevronDown {
+  opacity: 0;
+  transform: translateX(-2px);
+  transition:
+    opacity 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
 .chevronDown svg {
-  transition: transform var(--dur-hover) ease;
+  transform: rotate(-90deg);
 }
 .chevronUp svg {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
   transition: transform var(--dur-hover) ease;
 }
 
 .stepLabel {
-  flex: 1 1 auto;
   min-width: 0;
+  max-width: calc(100% - 40px);
   font-size: var(--fs-chip);
-  color: var(--text-1);
+  font-weight: 400;
+  color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 120ms var(--ease-out);
+}
+
+.stepHead:hover .stepLabel,
+.stepHead:focus-visible .stepLabel {
+  color: var(--text-1);
+}
+
+.stepIcon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.stepHead:hover .stepIcon,
+.stepHead:focus-visible .stepIcon {
+  color: var(--text-2);
+}
+
+.stepHead:hover .chevronDown,
+.stepHead:focus-visible .chevronDown {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .stepSummary {
@@ -900,7 +979,8 @@
   margin: 0;
   padding-left: 0;
   font-size: var(--fs-label);
-  color: var(--text-2);
+  color: var(--text-1);
+  font-weight: 400;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }

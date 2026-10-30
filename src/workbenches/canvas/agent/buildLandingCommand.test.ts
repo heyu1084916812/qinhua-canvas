@@ -390,6 +390,30 @@ describe('buildLandingCommand：落在原素材右边 + 参考图必须有连线
     expect(created.y).toBe(500)
   })
 
+  it('uses world coordinates when placing beside a grouped reference image', () => {
+    seq = 0
+    const group = {
+      ...existing('group-src', 'group', 900, 400),
+      w: 600,
+      h: 420,
+    } as NodeSnapshot
+    const child = {
+      ...imgNode('src', 80, 60),
+      parentId: 'group-src',
+      w: 240,
+      h: 180,
+    } as NodeSnapshot
+    const r = buildLandingCommand({
+      plan: planWith([{ source: 'src', target: 'g1' }], ['src']),
+      graph: graph([group, child]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    const created = r.command.nodes[0]!
+    expect(created.x).toBe(900 + 600 + 48)
+    expect(created.y).toBe(400 + 60)
+  })
+
   it('★★ attach 了有图的节点却没有连线 → 自动补上（否则等于没吃参考图）', () => {
     seq = 0
     const r = buildLandingCommand({

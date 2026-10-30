@@ -35,6 +35,29 @@ export function portInverseScale(zoom: number): number {
   return 1 / Math.max(0.01, zoom)
 }
 
+/**
+ * 低倍率下把透明命中块收回到看得见的圆点附近。
+ *
+ * 视觉圆点仍固定为屏幕像素，便于缩小后连线；但画布低于 35% 时，
+ * 91px 的整块命中区会盖住缩略节点，导致只能拖线、点不中节点本身。
+ */
+export const PORT_PRECISE_HIT_ZOOM = 0.35
+export const PORT_PRECISE_HIT_RADIUS = PORT_SIZE / 2 + 6
+
+export function portHitAcceptsPointer(input: {
+  zoom: number
+  pointer: { x: number; y: number }
+  dotCenter: { x: number; y: number }
+}): boolean {
+  if (input.zoom >= PORT_PRECISE_HIT_ZOOM) return true
+  return (
+    Math.hypot(
+      input.pointer.x - input.dotCenter.x,
+      input.pointer.y - input.dotCenter.y,
+    ) <= PORT_PRECISE_HIT_RADIUS
+  )
+}
+
 export interface PortHit {
   key: string
   nodeId: string

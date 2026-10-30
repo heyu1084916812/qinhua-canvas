@@ -31,7 +31,14 @@ export function MarkdownBlocks({ source }: { source: string }) {
                 ? styles.mdH3
                 : styles.mdParagraph
         return (
-          <div key={i} className={cls} data-md-block={b.kind}>
+          <div
+            key={i}
+            className={cls}
+            data-md-block={b.kind}
+            {...(b.kind === 'paragraph' && b.spans.length === 0
+              ? { 'data-md-empty': '' }
+              : {})}
+          >
             {(b.kind === 'bullet' || b.kind === 'ordered') && (
               <span className={styles.mdMarker}>
                 {b.kind === 'bullet' ? '•' : `${b.order ?? 1}.`}

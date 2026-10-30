@@ -219,8 +219,36 @@ function originBesideAttached(
     .filter((id): id is string => Boolean(id))
   const nodes = graph.nodes.filter((n) => ids.includes(n.id))
   if (nodes.length === 0) return fallback
-  const right = Math.max(...nodes.map((n) => n.x + n.w))
-  const top = Math.min(...nodes.map((n) => n.y))
+  const attachedRects = nodes.map((n) =>
+    toWorldRectInGraph(
+      n,
+      graph as unknown as { nodes: readonly NodeSnapshot[] },
+    ),
+  )
+  /**
+   * 组内参考图的世界矩形仍在组框里面。若只从子节点右边起排，
+   * 整列落位随后会撞到组本身并被推到很远处。横向右边界要带上祖先容器，
+   * 纵向仍以参考图顶边对齐。
+   */
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  const horizontalIds = new Set(ids)
+  for (const id of ids) {
+    let parentId = byId.get(id)?.parentId
+    while (parentId && !horizontalIds.has(parentId)) {
+      horizontalIds.add(parentId)
+      parentId = byId.get(parentId)?.parentId
+    }
+  }
+  const horizontalRects = graph.nodes
+    .filter((node) => horizontalIds.has(node.id))
+    .map((node) =>
+      toWorldRectInGraph(
+        node,
+        graph as unknown as { nodes: readonly NodeSnapshot[] },
+      ),
+    )
+  const right = Math.max(...horizontalRects.map((rect) => rect.x + rect.w))
+  const top = Math.min(...attachedRects.map((rect) => rect.y))
   return { x: right + AGENT_LAYOUT_GAP, y: top }
 }
 

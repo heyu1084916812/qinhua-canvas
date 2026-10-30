@@ -13,7 +13,12 @@ import {
 import { NO_MAGNET, portMagnet } from '../../../domain/canvas/geometry/portMagnet'
 import { useSelectionKeyHeld } from '../../../features/canvas/useSelectionKeyHeld'
 import { IconPlus } from '../toolbar/icons'
-import { portHitsOf, portInverseScale, type PortHit } from './portHits'
+import {
+  portHitAcceptsPointer,
+  portHitsOf,
+  portInverseScale,
+  type PortHit,
+} from './portHits'
 import styles from './FlowPortLayer.module.css'
 
 type PortDown = (e: ReactPointerEvent, nodeId: string, portId: string) => void
@@ -167,6 +172,7 @@ const PortDots = memo(function PortDots({
       for (const el of refs.current.values()) {
         if (!el) continue
         el.dataset.portOpen = '0'
+        el.dataset.portPointer = '0'
         delete el.dataset.portHot
         el.style.removeProperty('--port-pop')
         el.style.removeProperty('--port-progress')
@@ -236,6 +242,16 @@ const PortDots = memo(function PortDots({
               })
           : { progress: 0, hot: false, scale: PORT_MIN_SCALE, pop: PORT_EDGE_GAP }
         el.dataset.portOpen = reveal.progress > 0 ? '1' : '0'
+        el.dataset.portPointer = portHitAcceptsPointer({
+          zoom,
+          pointer: { x: e.clientX, y: e.clientY },
+          dotCenter: {
+            x: box.left + hit.x * zoom,
+            y: box.top + hit.y * zoom,
+          },
+        })
+          ? '1'
+          : '0'
         /**
          * 出场 = **从节点边缘沿横向渐显弹出**（用户第 14 批第 4 条，第 16 批第 3 条要它回来）：
          * `--port-pop` 把圆点从静止位**朝节点边缘**推回去（收回量），左右两侧方向相反；
@@ -289,6 +305,7 @@ const PortDots = memo(function PortDots({
             data-port-side={hit.side}
             data-port-kind={hit.kind}
             data-port-open="0"
+            data-port-pointer="0"
             /** 锚点（节点边缘上、线的起点）相对命中块左上角的偏移（屏幕像素，命中手势按它算远近） */
             data-port-anchor-x={hit.edgeX - hitLeft}
             data-port-anchor-y={hit.y - hitTop}

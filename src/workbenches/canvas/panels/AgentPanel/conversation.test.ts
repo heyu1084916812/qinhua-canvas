@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
 import {
   describeToolResult,
+  processBefore,
   processEntriesOf,
   readableConfirmationLines,
   toConversation,
@@ -605,5 +606,60 @@ describe('工具结果跨轮次对账', () => {
     expect(steps).toHaveLength(1)
     expect(steps[0]!.failed).toBe(true)
     expect(steps[0]!.nodeIds).toEqual(['n1'])
+  })
+})
+
+describe('processBefore', () => {
+  it('returns only the completed process from the current user turn', () => {
+    const items: ConversationItem[] = [
+      { kind: 'user', text: '上一轮', createdAt: 1_000 },
+      { kind: 'process', entries: [], startedAt: 1_000, finishedAt: 9_000 },
+      { kind: 'text', text: '上一轮结果', createdAt: 9_000 },
+      { kind: 'user', text: '这一轮', createdAt: 10_000 },
+      { kind: 'process', entries: [], startedAt: 10_000, finishedAt: 15_500 },
+      { kind: 'text', text: '这一轮结果', createdAt: 15_500 },
+    ]
+
+    expect(processBefore(items, 5)).toMatchObject({
+      startedAt: 10_000,
+      finishedAt: 15_500,
+    })
+  })
+
+  it('returns the current process even before its own finishedAt is written', () => {
+    const items: ConversationItem[] = [
+      { kind: 'user', text: '上一轮', createdAt: 1_000 },
+      { kind: 'process', entries: [], startedAt: 1_000, finishedAt: 2_000 },
+      { kind: 'text', text: '上一轮结果', createdAt: 2_000 },
+      { kind: 'user', text: '这一轮', createdAt: 3_000 },
+      { kind: 'process', entries: [], startedAt: 3_000 },
+      { kind: 'text', text: '这一轮结果', createdAt: 4_000 },
+    ]
+
+    expect(processBefore(items, 5)).toMatchObject({ startedAt: 3_000 })
+  })
+
+  it('uses the earliest process timestamp in the same turn as the task start', () => {
+    const items: ConversationItem[] = [
+      { kind: 'user', text: '这一轮', createdAt: 10_000 },
+      { kind: 'process', entries: [], startedAt: 10_000, finishedAt: 12_000 },
+      { kind: 'step', id: 's1', tool: 'readGraph', label: '已看画布', lines: [], nodeIds: [], failed: false },
+      { kind: 'process', entries: [], startedAt: 12_000, finishedAt: 20_000 },
+      { kind: 'text', text: '结果', createdAt: 20_000 },
+    ]
+
+    expect(processBefore(items, 4)).toMatchObject({ startedAt: 10_000 })
+  })
+
+  it('does not leak a previous turn when the current turn has no process', () => {
+    const items: ConversationItem[] = [
+      { kind: 'user', text: '上一轮', createdAt: 1_000 },
+      { kind: 'process', entries: [], startedAt: 1_000, finishedAt: 2_000 },
+      { kind: 'text', text: '上一轮结果', createdAt: 2_000 },
+      { kind: 'user', text: '这一轮', createdAt: 3_000 },
+      { kind: 'text', text: '这一轮结果', createdAt: 4_000 },
+    ]
+
+    expect(processBefore(items, 4)).toBeNull()
   })
 })
