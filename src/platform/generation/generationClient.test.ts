@@ -249,6 +249,44 @@ describe('公共 GenerationClient', () => {
     })
   })
 
+  it('★★ 65535 对话只取模型所属的对话分组，并把该组 Key 放主槽', async () => {
+    let seenConfig: { apiKey: string | null; altApiKey?: string | null } | null = null
+    let seenGroup = ''
+    const client = createGenerationClient({
+      platform: createMemoryPlatform(),
+      catalog: () => BUILTIN_CATALOG,
+      loadToken: async (ref) =>
+        ({ cred_chat: 'chat-key', cred_image: 'image-key' })[ref] ?? null,
+      createAdapter: (config) => {
+        seenConfig = { apiKey: config.apiKey, altApiKey: config.altApiKey }
+        seenGroup = config.credentialRef ?? ''
+        return stubAdapter()
+      },
+    })
+    const ch = channel({
+      protocol: '65535',
+      credentialGroups: [
+        group('chat', 'cred_chat', 20, ['gemini-3.8-flash']),
+        group('image', 'cred_image', 10, ['gpt-image-2']),
+      ],
+    })
+
+    await client.completeText(
+      {
+        channel: ch,
+        model: 'gemini-3.8-flash',
+        request: { kind: 'text', prompt: '你好', inputs: [], params: {} },
+      },
+      new AbortController().signal,
+    )
+
+    expect(seenGroup).toBe('cred_chat')
+    expect(seenConfig).toMatchObject({
+      apiKey: 'chat-key',
+      altApiKey: null,
+    })
+  })
+
   it('modelIsUpstream 为 true 时不再做第二次映射', async () => {
     const seen: ImageRunRequest[] = []
     const client = createGenerationClient({

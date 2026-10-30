@@ -4243,20 +4243,42 @@ export function AgentPanel({
         )}
         {visibleItems.map((item, i) => {
           if (item.kind === 'user') {
+            const copied = copiedKey === i
             return (
-              <div key={i} className={styles.msgUser} data-agent-message="user">
-                {/* 引用 chip 要**长得和输入框里一样**（用户 2026-10-05 第 5 条） */}
-                <MentionRichText text={item.text} thumbOf={thumbOf} />
-                {item.createdAt ? (
-                  <time
-                    className={styles.msgTime}
-                    dateTime={new Date(item.createdAt).toISOString()}
-                    title={new Date(item.createdAt).toLocaleString('zh-CN')}
-                    data-agent-message-time
+              <div
+                key={i}
+                className={`${styles.msgTurn} ${styles.msgTurnUser}`}
+                data-agent-message="user"
+              >
+                <div className={styles.msgUser} data-agent-bubble="user">
+                  {/* 引用 chip 要**长得和输入框里一样**（用户 2026-10-05 第 5 条） */}
+                  <MentionRichText text={item.text} thumbOf={thumbOf} />
+                </div>
+                <div
+                  className={`${styles.msgMeta} ${styles.msgMetaUser}`}
+                  data-agent-message-meta="user"
+                >
+                  {item.createdAt ? (
+                    <time
+                      className={styles.msgTime}
+                      dateTime={new Date(item.createdAt).toISOString()}
+                      title={new Date(item.createdAt).toLocaleString('zh-CN')}
+                      data-agent-message-time
+                    >
+                      {messageTimeText(item.createdAt)}
+                    </time>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={styles.msgAction}
+                    data-agent-user-copy
+                    title={copied ? '已复制' : '复制这条消息'}
+                    aria-label={copied ? '已复制' : '复制这条消息'}
+                    onClick={() => void copyReply(i, item.text)}
                   >
-                    {messageTimeText(item.createdAt)}
-                  </time>
-                ) : null}
+                    {copied ? <IconCheck size={14} /> : <IconCopyText size={14} />}
+                  </button>
+                </div>
               </div>
             )
           }
@@ -4281,10 +4303,11 @@ export function AgentPanel({
             return (
               <div
                 key={i}
-                className={styles.msgBot}
+                className={`${styles.msgTurn} ${styles.msgTurnBot}`}
                 data-agent-message="assistant"
                 data-agent-streaming={streaming ? 'true' : undefined}
               >
+                <div className={styles.msgBot} data-agent-bubble="assistant">
                 {/*
                   助手回复走 Markdown 渲染（用户 2026-10-02：模型回的
                   `- **看看画布现状**` 把星号和杠原样打在界面上）。
@@ -4294,39 +4317,44 @@ export function AgentPanel({
                 {streaming && (
                   <span className={styles.streamCaret} aria-hidden="true" />
                 )}
-                {item.createdAt ? (
-                  <time
-                    className={styles.msgTime}
-                    dateTime={new Date(item.createdAt).toISOString()}
-                    title={new Date(item.createdAt).toLocaleString('zh-CN')}
-                    data-agent-message-time
-                  >
-                    {messageTimeText(item.createdAt)}
-                  </time>
-                ) : null}
-                {/* 复制 / 重试（用户 2026-10-14 第 1 条） */}
-                {!streaming && <div className={styles.msgActions}>
-                  <button
-                    type="button"
-                    className={styles.msgAction}
-                    data-agent-copy
-                    title={copied ? '已复制' : '复制这条回复'}
-                    aria-label={copied ? '已复制' : '复制这条回复'}
-                    onClick={() => void copyReply(i, item.text)}
-                  >
-                    {copied ? <IconCheck size={14} /> : <IconCopyText size={14} />}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.msgAction}
-                    data-agent-retry
-                    title="重新问一遍（重发上一条消息）"
-                    aria-label="重新问一遍"
-                    onClick={retry}
-                  >
-                    <IconLoop size={14} />
-                  </button>
-                </div>}
+                </div>
+                <div className={styles.msgMeta} data-agent-message-meta="assistant">
+                  {item.createdAt ? (
+                    <time
+                      className={styles.msgTime}
+                      dateTime={new Date(item.createdAt).toISOString()}
+                      title={new Date(item.createdAt).toLocaleString('zh-CN')}
+                      data-agent-message-time
+                    >
+                      {messageTimeText(item.createdAt)}
+                    </time>
+                  ) : null}
+                  {/* 复制 / 重试（用户 2026-10-14 第 1 条） */}
+                  {!streaming ? (
+                    <div className={styles.msgActions}>
+                      <button
+                        type="button"
+                        className={styles.msgAction}
+                        data-agent-copy
+                        title={copied ? '已复制' : '复制这条回复'}
+                        aria-label={copied ? '已复制' : '复制这条回复'}
+                        onClick={() => void copyReply(i, item.text)}
+                      >
+                        {copied ? <IconCheck size={14} /> : <IconCopyText size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.msgAction}
+                        data-agent-retry
+                        title="重新问一遍（重发上一条消息）"
+                        aria-label="重新问一遍"
+                        onClick={retry}
+                      >
+                        <IconLoop size={14} />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             )
           }

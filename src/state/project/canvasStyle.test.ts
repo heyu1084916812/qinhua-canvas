@@ -29,8 +29,14 @@ describe('画布外观偏好落库（内存存储）', () => {
       ...DEFAULT_CANVAS_STYLE,
       background: 'grid' as const,
       tone: 'amber' as const,
-      customColor: '#654321',
-      nodeColor: '#fff4e6',
+      customCanvas: {
+        light: { background: '#654321', dot: '#d2d0cb' },
+        dark: { background: '#010203', dot: '#242424' },
+      },
+      customNode: {
+        light: '#fff4e6',
+        dark: '#111111',
+      },
       bodySize: 18,
     }
     expect(await saveCanvasStyle(storage, 'p1', style)).toBe(true)

@@ -533,45 +533,58 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       ? request.messages.map((m, i) => toOpenAiMessage(m, i === lastUserIndex))
       : [{ role: 'user', content }]
 
-    const res = await postTextRequest(
-      deps,
-      {
-        url: chatUrl,
-        headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
-        body: {
-          model: request.model,
-          messages,
-          // 温度刻意不设：让服务端用默认值。写死 0.7 会让「优化提示词」这类
-          // 需要确定性的任务变得不稳定，而用户并没有要求可调温度。
-          /**
-           * 工具声明（Agent 用）。不传 tools 时不加任何字段 —— 与加这个能力之前
-           * 的请求**逐字节一致**，老路径的行为不受影响。
-           *
-           * `tool_choice: 'auto'`：让模型自己决定「这句话要不要动手」。
-           * 写 `required` 会逼它对「你好」这种纯聊天也去调工具。
-           */
-          ...(request.tools?.length
-            ? {
-                tools: request.tools.map((t) => ({
-                  type: 'function',
-                  function: {
-                    name: t.name,
-                    ...(t.description ? { description: t.description } : {}),
-                    parameters: t.parameters,
-                  },
-                })),
-                tool_choice: 'auto',
-              }
-            : {}),
-        },
+    const chatRequest = {
+      url: chatUrl,
+      headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+      body: {
+        model: request.model,
+        messages,
+        // 温度刻意不设：让服务端用默认值。写死 0.7 会让「优化提示词」这类
+        // 需要确定性的任务变得不稳定，而用户并没有要求可调温度。
         /**
-         * 调用方可以自带等待上限（Agent 多轮比普通文本重，见 `RunRequestBase.timeoutMs`）；
-         * 不给就还是 60 秒。
+         * 工具声明（Agent 用）。不传 tools 时不加任何字段 —— 与加这个能力之前
+         * 的请求**逐字节一致**，老路径的行为不受影响。
+         *
+         * `tool_choice: 'auto'`：让模型自己决定「这句话要不要动手」。
+         * 写 `required` 会逼它对「你好」这种纯聊天也去调工具。
          */
-        timeoutMs: request.timeoutMs ?? CHAT_TIMEOUT_MS,
+        ...(request.tools?.length
+          ? {
+              tools: request.tools.map((t) => ({
+                type: 'function',
+                function: {
+                  name: t.name,
+                  ...(t.description ? { description: t.description } : {}),
+                  parameters: t.parameters,
+                },
+              })),
+              tool_choice: 'auto',
+            }
+          : {}),
       },
+      /**
+       * 调用方可以自带等待上限（Agent 多轮比普通文本重，见 `RunRequestBase.timeoutMs`）；
+       * 不给就还是 60 秒。
+       */
+      timeoutMs: request.timeoutMs ?? CHAT_TIMEOUT_MS,
+    }
+    let res = await postTextRequest(
+      deps,
+      chatRequest,
       signal,
     )
+    /**
+     * 65535 的对话网关会偶发 502 / 503 / 504，通常是网关没有拿到有效响应。
+     * 这里只对该站点重试一次；请求体逐字节不变，仍遵守 abort。
+     */
+    if (
+      config.protocol === '65535' &&
+      (res.status === 502 || res.status === 503 || res.status === 504)
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 180))
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      res = await postTextRequest(deps, chatRequest, signal)
+    }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
       /**

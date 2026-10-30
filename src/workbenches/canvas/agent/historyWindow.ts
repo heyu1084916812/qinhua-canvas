@@ -25,5 +25,12 @@ export function trimOrphanToolMessages(messages: readonly ChatMessage[]): ChatMe
     }
     out.push(message)
   }
-  return out
+  /**
+   * Gemini 系中转要求 function-call 轮必须紧跟在 user 或 function-response 之后。
+   * 条数窗口可能正好从 assistant(tool_calls) 开始；即使它的 tool 结果还在，
+   * 前面也缺了发起它的用户回合。只保留窗口里的完整用户回合，代价是最多少看一小段
+   * 旧历史，不会把非法消息形状发给上游。
+   */
+  const firstUser = out.findIndex((message) => message.role === 'user')
+  return firstUser >= 0 ? out.slice(firstUser) : []
 }

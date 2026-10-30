@@ -27084,7 +27084,7 @@ async function g115(browser) {
   const grid0 = await surfaceVar('--canvas-grid-line')
   const card0 = await nodeCardColor()
   const slate = await tokenRgb('--canvas-tone-slate')
-  rec(g, '默认画布底色 = 第 1 档（slate）—— 老项目观感不变', bg0 === slate, `${bg0} vs ${slate}`)
+  rec(g, '默认画布底色 = 第 1 档（暖浅灰 / 石板灰）', bg0 === slate, `${bg0} vs ${slate}`)
   rec(g, '默认背景是点阵（与换引擎后的现状一致）', (await bgShape()) === 'dots', await bgShape())
 
   // 打开「全局设置 → 画布外观」：画布块在，控件齐全
@@ -27099,6 +27099,7 @@ async function g115(browser) {
     backgrounds: await lookPanel.locator('[data-canvas-background]').count(),
     tones: await lookPanel.locator('[data-canvas-tone]').count(),
     customColors: await lookPanel.locator('[data-canvas-custom-color]').count(),
+    customDots: await lookPanel.locator('[data-canvas-custom-dot]').count(),
     titleSizes: await lookPanel.locator('[data-node-title-size]').count(),
     bodySizes: await lookPanel.locator('[data-node-body-size]').count(),
     densities: await lookPanel.locator('[data-node-density]').count(),
@@ -27110,10 +27111,11 @@ async function g115(browser) {
       lookCounts.backgrounds === 3 &&
       lookCounts.tones === 6 &&
       lookCounts.customColors === 1 &&
+      lookCounts.customDots === 1 &&
       lookCounts.titleSizes === 0 &&
       lookCounts.bodySizes === 0 &&
       lookCounts.densities === 3,
-    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 标题档=${lookCounts.titleSizes} 正文档=${lookCounts.bodySizes} 尺寸档=${lookCounts.densities}`,
+    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 自定义=${lookCounts.customColors} 点阵=${lookCounts.customDots} 标题档=${lookCounts.titleSizes} 正文档=${lookCounts.bodySizes} 尺寸档=${lookCounts.densities}`,
   )
 
   const defaultNodeCard = await nodeCardColor()
@@ -27152,13 +27154,25 @@ async function g115(browser) {
   const customGrid = await surfaceVar('--canvas-grid-line')
   rec(
     g,
-    '★★ 自定义颜色工具可把画布换成任意 #123456，网格线同步派生',
+    '★★ 自定义底色工具可把画布换成任意 #123456，点阵跟随对应主题预设',
     (await surface.getAttribute('data-canvas-tone')) === 'custom' &&
       (await surface.getAttribute('data-canvas-custom-hex')) !== null &&
       customBg === 'rgb(18, 52, 86)' &&
       customGrid.length > 0 &&
-      customGrid !== grid0,
+      customGrid === grid0,
     `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${customBg} 网格=${customGrid}`,
+  )
+  await page.locator('[data-canvas-custom-dot]').click()
+  const canvasDotPicker = page.locator('[data-color-picker-target="canvas-dot"]')
+  await canvasDotPicker.locator('[data-color-hex-input]').fill('11AA22')
+  await canvasDotPicker.locator('[data-color-confirm]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★★ 点阵色可独立自定义，不再从底色临时派生',
+    (await surface.getAttribute('data-canvas-custom-dot-hex')) === '#11aa22' &&
+      (await surfaceVar('--canvas-grid-line')) === '#11aa22',
+    `点阵=${await surfaceVar('--canvas-grid-line')}`,
   )
   await page.locator('[data-canvas-custom-color]').click()
   await canvasColorPicker.locator('[data-color-hex-input]').fill('1234')
@@ -27242,6 +27256,8 @@ async function g115(browser) {
     accentCount === 8,
     `色板=${accentCount}`,
   )
+  await page.locator('[data-theme-choice="light"]').click()
+  await sleep(250)
   const accentBefore = await rootToken('--accent')
   await page.locator('[data-accent="blue"]').click()
   await sleep(300)
@@ -27337,6 +27353,9 @@ async function g115(browser) {
   await page.locator('[data-canvas-custom-color]').click()
   await page.locator('[data-color-picker-target="canvas"] [data-color-hex-input]').fill('654321')
   await page.locator('[data-color-picker-target="canvas"] [data-color-confirm]').click()
+  await page.locator('[data-canvas-custom-dot]').click()
+  await page.locator('[data-color-picker-target="canvas-dot"] [data-color-hex-input]').fill('D2D0CB')
+  await page.locator('[data-color-picker-target="canvas-dot"] [data-color-confirm]').click()
   await page.locator('[data-node-custom-color]').click()
   await page.locator('[data-color-picker-target="node"] [data-color-hex-input]').fill('FFF4E6')
   await page.locator('[data-color-picker-target="node"] [data-color-confirm]').click()
@@ -27347,8 +27366,14 @@ async function g115(browser) {
   // 刷新：偏好落在项目行里，回来还在
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
+  await page.locator('[data-sidebar-settings]').click()
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-theme-choice="light"]').click()
+  await page.locator('[data-global-settings-close]').click()
+  await sleep(250)
   const persistedCustomTone = await surface.getAttribute('data-canvas-tone')
   const persistedCustomColor = await surface.getAttribute('data-canvas-custom-hex')
+  const persistedCustomDot = await surface.getAttribute('data-canvas-custom-dot-hex')
   const persistedColor = await surfaceColor()
   const persistedNodeColor = await surface.getAttribute('data-canvas-node-hex')
   const persistedNodeCard = await nodeCardColor()
@@ -27357,6 +27382,7 @@ async function g115(browser) {
     '★★ 刷新后偏好保持：项目偏好（项目行）+ 本机偏好（localStorage）都还在',
     persistedCustomTone === 'custom' &&
       persistedCustomColor === '#654321' &&
+      persistedCustomDot === '#d2d0cb' &&
       persistedNodeColor === '#fff4e6' &&
       persistedNodeCard === 'rgb(255, 244, 230)' &&
       (await surface.getAttribute('data-canvas-background')) === 'solid' &&
@@ -27365,8 +27391,64 @@ async function g115(browser) {
       (await bodySize()) === '20px' &&
       (await rootToken('--accent')).toLowerCase() === '#2f5ad9' &&
       (await page.evaluate(() => document.documentElement.dataset.motion)) === 'reduced',
-    `色调=${persistedCustomTone}/${persistedCustomColor} 颜色=${persistedColor} 节点=${persistedNodeColor}/${persistedNodeCard} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
+    `色调=${persistedCustomTone}/${persistedCustomColor} 点阵=${persistedCustomDot} 颜色=${persistedColor} 节点=${persistedNodeColor}/${persistedNodeCard} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
   )
+
+  await page.locator('[data-sidebar-settings]').click()
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-theme-choice="dark"]').click()
+  await sleep(250)
+  const darkBeforeCustom = {
+    background: await surface.getAttribute('data-canvas-custom-hex'),
+    dot: await surface.getAttribute('data-canvas-custom-dot-hex'),
+    node: await surface.getAttribute('data-canvas-node-hex'),
+  }
+  await page.locator('[data-global-settings-tab="canvasLook"]').click()
+  await page.locator('[data-canvas-custom-color]').click()
+  await page.locator('[data-color-picker-target="canvas"] [data-color-hex-input]').fill('234567')
+  await page.locator('[data-color-picker-target="canvas"] [data-color-confirm]').click()
+  await page.locator('[data-canvas-custom-dot]').click()
+  await page.locator('[data-color-picker-target="canvas-dot"] [data-color-hex-input]').fill('345678')
+  await page.locator('[data-color-picker-target="canvas-dot"] [data-color-confirm]').click()
+  await page.locator('[data-node-custom-color]').click()
+  await page.locator('[data-color-picker-target="node"] [data-color-hex-input]').fill('456789')
+  await page.locator('[data-color-picker-target="node"] [data-color-confirm]').click()
+  await page.screenshot({ path: `${OUT}/115-canvas-look-panel-dark.png` })
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await page.locator('[data-theme-choice="light"]').click()
+  await sleep(250)
+  const lightAfterDarkEdit = {
+    background: await surface.getAttribute('data-canvas-custom-hex'),
+    dot: await surface.getAttribute('data-canvas-custom-dot-hex'),
+    node: await surface.getAttribute('data-canvas-node-hex'),
+  }
+  await page.locator('[data-theme-choice="dark"]').click()
+  await sleep(250)
+  const darkAfterEdit = {
+    background: await surface.getAttribute('data-canvas-custom-hex'),
+    dot: await surface.getAttribute('data-canvas-custom-dot-hex'),
+    node: await surface.getAttribute('data-canvas-node-hex'),
+  }
+  rec(
+    g,
+    '★★★★ 自定义底色、点阵与节点色按浅色 / 深色分别保存，切主题互不串值',
+    darkBeforeCustom.background === null &&
+      darkBeforeCustom.dot === null &&
+      darkBeforeCustom.node === null &&
+      lightAfterDarkEdit.background === '#654321' &&
+      lightAfterDarkEdit.dot === '#d2d0cb' &&
+      lightAfterDarkEdit.node === '#fff4e6' &&
+      darkAfterEdit.background === '#234567' &&
+      darkAfterEdit.dot === '#345678' &&
+      darkAfterEdit.node === '#456789',
+    JSON.stringify({ darkBeforeCustom, lightAfterDarkEdit, darkAfterEdit }),
+  )
+  await page.locator('[data-theme-choice="light"]').click()
+  await sleep(200)
+    await page.locator('[data-global-settings-tab="canvasLook"]').click()
+    await page.screenshot({ path: `${OUT}/115-canvas-look-panel-light.png` })
+  await page.keyboard.press('Escape')
+  await sleep(250)
 
   // 导出项目：偏好随 .flow.json 走（C5 的"导出再导入跟着走"）
   await gotoProjects(page)
@@ -27387,8 +27469,12 @@ async function g115(browser) {
       text.includes('"canvasStyle"') &&
         text.includes('"background": "solid"') &&
         text.includes('"tone": "blue"') &&
-        text.includes('"customColor": "#654321"') &&
-        text.includes('"nodeColor": "#fff4e6"') &&
+        text.includes('"background": "#654321"') &&
+        text.includes('"dot": "#d2d0cb"') &&
+        text.includes('"background": "#234567"') &&
+        text.includes('"dot": "#345678"') &&
+        text.includes('"light": "#fff4e6"') &&
+        text.includes('"dark": "#456789"') &&
         text.includes('"titleSize": 18') &&
         text.includes('"bodySize": 20') &&
         text.includes('"density": "roomy"'),
@@ -41366,6 +41452,11 @@ async function g769(browser) {
       ...planSeed,
       messages: [
         {
+          role: 'user',
+          content: '检查画布与验收记录。',
+          createdAt: now - 1_500,
+        },
+        {
           role: 'assistant',
           content: '我先检查画布和产物，再继续做验收。',
           reasoning: '先确认现有画布上的生成结果和参考图，再决定验收顺序。',
@@ -41509,6 +41600,32 @@ async function g769(browser) {
         !`${processTimeline.intent}${processTimeline.processLine}`.includes('node-g769-thumb'),
       JSON.stringify(processTimeline),
     )
+    const userMessage = page.locator('[data-agent-message="user"]').last()
+    const userMeta = userMessage.locator('[data-agent-message-meta="user"]')
+    const metaBeforeHover = Number(
+      await userMeta.evaluate((node) => getComputedStyle(node).opacity),
+    )
+    const timeInsideBubble = await userMessage
+      .locator('[data-agent-bubble="user"] [data-agent-message-time]')
+      .count()
+    await userMessage.hover()
+    await sleep(180)
+    const metaAfterHover = Number(
+      await userMeta.evaluate((node) => getComputedStyle(node).opacity),
+    )
+    rec(
+      g,
+      '★★★★ 时间与复制不在气泡内，悬浮整条消息才显示',
+      metaBeforeHover === 0 &&
+        timeInsideBubble === 0 &&
+        metaAfterHover === 1 &&
+        (await userMeta.locator('[data-agent-message-time]').count()) === 1 &&
+        (await userMeta.locator('[data-agent-user-copy]').count()) === 1,
+      JSON.stringify({ metaBeforeHover, metaAfterHover, timeInsideBubble }),
+    )
+    await page.screenshot({
+      path: `${OUT}/769-agent-message-hover${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
     const scrollbarIsolation = await page.evaluate(async () => {
       const agentContent = document.querySelector('[data-agent-content]')
       if (!(agentContent instanceof HTMLElement)) {
@@ -41666,7 +41783,7 @@ async function g769(browser) {
       rows: document.querySelectorAll('[data-agent-process-row]').length,
     }))
     await page.locator('[data-agent-activity-toggle]').click()
-    await page.locator('[data-agent-process-row="process-0-reasoning"]').first().waitFor({
+    await page.locator('[data-agent-process-row]').first().waitFor({
       state: 'visible',
       timeout: 3000,
     })
@@ -41677,8 +41794,7 @@ async function g769(browser) {
           ?.getAttribute('data-agent-activity-expanded') ?? '',
       rows: document.querySelectorAll('[data-agent-process-row]').length,
       text:
-        document.querySelector('[data-agent-process-row="process-0-reasoning"]')
-          ?.textContent ?? '',
+        document.querySelector('[data-agent-process-row]')?.textContent ?? '',
       icons: document.querySelectorAll('[data-agent-process-row] svg').length,
       rowsGeometry: [...document.querySelectorAll('[data-agent-process-row]')].map((row) => {
         const rect = row.getBoundingClientRect()
@@ -41998,10 +42114,20 @@ async function g769(browser) {
     })
     await page.setViewportSize({ width: 1440, height: 900 })
     await sleep(200)
-    await page
-      .locator('[data-agent-queue-edit-input]')
-      .fill('把字重调细，绿色换成蓝色')
+    const queueEditInput = page.locator('[data-agent-queue-edit-input]')
+    await queueEditInput.fill('把字重调细，绿色换成蓝色')
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-agent-queue-edit-input]')?.value ===
+          '把字重调细，绿色换成蓝色' &&
+        !(document.querySelector('[data-agent-queue-edit-save]')?.disabled),
+      null,
+      { timeout: 3000 },
+    )
     await page.locator('[data-agent-queue-edit-save]').click()
+    await queueEditInput
+      .waitFor({ state: 'detached', timeout: 3000 })
+      .catch(() => {})
     await page
       .waitForFunction(
         async () => {

@@ -4,32 +4,34 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* 画布底色 = 项目偏好（#379 C4）：默认指向 --canvas-tone-slate，
-     也就是原来那个 --bg-canvas，所以老项目观感一个像素不变 */
+  /* 画布底色 = 项目偏好（#379 C4）；默认与点阵成对取自 slate 令牌。 */
   background: var(--canvas-bg, var(--bg-canvas));
 }
 
-/* 六档画布色调：把 --canvas-bg 指到选中的那一档（tokens.css 里成对给明暗两套值）。
-   网格线是**从 --canvas-bg 派生的**（见 tokens.css 的 --canvas-grid-line），
-   所以换色调时网格线的对比跟着一起变，不必在这里逐档写第二条颜色。 */
+/* 六档画布色调：底色与点阵色成对切换（tokens.css 里成对给明暗两套值）。 */
 .surface[data-canvas-tone='blue'] {
   --canvas-bg: var(--canvas-tone-blue);
+  --canvas-grid-line: var(--canvas-dot-blue);
 }
 
 .surface[data-canvas-tone='green'] {
   --canvas-bg: var(--canvas-tone-green);
+  --canvas-grid-line: var(--canvas-dot-green);
 }
 
 .surface[data-canvas-tone='amber'] {
   --canvas-bg: var(--canvas-tone-amber);
+  --canvas-grid-line: var(--canvas-dot-amber);
 }
 
 .surface[data-canvas-tone='rose'] {
   --canvas-bg: var(--canvas-tone-rose);
+  --canvas-grid-line: var(--canvas-dot-rose);
 }
 
 .surface[data-canvas-tone='violet'] {
   --canvas-bg: var(--canvas-tone-violet);
+  --canvas-grid-line: var(--canvas-dot-violet);
 }
 
 .flow {

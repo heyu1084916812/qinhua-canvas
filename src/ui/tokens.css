@@ -18,7 +18,7 @@
  */
 [data-canvas-tone] {
   --canvas-bg: var(--canvas-tone-slate);
-  --canvas-grid-line: color-mix(in srgb, var(--canvas-bg) 88%, var(--text-1));
+  --canvas-grid-line: var(--canvas-dot-slate);
 }
 
 /**
@@ -107,16 +107,21 @@
   --stroke: #e2e2e2;
   --grid-line: #ececef;
 
-  /* —— 画布底色档位（六档低饱和，项目偏好 #379 C4） ——
-     第 1 档 = 原来的画布底色（亮 #ffffff / 暗 #161616），所以老项目观感不变；
-     与上面容器那六档同色相，但**独立成画布令牌** —— 容器底色与画布底色是两件事，
-     将来单独调谁都不会牵连另一个。 */
-  --canvas-tone-slate: #ecf5f9;
-  --canvas-tone-blue: #f5f8fe;
-  --canvas-tone-green: #f4faf6;
-  --canvas-tone-amber: #fdf9f1;
-  --canvas-tone-rose: #fdf5f6;
-  --canvas-tone-violet: #f7f4fe;
+  /* —— 画布底色 / 点阵档位（六档，项目偏好 #379 C4） ——
+     浅色使用用户 2026-10-30 指定的暖灰 / 中性灰六组；
+     每一档的底色与点阵色成对维护，不能只改其中一支。 */
+  --canvas-tone-slate: #f0efed;
+  --canvas-dot-slate: #dad8d4;
+  --canvas-tone-blue: #efefef;
+  --canvas-dot-blue: #d9d9d9;
+  --canvas-tone-green: #ecebe8;
+  --canvas-dot-green: #d5d3ce;
+  --canvas-tone-amber: #ededed;
+  --canvas-dot-amber: #d6d6d6;
+  --canvas-tone-rose: #eae9e6;
+  --canvas-dot-rose: #d2d0cb;
+  --canvas-tone-violet: #e8e8e8;
+  --canvas-dot-violet: #cfcfcf;
 
   /* 连线（§6.14）：常态 #C9C9D1 1.5px / 高亮 2px */
   --edge: #c9c9d1;
@@ -366,14 +371,19 @@
   --stroke: #3a3a3a;
   --grid-line: #262626;
 
-  /* 画布色调（深色）：同色相压暗到「比画布 #161616 略有色相」——
-     深色下不能像亮色那样往白走，否则画布会比节点卡还亮。第 1 档仍是默认。 */
+  /* 深色画布：石板灰保持原值，其余五档使用用户 2026-10-30 指定的炭黑系列。 */
   --canvas-tone-slate: #161616;
-  --canvas-tone-blue: #151a23;
-  --canvas-tone-green: #141d18;
-  --canvas-tone-amber: #201b13;
-  --canvas-tone-rose: #201618;
-  --canvas-tone-violet: #1a1724;
+  --canvas-dot-slate: #303030;
+  --canvas-tone-blue: #0a0a0a;
+  --canvas-dot-blue: #222222;
+  --canvas-tone-green: #0d0d0d;
+  --canvas-dot-green: #242424;
+  --canvas-tone-amber: #0f0e0e;
+  --canvas-dot-amber: #262524;
+  --canvas-tone-rose: #111111;
+  --canvas-dot-rose: #272727;
+  --canvas-tone-violet: #1a1a1a;
+  --canvas-dot-violet: #2e2e2e;
 
   /* 连线：常态提亮到能在深底上看清，高亮翻成近白（与 --accent 同一套反转） */
   --edge: #5b5b5b;

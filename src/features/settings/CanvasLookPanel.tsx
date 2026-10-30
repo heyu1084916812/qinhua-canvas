@@ -6,6 +6,7 @@ import {
   NODE_DENSITIES,
   canvasBackgroundLabel,
   canvasToneLabel,
+  canvasTonePair,
   nodeDensityLabel,
 } from '../../domain/project/canvasStyle'
 import { ColorPickerPopover } from '../shared/colorPicker/ColorPickerPopover'
@@ -14,6 +15,8 @@ import { SettingsRow } from './SettingsRow'
 
 interface ColorControlProps {
   scope: 'canvas' | 'node'
+  target: string
+  role: 'canvas-background' | 'canvas-dot' | 'node'
   separated?: boolean
   label: string
   hint: string
@@ -26,6 +29,8 @@ interface ColorControlProps {
 
 function ColorControl({
   scope,
+  target,
+  role,
   separated = false,
   label,
   hint,
@@ -48,7 +53,8 @@ function ColorControl({
             <button
               type="button"
               className={styles.colorReset}
-              data-canvas-color-reset={scope === 'canvas' ? true : undefined}
+              data-canvas-color-reset={role === 'canvas-background' ? true : undefined}
+              data-canvas-dot-reset={role === 'canvas-dot' ? true : undefined}
               data-node-color-reset={scope === 'node' ? true : undefined}
               disabled={disabled}
               onClick={onReset}
@@ -62,8 +68,8 @@ function ColorControl({
         <ColorPickerPopover
           value={current}
           disabled={disabled}
-          target={scope}
-          label={scope === 'canvas' ? '自定义画布背景颜色' : '自定义节点背景颜色'}
+          target={target}
+          label={label}
           onCommit={onChange}
           renderTrigger={({ open, toggle }) => (
             <button
@@ -73,13 +79,15 @@ function ColorControl({
                   ? `${styles.colorWell} ${styles.colorWellOn}`
                   : styles.colorWell
               }
-              aria-label={scope === 'canvas' ? '自定义画布背景颜色' : '自定义节点背景颜色'}
+              aria-label={label}
               aria-haspopup="dialog"
               aria-expanded={open}
               title="打开取色器"
               disabled={disabled}
-              data-canvas-custom-color={scope === 'canvas' ? true : undefined}
+              data-canvas-custom-color={role === 'canvas-background' ? true : undefined}
+              data-canvas-custom-dot={role === 'canvas-dot' ? true : undefined}
               data-node-custom-color={scope === 'node' ? true : undefined}
+              data-canvas-color-role={role}
               onClick={toggle}
             >
               <span
@@ -120,10 +128,31 @@ function ColorControl({
  */
 export function CanvasLookPanel() {
   const { projectId, style: current, update, reset } = useCanvasStyle()
-  const { setting } = useTheme()
+  const { resolved: theme } = useTheme()
   const disabled = !projectId
-  const fallbackCanvasColor = setting === 'dark' ? '#161616' : '#ecf5f9'
-  const fallbackNodeColor = setting === 'dark' ? '#222222' : '#ffffff'
+  const tonePair = canvasTonePair(current.tone, theme)
+  const customCanvas = current.customCanvas[theme]
+  const customNode = current.customNode[theme]
+  const fallbackNodeColor = theme === 'dark' ? '#222222' : '#ffffff'
+  const updateCanvas = (
+    patch: Partial<typeof customCanvas>,
+  ) => {
+    update({
+      customCanvas: {
+        ...current.customCanvas,
+        [theme]: { ...customCanvas, ...patch },
+      },
+    })
+  }
+  const updateNode = (color: string | null) => {
+    update({
+      customNode: {
+        ...current.customNode,
+        [theme]: color,
+      },
+    })
+  }
+  const themeLabel = theme === 'dark' ? '深色主题' : '浅色主题'
 
   return (
     <div className={styles.panel} data-canvas-look-panel data-settings-panel>
@@ -140,7 +169,9 @@ export function CanvasLookPanel() {
             恢复默认
           </button>
         </div>
-        <p className={styles.caption}>随项目保存，只影响画布背景。</p>
+        <p className={styles.caption}>
+          随项目保存，只影响画布背景。浅色与深色的自定义颜色分开保存。
+        </p>
 
         <SettingsRow
           label="背景样式"
@@ -173,17 +204,26 @@ export function CanvasLookPanel() {
                   key={tone}
                   type="button"
                   role="radio"
-                  aria-checked={!current.customColor && current.tone === tone}
-                  aria-label={canvasToneLabel(tone)}
-                  title={canvasToneLabel(tone)}
+                  aria-checked={!customCanvas.background && current.tone === tone}
+                  aria-label={`${canvasToneLabel(tone, theme)}，底色 ${canvasTonePair(tone, theme).background}，点阵 ${canvasTonePair(tone, theme).dot}`}
+                  title={`${canvasToneLabel(tone, theme)} · ${canvasTonePair(tone, theme).background} / ${canvasTonePair(tone, theme).dot}`}
                   className={
-                    !current.customColor && current.tone === tone
+                    !customCanvas.background && current.tone === tone
                       ? `${styles.swatch} ${styles.swatchOn}`
                       : styles.swatch
                   }
                   data-canvas-tone={tone}
+                  data-canvas-theme={theme}
                   disabled={disabled}
-                  onClick={() => update({ tone, customColor: null })}
+                  onClick={() => {
+                    update({
+                      tone,
+                      customCanvas: {
+                        ...current.customCanvas,
+                        [theme]: { background: null, dot: null },
+                      },
+                    })
+                  }}
                 />
               ))}
             </div>
@@ -192,14 +232,29 @@ export function CanvasLookPanel() {
 
         <ColorControl
           scope="canvas"
+          target="canvas"
+          role="canvas-background"
           separated
-          label="自定义颜色"
-          hint="使用取色器，或填写 HEX 色值"
-          value={current.customColor}
-          fallback={fallbackCanvasColor}
+          label={`${themeLabel} · 自定义底色`}
+          hint="只修改当前主题；切回另一主题会保留它自己的值"
+          value={customCanvas.background}
+          fallback={tonePair.background}
           disabled={disabled}
-          onChange={(customColor) => update({ customColor })}
-          onReset={() => update({ customColor: null })}
+          onChange={(background) => updateCanvas({ background })}
+          onReset={() => updateCanvas({ background: null })}
+        />
+
+        <ColorControl
+          scope="canvas"
+          target="canvas-dot"
+          role="canvas-dot"
+          label={`${themeLabel} · 自定义点阵`}
+          hint="点阵颜色与底色分开保存"
+          value={customCanvas.dot}
+          fallback={tonePair.dot}
+          disabled={disabled}
+          onChange={(dot) => updateCanvas({ dot })}
+          onReset={() => updateCanvas({ dot: null })}
         />
       </section>
 
@@ -209,13 +264,15 @@ export function CanvasLookPanel() {
 
         <ColorControl
           scope="node"
+          target="node"
+          role="node"
           label="节点底色"
-          hint="统一控制所有节点，留空跟随浅色 / 深色主题"
-          value={current.nodeColor}
+          hint={`${themeLabel}独立保存；留空跟随主题`}
+          value={customNode}
           fallback={fallbackNodeColor}
           disabled={disabled}
-          onChange={(nodeColor) => update({ nodeColor })}
-          onReset={() => update({ nodeColor: null })}
+          onChange={updateNode}
+          onReset={() => updateNode(null)}
         />
 
         <SettingsRow

@@ -106,27 +106,33 @@
 }
 
 .swatch:nth-child(1) {
-  background: var(--canvas-tone-slate);
+  background-color: var(--canvas-tone-slate);
+  background-image: radial-gradient(circle, var(--canvas-dot-slate) 0 2px, transparent 2.5px);
 }
 
 .swatch:nth-child(2) {
-  background: var(--canvas-tone-blue);
+  background-color: var(--canvas-tone-blue);
+  background-image: radial-gradient(circle, var(--canvas-dot-blue) 0 2px, transparent 2.5px);
 }
 
 .swatch:nth-child(3) {
-  background: var(--canvas-tone-green);
+  background-color: var(--canvas-tone-green);
+  background-image: radial-gradient(circle, var(--canvas-dot-green) 0 2px, transparent 2.5px);
 }
 
 .swatch:nth-child(4) {
-  background: var(--canvas-tone-amber);
+  background-color: var(--canvas-tone-amber);
+  background-image: radial-gradient(circle, var(--canvas-dot-amber) 0 2px, transparent 2.5px);
 }
 
 .swatch:nth-child(5) {
-  background: var(--canvas-tone-rose);
+  background-color: var(--canvas-tone-rose);
+  background-image: radial-gradient(circle, var(--canvas-dot-rose) 0 2px, transparent 2.5px);
 }
 
 .swatch:nth-child(6) {
-  background: var(--canvas-tone-violet);
+  background-color: var(--canvas-tone-violet);
+  background-image: radial-gradient(circle, var(--canvas-dot-violet) 0 2px, transparent 2.5px);
 }
 
 .swatchOn {

@@ -32,17 +32,23 @@ export type CanvasBackgroundKind = 'grid' | 'dots' | 'solid'
 
 /** 背景色调：六档低饱和（与容器背景那六档同一族色相，但独立成画布令牌） */
 export type CanvasTone = 'slate' | 'blue' | 'green' | 'amber' | 'rose' | 'violet'
+export type CanvasTheme = 'light' | 'dark'
 
 /** 新节点默认尺寸档位 */
 export type NodeDensity = 'compact' | 'standard' | 'roomy'
 
+export interface CanvasColorPair {
+  background: string | null
+  dot: string | null
+}
+
 export interface CanvasStyle {
   background: CanvasBackgroundKind
   tone: CanvasTone
-  /** 非空时覆盖六档色调；项目级保存，格式固定为 #rrggbb */
-  customColor: string | null
-  /** 非空时统一覆盖节点外框与内容井；为空时跟随当前主题 */
-  nodeColor: string | null
+  /** 浅色 / 深色分别保存自定义底色与点阵色；为空时跟随该主题的六档预设。 */
+  customCanvas: Record<CanvasTheme, CanvasColorPair>
+  /** 浅色 / 深色分别保存节点底色；为空时跟随当前主题。 */
+  customNode: Record<CanvasTheme, string | null>
   /** 节点标题字号（px）：12 / 14 / 16 / 18 */
   titleSize: number
   /** 提示词正文字号（px）：13 / 14 / 16 / 18 / 20 */
@@ -73,8 +79,14 @@ export const NODE_BODY_SIZES: readonly number[] = [13, 14, 16, 18, 20]
 export const DEFAULT_CANVAS_STYLE: CanvasStyle = {
   background: 'dots',
   tone: 'slate',
-  customColor: null,
-  nodeColor: null,
+  customCanvas: {
+    light: { background: null, dot: null },
+    dark: { background: null, dot: null },
+  },
+  customNode: {
+    light: null,
+    dark: null,
+  },
   titleSize: 14,
   bodySize: 14,
   density: 'standard',
@@ -87,18 +99,53 @@ export function canvasBackgroundLabel(kind: CanvasBackgroundKind): string {
   return kind === 'grid' ? '细网格' : kind === 'solid' ? '纯色' : '点阵'
 }
 
-export function canvasToneLabel(tone: CanvasTone): string {
-  return tone === 'blue'
-    ? '蓝'
-    : tone === 'green'
-      ? '绿'
-      : tone === 'amber'
-        ? '琥珀'
-        : tone === 'rose'
-          ? '玫'
-          : tone === 'violet'
-            ? '紫'
-            : '石板'
+const TONE_LABELS: Record<CanvasTheme, Record<CanvasTone, string>> = {
+  light: {
+    slate: '暖浅灰',
+    blue: '中性灰',
+    green: '暖中灰',
+    amber: '纯中灰',
+    rose: '深暖灰',
+    violet: '工程灰',
+  },
+  dark: {
+    slate: '石板灰',
+    blue: '深曜石黑',
+    green: '标准深槽黑',
+    amber: '微暖炭底黑',
+    rose: '克制暗灰黑',
+    violet: '反向提亮暗灰',
+  },
+}
+
+export const CANVAS_TONE_PAIRS: Record<
+  CanvasTheme,
+  Record<CanvasTone, { background: string; dot: string }>
+> = {
+  light: {
+    slate: { background: '#f0efed', dot: '#dad8d4' },
+    blue: { background: '#efefef', dot: '#d9d9d9' },
+    green: { background: '#ecebe8', dot: '#d5d3ce' },
+    amber: { background: '#ededed', dot: '#d6d6d6' },
+    rose: { background: '#eae9e6', dot: '#d2d0cb' },
+    violet: { background: '#e8e8e8', dot: '#cfcfcf' },
+  },
+  dark: {
+    slate: { background: '#161616', dot: '#303030' },
+    blue: { background: '#0a0a0a', dot: '#222222' },
+    green: { background: '#0d0d0d', dot: '#242424' },
+    amber: { background: '#0f0e0e', dot: '#262524' },
+    rose: { background: '#111111', dot: '#272727' },
+    violet: { background: '#1a1a1a', dot: '#2e2e2e' },
+  },
+}
+
+export function canvasToneLabel(tone: CanvasTone, theme: CanvasTheme = 'light'): string {
+  return TONE_LABELS[theme][tone]
+}
+
+export function canvasTonePair(tone: CanvasTone, theme: CanvasTheme): { background: string; dot: string } {
+  return CANVAS_TONE_PAIRS[theme][tone]
 }
 
 export function nodeDensityLabel(density: NodeDensity): string {
@@ -134,33 +181,47 @@ export function normalizeHexColor(value: unknown): string | null {
   return raw.toLowerCase()
 }
 
-/**
- * 任意底色下都要看得见网格点：亮底混黑、暗底混白。
- * 返回给 `--canvas-grid-line` 的 color-mix 表达式，色值已先归一化。
- */
-export function canvasGridLineFor(color: string): string {
-  const hex = normalizeHexColor(color) ?? '#ffffff'
-  const channel = (offset: number) => {
-    const s = parseInt(hex.slice(offset, offset + 2), 16) / 255
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-  }
-  const luminance =
-    0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
-  const contrast = luminance > 0.42 ? '#000000' : '#ffffff'
-  return `color-mix(in srgb, ${hex} 84%, ${contrast})`
-}
-
 /** 从 `projects.extra` 读回画布偏好；缺字段 / 脏数据逐项回落默认 */
 export function readCanvasStyle(extra: unknown): CanvasStyle {
-  if (!extra || typeof extra !== 'object') return { ...DEFAULT_CANVAS_STYLE }
+  if (!extra || typeof extra !== 'object') return cloneCanvasStyle(DEFAULT_CANVAS_STYLE)
   const raw = (extra as Record<string, unknown>)[STYLE_KEY]
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_CANVAS_STYLE }
+  if (!raw || typeof raw !== 'object') return cloneCanvasStyle(DEFAULT_CANVAS_STYLE)
   const v = raw as Record<string, unknown>
+  const rawCanvas =
+    v.customCanvas && typeof v.customCanvas === 'object'
+      ? (v.customCanvas as Record<string, unknown>)
+      : {}
+  const rawNode =
+    v.customNode && typeof v.customNode === 'object'
+      ? (v.customNode as Record<string, unknown>)
+      : {}
+  const lightCanvas =
+    rawCanvas.light && typeof rawCanvas.light === 'object'
+      ? (rawCanvas.light as Record<string, unknown>)
+      : {}
+  const darkCanvas =
+    rawCanvas.dark && typeof rawCanvas.dark === 'object'
+      ? (rawCanvas.dark as Record<string, unknown>)
+      : {}
+  const legacyCanvas = normalizeHexColor(v.customColor)
+  const legacyNode = normalizeHexColor(v.nodeColor)
   return {
     background: pick(v.background, CANVAS_BACKGROUNDS, DEFAULT_CANVAS_STYLE.background),
     tone: pick(v.tone, CANVAS_TONES, DEFAULT_CANVAS_STYLE.tone),
-    customColor: normalizeHexColor(v.customColor),
-    nodeColor: normalizeHexColor(v.nodeColor),
+    customCanvas: {
+      light: {
+        background: normalizeHexColor(lightCanvas.background) ?? legacyCanvas,
+        dot: normalizeHexColor(lightCanvas.dot),
+      },
+      dark: {
+        background: normalizeHexColor(darkCanvas.background),
+        dot: normalizeHexColor(darkCanvas.dot),
+      },
+    },
+    customNode: {
+      light: normalizeHexColor(rawNode.light) ?? legacyNode,
+      dark: normalizeHexColor(rawNode.dark),
+    },
     titleSize: pickSize(v.titleSize, NODE_TITLE_SIZES, DEFAULT_CANVAS_STYLE.titleSize),
     bodySize: pickSize(v.bodySize, NODE_BODY_SIZES, DEFAULT_CANVAS_STYLE.bodySize),
     density: pick(v.density, NODE_DENSITIES, DEFAULT_CANVAS_STYLE.density),
@@ -170,5 +231,16 @@ export function readCanvasStyle(extra: unknown): CanvasStyle {
 /** 写入画布偏好（返回新的 extra，**不改原对象** —— 项目行是持久化数据，就地改最容易出事） */
 export function withCanvasStyle(extra: unknown, style: CanvasStyle): Record<string, unknown> {
   const base = extra && typeof extra === 'object' ? (extra as Record<string, unknown>) : {}
-  return { ...base, [STYLE_KEY]: { ...style } }
+  return { ...base, [STYLE_KEY]: cloneCanvasStyle(style) }
+}
+
+export function cloneCanvasStyle(style: CanvasStyle): CanvasStyle {
+  return {
+    ...style,
+    customCanvas: {
+      light: { ...style.customCanvas.light },
+      dark: { ...style.customCanvas.dark },
+    },
+    customNode: { ...style.customNode },
+  }
 }

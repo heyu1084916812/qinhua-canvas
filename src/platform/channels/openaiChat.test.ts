@@ -78,6 +78,30 @@ describe('openaiChat adapter / 基础契约', () => {
       a.generateVideo({ ...request([]), kind: 'video' } as never, signal),
     ).rejects.toBeInstanceOf(ChannelError)
   })
+
+  it('★★ 65535 对话网关偶发 502 时只重试一次，第二次成功即返回', async () => {
+    let calls = 0
+    const net = createMemoryNetwork({
+      handler: async () => {
+        calls += 1
+        if (calls === 1) return resp(502, { error: { message: 'gateway' } })
+        return resp(200, {
+          choices: [{ message: { content: '重试成功' }, finish_reason: 'stop' }],
+        })
+      },
+    })
+    const adapter = createOpenAiChatAdapter(
+      {
+        ...cfg,
+        protocol: '65535',
+        baseUrl: 'https://api2.65535.space',
+      },
+      { network: net, assets: platformWith([]).assets },
+    )
+    const result = await adapter.completeText(request([]), signal)
+    expect(result.text).toBe('重试成功')
+    expect(calls).toBe(2)
+  })
 })
 
 describe('openaiChat adapter / Comfly 全量模型目录', () => {

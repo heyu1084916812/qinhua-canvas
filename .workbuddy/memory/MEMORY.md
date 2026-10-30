@@ -1,5 +1,22 @@
 # CanvasFlow（轻画）项目记忆
 
+### 65535 对话、双主题色板与消息悬浮元信息（2026-10-30，对账 #825）
+
+- **65535 的对话 Key 必须在主槽**：模型所属分组由 `credentialGroupId` 决定，不能把生图备用 Key
+  当聊天 Key。请求记录里的 400 若提示 function-call 顺序，优先检查上下文窗口是否从
+  assistant(tool_calls) 中间开始；窗口必须先退到完整 user 回合。
+- **只对明确的 65535 网关 5xx 重试一次**：502/503/504 可同请求重试一次；timeout / aborted /
+  响应丢失仍不能自动重发，避免收费请求重复。
+- **画布配色是成对数据**：每个预设包含底色 + 点阵色；浅色六档和深色六档都由
+  `canvasTonePair(theme, tone)` 与 CSS 令牌共同约束。
+- **自定义色按主题分开**：`CanvasStyle.customCanvas.light/dark` 与
+  `CanvasStyle.customNode.light/dark` 各存一份。旧 `customColor/nodeColor` 只迁往浅色，
+  不得再让一套值跨主题复用。
+- **消息时间在气泡外**：时间和复制/重试在 `.msgMeta`；默认 opacity 0，整条消息 hover 或
+  focus-within 才显示。不要在气泡内部再放时间或操作。
+- **本轮证据**：全量 Vitest **3624 passed / 1 skipped**；G115 浅/深各 **26/26**；
+  G769 浅/深各 **36/36**；`npm run check`、`npm run build`、Impeccable detector 通过。
+
 ### Agent 过程时间线、时长与落位（2026-10-30，对账 #824）
 
 - **理解和思考要分层**：带工具调用的 `assistant.content` 是“对要求的理解”，

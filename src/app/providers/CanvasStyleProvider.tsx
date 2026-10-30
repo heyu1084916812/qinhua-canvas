@@ -2,7 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { usePlatform } from './PlatformProvider'
-import { DEFAULT_CANVAS_STYLE, type CanvasStyle } from '../../domain/project/canvasStyle'
+import {
+  DEFAULT_CANVAS_STYLE,
+  cloneCanvasStyle,
+  type CanvasStyle,
+} from '../../domain/project/canvasStyle'
 import { loadCanvasStyle, saveCanvasStyle } from '../../state/project/canvasStyle'
 
 /**
@@ -64,7 +68,7 @@ export function CanvasStyleProvider({ children }: { children?: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     if (!projectId) {
-      apply({ ...DEFAULT_CANVAS_STYLE })
+      apply(cloneCanvasStyle(DEFAULT_CANVAS_STYLE))
       setReady(false)
       return
     }

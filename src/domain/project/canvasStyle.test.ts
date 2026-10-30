@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_CANVAS_STYLE,
   canvasBackgroundLabel,
-  canvasGridLineFor,
   canvasToneLabel,
+  canvasTonePair,
   normalizeHexColor,
   nodeDensityFactor,
   nodeDensityLabel,
@@ -25,8 +25,14 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(DEFAULT_CANVAS_STYLE).toEqual({
       background: 'dots',
       tone: 'slate',
-      customColor: null,
-      nodeColor: null,
+      customCanvas: {
+        light: { background: null, dot: null },
+        dark: { background: null, dot: null },
+      },
+      customNode: {
+        light: null,
+        dark: null,
+      },
       titleSize: 14,
       bodySize: 14,
       density: 'standard',
@@ -46,8 +52,14 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
       canvasStyle: {
         background: '格子', // 坏值 ⇒ 只这一项回落
         tone: 'violet', // 好值 ⇒ 保留
-        customColor: '#12abEF', // 好值 ⇒ 归一并保留
-        nodeColor: '#fFF4E6',
+        customCanvas: {
+          light: { background: '#12abEF', dot: '#abc' },
+          dark: { background: '#000000', dot: '#111111' },
+        },
+        customNode: {
+          light: '#fFF4E6',
+          dark: '#222222',
+        },
         titleSize: 99, // 不在白名单 ⇒ 只这一项回落
         bodySize: 18, // 好值 ⇒ 保留
         density: 'roomy', // 好值 ⇒ 保留
@@ -56,8 +68,14 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(parsed.background).toBe(DEFAULT_CANVAS_STYLE.background)
     expect(parsed.titleSize).toBe(DEFAULT_CANVAS_STYLE.titleSize)
     expect(parsed.tone).toBe('violet')
-    expect(parsed.customColor).toBe('#12abef')
-    expect(parsed.nodeColor).toBe('#fff4e6')
+    expect(parsed.customCanvas).toEqual({
+      light: { background: '#12abef', dot: '#aabbcc' },
+      dark: { background: '#000000', dot: '#111111' },
+    })
+    expect(parsed.customNode).toEqual({
+      light: '#fff4e6',
+      dark: '#222222',
+    })
     expect(parsed.bodySize).toBe(18)
     expect(parsed.density).toBe('roomy')
   })
@@ -84,7 +102,8 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(canvasBackgroundLabel('grid')).toBe('细网格')
     expect(canvasBackgroundLabel('dots')).toBe('点阵')
     expect(canvasBackgroundLabel('solid')).toBe('纯色')
-    expect(canvasToneLabel('slate')).toBe('石板')
+    expect(canvasToneLabel('slate')).toBe('暖浅灰')
+    expect(canvasToneLabel('slate', 'dark')).toBe('石板灰')
     expect(nodeDensityLabel('compact')).toBe('紧凑')
     expect(nodeDensityLabel('standard')).toBe('标准')
     expect(nodeDensityLabel('roomy')).toBe('宽敞')
@@ -93,12 +112,46 @@ describe('画布外观偏好（domain/project/canvasStyle）', () => {
     expect(nodeDensityFactor('roomy')).toBeGreaterThan(1)
   })
 
-  it('★★ 自定义画布色只接受合法十六进制，网格线按明暗自动选反色', () => {
+  it('★★ 浅色六档与深色后五档使用指定底色和点阵色', () => {
+    expect(canvasTonePair('slate', 'light')).toEqual({
+      background: '#f0efed',
+      dot: '#dad8d4',
+    })
+    expect(canvasTonePair('violet', 'light')).toEqual({
+      background: '#e8e8e8',
+      dot: '#cfcfcf',
+    })
+    expect(canvasTonePair('slate', 'dark')).toEqual({
+      background: '#161616',
+      dot: '#303030',
+    })
+    expect(canvasTonePair('blue', 'dark')).toEqual({
+      background: '#0a0a0a',
+      dot: '#222222',
+    })
+    expect(canvasTonePair('violet', 'dark')).toEqual({
+      background: '#1a1a1a',
+      dot: '#2e2e2e',
+    })
+  })
+
+  it('★★ 自定义画布色只接受合法十六进制', () => {
     expect(normalizeHexColor('#abc')).toBe('#aabbcc')
     expect(normalizeHexColor(' #12ABEF ')).toBe('#12abef')
     expect(normalizeHexColor('red')).toBeNull()
     expect(normalizeHexColor('url(javascript:alert(1))')).toBeNull()
-    expect(canvasGridLineFor('#ffffff')).toContain('#000000')
-    expect(canvasGridLineFor('#000000')).toContain('#ffffff')
+  })
+
+  it('★★ 旧版单套自定义色只迁移到浅色，深色保持独立', () => {
+    const parsed = readCanvasStyle({
+      canvasStyle: {
+        customColor: '#123456',
+        nodeColor: '#abcdef',
+      },
+    })
+    expect(parsed.customCanvas.light.background).toBe('#123456')
+    expect(parsed.customCanvas.dark.background).toBeNull()
+    expect(parsed.customNode.light).toBe('#abcdef')
+    expect(parsed.customNode.dark).toBeNull()
   })
 })
