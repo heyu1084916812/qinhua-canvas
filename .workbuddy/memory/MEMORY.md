@@ -1,5 +1,21 @@
 # CanvasFlow（轻画）项目记忆
 
+### Agent 过程时间线、时长与落位（2026-10-30，对账 #824）
+
+- **理解和思考要分层**：带工具调用的 `assistant.content` 是“对要求的理解”，
+  `reasoning` 是公开过程；两者都进同一过程块，但理解始终在上方，当前思考只保留最新一行。
+- **实时状态属于当前回合**：历史过程块不能继续拿到会话级 `liveActivities/status`，否则新任务
+  开始时旧思考会像重新运行。只看 `latestProcessIndex`，历史回合传入空活动并冻结。
+- **展开不重复当前行**：展开区只显示当前思考之前的记录；运行中也可展开，完成态不再有闪动圆点。
+- **任务时长从用户请求开始**：`startedAt` 优先取本轮 user `createdAt`，结束取最终 assistant
+  `createdAt`；活动中的过程块每秒递增，完成后冻结。
+- **落地自检必须用世界坐标**：分组子节点保存的是局部坐标，`verifyAgentPlanLanding()` 前面的
+  `toGraphView()` 必须先调用 `toWorldRectInGraph()`；否则会把正常落地误报成“压住已有节点”。
+- **移动和排列不是同一种避让**：普通 `moveNodes` 找最近空位；自动排列 / 尺寸调整显式选择
+  `right`，保持横排方向。用户可见的节点名用 title，内部 `node_...` 只留在工具参数。
+- **本轮证据**：全量 Vitest **3619 passed / 1 skipped**；G769 浅/深各 **35/35**；
+  `npm run check`、`npm run build`、Impeccable detector 通过。
+
 ### Agent 实时任务状态、验收摘要与画布选择（2026-10-30，对账 #819）
 
 - **“排队中”必须由真实波次产生**：`runNodes()` 一次拿到全部任务，但只有 `runWaves` 当前波进入

@@ -41445,6 +41445,10 @@ async function g769(browser) {
     await page
       .locator('[data-agent-task-plan="task-plan-g769"]')
       .waitFor({ state: 'visible', timeout: 10000 })
+    const currentPlanActivity = await page
+      .locator('[data-agent-task-step="visual"] [data-agent-task-step-activity]')
+      .innerText()
+      .catch(() => '')
     rec(
       g,
       '★★ 计划卡显示总进度、当前步骤与中途确认',
@@ -41464,6 +41468,7 @@ async function g769(browser) {
         !(await page.locator('[data-agent-task-step="deliver"]').innerText()).includes(
           '完成需验收',
         ) &&
+        currentPlanActivity.includes('这一步需要你确认') &&
         (await page.locator('[data-agent-send-mode]').count()) === 0 &&
         (await page
           .locator('[data-agent-composer]')
@@ -41474,6 +41479,10 @@ async function g769(browser) {
         '[data-agent-message="assistant"]',
       )?.textContent ?? '',
       messageTimes: document.querySelectorAll('[data-agent-message-time]').length,
+      duration:
+        document.querySelector('[data-agent-process-duration]')?.textContent ?? '',
+      intent:
+        document.querySelector('[data-agent-process-intent]')?.textContent ?? '',
       processLine:
         document.querySelector('[data-agent-process-current]')?.textContent ?? '',
       processCount:
@@ -41491,10 +41500,13 @@ async function g769(browser) {
       '★★ 真实思考收成一行更新，结果与时间仍留在时间线',
       processTimeline.assistantText.includes('画布与验收记录已经检查完成') &&
         processTimeline.messageTimes >= 1 &&
+        processTimeline.duration.includes('已处理') &&
+        processTimeline.intent.includes('我先检查画布和产物') &&
         processTimeline.processLine.includes('再检查四张预览的光线') &&
         !processTimeline.processLine.includes('正在理解') &&
-        processTimeline.processCount === '2' &&
-        processTimeline.processTop < processTimeline.resultTop,
+        processTimeline.processCount === '3' &&
+        processTimeline.processTop < processTimeline.resultTop &&
+        !`${processTimeline.intent}${processTimeline.processLine}`.includes('node-g769-thumb'),
       JSON.stringify(processTimeline),
     )
     const scrollbarIsolation = await page.evaluate(async () => {
@@ -41502,6 +41514,7 @@ async function g769(browser) {
       if (!(agentContent instanceof HTMLElement)) {
         return null
       }
+      await new Promise((resolve) => setTimeout(resolve, 1200))
       const source = document.createElement('div')
       source.style.cssText =
         'position:fixed;left:-200px;top:0;width:20px;height:40px;overflow:auto;'
@@ -41536,6 +41549,7 @@ async function g769(browser) {
     await page.keyboard.press('End')
     await page.keyboard.press('Backspace')
     await page.keyboard.type('新的草稿内容')
+    await sleep(500)
     await page.waitForFunction(
       async () => {
         const response = await fetch('http://127.0.0.1:18765/query', {
@@ -41570,6 +41584,16 @@ async function g769(browser) {
     await page.locator('[data-canvas-agent]').waitFor({ state: 'visible', timeout: 5000 })
     await page.locator('[data-canvas-agent]').click()
     await page.locator('[data-agent-input]').waitFor({ state: 'visible', timeout: 5000 })
+    await page
+      .waitForFunction(
+        () =>
+          document
+            .querySelector('[data-agent-input]')
+            ?.textContent?.includes('新的草稿内容'),
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => {})
     const restoredDraft = await page.locator('[data-agent-input]').evaluate((editor) => ({
       text: editor.innerText,
       chips: editor.querySelectorAll('[data-token]').length,
@@ -41581,6 +41605,17 @@ async function g769(browser) {
       JSON.stringify(restoredDraft),
     )
     await page.screenshot({ path: `${OUT}/769-agent-draft-restored.png` })
+    await page
+      .locator('[data-agent-message="assistant"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .catch(() => {})
+    await page
+      .locator('[data-agent-activity]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .catch(() => {})
+    await sleep(300)
     const skillIconShape = await page.evaluate(() => ({
       agentPaths:
         document.querySelector('[data-agent-skill-open] svg')?.querySelectorAll('path').length ?? 0,
@@ -41631,7 +41666,7 @@ async function g769(browser) {
       rows: document.querySelectorAll('[data-agent-process-row]').length,
     }))
     await page.locator('[data-agent-activity-toggle]').click()
-    await page.locator('[data-agent-process-row="process-0"]').first().waitFor({
+    await page.locator('[data-agent-process-row="process-0-reasoning"]').first().waitFor({
       state: 'visible',
       timeout: 3000,
     })
@@ -41642,7 +41677,8 @@ async function g769(browser) {
           ?.getAttribute('data-agent-activity-expanded') ?? '',
       rows: document.querySelectorAll('[data-agent-process-row]').length,
       text:
-        document.querySelector('[data-agent-process-row="process-0"]')?.textContent ?? '',
+        document.querySelector('[data-agent-process-row="process-0-reasoning"]')
+          ?.textContent ?? '',
       icons: document.querySelectorAll('[data-agent-process-row] svg').length,
       rowsGeometry: [...document.querySelectorAll('[data-agent-process-row]')].map((row) => {
         const rect = row.getBoundingClientRect()
@@ -41656,7 +41692,7 @@ async function g769(browser) {
         completedProcess.expanded === 'false' &&
         completedProcess.rows === 0 &&
         expandedProcess.expanded === 'true' &&
-        expandedProcess.rows === 2 &&
+        expandedProcess.rows === 1 &&
         expandedProcess.text.includes('先确认现有画布上的生成结果') &&
         expandedProcess.icons === 0 &&
         expandedProcess.rowsGeometry.every(
@@ -41704,6 +41740,72 @@ async function g769(browser) {
     await page.locator('[data-agent-delivery-mode-option="steer"]').click()
     await page.locator('[data-global-settings-close]').click()
     await page.screenshot({ path: `${OUT}/769-agent-task-plan-1440.png` })
+
+    const resizeHandle = page.locator('[data-agent-composer-resize]')
+    const resizeHandleBox = await resizeHandle.boundingBox()
+    const composerHeightBefore = Number(
+      await page
+        .locator('[data-agent-composer]')
+        .getAttribute('data-agent-composer-height'),
+    )
+    let composerHeightAfter = composerHeightBefore
+    if (resizeHandleBox) {
+      await page.mouse.move(
+        resizeHandleBox.x + resizeHandleBox.width / 2,
+        resizeHandleBox.y + resizeHandleBox.height / 2,
+      )
+      await page.mouse.down()
+      await page.mouse.move(
+        resizeHandleBox.x + resizeHandleBox.width / 2,
+        resizeHandleBox.y - 48,
+        { steps: 6 },
+      )
+      await page.mouse.up()
+      await sleep(120)
+      composerHeightAfter = Number(
+        await page
+          .locator('[data-agent-composer]')
+          .getAttribute('data-agent-composer-height'),
+      )
+    }
+    const resizeGeometry = await resizeHandle.evaluate((handle) => {
+      const style = getComputedStyle(handle)
+      const grip = getComputedStyle(handle, '::after')
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+        gripWidth: Number.parseFloat(grip.width),
+        gripOpacity: Number(grip.opacity),
+      }
+    })
+    rec(
+      g,
+      '★★ 输入框拖拽只显示中间把手，不出现整圈白色焦点线',
+      composerHeightAfter >= composerHeightBefore + 24 &&
+        resizeGeometry.outlineStyle === 'none' &&
+        Math.abs(resizeGeometry.gripWidth - 34) <= 1 &&
+        resizeGeometry.gripOpacity > 0,
+      JSON.stringify({ composerHeightBefore, composerHeightAfter, resizeGeometry }),
+    )
+    await page.screenshot({
+      path: `${OUT}/769-agent-composer-resized${process.env.SMOKE_DARK === '1' ? '-dark' : ''}.png`,
+    })
+    if (resizeHandleBox) {
+      const resizedBox = await resizeHandle.boundingBox()
+      if (resizedBox) {
+        await page.mouse.move(
+          resizedBox.x + resizedBox.width / 2,
+          resizedBox.y + resizedBox.height / 2,
+        )
+        await page.mouse.down()
+        await page.mouse.move(
+          resizedBox.x + resizedBox.width / 2,
+          resizedBox.y + composerHeightAfter - composerHeightBefore + 48,
+          { steps: 6 },
+        )
+        await page.mouse.up()
+      }
+    }
     await page.setViewportSize({ width: 1024, height: 700 })
     await sleep(300)
     const narrowPlan = await page.evaluate(() => {
@@ -41900,7 +42002,25 @@ async function g769(browser) {
       .locator('[data-agent-queue-edit-input]')
       .fill('把字重调细，绿色换成蓝色')
     await page.locator('[data-agent-queue-edit-save]').click()
-    await sleep(300)
+    await page
+      .waitForFunction(
+        async () => {
+          const response = await fetch('http://127.0.0.1:18765/query', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              table: 'agentSessions',
+              filter: { id: 'chat-agent-queue' },
+              includePayload: false,
+            }),
+          })
+          const row = (await response.json()).rows?.[0]
+          return row?.queuedTurns?.[0]?.text === '把字重调细，绿色换成蓝色'
+        },
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => {})
     const editedQueue = await sharedRow(page, 'agentSessions', sessionId)
     rec(
       g,

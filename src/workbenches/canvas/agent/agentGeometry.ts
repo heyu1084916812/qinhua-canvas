@@ -13,6 +13,8 @@ export interface CanvasRect {
 
 export const AGENT_NODE_GAP = 48
 
+export type OverlapAvoidance = 'nearest' | 'right' | 'down'
+
 export function intersectsRect(a: CanvasRect, b: CanvasRect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 }
@@ -45,16 +47,73 @@ export function avoidRectOverlap(
   desired: CanvasRect,
   occupied: readonly CanvasRect[],
   gap = AGENT_NODE_GAP,
+  preference: OverlapAvoidance = 'nearest',
 ): CanvasRect {
-  const out = { ...desired }
-  for (let guard = 0; guard < 400; guard += 1) {
-    const collisions = occupied.filter((other) => intersectsRect(out, other))
-    if (collisions.length === 0) return out
-    const nextX = Math.min(...collisions.map((other) => other.x + other.w + gap))
-    out.x = nextX
-    if (!Number.isFinite(out.x)) break
+  if (!occupied.some((other) => intersectsRect(desired, other))) return desired
+
+  if (preference === 'right') {
+    let out = { ...desired }
+    for (let guard = 0; guard < 400; guard += 1) {
+      const collisions = occupied.filter((other) => intersectsRect(out, other))
+      if (collisions.length === 0) return out
+      out = {
+        ...out,
+        x: Math.min(...collisions.map((other) => other.x + other.w + gap)),
+      }
+    }
+    return out
   }
-  return out
+
+  if (preference === 'down') {
+    let out = { ...desired }
+    for (let guard = 0; guard < 400; guard += 1) {
+      const collisions = occupied.filter((other) => intersectsRect(out, other))
+      if (collisions.length === 0) return out
+      out = {
+        ...out,
+        y: Math.max(...collisions.map((other) => other.y + other.h + gap)),
+      }
+    }
+    return out
+  }
+
+  const xs = new Set<number>([desired.x])
+  const ys = new Set<number>([desired.y])
+  for (const other of occupied) {
+    xs.add(other.x + other.w + gap)
+    xs.add(other.x - desired.w - gap)
+    ys.add(other.y + other.h + gap)
+    ys.add(other.y - desired.h - gap)
+  }
+
+  let best: CanvasRect | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const x of xs) {
+    for (const y of ys) {
+      const candidate = { ...desired, x, y }
+      if (occupied.some((other) => intersectsRect(candidate, other))) continue
+      const distance = (x - desired.x) ** 2 + (y - desired.y) ** 2
+      if (distance < bestDistance) {
+        best = candidate
+        bestDistance = distance
+      }
+    }
+  }
+  if (best) return best
+
+  let fallback = {
+    ...desired,
+    x: Math.max(...occupied.map((other) => other.x + other.w + gap)),
+  }
+  for (let guard = 0; guard < 400; guard += 1) {
+    const clashes = occupied.filter((other) => intersectsRect(fallback, other))
+    if (clashes.length === 0) return fallback
+    fallback = {
+      ...fallback,
+      y: Math.max(...clashes.map((other) => other.y + other.h + gap)),
+    }
+  }
+  return fallback
 }
 
 export function nodeMinSize(node: NodeSnapshot): CanvasRect {

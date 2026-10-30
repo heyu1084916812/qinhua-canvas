@@ -16,9 +16,14 @@ import styles from './TaskPlanCard.module.css'
 export function TaskPlanCard({
   plan,
   pendingConfirmationStepId,
+  currentActivity,
 }: {
   plan: AgentTaskPlan
   pendingConfirmationStepId?: string
+  currentActivity?: {
+    running: boolean
+    text: string
+  }
 }) {
   const [expanded, setExpanded] = useState(true)
   const progress = agentTaskPlanProgress(plan)
@@ -87,6 +92,11 @@ export function TaskPlanCard({
               index={index}
               current={plan.currentStepId === step.id}
               awaitingConfirmation={pendingConfirmationStepId === step.id}
+              activity={
+                plan.currentStepId === step.id && currentActivity
+                  ? currentActivity
+                  : undefined
+              }
             />
           ))}
         </ol>
@@ -100,11 +110,16 @@ function StepRow({
   index,
   current,
   awaitingConfirmation,
+  activity,
 }: {
   step: AgentTaskPlanStep
   index: number
   current: boolean
   awaitingConfirmation: boolean
+  activity?: {
+    running: boolean
+    text: string
+  }
 }) {
   const done = step.status === 'done' || step.status === 'skipped'
   const failed = step.status === 'failed'
@@ -175,6 +190,14 @@ function StepRow({
         </span>
         {step.detail && <span className={styles.detail}>{step.detail}</span>}
         {step.note && <span className={styles.note}>{step.note}</span>}
+        {activity ? (
+          <span
+            className={styles.activity}
+            data-agent-task-step-activity={activity.running ? 'running' : 'idle'}
+          >
+            <span className={styles.activityText}>{activity.text}</span>
+          </span>
+        ) : null}
       </span>
       {awaitingConfirmation ? (
         <span className={styles.confirmTag}>等待你确认</span>

@@ -24,8 +24,8 @@ const sizeOf = () => SIZE
 const plan: AgentPlan = {
   summary: '提示词 → 生成',
   nodes: [
-    { localId: 'p1', type: 'prompt', data: {}, order: 0 },
-    { localId: 'g1', type: 'generation', data: {}, order: 1 },
+    { localId: 'p1', type: 'prompt', title: '提示词', data: {}, order: 0 },
+    { localId: 'g1', type: 'generation', title: '生成图', data: {}, order: 1 },
   ],
   edges: [{ source: 'p1', target: 'g1' }],
 }
@@ -120,7 +120,8 @@ describe('verifyAgentPlanLanding · 逐条对账', () => {
     })
     expect(r.ok).toBe(false)
     expect(r.problems[0]).toContain('第 1 条连线缺失')
-    expect(r.problems[0]).toContain('p1→g1')
+    expect(r.problems[0]).toContain('提示词 → 生成图')
+    expect(r.problems[0]).not.toContain('p1')
   })
 
   it('★★ 端口接反 → 也算不对（融合的左原图 / 右局部不能反）', () => {

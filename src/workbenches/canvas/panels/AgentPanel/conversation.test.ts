@@ -99,18 +99,38 @@ describe('工具结果 → 人话', () => {
     expect(d.lines.join()).not.toContain('node_0544f492')
   })
 
-  it('★ 节点没有名字时退回 id，不编造一个', () => {
+  it('★ 节点没有名字时显示「目标节点」，不把内部 id 暴露给用户', () => {
     const d = describeToolResult(
       'runNode',
       JSON.stringify({ ok: true, outcomes: [{ nodeId: 'n7', ok: true }] }),
     )
-    expect(d.lines.join()).toContain('n7')
+    expect(d.lines.join()).toContain('目标节点')
+    expect(d.lines.join()).not.toContain('n7')
   })
 
   it('★ 结果不是合法 JSON：原样给出来，不假装什么都没发生', () => {
     const d = describeToolResult('runNode', 'boom\n第二行')
     expect(d.lines).toEqual(['boom'])
     expect(d.failed).toBe(false)
+  })
+
+  it('★★ 失败明细里的内部节点 id 会替换成节点标题', () => {
+    const d = describeToolResult(
+      'applyPlan',
+      JSON.stringify({
+        ok: false,
+        problems: [
+          '新节点 node_girl_turn_white 压在已有节点 node_brand_reference 上',
+        ],
+      }),
+      new Map([
+        ['node_girl_turn_white', '白底转身图'],
+        ['node_brand_reference', '品牌参考'],
+      ]),
+    )
+    expect(d.lines.join('\n')).toContain('白底转身图')
+    expect(d.lines.join('\n')).toContain('品牌参考')
+    expect(d.lines.join('\n')).not.toContain('node_')
   })
 
   it('★ readGraph：报节点数与连线数', () => {
@@ -320,8 +340,10 @@ describe('消息 → 对话条目', () => {
             id: 'process-1',
             text: '先确认人物基准，再换服装。',
             createdAt: 200,
+            source: 'intent',
           },
         ],
+        startedAt: 100,
       },
     ])
     expect(processEntriesOf(messages)).toEqual([
@@ -329,6 +351,7 @@ describe('消息 → 对话条目', () => {
         id: 'process-1',
         text: '先确认人物基准，再换服装。',
         createdAt: 200,
+        source: 'intent',
       },
     ])
   })
@@ -354,8 +377,15 @@ describe('消息 → 对话条目', () => {
     expect(processEntriesOf(messages)).toEqual([
       {
         id: 'process-0',
+        text: '我会先读取画布，再创建生成节点。',
+        createdAt: 300,
+        source: 'intent',
+      },
+      {
+        id: 'process-0-reasoning',
         text: '先核对现有节点，确认人物参考图后再生成。',
         createdAt: 300,
+        source: 'reasoning',
       },
     ])
     expect(items.some((item) => item.kind === 'text')).toBe(false)
@@ -367,6 +397,53 @@ describe('消息 → 对话条目', () => {
       { role: 'assistant', content: '接着说' },
     ])
     expect(items).toEqual([{ kind: 'text', text: '接着说' }])
+  })
+
+  it('★★ 一次任务的理解、思考和最终结果共用一个带起止时间的过程块', () => {
+    const items = toConversation([
+      { role: 'user', content: '生成一张白底产品图', createdAt: 100 },
+      {
+        role: 'assistant',
+        reasoning: '先确认产品结构，再运行生成。',
+        content: '我会先检查画布，再生成白底图。',
+        createdAt: 110,
+        toolCalls: [{ id: 'run', name: 'runNode', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'run',
+        content: JSON.stringify({
+          ok: true,
+          outcomes: [{ nodeId: 'node_product', title: '白底产品图', ok: true }],
+        }),
+      },
+      {
+        role: 'assistant',
+        content: '白底产品图已经生成完成。',
+        createdAt: 190,
+      },
+    ])
+
+    const process = items.find((item) => item.kind === 'process')
+    expect(process).toMatchObject({
+      kind: 'process',
+      startedAt: 100,
+      finishedAt: 190,
+      entries: [
+        {
+          source: 'intent',
+          text: '我会先检查画布，再生成白底图。',
+        },
+        {
+          source: 'reasoning',
+          text: '先确认产品结构，再运行生成。',
+        },
+      ],
+    })
+    expect(items.at(-1)).toMatchObject({
+      kind: 'text',
+      text: '白底产品图已经生成完成。',
+    })
   })
 
   it('★ 系统提示词不进对话流（那是给模型看的，不是给用户看的）', () => {

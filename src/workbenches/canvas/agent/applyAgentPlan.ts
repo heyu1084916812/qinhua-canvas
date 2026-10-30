@@ -5,6 +5,7 @@ import {
 } from '../../../domain/agent/landing'
 import type { AgentPlan } from '../../../domain/agent/plan'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
+import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { createId } from '../../../shared/id'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import { buildLandingCommand } from './buildLandingCommand'
@@ -40,7 +41,18 @@ export interface ApplyAgentPlanResult {
 /** 图快照 → 自检要的视图（只保留它关心的字段） */
 export function toGraphView(graph: GraphSnapshot): AgentGraphView {
   return {
-    nodes: graph.nodes.map((n) => ({ id: n.id, type: n.type, x: n.x, y: n.y, w: n.w, h: n.h })),
+    nodes: graph.nodes.map((n) => {
+      const rect = toWorldRectInGraph(n, graph)
+      return {
+        id: n.id,
+        type: n.type,
+        ...(n.title ? { title: n.title } : {}),
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+      }
+    }),
     edges: graph.edges.map((e) => ({
       source: e.source,
       target: e.target,

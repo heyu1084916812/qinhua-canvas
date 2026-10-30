@@ -1117,7 +1117,7 @@ describe('Agent 画布空间与现有图像能力', () => {
     })
   })
 
-  it('★★ 移动结果压住已有节点时自动向右避让', async () => {
+  it('★★ 移动结果压住已有节点时就近避让，不把节点推到画布远端', async () => {
     const { store, ctx } = setup()
     const moving = addNode(store, 'generation', { mode: 'image' }, '移动')
     const occupied = addNode(store, 'generation', { mode: 'image' }, '已有')
@@ -1130,7 +1130,15 @@ describe('Agent 画布空间与现有图像能力', () => {
     const after = store.getSnapshot().nodes
     const next = after.find((node) => node.id === moving)!
     const other = after.find((node) => node.id === occupied)!
-    expect(next.x).toBeGreaterThanOrEqual(other.x + other.w + 48)
+    const overlaps =
+      next.x < other.x + other.w &&
+      other.x < next.x + next.w &&
+      next.y < other.y + other.h &&
+      other.y < next.y + next.h
+    expect(overlaps).toBe(false)
+    expect(Math.abs(next.x - 500) + Math.abs(next.y - 300)).toBeLessThan(
+      other.w + other.h + 96,
+    )
   })
 
   it('★★ 统一高度时保持原图比例，并避让其它节点', async () => {

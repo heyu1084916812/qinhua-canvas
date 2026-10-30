@@ -438,21 +438,37 @@
   padding-bottom: 8px;
 }
 
+.activityDuration {
+  margin-bottom: 7px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.activityIntent {
+  margin-bottom: 7px;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.65;
+}
+
+.activityIntent .activityCopy {
+  display: block;
+  overflow: visible;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  text-overflow: clip;
+}
+
 .activityHead {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
   min-height: 22px;
-}
-
-.activityDot {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: activityPulse 1.4s ease-in-out infinite;
 }
 
 .activityCopy {
@@ -517,7 +533,7 @@
   flex-direction: column;
   gap: 2px;
   margin-top: 4px;
-  padding-left: 13px;
+  padding-left: 0;
 }
 
 .activityRow,
@@ -758,7 +774,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .activityDot,
   .runTasksDotActive,
   .activitySpinner,
   .runTaskSpinner,
@@ -862,8 +877,9 @@
 }
 
 .stepLines {
+  list-style: none;
   margin: 0;
-  padding-left: 1em;
+  padding-left: 0;
   font-size: var(--fs-label);
   color: var(--text-2);
   line-height: 1.6;
@@ -1339,8 +1355,11 @@
 }
 
 .composerResizeHandle:focus-visible {
-  outline: 1px solid var(--stroke-focus);
-  outline-offset: -7px;
+  outline: none;
+}
+
+.composerResizeHandle:focus-visible::after {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--stroke-focus) 35%, transparent);
 }
 
 .send {

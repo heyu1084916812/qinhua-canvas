@@ -112,7 +112,47 @@ describe('applyAgentPlan · 落地并自检', () => {
     const s = store()
     applyAgentPlan(s, twoStep, { x: 0, y: 0 })
     const v = toGraphView(s.getSnapshot())
-    expect(Object.keys(v.nodes[0]!).sort()).toEqual(['h', 'id', 'type', 'w', 'x', 'y'])
+    expect(Object.keys(v.nodes[0]!).sort()).toEqual(['h', 'id', 'title', 'type', 'w', 'x', 'y'])
+  })
+
+  it('★★ 分组子节点转自检视图时使用世界坐标，不用组内局部坐标', () => {
+    const v = toGraphView({
+      projectId: 'p1',
+      nodes: [
+        {
+          id: 'group-1',
+          projectId: 'p1',
+          type: 'group',
+          parentId: null,
+          x: 100,
+          y: 200,
+          w: 500,
+          h: 400,
+          title: '分组',
+          disabled: false,
+          data: {},
+        },
+        {
+          id: 'child-1',
+          projectId: 'p1',
+          type: 'generation',
+          parentId: 'group-1',
+          x: 20,
+          y: 30,
+          w: 200,
+          h: 120,
+          title: '组内图',
+          disabled: false,
+          data: {},
+        },
+      ],
+      edges: [],
+    })
+    expect(v.nodes.find((node) => node.id === 'child-1')).toMatchObject({
+      x: 120,
+      y: 230,
+      title: '组内图',
+    })
   })
 
   /**

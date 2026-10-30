@@ -1235,6 +1235,8 @@ async function arrangeNodesInStore(store: CanvasStore, args: Record<string, unkn
         ...settled,
         ...current,
       ],
+      undefined,
+      'right',
     )
     targets.set(node.id, { x: final.x, y: final.y })
     store.dispatch({
@@ -1324,7 +1326,7 @@ async function resizeNodesInStore(store: CanvasStore, args: Record<string, unkno
           return previous ?? { x: other.x, y: other.y, w: other.w, h: other.h }
         }),
     ]
-    const final = avoidRectOverlap(rect, occupied)
+    const final = avoidRectOverlap(rect, occupied, undefined, 'right')
     store.dispatch({ kind: 'node.resize', id: node.id, rect: final, phase: 'end' })
     const moved = placeNodeWithoutOverlap(store, node.id, final)
     adjusted.push({

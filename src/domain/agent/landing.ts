@@ -18,6 +18,7 @@ export interface Rect {
 export interface GraphNodeView {
   id: string
   type: string
+  title?: string
   x: number
   y: number
   w: number
@@ -44,6 +45,10 @@ export const AGENT_LAYOUT_GAP = 48
 
 const overlaps = (a: Rect, b: Rect): boolean =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+function displayNodeName(node: Pick<GraphNodeView, 'id' | 'title'>): string {
+  return node.title?.trim() || '未命名节点'
+}
 
 /**
  * 按 `order` 从左到右排开：**列 = 第几步**，同一步的上下并列。
@@ -180,29 +185,30 @@ export function verifyAgentPlanLanding(input: LandingCheckInput): LandingCheckRe
   // ① 每个计划节点都真的存在，且类型一致
   for (const node of plan.nodes) {
     const realId = idOf[node.localId]
+    const plannedName = node.title?.trim() || '未命名节点'
     if (!realId) {
-      problems.push(`节点 ${node.localId} 没有落成（没有对应的真实 id）`)
+      problems.push(`节点「${plannedName}」没有落成`)
       continue
     }
     const landed = afterById.get(realId)
     if (!landed) {
-      problems.push(`节点 ${node.localId} 计划落成 ${realId}，但画布上没有这个节点`)
+      problems.push(`节点「${plannedName}」没有出现在画布上`)
       continue
     }
     if (landed.type !== node.type) {
-      problems.push(`节点 ${node.localId} 类型不对：计划 ${node.type}，实际 ${landed.type}`)
+      problems.push(`节点「${plannedName}」类型不对：计划 ${node.type}，实际 ${landed.type}`)
     }
     // ② 复用的必须真是**原来就有的那个**，不许偷偷新建一个
     if (isAttached(plan, node.localId)) {
       const declared = plan.attach!.find((a) => a.localId === node.localId)!.existingNodeId
       if (realId !== declared) {
-        problems.push(`复用节点 ${node.localId} 指向的是 ${realId}，计划里写的是 ${declared}`)
+        problems.push(`复用节点「${plannedName}」指向了错误的对象`)
       }
       if (!beforeIds.has(realId)) {
-        problems.push(`复用节点 ${node.localId} 号称复用 ${declared}，但落地前画布上并没有它`)
+        problems.push(`复用节点「${plannedName}」在落地前并不存在`)
       }
     } else if (beforeIds.has(realId)) {
-      problems.push(`节点 ${node.localId} 本该是新建的，却复用了已有节点 ${realId}`)
+      problems.push(`节点「${plannedName}」本该新建，却复用了已有节点`)
     }
   }
 
@@ -218,7 +224,11 @@ export function verifyAgentPlanLanding(input: LandingCheckInput): LandingCheckRe
     const from = idOf[edge.source]
     const to = idOf[edge.target]
     if (!from || !to) {
-      problems.push(`第 ${i + 1} 条连线 ${edge.source}→${edge.target} 的端点没有落成`)
+      const sourceName =
+        plan.nodes.find((node) => node.localId === edge.source)?.title?.trim() || '起点节点'
+      const targetName =
+        plan.nodes.find((node) => node.localId === edge.target)?.title?.trim() || '终点节点'
+      problems.push(`第 ${i + 1} 条连线「${sourceName} → ${targetName}」的端点没有落成`)
       continue
     }
     const hit = after.edges.some(
@@ -230,7 +240,11 @@ export function verifyAgentPlanLanding(input: LandingCheckInput): LandingCheckRe
     )
     if (!hit) {
       const port = edge.targetPort ? `（端口 ${edge.targetPort}）` : ''
-      problems.push(`第 ${i + 1} 条连线缺失：${edge.source}→${edge.target}${port}`)
+      const sourceName =
+        plan.nodes.find((node) => node.localId === edge.source)?.title?.trim() || '起点节点'
+      const targetName =
+        plan.nodes.find((node) => node.localId === edge.target)?.title?.trim() || '终点节点'
+      problems.push(`第 ${i + 1} 条连线缺失：「${sourceName} → ${targetName}」${port}`)
     }
   }
 
@@ -240,7 +254,11 @@ export function verifyAgentPlanLanding(input: LandingCheckInput): LandingCheckRe
     const landed = afterById.get(idOf[node.localId] ?? '')
     if (!landed) continue
     const clash = before.nodes.find((n) => overlaps(landed, n))
-    if (clash) problems.push(`新节点 ${node.localId} 压在已有节点 ${clash.id} 上`)
+    if (clash) {
+      problems.push(
+        `新节点「${displayNodeName(landed)}」压在已有节点「${displayNodeName(clash)}」上`,
+      )
+    }
   }
 
   return { ok: problems.length === 0, problems }

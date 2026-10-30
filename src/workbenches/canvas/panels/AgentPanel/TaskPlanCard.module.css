@@ -210,6 +210,21 @@
   color: var(--text-2);
 }
 
+.activity {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.45;
+}
+
+.activityText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .confirmTag,
 .softTag {
   align-self: start;
@@ -242,4 +257,5 @@
     animation: none;
     transition: none;
   }
+
 }

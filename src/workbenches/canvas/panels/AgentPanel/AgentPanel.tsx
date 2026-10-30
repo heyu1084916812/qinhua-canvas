@@ -1918,7 +1918,7 @@ export function AgentPanel({
         ) {
           setMessageReveal({
             sessionId: session.id,
-            fullText: outcome.text,
+            fullText: outcome.text.trim(),
             visibleLength: 0,
           })
         } else {
@@ -3775,13 +3775,27 @@ export function AgentPanel({
    * 一整屏 JSON 打给用户。翻成人话这件事放在 `conversation.ts` 的纯函数里，
    * 因为「哪一步该说什么」是产品口径，得能断言。
    */
+  const graph = useGraph()
+  const nodeTitles = useMemo(
+    () =>
+      new Map(
+        graph.nodes.map((node) => [
+          node.id,
+          node.title?.trim() || '未命名节点',
+        ]),
+      ),
+    [graph.nodes],
+  )
   const items = useMemo(
     () =>
-      toConversation([
-        ...messages,
-        ...steerMessagesOf(current?.pendingSteers ?? [], stripMentionMarkup),
-      ]),
-    [current?.pendingSteers, messages],
+      toConversation(
+        [
+          ...messages,
+          ...steerMessagesOf(current?.pendingSteers ?? [], stripMentionMarkup),
+        ],
+        nodeTitles,
+      ),
+    [current?.pendingSteers, messages, nodeTitles],
   )
   const streamingTextIndex = useMemo(() => {
     if (!messageReveal || messageReveal.sessionId !== current?.id) return -1
@@ -3807,11 +3821,19 @@ export function AgentPanel({
     (at, item, index) => (item.kind === 'user' ? index : at),
     -1,
   )
+  const latestUserStartedAt =
+    latestUserIndex >= 0 && visibleItems[latestUserIndex]?.kind === 'user'
+      ? visibleItems[latestUserIndex]?.createdAt
+      : undefined
+  const latestProcessIndex = visibleItems.reduce(
+    (at, item, index) =>
+      item.kind === 'process' && index > latestUserIndex ? index : at,
+    -1,
+  )
   const currentTurnHasProcess = visibleItems
     .slice(latestUserIndex + 1)
     .some((item) => item.kind === 'process')
   /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示（图变更时跟着刷） */
-  const graph = useGraph()
   const hashOfNode = useMemo(() => {
     const map = new Map<string, string>()
     for (const n of graph.nodes) {
@@ -4202,6 +4224,14 @@ export function AgentPanel({
         <TaskPlanCard
           plan={current.taskPlan}
           pendingConfirmationStepId={pendingTaskStepId}
+          currentActivity={
+            statusIsBusy(status) && current.taskPlan.currentStepId
+              ? {
+                  running: true,
+                  text: activityTextOf(status, 0, items, liveActivities),
+                }
+              : undefined
+          }
         />
       )}
 
@@ -4231,13 +4261,17 @@ export function AgentPanel({
             )
           }
           if (item.kind === 'process') {
+            const live = i === latestProcessIndex && statusIsBusy(status)
             return (
               <AgentActivityStrip
                 key={i}
                 status={status}
                 items={items}
-                activities={liveActivities}
+                activities={live ? liveActivities : []}
                 history={item.entries}
+                startedAt={item.startedAt}
+                finishedAt={item.finishedAt}
+                live={live}
               />
             )
           }
@@ -4396,6 +4430,8 @@ export function AgentPanel({
           items={items}
           activities={liveActivities}
           history={[]}
+          startedAt={latestUserStartedAt}
+          live
         />
       ) : null}
 
@@ -5188,7 +5224,7 @@ function activityTextOf(
   if (status.kind === 'thinking') {
     const lastUser = [...items].reverse().find((item) => item.kind === 'user')
     const request = conciseAgentRequest(lastUser?.kind === 'user' ? lastUser.text : '')
-    return request ? `等待模型返回过程内容：${request}` : '等待模型返回过程内容'
+    return request ? `正在理解你的要求：${request}` : '正在理解你的要求'
   }
   if (status.kind === 'toolRunning') {
     const latest = [...activities]
@@ -5287,36 +5323,68 @@ function AgentGenerationTasks({ tasks }: { tasks: readonly AgentRunTask[] }) {
   )
 }
 
-function TypewriterActivity({ text }: { text: string }) {
+function TypewriterActivity({
+  text,
+  live,
+  textKey,
+  current = false,
+}: {
+  text: string
+  live: boolean
+  textKey: string
+  current?: boolean
+}) {
   const [visible, setVisible] = useState(text)
   const [typing, setTyping] = useState(false)
+  const visibleRef = useRef(text)
+
+  useEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
 
   useEffect(() => {
     const reduceMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduceMotion || text.length === 0) {
+    if (!live || reduceMotion || text.length === 0) {
       setVisible(text)
       setTyping(false)
       return
     }
-    setVisible('')
+
+    const current = visibleRef.current
+    const characters = agentRevealCharacters(text)
+    const currentCharacters = agentRevealCharacters(current)
+    const canContinue =
+      current.length > 0 &&
+      characters.slice(0, currentCharacters.length).join('') === current
+    if (!canContinue) {
+      setVisible('')
+      visibleRef.current = ''
+    }
     setTyping(true)
-    let index = 0
+    let index = canContinue ? currentCharacters.length : 0
     const interval = Math.max(18, Math.min(55, Math.floor(800 / text.length)))
     const timer = window.setInterval(() => {
       index += 1
-      setVisible(text.slice(0, index))
-      if (index >= text.length) {
+      const next = characters.slice(0, index).join('')
+      setVisible(next)
+      visibleRef.current = next
+      if (index >= characters.length) {
         window.clearInterval(timer)
         setTyping(false)
       }
     }, interval)
     return () => window.clearInterval(timer)
-  }, [text])
+  }, [live, text, textKey])
 
   return (
-    <span className={styles.activityCopy} aria-live="polite" data-agent-process-current>
+    <span
+      className={styles.activityCopy}
+      aria-live="polite"
+      data-agent-process-text
+      {...(current ? { 'data-agent-process-current': '' } : {})}
+    >
       <span aria-hidden="true">
         {visible}
         {typing ? <span className={styles.activityCursor} /> : null}
@@ -5331,32 +5399,50 @@ function AgentActivityStrip({
   items,
   activities,
   history,
+  startedAt,
+  finishedAt,
+  live,
 }: {
   status: Status
   items: readonly ConversationItem[]
   activities: readonly AgentLoopActivity[]
   history: readonly ConversationProcessEntry[]
+  startedAt?: number
+  finishedAt?: number
+  live: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const [generationPhraseIndex, setGenerationPhraseIndex] = useState(0)
-  const busy = statusIsBusy(status)
+  const [now, setNow] = useState(() => Date.now())
+  const busy = live && statusIsBusy(status)
+  const reasoningHistory = history.filter((entry) => entry.source !== 'intent')
+  const intent =
+    history.find((entry) => entry.source === 'intent') ??
+    (history[0]?.source ? undefined : history[0])
   const liveDetail = [...activities]
     .reverse()
-    .find((activity) => activity.detail?.trim())?.detail?.trim()
-  const latestHistory = history.at(-1)
-  const canExpand =
-    history.length > 0 &&
-    status.kind !== 'thinking' &&
-    status.kind !== 'toolRunning' &&
-    status.kind !== 'executing'
+    .find(
+      (activity) =>
+        activity.status === 'running' && activity.detail?.trim(),
+    )?.detail?.trim()
+  const latestHistory = reasoningHistory.at(-1) ?? history.at(-1)
+  const earlierHistory = reasoningHistory.slice(0, -1)
+  const canExpand = earlierHistory.length > 0
   const generationTool = status.kind === 'executing' ? status.tool : undefined
 
   useEffect(() => {
-    if (busy) setExpanded(false)
-  }, [busy])
+    setNow(Date.now())
+    if (!live || !startedAt) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [live, startedAt])
 
   useEffect(() => {
-    if (status.kind !== 'executing' || (generationTool !== 'runNode' && generationTool !== 'runFrom')) {
+    if (
+      !live ||
+      status.kind !== 'executing' ||
+      (generationTool !== 'runNode' && generationTool !== 'runFrom')
+    ) {
       setGenerationPhraseIndex(0)
       return
     }
@@ -5364,7 +5450,7 @@ function AgentActivityStrip({
       setGenerationPhraseIndex((current) => current + 1)
     }, 4_000)
     return () => window.clearInterval(timer)
-  }, [generationTool, status.kind])
+  }, [generationTool, live, status.kind])
 
   const currentText = activityTextOf(
     status,
@@ -5372,38 +5458,79 @@ function AgentActivityStrip({
     items,
     activities,
   )
-  const visibleText = liveDetail || latestHistory?.text || currentText
+  const isGeneration =
+    live && status.kind === 'executing' &&
+    (status.tool === 'runNode' || status.tool === 'runFrom')
+  const visibleText = !live
+    ? latestHistory?.text ?? ''
+    : isGeneration
+      ? currentText
+      : liveDetail || latestHistory?.text || currentText
+  const elapsedEnd =
+    live
+      ? now
+      : finishedAt ?? history.at(-1)?.createdAt
+  const elapsedText =
+    startedAt && elapsedEnd && elapsedEnd >= startedAt
+      ? formatAgentRunElapsed((elapsedEnd - startedAt) / 1_000)
+      : ''
+  const showCurrentLine = Boolean(visibleText && visibleText !== intent?.text)
 
   return (
     <section
       className={expanded ? `${styles.activity} ${styles.activityOpen}` : styles.activity}
       data-agent-activity
       data-agent-activity-expanded={expanded ? 'true' : 'false'}
+      data-agent-activity-running={busy ? 'true' : 'false'}
       data-agent-status={status.kind}
       data-agent-process-history={history.length}
     >
-      <div className={styles.activityHead}>
-        <span className={styles.activityDot} aria-hidden="true" />
-        <TypewriterActivity text={visibleText} />
-        {canExpand ? (
-          <button
-            type="button"
-            className={styles.activityToggle}
-            data-agent-activity-toggle
-            aria-expanded={expanded}
-            aria-label={expanded ? '收起较早步骤' : '展开全部执行步骤'}
-            title={expanded ? '收起较早步骤' : '展开全部执行步骤'}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            <span className={styles.activityToggleIcon}>
-              <IconChevronDown size={14} />
-            </span>
-          </button>
-        ) : null}
-      </div>
+      {elapsedText ? (
+        <div className={styles.activityDuration} data-agent-process-duration>
+          已处理 {elapsedText}
+        </div>
+      ) : null}
+      {intent ? (
+        <div className={styles.activityIntent} data-agent-process-intent>
+          <TypewriterActivity
+            text={intent.text}
+            live={live}
+            textKey={intent.id}
+          />
+        </div>
+      ) : null}
+      {showCurrentLine || canExpand ? (
+        <div className={styles.activityHead}>
+          {showCurrentLine ? (
+            <TypewriterActivity
+              text={visibleText}
+              live={live}
+              textKey={latestHistory?.id ?? `${status.kind}-${generationPhraseIndex}`}
+              current
+            />
+          ) : (
+            <span className={styles.activityCopy} />
+          )}
+          {canExpand ? (
+            <button
+              type="button"
+              className={styles.activityToggle}
+              data-agent-activity-toggle
+              aria-expanded={expanded}
+              aria-label={expanded ? '收起较早步骤' : '展开全部执行步骤'}
+              title={expanded ? '收起较早步骤' : '展开全部执行步骤'}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <span className={styles.activityToggleIcon}>
+                <IconChevronDown size={14} />
+              </span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {expanded && canExpand ? (
         <div className={styles.activityList} data-agent-activity-list>
-          {history.map((step) => (
+          {earlierHistory.map((step) => (
             <div
               key={step.id}
               className={styles.activityRow}

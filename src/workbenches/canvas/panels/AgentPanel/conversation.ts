@@ -36,11 +36,14 @@ export interface ConversationProcessEntry {
   id: string
   text: string
   createdAt?: number
+  source?: 'intent' | 'reasoning'
 }
 
 export interface ConversationProcess {
   kind: 'process'
   entries: ConversationProcessEntry[]
+  startedAt?: number
+  finishedAt?: number
 }
 
 export type ConversationItem =
@@ -143,6 +146,25 @@ const asRecord = (v: unknown): Record<string, unknown> =>
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 
+type NodeTitleMap = ReadonlyMap<string, string>
+
+/** 面向用户的内容只显示节点标题，不泄漏内部 `node_...` id。 */
+export function displayNodeText(
+  value: string,
+  nodeTitles?: NodeTitleMap,
+): string {
+  let out = value
+  if (nodeTitles) {
+    const ids = [...nodeTitles.keys()]
+      .filter((id) => id.length > 3)
+      .sort((a, b) => b.length - a.length)
+    for (const id of ids) {
+      out = out.split(id).join(nodeTitles.get(id)?.trim() || '节点')
+    }
+  }
+  return out.replace(/node_[a-z0-9_-]+/gi, '节点')
+}
+
 /**
  * 确认卡正文 → 可读的短行。
  *
@@ -180,6 +202,7 @@ export function readableConfirmationLines(text: string): string[] {
 export function describeToolResult(
   tool: string,
   raw: string,
+  nodeTitles?: NodeTitleMap,
 ): {
   lines: string[]
   summaryLines?: string[]
@@ -193,10 +216,19 @@ export function describeToolResult(
     parsed = JSON.parse(raw || '{}')
   } catch {
     const text = raw.trim().split('\n')[0] ?? ''
-    return { lines: text ? [text] : [], nodeIds: [], failed: false }
+    const shown = displayNodeText(text, nodeTitles)
+    return { lines: shown ? [shown] : [], nodeIds: [], failed: false }
   }
   const r = asRecord(parsed)
-  const problems = asArray(r.problems).map((p) => `· ${String(p)}`)
+  const resolvedTitleMap = new Map(nodeTitles ?? [])
+  for (const item of asArray(r.resolvedNodes).map(asRecord)) {
+    const nodeId = typeof item.nodeId === 'string' ? item.nodeId : ''
+    const title = typeof item.title === 'string' ? item.title.trim() : ''
+    if (nodeId && title) resolvedTitleMap.set(nodeId, title)
+  }
+  const clean = (value: unknown) =>
+    displayNodeText(String(value ?? ''), resolvedTitleMap)
+  const problems = asArray(r.problems).map((p) => clean(p))
   const failed = r.ok === false || problems.length > 0
 
   switch (tool) {
@@ -213,14 +245,14 @@ export function describeToolResult(
       const assets = asArray(r.assets)
       const names = assets.map((x) => {
         const a = asRecord(x)
-        return String(a.title || a.nodeId || '?')
+        return clean(a.title || '目标素材')
       })
       const imageCount = assets.filter((asset) => {
         const mime = String(asRecord(asset).mime ?? '')
         return mime.startsWith('image/')
       }).length
       return {
-        lines: [`读了 ${assets.length} 个素材${names.length > 0 ? `：${names.join('、')}` : ''}`],
+        lines: [`读取了 ${assets.length} 个素材${names.length > 0 ? `：${names.join('、')}` : ''}`],
         nodeIds: [],
         failed: false,
         ...(imageCount > 0
@@ -235,7 +267,7 @@ export function describeToolResult(
       const results = asArray(r.results).map(asRecord)
       return {
         lines: results.map(
-          (x) => `${String(x.title || x.nodeId || '?')}：${String(x.status ?? '?')}`,
+          (x) => `${clean(x.title || '目标图片')}：${String(x.status ?? '?')}`,
         ),
         nodeIds: results.filter((x) => x.status === 'ok').map((x) => String(x.nodeId)),
         failed: false,
@@ -264,7 +296,7 @@ export function describeToolResult(
             ? '需要修改'
             : '无法验收'
       const cleanVisible = (value: unknown, fallback = '目标图片') =>
-        String(value ?? '').replace(/node_[a-z0-9_-]+/gi, fallback)
+        displayNodeText(String(value ?? ''), resolvedTitleMap) || fallback
       const severityCounts = {
         blocking: visibleIssues.filter((issue) => issue.severity === 'blocking').length,
         warning: visibleIssues.filter((issue) => issue.severity === 'warning').length,
@@ -401,7 +433,7 @@ export function describeToolResult(
     }
     case 'requestTaskConfirmation': {
       return {
-        lines: failed ? problems : [String(r.question ?? '用户已确认继续')],
+        lines: failed ? problems : [clean(r.question ?? '用户已确认继续')],
         nodeIds: [],
         failed,
       }
@@ -432,13 +464,8 @@ export function describeToolResult(
         lines: outcomes.length
           ? outcomes.map((o) =>
               o.ok === false
-                ? `${String(o.title || o.nodeId || '?')} 运行失败：${String(o.error ?? '未知原因')}`
-                /**
-                 * 优先报**节点名**（用户 2026-10-14：「每个图片的名字都是有的，
-                 * 右边 agent 完成的时候是不是可以不用写节点 id」）——
-                 * 节点上没有名字时才退回 id，不编造。
-                 */
-                : `${String(o.title || o.nodeId || '?')} 运行完成`,
+                ? `${clean(o.title || '目标节点')} 运行失败：${clean(o.error ?? '未知原因')}`
+                : `${clean(o.title || '目标节点')} 运行完成`,
             )
           : problems,
         nodeIds: outcomes
@@ -536,10 +563,14 @@ export function describeToolResult(
  * **对不上的 tool 消息直接丢**（例如上下文窗口截断留下的半截），
  * 不能凭空冒出一张没有请求的卡。
  */
-export function toConversation(messages: readonly ChatMessage[]): ConversationItem[] {
+export function toConversation(
+  messages: readonly ChatMessage[],
+  nodeTitles?: NodeTitleMap,
+): ConversationItem[] {
   const out: ConversationItem[] = []
   const stepAt = new Map<string, number>()
   let currentProcess: ConversationProcess | null = null
+  let lastUserAt: number | undefined
   const planUiTools = new Set([
     'proposeTaskPlan',
     'updateTaskStep',
@@ -551,12 +582,37 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     message.createdAt > 0
       ? { createdAt: message.createdAt }
       : {}
+  const ensureProcess = (message: ChatMessage) => {
+    if (currentProcess) return currentProcess
+    const startedAt =
+      lastUserAt ??
+      (typeof message.createdAt === 'number' && message.createdAt > 0
+        ? message.createdAt
+        : undefined)
+    currentProcess = {
+      kind: 'process',
+      entries: [],
+      ...(startedAt ? { startedAt } : {}),
+    }
+    out.push(currentProcess)
+    return currentProcess
+  }
+  const finishProcess = (at?: number) => {
+    const process = currentProcess
+    if (!process || process.finishedAt !== undefined) return
+    process.finishedAt = at ?? process.entries.at(-1)?.createdAt
+  }
 
   for (const [messageIndex, m] of messages.entries()) {
     if (m.role === 'system') continue
 
     if (m.role === 'user') {
+      finishProcess()
       currentProcess = null
+      lastUserAt =
+        typeof m.createdAt === 'number' && m.createdAt > 0
+          ? m.createdAt
+          : lastUserAt
       /**
        * 用户那条用**原文**（`display`，保留 chip 标记）渲染：回看时能看见自己引用了谁
        * （用户 2026-10-05 第 5 条）。没有 `display` 的老消息按 `content` 显示。
@@ -581,17 +637,22 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     }
 
     if (m.role === 'assistant') {
-      const processText =
-        m.reasoning?.trim() ||
-        ((m.toolCalls?.length ?? 0) > 0 ? m.content.trim() : '')
-      if (processText) {
-        if (!currentProcess) {
-          currentProcess = { kind: 'process', entries: [] }
-          out.push(currentProcess)
-        }
-        currentProcess.entries.push({
+      const hasTools = (m.toolCalls?.length ?? 0) > 0
+      const content = m.content.trim()
+      const reasoning = m.reasoning?.trim() ?? ''
+      if (hasTools && content) {
+        ensureProcess(m).entries.push({
           id: `process-${messageIndex}`,
-          text: processText,
+          text: displayNodeText(content, nodeTitles),
+          source: 'intent',
+          ...timeOf(m),
+        })
+      }
+      if (reasoning) {
+        ensureProcess(m).entries.push({
+          id: `process-${messageIndex}-reasoning`,
+          text: displayNodeText(reasoning, nodeTitles),
+          source: 'reasoning',
           ...timeOf(m),
         })
       }
@@ -602,8 +663,9 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
        * 写下的计划、判断和下一步行动正是公开过程；工具结果仍由步骤卡承接，二者不冲突。
        * 空正文依旧不生成空气泡。
        */
-      if (m.content.trim() && (m.toolCalls?.length ?? 0) === 0) {
-        out.push({ kind: 'text', text: m.content, ...timeOf(m) })
+      if (content && !hasTools) {
+        out.push({ kind: 'text', text: content, ...timeOf(m) })
+        finishProcess(m.createdAt)
       }
       for (const call of m.toolCalls ?? []) {
         if (planUiTools.has(call.name)) continue
@@ -627,7 +689,7 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     if (at === undefined) continue
     const item = out[at]
     if (!item || item.kind !== 'step') continue
-    const described = describeToolResult(item.tool, m.content)
+    const described = describeToolResult(item.tool, m.content, nodeTitles)
     /**
      * 标题也要跟着结果改：**先**见到 toolCalls 时只能按工具名猜，等结果回来
      * 才知道成没成。失败还顶着「工作流已创建」是最误导人的一处。
@@ -671,23 +733,36 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
  */
 export function processEntriesOf(
   messages: readonly ChatMessage[],
+  nodeTitles?: NodeTitleMap,
 ): ConversationProcessEntry[] {
   return messages.flatMap((message, index) => {
     if (message.role !== 'assistant') return []
-    const text =
-      message.reasoning?.trim() ||
-      ((message.toolCalls?.length ?? 0) > 0 ? message.content.trim() : '')
-    if (!text) return []
-    return [
-      {
+    const hasTools = (message.toolCalls?.length ?? 0) > 0
+    const rows: ConversationProcessEntry[] = []
+    if (hasTools && message.content.trim()) {
+      rows.push({
         id: `process-${index}`,
-        text,
+        text: displayNodeText(message.content.trim(), nodeTitles),
+        source: 'intent',
         ...(typeof message.createdAt === 'number' &&
         Number.isFinite(message.createdAt) &&
         message.createdAt > 0
           ? { createdAt: message.createdAt }
           : {}),
-      },
-    ]
+      })
+    }
+    if (message.reasoning?.trim()) {
+      rows.push({
+        id: `process-${index}-reasoning`,
+        text: displayNodeText(message.reasoning.trim(), nodeTitles),
+        source: 'reasoning',
+        ...(typeof message.createdAt === 'number' &&
+        Number.isFinite(message.createdAt) &&
+        message.createdAt > 0
+          ? { createdAt: message.createdAt }
+          : {}),
+      })
+    }
+    return rows
   })
 }
