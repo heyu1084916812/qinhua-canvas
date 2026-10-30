@@ -11,13 +11,14 @@
 //   ③ 首屏 + 首次引导能渲染、能关掉；项目页能把**真库里的项目**渲染成卡片；
 //   ④ 「关于」面板显示的版本 = package.json 的版本（构建时注入有没有生效）；
 //   ⑤ mediapipe wasm 能从包里取到且字节数与 dist 一致；
-//   ⑥ 同级 `data\` 自动创建、默认 profile 的 IndexedDB 被迁过来。
+//   ⑥ 产品文件夹内的 `data-v2\` 自动创建且直接使用 SQLite V2。
 //   ⑦ 随包 FFmpeg 能从安装布局解析并真实编码 H.264 MP4。
 //
 // 隔离：把 exe 拷到 `<工作区>/.playwright-verify/release-shell/app/` 再跑，
-// 于是 Rust 那条「程序目录上一级的 `data\`」规则生效（闸门 0 只对 `src-tauri\target\{debug,release}` 放行），
-// 数据落在同一个临时目录里，**真实 profile 只被读**（`migrate_profile` 用 `fs::copy`，不是搬走）。
-// 跑完默认删掉临时的 `app\` 与 `data\`（迁移会拷 100+ MB，留着是垃圾）；`QH_KEEP_PROFILE=1` 可保留。
+// 于是 Rust 的「产品文件夹内 data-v2」规则生效（闸门 0 只对
+// `src-tauri\target\{debug,release}` 放行），数据落在同一个临时目录里，
+// **真实 profile 只被读**（`migrate_profile` 用 `fs::copy`，不是搬走）。
+// 跑完默认删掉临时的 `app\`（迁移会拷 100+ MB，留着是垃圾）；`QH_KEEP_PROFILE=1` 可保留。
 //
 // 用法：先 `npm run tauri build`（或 `node scripts/release-desktop.mjs`），再
 //       `node scripts/check-release-shell.mjs`
@@ -74,8 +75,12 @@ if (USER_STORAGE_CONFIG && existsSync(USER_STORAGE_CONFIG)) {
   if (existsSync(STORAGE_CONFIG_BACKUP)) {
     throw new Error(`门禁备份文件已存在，拒绝覆盖：${STORAGE_CONFIG_BACKUP}`)
   }
+  console.log(`待隔离的存储配置：${readFileSync(USER_STORAGE_CONFIG, 'utf8').trim()}`)
   renameSync(USER_STORAGE_CONFIG, STORAGE_CONFIG_BACKUP)
   storageConfigMoved = true
+  console.log(`已隔离用户存储配置：${USER_STORAGE_CONFIG}`)
+} else {
+  console.log(`未发现需要隔离的用户存储配置：${USER_STORAGE_CONFIG ?? '（无）'}`)
 }
 /** 期望字节数优先取 `dist/`（真正被打进包的那份），没有就退回 `public/` 源文件（同长） */
 const WASM_REF = [
@@ -91,8 +96,12 @@ if (!existsSync(EXE_SRC)) {
 
 const probeRoot = path.join(ROOT, '.playwright-verify/release-shell')
 const scratch = path.join(probeRoot, new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19))
-const appDir = path.join(scratch, 'app')
-const dataDir = path.join(scratch, 'data')
+/*
+ * Simulate the current flat product layout. A directory literally named `app`
+ * is reserved for the legacy nested layout, where data lived one level above.
+ */
+const appDir = path.join(scratch, 'product')
+const dataDir = path.join(appDir, 'data-v2')
 const localAppData = path.join(scratch, 'localappdata')
 const exePath = path.join(appDir, 'qinghua.exe')
 mkdirSync(appDir, { recursive: true })
@@ -126,12 +135,18 @@ const app = spawn(exePath, [], {
     ...process.env,
     LOCALAPPDATA: localAppData,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+    QINGHUA_RELEASE_GATE: '1',
+    QINGHUA_RELEASE_GATE_DATA_DIR: dataDir,
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 app.stdout.on('data', (b) => logFile.write(b))
 app.stderr.on('data', (b) => logFile.write(b))
 console.log(`已启动（pid=${app.pid}，调试端口 ${PORT}）`)
+await sleep(1200)
+console.log(
+  `启动后用户存储配置${USER_STORAGE_CONFIG && existsSync(USER_STORAGE_CONFIG) ? '被重新创建' : '仍处于隔离状态'}`,
+)
 
 let exited = null
 app.on('exit', (code) => {
@@ -181,7 +196,7 @@ function cleanup() {
     rmSync(appDir, opts)
     rmSync(dataDir, opts)
     rmSync(localAppData, opts)
-    console.log(`已清掉临时的 app\\ 与 data\\（截图与日志留在 ${scratch}）`)
+    console.log(`已清掉临时的 app\\（截图与日志留在 ${scratch}）`)
   } catch (err) {
     console.log(`⚠️ 临时目录没清干净（不影响判据）：${String(err).split('\n')[0]}`)
     console.log(`   手动删：${scratch}`)
@@ -336,14 +351,15 @@ check(
   JSON.stringify(ffmpeg),
 )
 
-// ⑦ 安装目录旁的独立 data\ 必须真的启动，且不能连回用户真实库
+// ⑦ 产品文件夹内的独立 data-v2\ 必须真的启动，且不能连回用户真实库
 const health = await fetch('http://127.0.0.1:18765/health')
   .then((res) => (res.ok ? res.json() : null))
   .catch(() => null)
 check(
-  '安装目录旁的隔离 shared-store 已启动',
+  '产品文件夹内的隔离 V2 shared-store 已启动',
   existsSync(dataDir) &&
     health?.ok === true &&
+    health?.backend === 'sqlite-v2' &&
     path.resolve(String(health?.dataDir ?? '')) === path.resolve(dataDir),
   `health=${JSON.stringify(health)} 期望目录=${dataDir}`,
 )

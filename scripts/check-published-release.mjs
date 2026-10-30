@@ -81,6 +81,12 @@ check(
   rel.ok && relJson && relJson.draft === false && relJson.prerelease === false,
   rel.ok ? `published_at=${relJson.published_at}` : `HTTP ${rel.status}`,
 )
+const releaseText = `${relJson?.name ?? ''}\n${relJson?.body ?? ''}`
+check(
+  'Release 标题与正文没有乱码或问号占位',
+  rel.ok && !/\?{2,}|\uFFFD/.test(releaseText),
+  rel.ok ? `${releaseText.length} 字符` : '无法读取 Release 正文',
+)
 
 // ② 资产齐 + ③ 与本地逐项对得上
 const assets = relJson?.assets ?? []

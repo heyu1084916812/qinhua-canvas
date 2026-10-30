@@ -621,6 +621,8 @@ const CACHE_DIR_NAMES: [&str; 8] = [
 
 const DATA_DIR_CONFIG_NAME: &str = "storage-location.json";
 const MISSING_DATA_DIR_ENV: &str = "QINGHUA_MISSING_DATA_DIR";
+const RELEASE_GATE_ENV: &str = "QINGHUA_RELEASE_GATE";
+const RELEASE_GATE_DATA_DIR_ENV: &str = "QINGHUA_RELEASE_GATE_DATA_DIR";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -836,8 +838,33 @@ fn missing_data_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn parse_release_gate_data_dir(enabled: Option<&str>, raw: Option<&str>) -> Option<PathBuf> {
+    if enabled != Some("1") {
+        return None;
+    }
+    let path = PathBuf::from(raw?.trim());
+    path.is_absolute().then_some(path)
+}
+
+fn release_gate_data_dir() -> Option<PathBuf> {
+    parse_release_gate_data_dir(
+        std::env::var(RELEASE_GATE_ENV).ok().as_deref(),
+        std::env::var(RELEASE_GATE_DATA_DIR_ENV).ok().as_deref(),
+    )
+}
+
 fn apply_data_dir_config(app: &tauri::AppHandle) {
     std::env::remove_var(MISSING_DATA_DIR_ENV);
+    if let Some(path) = release_gate_data_dir() {
+        if let Err(error) = qinghua_shared_store::v2_admin::initialize_empty_v2_root(&path) {
+            eprintln!("[data] 发布门禁主库初始化失败：{error}");
+            return;
+        }
+        std::env::set_var("QINGHUA_DATA_DIR", &path);
+        std::env::set_var("QINGHUA_STORE_BACKEND", "v2");
+        eprintln!("[data] 发布门禁临时主库目录：{}", path.display());
+        return;
+    }
     if let Some(path) = configured_data_dir(app) {
         if path.is_dir() {
             std::env::set_var("QINGHUA_DATA_DIR", &path);
@@ -3369,6 +3396,22 @@ mod data_dir_tests {
             None
         );
         assert_eq!(parse_data_dir_config("not json"), None);
+    }
+
+    #[test]
+    fn release_gate_data_dir_requires_sentinel_and_absolute_path() {
+        assert_eq!(
+            parse_release_gate_data_dir(Some("1"), Some("D:\\gate\\data-v2")),
+            Some(PathBuf::from("D:\\gate\\data-v2"))
+        );
+        assert_eq!(
+            parse_release_gate_data_dir(Some("1"), Some("relative\\data-v2")),
+            None
+        );
+        assert_eq!(
+            parse_release_gate_data_dir(None, Some("D:\\gate\\data-v2")),
+            None
+        );
     }
 
     #[test]

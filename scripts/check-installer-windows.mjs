@@ -3,8 +3,8 @@
  * 交付门禁（**手动**，Windows）：把安装包真装一遍再卸掉（对账 #438 状态② / 桌面封装方案 §6）。
  *
  * 它验的是 `scripts/check-release-shell.mjs` 验不到的那半：**用户双击安装包之后发生的事** ——
- * 静默安装 → 装出来的 exe 就是刚验过启动的那一份 → 装上后能打开、数据落在同级 `data\`
- * → 静默卸载 → `app\` 清空、**同级 `data\` 原封不动**、快捷方式与卸载登记都清掉。
+ * 静默安装 → 装出来的 exe 就是刚验过启动的那一份 → 装上后能打开、数据落在产品文件夹内的 `data-v2\`
+ * → 静默卸载 → 程序文件清掉、**`data-v2\` 原封不动**、快捷方式与卸载登记都清掉。
  *
  * ⚠️ 前置条件：**本机没有已安装的正式版**（它要写 HKCU 的卸载登记与桌面 / 开始菜单快捷方式）。
  *    条件不满足会直接退出，不硬来。
@@ -15,7 +15,7 @@
  *
  * 本地 `release/` 里还留着旧版安装包时，脚本会**先装上一版、再用这一版覆盖安装**，
  * 补上"装 → 卸"那条路验不到的两件事：**数据原封不动** + **老数据读得回来**
- * （判据落到可见处：侧栏「最近项目」条数不许变、`data\` 总字节不许缩水 ——
+ * （判据落到可见处：侧栏「最近项目」条数不许变、数据根总字节不许缩水 ——
  * 覆盖安装若把库抹了，"能不能打开"照样是绿的）。
  * 没有旧包时这一段**如实打印"没跑"**，不算通过。
  * ✅ 安装器会往 `HKCU\Software\qinghua\轻画` 的默认值写"这次装到哪了"（静默升级要用），
@@ -52,8 +52,10 @@ const SETUP =
   process.env.QH_SETUP ?? path.join(ROOT, `release/${VERSION}/qinghua_${VERSION}_x64-setup.exe`)
 const BUILT = path.join(ROOT, 'src-tauri/target/release/qinghua.exe')
 const SCRATCH = path.join(ROOT, '.playwright-verify/install-check')
-const APP = path.join(SCRATCH, 'app')
-const DATA = path.join(SCRATCH, 'data')
+/* Current packages install qinghua.exe and data-v2 in the same product folder. */
+const APP = path.join(SCRATCH, 'product')
+const DATA = path.join(APP, 'data-v2')
+const LEGACY_PARENT_DATA = path.join(SCRATCH, 'data')
 const LOCAL_APP_DATA = path.join(SCRATCH, 'localappdata')
 const USER_STORAGE_CONFIG = process.env.LOCALAPPDATA
   ? path.join(process.env.LOCALAPPDATA, 'com.qinghua.canvas', 'storage-location.json')
@@ -189,6 +191,8 @@ async function launchAndRead(exe) {
       ...process.env,
       LOCALAPPDATA: LOCAL_APP_DATA,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+      QINGHUA_RELEASE_GATE: '1',
+      QINGHUA_RELEASE_GATE_DATA_DIR: DATA,
     },
     stdio: 'ignore',
   })
@@ -274,7 +278,7 @@ if (USER_STORAGE_CONFIG && existsSync(USER_STORAGE_CONFIG)) {
  * ── 升级段（本地留着旧包时才跑）：**先装上一版，再用这一版覆盖安装** ──
  *
  * 用户真实的升级动作就是"双击新安装包盖上去"。这条路上有两件事必须成立，而"装 → 卸"那条路验不到：
- * ① **数据原封不动**（安装器不许动同级 `data\`）；② **老数据读得回来**（升级后首页仍看得到那些项目）。
+ * ① **数据原封不动**（安装器不许动数据根）；② **老数据读得回来**（升级后首页仍看得到那些项目）。
  * 所以判据抬到"可见"这一层：覆盖安装若把库抹了，"能不能打开"照样是绿的，但侧栏「最近项目」会掉。
  * ⚠️ 强度取决于这台机器上本来有没有数据：`最近项目=0` 的机器上，这条只能验"没变"（0=0）。
  */
@@ -288,12 +292,12 @@ if (prev) {
     version: prev.version,
     installed: first.status === 0,
     projectsBefore: before?.projects ?? -1,
-    bytesBefore: dirBytes(DATA),
+    bytesBefore: dirBytes(LEGACY_PARENT_DATA),
   }
   check(
     '升级前置：上一版能静默装上并跑起来（拿到"升级前的样子"）',
     upgrade.installed && !!before?.home,
-    `${prev.version} status=${first.status} · 项目卡片=${upgrade.projectsBefore} · data=${upgrade.bytesBefore} B`,
+    `${prev.version} status=${first.status} · 项目卡片=${upgrade.projectsBefore} · legacy data=${upgrade.bytesBefore} B`,
   )
 } else {
   console.log('升级段：本地没有上一版安装包（release/ 是 gitignore）⇒ **这一段没跑**，不是通过')
@@ -331,19 +335,15 @@ if (existsSync(installedExe)) {
   console.log(`     （安装器哈希 ${sha256(installedExe).slice(0, 16)}… / release 哈希 ${sha256(BUILT).slice(0, 16)}…）`)
 }
 
-// 预放一个标记文件：卸载后它必须还在
-mkdirSync(DATA, { recursive: true })
-const marker = path.join(DATA, 'KEEP-ME.txt')
-writeFileSync(marker, 'uninstall must keep this file\n', 'utf8')
-
-// 启动**装出来的那份**：证明安装布局下也能打开，且数据落在同级 data\
+// 启动**装出来的那份**：证明安装布局下也能打开，且数据落在产品文件夹内的 data-v2\
 let boot = null
 if (existsSync(installedExe)) {
   boot = await launchAndRead(installedExe)
   check('装出来的那份能打开（首页渲染 + desktop 平台）', !!boot?.home && boot?.platform === 'desktop', JSON.stringify(boot))
   check(
-    '权威资源根落在同级 data\\（shared-store health 与安装布局一致）',
+    '权威资源根落在产品文件夹内的 data-v2\\（直接使用 SQLite V2）',
     boot?.health?.ok === true &&
+      boot?.health?.backend === 'sqlite-v2' &&
       path.resolve(String(boot.health.dataDir ?? '')) === path.resolve(DATA),
     `health=${JSON.stringify(boot?.health)} 期望目录=${DATA}`,
   )
@@ -351,12 +351,12 @@ if (existsSync(installedExe)) {
     /**
    * ★★ 升级段的收口判据：**覆盖安装之后，老数据读得回来**。
    * 两条一起看：项目页的卡片数不减少（旧版若因已知缺陷显示 0，新版恢复出项目应算修复）；
-   * `data\` 总字节不许缩水。这里不能写死相等：0.1.3 的旧库恢复缺陷会让升级前显示 0，
+   * 数据根总字节不许缩水。这里不能写死相等：0.1.3 的旧库恢复缺陷会让升级前显示 0，
    * 升级后显示 18；那正是新版修复，不是数据丢失。
      */
     const bytesAfter = dirBytes(DATA)
     check(
-      '★★ 覆盖安装（升级）之后：老数据还在 —— 项目页卡片数不减少、data\\ 没缩水',
+      '★★ 覆盖安装（升级）之后：老数据还在 —— 项目页卡片数不减少、V2 数据没缩水',
       Number.isInteger(boot?.projects) &&
         boot.projects >= upgrade.projectsBefore &&
         bytesAfter >= upgrade.bytesBefore * 0.98,
@@ -364,6 +364,11 @@ if (existsSync(installedExe)) {
     )
   }
 }
+
+// 启动后再放标记：V2 初始化只接受空目标目录，标记必须等数据根建好再写。
+mkdirSync(DATA, { recursive: true })
+const marker = path.join(DATA, 'KEEP-ME.txt')
+writeFileSync(marker, 'uninstall must keep this file\n', 'utf8')
 
 // ── 卸载 ──────────────────────────────────────────────────────────
 const uninstaller = path.join(APP, 'uninstall.exe')
@@ -382,7 +387,7 @@ if (existsSync(uninstaller)) {
     30000,
   )
   check('卸载后 qinghua.exe 消失', gone)
-  check('卸载后 data\\ 与标记文件原封不动', existsSync(marker), marker)
+  check('卸载后 data-v2\\ 与标记文件原封不动', existsSync(marker), marker)
   check('桌面快捷方式已清掉', !existsSync(desktopLnk), desktopLnk)
   check('开始菜单条目已清掉', !existsSync(startMenu), startMenu)
   check('卸载登记已清掉', !regKeyExists(UNINSTALL_KEY), UNINSTALL_KEY)
@@ -399,7 +404,7 @@ const failed = results.filter((r) => !r.ok)
 console.log(`\n结果：${results.length - failed.length}/${results.length} 通过`)
 for (const f of failed) console.log(`  - ${f.name}${f.detail ? ` — ${f.detail}` : ''}`)
 
-// 收尾：装出来的 app\ 已被卸载器清掉，但 data\ 里是**迁移过来的 160 MB profile**（脚本自己要留的），
+// 收尾：装出来的程序文件已被卸载器清掉，但 data-v2\ 里是**迁移过来的媒体与数据库**（脚本自己要留的），
 // 不清就是垃圾。清理失败不影响判据 —— 它只是收尾。
 if (process.env.QH_KEEP_PROFILE !== '1') {
   try {
@@ -407,7 +412,7 @@ if (process.env.QH_KEEP_PROFILE !== '1') {
     rmSync(APP, opts)
     rmSync(DATA, opts)
     rmSync(LOCAL_APP_DATA, opts)
-    console.log(`已清掉临时的 app\\ 与 data\\（日志留在 .playwright-verify/）`)
+    console.log(`已清掉临时的 app\\ 与 data-v2\\（日志留在 .playwright-verify/）`)
   } catch (err) {
     console.log(`⚠️ 临时目录没清干净（不影响判据）：${String(err).split('\n')[0]}`)
     console.log(`   手动删：${SCRATCH}`)
